@@ -42,7 +42,7 @@ FORMAT = "shc-backup"
 FORMAT_VERSION = 1
 SCRYPT_N = 2**15
 SECRET_COLUMNS = {("integrations", "credentials_enc"), ("sessions", "csrf_token")}
-SKIP_TABLES = {"sessions", "pairing_codes"}  # short-lived, never exported
+SKIP_TABLES = {"sessions", "pairing_codes", "processed_events"}  # short-lived, never exported
 MIN_PASSPHRASE = 12
 
 

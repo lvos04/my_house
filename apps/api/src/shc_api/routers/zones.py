@@ -9,13 +9,12 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 
-from .. import climate as cl
 from .. import events, views
-from ..deps import DB, Admin, Auth, get_home
+from ..commanding import CommandRejected, request_zone_command
+from ..deps import DB, Admin, Auth, Control, get_home
 from ..errors import api_error, not_found
-from ..models import ClimateZone, CommandRecord, Device, Home, ScheduleBlock, SensorReading, ZoneLog
-from ..policy import DeviceFacts, PolicyDenied, check_command
-from ..store import audit, get_setting, roles_of
+from ..models import ClimateZone, Home, ScheduleBlock, SensorReading, ZoneLog
+from ..store import audit
 
 router = APIRouter(tags=["climate"])
 
@@ -51,94 +50,30 @@ class ZoneCommand(BaseModel):
     override_minutes: int | None = Field(default=None, ge=5, le=24 * 60)
 
 
-async def queue_command(
-    db: DB,
-    home_id: uuid.UUID,
-    device: Device,
-    action: str,
-    params: dict,
-    source: str,
-    actor: str,
-    zone_id: uuid.UUID | None = None,
-) -> CommandRecord:
-    roles, protected = await roles_of(db, device.id)
-    check_command(
-        DeviceFacts(device.kind, roles, protected, bool(await get_setting(db, "safe_mode", False))),
-        action,
-        params,
-    )
-    cmd = CommandRecord(
-        home_id=home_id,
-        device_id=device.id,
-        zone_id=zone_id,
-        action=action,
-        params=params,
-        source=source,
-        actor=actor,
-    )
-    db.add(cmd)
-    await db.flush()
-    await events.publish(db, "command.queued", home_id, {"id": cmd.id})
-    return cmd
-
-
 @router.post("/zones/{zone_id}/command", status_code=202)
-async def command(zone_id: uuid.UUID, body: ZoneCommand, db: DB, p: Auth):
-    if not p.is_admin and p.user.role != "admin":
-        raise api_error(403, "forbidden", "Alleen-lezen account.")
+async def command(zone_id: uuid.UUID, body: ZoneCommand, db: DB, p: Control):
     z, home = await _zone(db, zone_id)
-    if not z.unit_device_id:
-        raise api_error(409, "unsupported", "Aan deze zone is nog geen airco-unit gekoppeld.")
-    unit = await db.get(Device, z.unit_device_id)
-    assert unit is not None
-    if not unit.online:
-        raise api_error(503, "device_offline", "Airco niet bereikbaar. Gebruik de afstandsbediening.")
-    caps = views.caps_of(unit)
-    err = cl.validate_request(caps, await views.other_zone_modes(db, z), body.mode, body.target_c)
-    if err:
-        raise api_error(409, "policy_denied", err)
-    params: dict = {}
-    if body.mode is not None:
-        params["mode"] = body.mode
-    if body.target_c is not None:
-        step = caps.step_c
-        params["target_c"] = round(round(body.target_c / step) * step, 2)
-    if body.fan is not None:
-        params["fan"] = body.fan
-    if not params:
-        raise api_error(422, "validation_error", "Geen wijziging opgegeven.")
     try:
-        cmd = await queue_command(db, home.id, unit, "set_hvac", params, "user", p.actor, z.id)
-    except PolicyDenied as e:
-        raise api_error(409, "policy_denied", e.message) from e
-    now = datetime.now(UTC)
-    pol = cl.policy_with_defaults(z.policy)
-    if body.mode == "off":
-        z.control, z.override_until = "off", None  # deliberate off: stays off until resume
-    else:
-        z.control = "manual"
-        z.override_until = now + timedelta(minutes=body.override_minutes or pol["override_default_minutes"])
-    z.override_source = "app"
-    z.last_command_at = now
-    z.last_commanded = {
-        **(z.last_commanded or {}),
-        **{k: v for k, v in params.items() if k in ("mode", "target_c")},
-    }
-    db.add(
-        ZoneLog(
-            zone_id=z.id,
-            kind="user",
-            message=f"{p.user.username}: " + ", ".join(f"{k}={v}" for k, v in params.items()),
+        cmd = await request_zone_command(
+            db,
+            z,
+            home,
+            mode=body.mode,
+            target_c=body.target_c,
+            fan=body.fan,
+            override_minutes=body.override_minutes,
+            source="user",
+            actor=p.actor,
+            log_name=p.user.username,
         )
-    )
-    await audit(db, p.actor, "zone_command", str(z.id), **params)
-    await events.publish(db, "zone.updated", home.id, await views.zone_view(db, z, home))
+    except CommandRejected as e:
+        raise api_error(e.status, e.code, e.message) from e
     await db.commit()
     return JSONResponse({"command_id": str(cmd.id), "status": "queued"}, status_code=202)
 
 
 @router.post("/zones/{zone_id}/resume")
-async def resume(zone_id: uuid.UUID, db: DB, p: Auth) -> dict:
+async def resume(zone_id: uuid.UUID, db: DB, p: Control) -> dict:
     z, home = await _zone(db, zone_id)
     z.control, z.override_until, z.override_source = "schedule", None, None
     z.last_commanded = {}  # let the engine re-evaluate from the unit's current state

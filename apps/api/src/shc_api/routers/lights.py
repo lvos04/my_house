@@ -9,12 +9,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 
 from .. import views
-from ..deps import DB, Admin, Auth, get_home
+from ..commanding import queue_command
+from ..deps import DB, Admin, Auth, Control, get_home
 from ..errors import api_error, not_found
 from ..models import ButtonMapping, Device
 from ..policy import PolicyDenied
 from ..store import audit
-from .zones import queue_command
 
 router = APIRouter(tags=["lights"])
 
@@ -32,9 +32,7 @@ class GroupCommand(BaseModel):
 
 
 @router.post("/lights/groups/{group_id}", status_code=202)
-async def group_command(group_id: uuid.UUID, body: GroupCommand, db: DB, p: Auth):
-    if not p.is_admin:
-        raise api_error(403, "forbidden", "Alleen-lezen account.")
+async def group_command(group_id: uuid.UUID, body: GroupCommand, db: DB, p: Control):
     g = await db.get(Device, group_id)
     if not g or g.kind != "light_group":
         raise not_found("Lichtgroep")

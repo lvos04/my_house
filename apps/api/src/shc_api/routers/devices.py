@@ -335,7 +335,7 @@ class PermitJoin(BaseModel):
 
 @router.post("/integrations/zigbee/permit-join", status_code=202)
 async def zigbee_permit_join(body: PermitJoin, db: DB, p: Admin):
-    from .zones import queue_command
+    from ..commanding import queue_command
 
     bridge = (
         await db.execute(select(Device).where(Device.home_id == body.home_id, Device.kind == "zigbee_bridge"))

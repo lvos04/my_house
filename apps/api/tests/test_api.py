@@ -129,8 +129,8 @@ async def test_phone_pairing_flow(admin, home, app):
 
 
 async def test_boiler_socket_can_never_switch(admin, home):
+    from shc_api.commanding import queue_command
     from shc_api.policy import PolicyDenied
-    from shc_api.routers.zones import queue_command
 
     boiler = await add_device(home["id"], "energy_socket", "Boiler", role="boiler")
     devs = (await admin.get(f"/homes/{home['id']}/devices")).json()

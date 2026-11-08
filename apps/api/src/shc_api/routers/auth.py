@@ -51,8 +51,9 @@ def _rate_limited(key: str) -> bool:
     return len(q) >= s.login_max_attempts
 
 
-async def _start_session(db: DB, user: User, response: Response) -> dict:
+async def _start_session(db: DB, user: User, request: Request, response: Response) -> dict:
     s = get_settings()
+    secure = s.cookie_secure_for(request.url.scheme)
     token = new_token()
     csrf = secrets.token_urlsafe(24)
     db.add(
@@ -71,7 +72,7 @@ async def _start_session(db: DB, user: User, response: Response) -> dict:
         token,
         max_age=max_age,
         httponly=True,
-        secure=s.cookie_secure,
+        secure=secure,
         samesite="strict",
         path="/",
     )
@@ -80,7 +81,7 @@ async def _start_session(db: DB, user: User, response: Response) -> dict:
         csrf,
         max_age=max_age,
         httponly=False,
-        secure=s.cookie_secure,
+        secure=secure,
         samesite="strict",
         path="/",
     )
@@ -102,7 +103,7 @@ async def status(request: Request, db: DB) -> dict:
 
 
 @router.post("/setup")
-async def setup(body: Credentials, response: Response, db: DB) -> dict:
+async def setup(body: Credentials, request: Request, response: Response, db: DB) -> dict:
     # Serialize concurrent setup attempts.
     await db.execute(select(func.pg_advisory_xact_lock(42_4242)))
     if (await db.execute(select(func.count()).select_from(User))).scalar_one() > 0:
@@ -113,7 +114,7 @@ async def setup(body: Credentials, response: Response, db: DB) -> dict:
     db.add(user)
     await db.flush()
     await audit(db, body.username, "setup_admin")
-    return await _start_session(db, user, response)
+    return await _start_session(db, user, request, response)
 
 
 @router.post("/login")
@@ -131,7 +132,7 @@ async def login(body: Credentials, request: Request, response: Response, db: DB)
         raise api_error(401, "auth_required", "Gebruikersnaam of wachtwoord klopt niet.")
     _attempts.pop(key, None)
     await audit(db, user.username, "login", ip=_client_ip(request))
-    return await _start_session(db, user, response)
+    return await _start_session(db, user, request, response)
 
 
 @router.post("/logout", status_code=204)

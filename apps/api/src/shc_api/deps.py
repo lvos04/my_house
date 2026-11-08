@@ -27,6 +27,7 @@ class Principal:
     user: User
     via: str  # "cookie" | "token"
     client_id: uuid.UUID | None = None
+    client_role: str | None = None  # ApiClient.role when via == "token"; any role but admin/control is read-only
 
     @property
     def actor(self) -> str:
@@ -34,7 +35,13 @@ class Principal:
 
     @property
     def is_admin(self) -> bool:
-        return self.user.role == "admin"
+        """Full management rights: an admin user on the web session, or a phone paired with role admin."""
+        return self.user.role == "admin" and (self.via == "cookie" or self.client_role == "admin")
+
+    @property
+    def can_control(self) -> bool:
+        """May operate devices (climate, lights): admin user via web, or a phone with role admin/control."""
+        return self.user.role == "admin" and (self.via == "cookie" or self.client_role in ("admin", "control"))
 
 
 async def resolve_principal(db: AsyncSession, cookie: str | None, bearer: str | None) -> tuple[Principal, str | None]:
@@ -53,7 +60,7 @@ async def resolve_principal(db: AsyncSession, cookie: str | None, bearer: str | 
             if not client.last_used_at or now - client.last_used_at > timedelta(minutes=5):
                 await db.execute(update(ApiClient).where(ApiClient.id == client.id).values(last_used_at=now))
                 await db.commit()
-            return Principal(row.User, "token", client.id), None
+            return Principal(row.User, "token", client.id, client.role), None
     if cookie:
         row = (
             await db.execute(
@@ -89,6 +96,15 @@ async def require_admin(p: Auth) -> Principal:
 
 
 Admin = Annotated[Principal, Depends(require_admin)]
+
+
+async def require_control(p: Auth) -> Principal:
+    if not p.can_control:
+        raise api_error(403, "forbidden", "Alleen-lezen toegang.")
+    return p
+
+
+Control = Annotated[Principal, Depends(require_control)]
 
 
 async def get_home(db: AsyncSession, home_id: uuid.UUID) -> Home:

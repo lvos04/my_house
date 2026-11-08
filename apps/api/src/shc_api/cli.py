@@ -122,13 +122,15 @@ def main(argv: list[str] | None = None) -> None:
     if args.cmd == "serve":
         import uvicorn
 
+        from .config import get_settings
+
         migrate()
         uvicorn.run(
             "shc_api.main:app",
             host=args.host,
             port=args.port,
             proxy_headers=True,
-            forwarded_allow_ips=os.environ.get("SHC_FORWARDED_ALLOW_IPS", "127.0.0.1"),
+            forwarded_allow_ips=get_settings().forwarded_allow_ips,
         )
     elif args.cmd == "worker":
         from .worker import run
