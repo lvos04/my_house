@@ -2,6 +2,7 @@ name: Android
 
 on:
   push:
+    tags: ["v*"]  # path filters are not applied to tag pushes
     paths:
       - "apps/android/**"
       - ".github/workflows/android.yml"
@@ -12,7 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write  # needed to attach the APK to a release on version tags
 
 jobs:
   build:
@@ -54,3 +55,14 @@ jobs:
             apps/android/core/build/reports/tests/
             apps/android/app/build/reports/tests/
           if-no-files-found: ignore
+
+      - name: Attach APK to GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: .
+        run: |
+          cp apps/android/app/build/outputs/apk/debug/app-debug.apk "huis-${GITHUB_REF_NAME}.apk"
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --title "Smart Home Control $GITHUB_REF_NAME" --notes-file docs/release-notes.md
+          gh release upload "$GITHUB_REF_NAME" "huis-${GITHUB_REF_NAME}.apk" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
