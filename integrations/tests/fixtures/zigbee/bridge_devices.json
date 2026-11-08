@@ -1,0 +1,4 @@
+[{"ieee_address": "0x00124b0000000000", "type": "Coordinator", "friendly_name": "Coordinator", "supported": true, "interview_completed": true},
+ {"ieee_address": "0x00158d0001a2b3c4", "type": "EndDevice", "friendly_name": "woonkamer_sensor", "power_source": "Battery", "supported": true, "interview_completed": true, "model_id": "lumi.weather",
+  "definition": {"model": "WSDCGQ11LM", "vendor": "Aqara", "description": "Temperature, humidity and pressure sensor",
+   "exposes": [{"type": "numeric", "property": "battery"}, {"type": "numeric", "property": "temperature"}, {"type": "numeric", "property": "humidity"}, {"type": "numeric", "property": "pressure"}, {"type": "numeric", "property": "voltage"}, {"type": "numeric", "property": "linkquality"}]}}]

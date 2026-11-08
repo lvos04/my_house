@@ -1,0 +1,11 @@
+: hi
+
+id: 1731070800:0
+data: [{"creationtime":"2026-11-08T13:40:00Z","data":[{"id":"1d6c6a4c-0000-4000-8000-000000000001","id_v1":"/lights/1","on":{"on":false},"owner":{"rid":"2f1a0000-0000-4000-8000-0000000000d1","rtype":"device"},"type":"light"}],"id":"e1","type":"update"}]
+
+id: 1731070801:0
+data: [{"creationtime":"2026-11-08T13:40:01Z","data":[{"button":{"button_report":{"event":"initial_press","updated":"2026-11-08T13:40:01.123Z"},"last_event":"initial_press"},"id":"b0000000-0000-4000-8000-000000000001","owner":{"rid":"2f1a0000-0000-4000-8000-0000000000d9","rtype":"device"},"type":"button"},{"id":"a0b1c2d3-0000-4000-8000-0000000000g1","dimming":{"brightness":25.0},"type":"grouped_light"}],"id":"e2","type":"update"}]
+
+id: 1731070802:0
+data: [{"creationtime":"2026-11-08T13:40:02Z","data":[{"id":"q0000000-0000-4000-8000-000000000001","owner":{"rid":"2f1a0000-0000-4000-8000-0000000000d9","rtype":"device"},"relative_rotary":{"rotary_report":{"action":"repeat","rotation":{"direction":"clock_wise","steps":30,"duration":400},"updated":"2026-11-08T13:40:02.000Z"}},"type":"relative_rotary"},{"id":"z0000000-0000-4000-8000-000000000001","owner":{"rid":"2f1a0000-0000-4000-8000-0000000000d2","rtype":"device"},"status":"connectivity_issue","type":"zigbee_connectivity"}],"id":"e3","type":"update"}]
+
