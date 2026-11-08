@@ -1,0 +1,105 @@
+name: Release
+
+# Runs on GitHub after a merge to main that changes VERSION (or by hand).
+# Creates tag v<VERSION>, pushes versioned images to GHCR and publishes a
+# GitHub release with the Android APK attached. Does nothing if that release exists.
+on:
+  push:
+    branches: [main]
+    paths: [VERSION]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency: release
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      exists: ${{ steps.v.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" >/dev/null 2>&1; then echo "exists=true"; else echo "exists=false"; fi >> "$GITHUB_OUTPUT"
+
+  images:
+    needs: prepare
+    if: needs.prepare.outputs.exists == 'false'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: p
+        run: echo "prefix=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.p.outputs.prefix }}-api:${{ needs.prepare.outputs.version }}
+            ${{ steps.p.outputs.prefix }}-api:latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: apps/web
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.p.outputs.prefix }}-web:${{ needs.prepare.outputs.version }}
+            ${{ steps.p.outputs.prefix }}-web:latest
+
+  apk:
+    needs: prepare
+    if: needs.prepare.outputs.exists == 'false'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3.2.1
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew --no-daemon :core:test :app:testDebugUnitTest :app:assembleDebug
+      - run: cp app/build/outputs/apk/debug/app-debug.apk "huis-v${{ needs.prepare.outputs.version }}.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: apps/android/huis-v*.apk
+          if-no-files-found: error
+
+  publish:
+    needs: [prepare, images, apk]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ needs.prepare.outputs.version }}
+        run: |
+          gh release create "v$V" --target "$GITHUB_SHA" --title "Smart Home Control v$V" \
+            --notes-file docs/release-notes.md huis-v$V.apk
