@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
+import httpx
 import pytest
 import respx
 from conftest import load
@@ -120,3 +121,14 @@ async def test_local_api_disabled_message(plain_factory):
 
     with pytest.raises(AdapterError, match="Lokale API"):
         await HomeWizardAdapter({}, http_factory=plain_factory).probe("10.0.0.9")
+
+
+@respx.mock
+async def test_pair_falls_back_to_v1_on_old_firmware(plain_factory):
+    """A v2-capable product on firmware without the HTTPS endpoint pairs over v1."""
+    respx.get("http://10.0.0.8/api").respond(json=load("homewizard/v2_api_kwh.json"))
+    respx.post("https://10.0.0.8/api/user").mock(side_effect=httpx.ConnectError("refused"))
+    a = HomeWizardAdapter({}, http_factory=plain_factory, fingerprint_fetcher=fp)
+    res = await a.pair("10.0.0.8")
+    assert isinstance(res, PairResult) and res.credentials == {}
+    assert a.config["api_version"] == "v1"

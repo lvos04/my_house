@@ -45,9 +45,7 @@ async def group_command(group_id: uuid.UUID, body: GroupCommand, db: DB, p: Auth
                 raise not_found("Scène")
             cmd = await queue_command(db, g.home_id, scene, "recall_scene", {}, "user", p.actor)
         else:
-            params = {
-                k: v for k, v in {"on": body.on, "brightness": body.brightness}.items() if v is not None
-            }
+            params = {k: v for k, v in {"on": body.on, "brightness": body.brightness}.items() if v is not None}
             if not params:
                 raise api_error(422, "validation_error", "Geen wijziging opgegeven.")
             cmd = await queue_command(db, g.home_id, g, "set_group", params, "user", p.actor)
@@ -79,16 +77,10 @@ def mapping_conflicts(mappings: list[dict], bridge_rules: set[str]) -> dict[int,
 
 @router.get("/homes/{home_id}/buttons")
 async def buttons(home_id: uuid.UUID, db: DB, p: Auth) -> list[dict]:
-    devs = (
-        (await db.execute(select(Device).where(Device.home_id == home_id, Device.kind == "button")))
-        .scalars()
-        .all()
-    )
+    devs = (await db.execute(select(Device).where(Device.home_id == home_id, Device.kind == "button"))).scalars().all()
     out = []
     for d in devs:
-        maps = (
-            (await db.execute(select(ButtonMapping).where(ButtonMapping.device_id == d.id))).scalars().all()
-        )
+        maps = (await db.execute(select(ButtonMapping).where(ButtonMapping.device_id == d.id))).scalars().all()
         as_dicts = [
             {
                 "id": m.id,

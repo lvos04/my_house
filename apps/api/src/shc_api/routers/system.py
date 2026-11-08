@@ -52,9 +52,7 @@ async def status(db: DB, p: Auth) -> dict:
             }
         )
     else:
-        checks.append(
-            {"key": "worker", "label": "Achtergronddienst", "state": "error", "detail": "Geen hartslag"}
-        )
+        checks.append({"key": "worker", "label": "Achtergronddienst", "state": "error", "detail": "Geen hartslag"})
     try:
         du = shutil.disk_usage(s.backup_dir if s.backup_dir.exists() else "/")
         free = du.free / du.total
@@ -70,10 +68,7 @@ async def status(db: DB, p: Auth) -> dict:
         pass
     last = (
         await db.execute(
-            select(BackupRecord)
-            .where(BackupRecord.status == "ok")
-            .order_by(BackupRecord.created_at.desc())
-            .limit(1)
+            select(BackupRecord).where(BackupRecord.status == "ok").order_by(BackupRecord.created_at.desc()).limit(1)
         )
     ).scalar_one_or_none()
     if last:
@@ -87,9 +82,7 @@ async def status(db: DB, p: Auth) -> dict:
             }
         )
     else:
-        checks.append(
-            {"key": "backup", "label": "Back-up", "state": "warn", "detail": "Nog geen back-up gemaakt"}
-        )
+        checks.append({"key": "backup", "label": "Back-up", "state": "warn", "detail": "Nog geen back-up gemaakt"})
     ntp = await get_setting(db, "clock_check")
     if ntp:
         checks.append(
@@ -162,9 +155,7 @@ def backup_view(b: BackupRecord) -> dict:
 
 @router.get("/system/backups")
 async def backups(db: DB, p: Admin) -> list[dict]:
-    rows = (
-        await db.execute(select(BackupRecord).order_by(BackupRecord.created_at.desc()).limit(50))
-    ).scalars()
+    rows = (await db.execute(select(BackupRecord).order_by(BackupRecord.created_at.desc()).limit(50))).scalars()
     return [backup_view(b) for b in rows]
 
 

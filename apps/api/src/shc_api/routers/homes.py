@@ -70,11 +70,7 @@ async def create_home(body: HomeIn, db: DB, p: Admin) -> dict:
 async def overview(home_id: uuid.UUID, db: DB, p: Auth) -> dict:
     home = await get_home(db, home_id)
     zones = (
-        (
-            await db.execute(
-                select(ClimateZone).where(ClimateZone.home_id == home_id).order_by(ClimateZone.name.desc())
-            )
-        )
+        (await db.execute(select(ClimateZone).where(ClimateZone.home_id == home_id).order_by(ClimateZone.name.desc())))
         .scalars()
         .all()
     )

@@ -60,9 +60,7 @@ class Worker:
         self.tasks = [
             asyncio.create_task(self._forever("heartbeat", self.heartbeat, 30)),
             asyncio.create_task(self._forever("commands", self.process_commands, 5, self.wake_commands)),
-            asyncio.create_task(
-                self._forever("climate", self.climate_round, self.settings.climate_interval_s)
-            ),
+            asyncio.create_task(self._forever("climate", self.climate_round, self.settings.climate_interval_s)),
             asyncio.create_task(self._forever("health", self.health_round, 60)),
             asyncio.create_task(self._forever("reload", self.load_integrations, 120)),
             asyncio.create_task(self._forever("backup", self.backup_round, 600)),
@@ -126,9 +124,7 @@ class Worker:
         from shc_integrations.registry import ADAPTERS
 
         async with sessionmaker()() as db:
-            rows = (
-                (await db.execute(select(Integration).where(Integration.enabled.is_(True)))).scalars().all()
-            )
+            rows = (await db.execute(select(Integration).where(Integration.enabled.is_(True)))).scalars().all()
         for integ in rows:
             if integ.id in self.adapters or integ.provider not in ADAPTERS:
                 continue
@@ -148,9 +144,7 @@ class Worker:
             interval = POLL_INTERVAL.get(integ.provider, 30)
             if interval:
                 self.tasks.append(
-                    asyncio.create_task(
-                        self._forever(f"poll:{integ.name}", lambda i=integ.id: self.poll(i), interval)
-                    )
+                    asyncio.create_task(self._forever(f"poll:{integ.name}", lambda i=integ.id: self.poll(i), interval))
                 )
             self.tasks.append(asyncio.create_task(self.subscribe(integ.id)))
             log.info("Integratie geladen: %s (%s)", integ.name, integ.provider)
@@ -243,9 +237,7 @@ class Worker:
             for ev in evs:
                 if isinstance(ev, Reading):
                     kind = {"zigbee": "zigbee_sensor", "gree": "ac_unit"}.get(integ.provider, "meter")
-                    d = await self._device(
-                        db, integ, ev.device_identity, kind, f"Sensor {ev.device_identity[-6:]}"
-                    )
+                    d = await self._device(db, integ, ev.device_identity, kind, f"Sensor {ev.device_identity[-6:]}")
                     metric = METRIC_MAP.get(ev.metric, ev.metric)
                     await ingest_reading(
                         db,
@@ -289,13 +281,9 @@ class Worker:
                             if d.name == "Lichtgroep" and name != "Lichtgroep":
                                 d.name = name
                         elif st.get("type") == "light":
-                            d = await self._device(
-                                db, integ, ev.device_identity, "light", st.get("name") or "Lamp"
-                            )
+                            d = await self._device(db, integ, ev.device_identity, "light", st.get("name") or "Lamp")
                         else:
-                            d = await self._device(
-                                db, integ, ev.device_identity, "hue_device", "Hue-apparaat"
-                            )
+                            d = await self._device(db, integ, ev.device_identity, "hue_device", "Hue-apparaat")
                         d.state = {**(d.state or {}), **st}
                         if d.kind == "light_group":
                             await events.publish(
@@ -338,16 +326,12 @@ class Worker:
         for r in res.values():
             if r.get("type") != "scene":
                 continue
-            d = await self._device(
-                db, integ, r["id"], "scene", ((r.get("metadata") or {}).get("name")) or "Scène"
-            )
+            d = await self._device(db, integ, r["id"], "scene", ((r.get("metadata") or {}).get("name")) or "Scène")
             grp_rid = group_by_owner.get((r.get("group") or {}).get("rid"))
             if grp_rid:
                 g = (
                     await db.execute(
-                        select(Device.id).where(
-                            Device.stable_identity == grp_rid, Device.home_id == integ.home_id
-                        )
+                        select(Device.id).where(Device.stable_identity == grp_rid, Device.home_id == integ.home_id)
                     )
                 ).scalar_one_or_none()
                 d.state = {"group_device_id": str(g) if g else None}
@@ -413,9 +397,7 @@ class Worker:
                 try:
                     roles, protected = await roles_of(db, dev.id)
                     check_command(
-                        DeviceFacts(
-                            dev.kind, roles, protected, bool(await get_setting(db, "safe_mode", False))
-                        ),
+                        DeviceFacts(dev.kind, roles, protected, bool(await get_setting(db, "safe_mode", False))),
                         cmd.action,
                         cmd.params,
                     )
@@ -449,17 +431,9 @@ class Worker:
                     z = await db.get(ClimateZone, cmd.zone_id)
                     home = await db.get(Home, cmd.home_id)
                     if cmd.status in ("failed", "denied"):
-                        db.add(
-                            ZoneLog(
-                                zone_id=z.id, kind="error", message=f"Commando niet uitgevoerd: {cmd.detail}"
-                            )
-                        )
+                        db.add(ZoneLog(zone_id=z.id, kind="error", message=f"Commando niet uitgevoerd: {cmd.detail}"))
                     elif cmd.status == "sent":
-                        db.add(
-                            ZoneLog(
-                                zone_id=z.id, kind="warn", message=f"Verzonden, niet bevestigd: {cmd.detail}"
-                            )
-                        )
+                        db.add(ZoneLog(zone_id=z.id, kind="warn", message=f"Verzonden, niet bevestigd: {cmd.detail}"))
                     await events.publish(db, "zone.updated", home.id, await views.zone_view(db, z, home))
                 await events.publish(
                     db,
@@ -475,9 +449,7 @@ class Worker:
         now = datetime.now(UTC)
         async with sessionmaker()() as db:
             zones = (
-                (await db.execute(select(ClimateZone).where(ClimateZone.unit_device_id.is_not(None))))
-                .scalars()
-                .all()
+                (await db.execute(select(ClimateZone).where(ClimateZone.unit_device_id.is_not(None)))).scalars().all()
             )
             for z in zones:
                 home = await db.get(Home, z.home_id)
@@ -546,9 +518,9 @@ class Worker:
                         )
                     )
                     if zi.unit.mode in (None, "off") and d.send.get("mode") not in (None, "off"):
-                        z.start_times = [
-                            t.isoformat() for t in zi.start_times if now - t < timedelta(hours=1)
-                        ] + [now.isoformat()]
+                        z.start_times = [t.isoformat() for t in zi.start_times if now - t < timedelta(hours=1)] + [
+                            now.isoformat()
+                        ]
                     z.last_command_at = now
                     z.last_commanded = {**(z.last_commanded or {}), **d.send}
                     db.add(ZoneLog(zone_id=z.id, kind="engine", message=self._describe(d)))
@@ -573,9 +545,7 @@ class Worker:
         now = datetime.now(UTC)
         async with sessionmaker()() as db:
             zones = (
-                (await db.execute(select(ClimateZone).where(ClimateZone.sensor_device_id.is_not(None))))
-                .scalars()
-                .all()
+                (await db.execute(select(ClimateZone).where(ClimateZone.sensor_device_id.is_not(None)))).scalars().all()
             )
             for z in zones:
                 pol = cl.policy_with_defaults(z.policy)
@@ -589,9 +559,7 @@ class Worker:
                         key,
                         "warn",
                         f"Sensor {z.name} verouderd",
-                        f"Laatste bericht {mins} min geleden"
-                        if mins is not None
-                        else "Nog geen bericht ontvangen",
+                        f"Laatste bericht {mins} min geleden" if mins is not None else "Nog geen bericht ontvangen",
                         "zigbee",
                     )
                 else:
@@ -623,7 +591,5 @@ class Worker:
 
 
 async def run() -> None:
-    logging.basicConfig(
-        level=get_settings().log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
+    logging.basicConfig(level=get_settings().log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     await Worker().run()

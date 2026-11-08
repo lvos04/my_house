@@ -86,9 +86,7 @@ async def other_zone_modes(db: AsyncSession, zone: ClimateZone) -> list[str]:
     return out
 
 
-def _measurement(
-    r: SensorReading | None, unit: str, now: datetime, stale_after: float, quality: str | None = None
-):
+def _measurement(r: SensorReading | None, unit: str, now: datetime, stale_after: float, quality: str | None = None):
     if r is None:
         return {"value": None, "unit": unit, "quality": "missing", "at": None, "stale": True}
     stale = (now - r.observed_at).total_seconds() > stale_after
@@ -115,9 +113,7 @@ async def zone_view(db: AsyncSession, zone: ClimateZone, home: Home, now: dateti
     others = await other_zone_modes(db, zone)
     sched = await schedule_entries(db, zone.id)
     nc = cl.next_change(sched, now, tz)
-    valid, notice = cl.sensor_status(
-        cl.SensorValue(t.value if t else None, t.observed_at if t else None), now, pol
-    )
+    valid, notice = cl.sensor_status(cl.SensorValue(t.value if t else None, t.observed_at if t else None), now, pol)
     if not us.online:
         notice = "Airco niet bereikbaar. Gebruik zo nodig de afstandsbediening."
     elif zone.control == "manual" and zone.override_source == "remote_control":
@@ -127,6 +123,8 @@ async def zone_view(db: AsyncSession, zone: ClimateZone, home: Home, now: dateti
         "id": zone.id,
         "name": zone.name,
         "room": room.name if room else None,
+        "unit_device_id": zone.unit_device_id,
+        "sensor_device_id": zone.sensor_device_id,
         "online": us.online,
         "mode": us.mode or "off",
         "target_c": us.target_c,
@@ -149,8 +147,7 @@ async def zone_view(db: AsyncSession, zone: ClimateZone, home: Home, now: dateti
         "blocked_modes": cl.blocked_modes(caps, others),
         "next_change": {"at": nc[0], "target_c": nc[1].target_c, "label": nc[1].label} if nc else None,
         "policy": {
-            k: pol[k]
-            for k in ("band_c", "min_interval_s", "max_step_c", "max_starts_per_hour", "stale_after_s")
+            k: pol[k] for k in ("band_c", "min_interval_s", "max_step_c", "max_starts_per_hour", "stale_after_s")
         },
         "notice": notice if (notice and (not valid or not us.online or zone.control == "manual")) else None,
     }
@@ -158,9 +155,7 @@ async def zone_view(db: AsyncSession, zone: ClimateZone, home: Home, now: dateti
 
 async def lights_view(db: AsyncSession, home_id: uuid.UUID) -> dict:
     devs = (
-        await db.execute(
-            select(Device).where(Device.home_id == home_id, Device.kind.in_(["light_group", "scene"]))
-        )
+        await db.execute(select(Device).where(Device.home_id == home_id, Device.kind.in_(["light_group", "scene"])))
     ).scalars()
     groups, scenes = [], []
     for d in devs:
@@ -230,9 +225,7 @@ async def energy_series(
             o.covered_s += p.covered_s
             o.notes += [n for n in p.notes if n not in o.notes]
     for o in out:
-        o.complete = (
-            o.covered_s + 60 >= (o.end - o.start).total_seconds() and "ontbrekende metingen" not in o.notes
-        )
+        o.complete = o.covered_s + 60 >= (o.end - o.start).total_seconds() and "ontbrekende metingen" not in o.notes
     return out
 
 
@@ -341,16 +334,12 @@ async def live_power(db: AsyncSession, home_id: uuid.UUID) -> dict | None:
         if role == "grid":
             total = r.value
         else:
-            parts.append(
-                {"role": role, "label": label, "watts": r.value, "quality": "measured", "at": r.observed_at}
-            )
+            parts.append({"role": role, "label": label, "watts": r.value, "quality": "measured", "at": r.observed_at})
     if total is None and not parts:
         return None
     if total is not None:
         rest = max(0.0, total - sum(p["watts"] or 0 for p in parts))
-        parts.append(
-            {"role": "rest", "label": "Overig", "watts": round(rest, 1), "quality": "derived", "at": now}
-        )
+        parts.append({"role": "rest", "label": "Overig", "watts": round(rest, 1), "quality": "derived", "at": now})
     return {"at": now, "total_w": total, "parts": parts}
 
 

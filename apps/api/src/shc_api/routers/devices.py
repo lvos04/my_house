@@ -52,9 +52,7 @@ async def device_view(db: DB, d: Device) -> dict:
 async def devices(home_id: uuid.UUID, db: DB, p: Auth) -> list[dict]:
     await get_home(db, home_id)
     rows = (
-        await db.execute(
-            select(Device).where(Device.home_id == home_id).order_by(Device.provider, Device.name)
-        )
+        await db.execute(select(Device).where(Device.home_id == home_id).order_by(Device.provider, Device.name))
     ).scalars()
     return [await device_view(db, d) for d in rows]
 
@@ -86,18 +84,14 @@ async def bind(device_id: uuid.UUID, body: BindIn, db: DB, p: Admin) -> dict:
     if not d:
         raise not_found("Apparaat")
     role = (
-        await db.execute(
-            select(LogicalRole).where(LogicalRole.home_id == d.home_id, LogicalRole.key == body.role)
-        )
+        await db.execute(select(LogicalRole).where(LogicalRole.home_id == d.home_id, LogicalRole.key == body.role))
     ).scalar_one_or_none()
     if not role:
         raise not_found("Rol")
     now = datetime.now(UTC)
     for b in (
         await db.execute(
-            select(DeviceBinding).where(
-                DeviceBinding.role_id == role.id, DeviceBinding.effective_to.is_(None)
-            )
+            select(DeviceBinding).where(DeviceBinding.role_id == role.id, DeviceBinding.effective_to.is_(None))
         )
     ).scalars():
         if b.device_id == d.id:
@@ -182,9 +176,7 @@ async def discover(provider: str, body: DiscoverIn, p: Admin) -> list[dict]:
     try:
         found = await adapter.discover(body.timeout_s)
     except Exception as exc:
-        raise api_error(
-            502, "discovery_failed", f"Zoeken mislukt: {exc}. Voer het IP-adres handmatig in."
-        ) from exc
+        raise api_error(502, "discovery_failed", f"Zoeken mislukt: {exc}. Voer het IP-adres handmatig in.") from exc
     finally:
         await adapter.close()
     return [_disc_view(x) for x in found]
@@ -238,7 +230,13 @@ async def pair(provider: str, body: PairIn, db: DB, p: Admin):
         )
     box = SecretBox(get_settings().resolved_secret_key())
     dev = result.device
-    config = {"host": body.host, **body.options, **(dev.extra.get("config", {}) if dev.extra else {})}
+    # The adapter fills in what it learned (serial, product type, API version, MAC, key version).
+    config = {
+        "host": body.host,
+        **body.options,
+        **getattr(adapter, "config", {}),
+        **(dev.extra.get("config", {}) if dev.extra else {}),
+    }
     integ = Integration(
         home_id=home.id,
         provider=provider,
@@ -285,3 +283,69 @@ async def remove_integration(integration_id: uuid.UUID, db: DB, p: Admin):
     await audit(db, p.actor, "integration_removed", i.provider)
     await db.commit()
     return JSONResponse(status_code=204, content=None)
+
+
+class ZigbeeSetup(BaseModel):
+    home_id: uuid.UUID
+
+
+@router.post("/integrations/zigbee/setup")
+async def zigbee_setup(body: ZigbeeSetup, db: DB, p: Admin) -> dict:
+    """Register the internal Zigbee2MQTT bridge (no network call: the worker connects to MQTT)."""
+    home = await get_home(db, body.home_id)
+    integ = (
+        await db.execute(select(Integration).where(Integration.home_id == home.id, Integration.provider == "zigbee"))
+    ).scalar_one_or_none()
+    if integ is None:
+        s = get_settings()
+        integ = Integration(
+            home_id=home.id,
+            provider="zigbee",
+            name="Zigbee",
+            config={"host": s.mqtt_host, "port": s.mqtt_port, "username": s.mqtt_username or "shc"},
+            state="warn",
+            detail="Wacht op verbinding met Zigbee2MQTT.",
+        )
+        db.add(integ)
+        await db.flush()
+    integ.enabled = True
+    bridge = (
+        await db.execute(select(Device).where(Device.home_id == home.id, Device.kind == "zigbee_bridge"))
+    ).scalar_one_or_none()
+    if bridge is None:
+        bridge = Device(
+            home_id=home.id,
+            integration_id=integ.id,
+            provider="zigbee",
+            kind="zigbee_bridge",
+            name="Zigbee-coördinator",
+            stable_identity="zigbee2mqtt-bridge",
+            compatibility="untested",
+        )
+        db.add(bridge)
+    await audit(db, p.actor, "zigbee_setup")
+    await db.commit()
+    return await device_view(db, bridge)
+
+
+class PermitJoin(BaseModel):
+    home_id: uuid.UUID
+    seconds: int = Field(default=120, ge=30, le=254)
+
+
+@router.post("/integrations/zigbee/permit-join", status_code=202)
+async def zigbee_permit_join(body: PermitJoin, db: DB, p: Admin):
+    from .zones import queue_command
+
+    bridge = (
+        await db.execute(select(Device).where(Device.home_id == body.home_id, Device.kind == "zigbee_bridge"))
+    ).scalar_one_or_none()
+    if bridge is None:
+        raise api_error(409, "not_configured", "Zigbee is nog niet ingesteld.")
+    cmd = await queue_command(db, body.home_id, bridge, "permit_join", {"seconds": body.seconds}, "user", p.actor)
+    await db.commit()
+    until = datetime.now(UTC).timestamp() + body.seconds
+    return JSONResponse(
+        status_code=202,
+        content={"command_id": str(cmd.id), "open_until": datetime.fromtimestamp(until, UTC).isoformat()},
+    )

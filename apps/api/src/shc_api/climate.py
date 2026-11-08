@@ -117,9 +117,7 @@ def blocked_modes(caps: Capabilities, other_zone_modes: list[str]) -> list[dict]
                     }
                 )
     if others & COOLING_MODES and "heat" in caps.modes:
-        out.append(
-            {"mode": "heat", "reason": "Een andere ruimte koelt; de buitenunit kan niet tegelijk verwarmen."}
-        )
+        out.append({"mode": "heat", "reason": "Een andere ruimte koelt; de buitenunit kan niet tegelijk verwarmen."})
     return out
 
 
@@ -166,9 +164,7 @@ def scheduled_entry(schedule: list[ScheduleEntry], now: datetime, tz: tzinfo) ->
     return best[1] if best else None
 
 
-def next_change(
-    schedule: list[ScheduleEntry], now: datetime, tz: tzinfo
-) -> tuple[datetime, ScheduleEntry] | None:
+def next_change(schedule: list[ScheduleEntry], now: datetime, tz: tzinfo) -> tuple[datetime, ScheduleEntry] | None:
     if not schedule:
         return None
     local = now.astimezone(tz)
@@ -201,12 +197,7 @@ def detect_external_change(unit: UnitState, last_commanded: dict, tolerance_c: f
     if last_commanded.get("mode") and unit.mode != last_commanded["mode"]:
         return True
     lt = last_commanded.get("target_c")
-    if (
-        lt is not None
-        and unit.target_c is not None
-        and unit.mode != "off"
-        and abs(unit.target_c - lt) > tolerance_c
-    ):
+    if lt is not None and unit.target_c is not None and unit.mode != "off" and abs(unit.target_c - lt) > tolerance_c:
         return True
     return False
 
@@ -225,8 +216,7 @@ def decide(z: ZoneInput) -> Decision:
             z.control,
             None,
             "unit_offline",
-            "Airco niet bereikbaar; laatste instelling blijft actief. "
-            "Gebruik zo nodig de afstandsbediening.",
+            "Airco niet bereikbaar; laatste instelling blijft actief. " "Gebruik zo nodig de afstandsbediening.",
             sensor_valid=valid,
         )
 
@@ -241,9 +231,7 @@ def decide(z: ZoneInput) -> Decision:
         if z.unit.mode == "off":
             # Deliberate off: never auto-reactivate (plan §5).
             log.append("Unit met afstandsbediening uitgezet; automaat blijft uit tot je hervat.")
-            return Decision(
-                "off", None, "external_off", "Uitgezet met afstandsbediening.", log=log, sensor_valid=valid
-            )
+            return Decision("off", None, "external_off", "Uitgezet met afstandsbediening.", log=log, sensor_valid=valid)
         until = now + timedelta(minutes=p["override_default_minutes"])
         nc = next_change(z.schedule, now, z.tz)
         if nc and nc[0] < until:

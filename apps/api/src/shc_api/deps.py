@@ -37,9 +37,7 @@ class Principal:
         return self.user.role == "admin"
 
 
-async def resolve_principal(
-    db: AsyncSession, cookie: str | None, bearer: str | None
-) -> tuple[Principal, str | None]:
+async def resolve_principal(db: AsyncSession, cookie: str | None, bearer: str | None) -> tuple[Principal, str | None]:
     """Return principal and (for cookie auth) the session CSRF token."""
     now = datetime.now(UTC)
     if bearer and bearer.startswith(TOKEN_PREFIX):
@@ -76,9 +74,7 @@ async def current_principal(request: Request, db: DB) -> Principal:
     if principal.via == "cookie" and request.method in UNSAFE:
         sent = request.headers.get("x-csrf-token", "")
         if not csrf or not sent or not constant_eq(sent, csrf):
-            raise api_error(
-                403, "csrf_failed", "Beveiligingstoken ontbreekt of klopt niet. Herlaad de pagina."
-            )
+            raise api_error(403, "csrf_failed", "Beveiligingstoken ontbreekt of klopt niet. Herlaad de pagina.")
     request.state.principal = principal
     return principal
 

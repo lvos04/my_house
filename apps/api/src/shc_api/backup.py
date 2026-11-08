@@ -108,9 +108,7 @@ async def schema_revision(db: AsyncSession) -> str | None:
         return None
 
 
-async def build_archive(
-    db: AsyncSession, include_secrets: bool, z2m_dir: Path | None = None
-) -> tuple[bytes, dict]:
+async def build_archive(db: AsyncSession, include_secrets: bool, z2m_dir: Path | None = None) -> tuple[bytes, dict]:
     files: dict[str, bytes] = {}
     tables: dict[str, dict] = {}
     for table in Base.metadata.sorted_tables:

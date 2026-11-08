@@ -108,9 +108,7 @@ async def setup(body: Credentials, response: Response, db: DB) -> dict:
     if (await db.execute(select(func.count()).select_from(User))).scalar_one() > 0:
         raise api_error(409, "setup_done", "Er bestaat al een beheerder. Log in.")
     if len(body.password) < MIN_PASSWORD_LENGTH:
-        raise api_error(
-            422, "validation_error", f"Wachtwoord moet minimaal {MIN_PASSWORD_LENGTH} tekens zijn."
-        )
+        raise api_error(422, "validation_error", f"Wachtwoord moet minimaal {MIN_PASSWORD_LENGTH} tekens zijn.")
     user = User(username=body.username, password_hash=hash_password(body.password), role="admin")
     db.add(user)
     await db.flush()
@@ -162,9 +160,7 @@ async def create_user(body: NewUser, db: DB, p: Auth) -> dict:
     if not p.is_admin:
         raise api_error(403, "forbidden", "Alleen een beheerder mag gebruikers toevoegen.")
     if len(body.password) < MIN_PASSWORD_LENGTH:
-        raise api_error(
-            422, "validation_error", f"Wachtwoord moet minimaal {MIN_PASSWORD_LENGTH} tekens zijn."
-        )
+        raise api_error(422, "validation_error", f"Wachtwoord moet minimaal {MIN_PASSWORD_LENGTH} tekens zijn.")
     u = User(username=body.username, password_hash=hash_password(body.password), role=body.role)
     db.add(u)
     await audit(db, p.actor, "user_created", body.username, role=body.role)

@@ -147,7 +147,12 @@ Integration = {provider, label, state: "ok"|"warn"|"error"|"not_configured", det
 | GET | `/homes/{home_id}/devices` |
 | GET | `/integrations` |
 | POST | `/integrations/{provider}/discover` (admin) → `[DiscoveredDevice]` |
-| POST | `/integrations/{provider}/pair` (admin) `{host, ...}` → `Device` of instructies |
+| POST | `/integrations/{provider}/pair` (admin) `{home_id, host, name?, options?}` → `Device`, of 202 `{status:"action_required", steps, retry_after_s}` |
+| GET | `/integrations/{provider}/instructions` → stappen bij de fabrikant |
+| POST | `/integrations/zigbee/setup` (admin) `{home_id}` → `Device` (kind `zigbee_bridge`) |
+| POST | `/integrations/zigbee/permit-join` (admin) `{home_id, seconds}` → 202 `{command_id, open_until}` |
+| PATCH | `/devices/{id}` (admin) `{name?, room_id?}` |
+| POST | `/devices/{id}/bind` (admin) `{role}` — vorige binding wordt gesloten, historie blijft |
 
 ## Systeem
 
@@ -155,7 +160,11 @@ Integration = {provider, label, state: "ok"|"warn"|"error"|"not_configured", det
 |---|---|
 | GET | `/health` (zonder auth) → `{status, version}` |
 | GET | `/system/status` → `{checks: [{key, label, state, detail}]}` |
-| GET/POST | `/system/backups` (admin) |
+| GET/POST | `/system/backups` (admin) — POST `{passphrase (≥12), include_secrets}` |
+| GET | `/system/backups/{id}/download` (admin) |
+| GET/PUT | `/system/settings` `{lan_url, remote_url}` |
+| POST | `/system/safe-mode/release` (admin) |
+| POST | `/homes/{id}/archive` (admin) — verhuisd: woning alleen-lezen, historie blijft |
 | GET | `/homes/{home_id}/alerts` · POST `/alerts/{id}/ack` |
 
 ## Realtime (WebSocket)

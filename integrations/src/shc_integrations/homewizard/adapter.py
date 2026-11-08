@@ -315,10 +315,17 @@ class HomeWizardAdapter(Adapter):
     async def pair(self, host: str, **kwargs: Any) -> PairResult | PairingInstructions:
         dev = await self.probe(host)
         base_cfg = {"host": host, "serial": dev.stable_identity, "product_type": dev.model}
+        v2_ok = False
         if kwargs.get("prefer_v2", True) and dev.extra.get("v2_capable"):
-            fp = await self._fetch_fp(host)
-            async with self._factory(f"https://{host}", fp) as c:
-                r = await c.post("/api/user", json={"name": USER_NAME}, headers={"X-Api-Version": "2"})
+            try:
+                fp = await self._fetch_fp(host)
+                async with self._factory(f"https://{host}", fp) as c:
+                    r = await c.post("/api/user", json={"name": USER_NAME}, headers={"X-Api-Version": "2"})
+                v2_ok = True
+            except (OSError, httpx.TransportError) as exc:
+                # Older firmware has no HTTPS v2 endpoint: fall back to the v1 API.
+                log.info("HomeWizard %s: API v2 niet bereikbaar (%s); v1 wordt gebruikt", host, exc)
+        if v2_ok:
             if r.status_code == 403:
                 return INSTRUCTIONS
             r.raise_for_status()

@@ -35,15 +35,9 @@ async def add_device(home_id, kind, name, role=None, provider="test", state=None
         await db.flush()
         if role:
             r = (
-                await db.execute(
-                    select(LogicalRole).where(LogicalRole.home_id == d.home_id, LogicalRole.key == role)
-                )
+                await db.execute(select(LogicalRole).where(LogicalRole.home_id == d.home_id, LogicalRole.key == role))
             ).scalar_one()
-            db.add(
-                DeviceBinding(
-                    role_id=r.id, device_id=d.id, effective_from=datetime.now(UTC) - timedelta(days=400)
-                )
-            )
+            db.add(DeviceBinding(role_id=r.id, device_id=d.id, effective_from=datetime.now(UTC) - timedelta(days=400)))
         await db.commit()
         return d.id
 
@@ -91,9 +85,7 @@ async def test_viewer_is_read_only(admin, home, app):
     )
     assert r.status_code == 200
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
-        r = await c.post(
-            "/api/v1/auth/login", json={"username": "kijker", "password": "kijker-wachtwoord-123"}
-        )
+        r = await c.post("/api/v1/auth/login", json={"username": "kijker", "password": "kijker-wachtwoord-123"})
         v = Session(c, r.json()["csrf_token"])
         assert (await v.get(f"/homes/{home['id']}/overview")).status_code == 200
         assert (await v.post("/homes", json={"name": "Y"})).status_code == 403
@@ -125,9 +117,7 @@ async def test_phone_pairing_flow(admin, home, app):
         # token auth needs no CSRF
         assert (await phone.post(f"/api/v1/alerts/{uuid.uuid4()}/ack", headers=h)).status_code == 404
         # single use
-        r3 = await phone.post(
-            "/api/v1/pairing/redeem", json={"code": payload["code"], "device_name": "Again"}
-        )
+        r3 = await phone.post("/api/v1/pairing/redeem", json={"code": payload["code"], "device_name": "Again"})
         assert r3.status_code == 400
         clients = (await admin.get("/clients")).json()
         cid = next(c["id"] for c in clients if c["name"] == "Pixel")
@@ -196,9 +186,7 @@ class FakeGree:
 async def test_zone_command_policy_and_execution(admin, home):
     async with sessionmaker()() as db:
         zones = (
-            (await db.execute(select(ClimateZone).where(ClimateZone.home_id == uuid.UUID(home["id"]))))
-            .scalars()
-            .all()
+            (await db.execute(select(ClimateZone).where(ClimateZone.home_id == uuid.UUID(home["id"])))).scalars().all()
         )
         living = next(z for z in zones if z.name == "Woonkamer")
         bedroom = next(z for z in zones if z.name == "Slaapkamer")
@@ -243,9 +231,7 @@ async def test_zone_command_policy_and_execution(admin, home):
     await w.process_commands()
     assert fake.calls and fake.calls[0].params == {"power": True, "target_c": 22.0}
     async with sessionmaker()() as db:
-        cmd = (
-            (await db.execute(select(CommandRecord).where(CommandRecord.device_id == u1))).scalars().all()[-1]
-        )
+        cmd = (await db.execute(select(CommandRecord).where(CommandRecord.device_id == u1))).scalars().all()[-1]
         assert cmd.status == "confirmed"
     # deliberate off stays off; resume returns to schedule
     r = await admin.post(f"/zones/{living.id}/command", json={"mode": "off"})
@@ -273,9 +259,7 @@ async def test_schedule_roundtrip(admin, home):
     r = await admin.put(f"/zones/{zid}/schedule", json=body)
     assert r.status_code == 200 and len(r.json()["blocks"]) == 2
     assert (
-        await admin.put(
-            f"/zones/{zid}/schedule", json={"blocks": [{"days": [9], "start": "07:00", "target_c": 20}]}
-        )
+        await admin.put(f"/zones/{zid}/schedule", json={"blocks": [{"days": [9], "start": "07:00", "target_c": 20}]})
     ).status_code == 422
     assert (await admin.get(f"/zones/{zid}")).json()["next_change"] is not None
 
@@ -301,18 +285,14 @@ async def test_energy_summary_no_double_count_and_replacement(admin, home):
     airco_new = await add_device(home["id"], "kwh_meter", "kWh nieuw")
     async with sessionmaker()() as db:
         role = (
-            await db.execute(
-                select(LogicalRole).where(LogicalRole.home_id == hid, LogicalRole.key == "airco")
-            )
+            await db.execute(select(LogicalRole).where(LogicalRole.home_id == hid, LogicalRole.key == "airco"))
         ).scalar_one()
         old_b = (await db.execute(select(DeviceBinding).where(DeviceBinding.role_id == role.id))).scalar_one()
         noon = start + timedelta(hours=12)
         old_b.effective_to = noon
         db.add(DeviceBinding(role_id=role.id, device_id=airco_new, effective_from=noon))
         for i in range(0, 49):
-            await ingest_reading(
-                db, airco_new, "energy_import_kwh", 0.05 * i, "kWh", noon + timedelta(minutes=15 * i)
-            )
+            await ingest_reading(db, airco_new, "energy_import_kwh", 0.05 * i, "kWh", noon + timedelta(minutes=15 * i))
         await db.commit()
     r = await admin.get(f"/homes/{home['id']}/energy/summary", params={"period": "day", "date": "2026-11-02"})
     s = r.json()
@@ -322,13 +302,9 @@ async def test_energy_summary_no_double_count_and_replacement(admin, home):
     assert meters["airco"]["kwh"] == pytest.approx(4.8)
     assert meters["rest"]["quality"] == "derived" and meters["rest"]["kwh"] == pytest.approx(19.2)
     assert meters["grid"]["cost"] is None  # no tariff configured → no cost claim
-    r = await admin.post(
-        f"/homes/{home['id']}/tariffs", json={"valid_from": "2026-01-01", "import_per_kwh": 0.25}
-    )
+    r = await admin.post(f"/homes/{home['id']}/tariffs", json={"valid_from": "2026-01-01", "import_per_kwh": 0.25})
     assert r.status_code == 200
-    s = (
-        await admin.get(f"/homes/{home['id']}/energy/summary", params={"period": "day", "date": "2026-11-02"})
-    ).json()
+    s = (await admin.get(f"/homes/{home['id']}/energy/summary", params={"period": "day", "date": "2026-11-02"})).json()
     assert s["cost"] == pytest.approx(6.0)
     csv = await admin.get(
         f"/homes/{home['id']}/energy/export",
@@ -346,9 +322,7 @@ async def test_energy_summary_no_double_count_and_replacement(admin, home):
 async def test_backup_corruption_refused_and_restore_safe_mode(admin, home):
     r = await admin.post("/system/backups", json={"passphrase": "kort"})
     assert r.status_code == 422
-    r = await admin.post(
-        "/system/backups", json={"passphrase": "een lange wachtwoordzin", "include_secrets": False}
-    )
+    r = await admin.post("/system/backups", json={"passphrase": "een lange wachtwoordzin", "include_secrets": False})
     assert r.status_code == 200, r.text
     from shc_api.config import get_settings
 
@@ -401,3 +375,47 @@ async def test_button_mapping_conflicts():
     c = mapping_conflicts(m, {"b3"})
     assert set(c) == {0, 1, 2}
     assert mapping_conflicts([{"button": "b3", "event": "x", "mode": "lights", "action": {}}], {"b3"})
+
+
+async def test_zigbee_setup_and_permit_join(admin, home):
+    r = await admin.post("/integrations/zigbee/permit-join", json={"home_id": home["id"]})
+    assert r.status_code == 409
+    r = await admin.post("/integrations/zigbee/setup", json={"home_id": home["id"]})
+    assert r.status_code == 200 and r.json()["kind"] == "zigbee_bridge"
+    assert (await admin.post("/integrations/zigbee/setup", json={"home_id": home["id"]})).status_code == 200
+    r = await admin.post("/integrations/zigbee/permit-join", json={"home_id": home["id"], "seconds": 120})
+    assert r.status_code == 202 and "open_until" in r.json()
+    integ = [i for i in (await admin.get("/integrations")).json() if i["provider"] == "zigbee"]
+    assert len(integ) == 1 and integ[0]["id"]
+
+
+async def test_pair_persists_adapter_learned_config(admin, home, monkeypatch):
+    """Regression: the worker must find the paired device by its serial, not by IP."""
+    from shc_integrations.base import DiscoveredDevice, PairResult
+
+    from shc_api.models import Integration
+    from shc_api.routers import devices as devmod
+
+    class FakeAdapter:
+        def __init__(self, config, credentials):
+            self.config = dict(config)
+
+        async def pair(self, host, **kw):
+            self.config.update(serial="SER123", product_type="HWE-P1", api_version="v1")
+            return PairResult("SER123", {}, DiscoveredDevice("homewizard", "SER123", "p1_meter", "P1", host))
+
+        async def close(self):
+            pass
+
+    class Info:
+        adapter = FakeAdapter
+        label = "HomeWizard"
+
+    monkeypatch.setattr(devmod, "providers", lambda: {"homewizard": Info})
+    r = await admin.post("/integrations/homewizard/pair", json={"home_id": home["id"], "host": "192.168.1.50"})
+    assert r.status_code == 200 and r.json()["stable_identity"] == "SER123"
+    async with sessionmaker()() as db:
+        integ = (
+            await db.execute(select(Integration).where(Integration.config["serial"].astext == "SER123"))
+        ).scalar_one()
+        assert integ.config["api_version"] == "v1" and integ.config["host"] == "192.168.1.50"

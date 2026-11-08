@@ -142,9 +142,7 @@ class Device(Base):
     __table_args__ = (UniqueConstraint("home_id", "provider", "stable_identity"),)
     id: Mapped[uuid.UUID] = pk()
     home_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("homes.id", ondelete="CASCADE"), index=True)
-    integration_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("integrations.id", ondelete="SET NULL")
-    )
+    integration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("integrations.id", ondelete="SET NULL"))
     room_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("rooms.id", ondelete="SET NULL"))
     provider: Mapped[str] = mapped_column(String(32))
     kind: Mapped[str] = mapped_column(String(32))

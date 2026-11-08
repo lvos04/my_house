@@ -153,8 +153,6 @@ async def ingest_reading(
 async def count_open_alerts(db: AsyncSession, home_id: uuid.UUID) -> int:
     return (
         await db.execute(
-            select(func.count())
-            .select_from(Alert)
-            .where(and_(Alert.home_id == home_id, Alert.resolved_at.is_(None)))
+            select(func.count()).select_from(Alert).where(and_(Alert.home_id == home_id, Alert.resolved_at.is_(None)))
         )
     ).scalar_one()

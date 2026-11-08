@@ -74,9 +74,7 @@ def test_min_interval_respected():
 
 
 def test_stale_sensor_falls_back_to_oem_and_no_correction():
-    d = c.decide(
-        zone(sensor=c.SensorValue(15.0, NOW - timedelta(hours=1)), unit=c.UnitState(True, "heat", 21.0))
-    )
+    d = c.decide(zone(sensor=c.SensorValue(15.0, NOW - timedelta(hours=1)), unit=c.UnitState(True, "heat", 21.0)))
     assert d.control == "oem_fallback" and d.send is None and not d.sensor_valid
     assert "verouderd" in d.notice
 
@@ -99,13 +97,9 @@ def test_remote_off_is_never_reactivated():
 
 
 def test_manual_override_respected_until_expiry():
-    d = c.decide(
-        zone(control="manual", override_until=NOW + timedelta(minutes=30), sensor=c.SensorValue(17, NOW))
-    )
+    d = c.decide(zone(control="manual", override_until=NOW + timedelta(minutes=30), sensor=c.SensorValue(17, NOW)))
     assert d.send is None
-    d = c.decide(
-        zone(control="manual", override_until=NOW - timedelta(minutes=1), sensor=c.SensorValue(19.0, NOW))
-    )
+    d = c.decide(zone(control="manual", override_until=NOW - timedelta(minutes=1), sensor=c.SensorValue(19.0, NOW)))
     assert d.control == "schedule" and d.send is not None
 
 

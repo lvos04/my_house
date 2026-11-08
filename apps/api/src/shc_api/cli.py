@@ -49,9 +49,7 @@ async def _restore(args, dry_run: bool) -> None:
     except bk.BackupError as e:
         print(f"GEWEIGERD: {e}", file=sys.stderr)
         raise SystemExit(2) from e
-    print(
-        f"Back-up van {manifest['created_at']} (app {manifest['app_version']}, schema {manifest['schema_revision']})"
-    )
+    print(f"Back-up van {manifest['created_at']} (app {manifest['app_version']}, schema {manifest['schema_revision']})")
     for t, info in manifest["tables"].items():
         print(f"  {t:24} {info['rows']:>8} records")
     if manifest.get("zigbee2mqtt_included"):
@@ -62,10 +60,7 @@ async def _restore(args, dry_run: bool) -> None:
         print("Controle geslaagd (er is niets gewijzigd).")
         return
     if not args.yes:
-        if (
-            input("Alle huidige gegevens worden vervangen. Typ HERSTEL om door te gaan: ").strip()
-            != "HERSTEL"
-        ):
+        if input("Alle huidige gegevens worden vervangen. Typ HERSTEL om door te gaan: ").strip() != "HERSTEL":
             raise SystemExit("Afgebroken.")
     migrate()
     async with sessionmaker()() as db:

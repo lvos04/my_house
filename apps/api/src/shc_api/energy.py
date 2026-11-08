@@ -92,9 +92,7 @@ def deltas(points: list[CounterPoint]) -> list[tuple[datetime, datetime, float, 
     return out
 
 
-def aggregate(
-    points: list[CounterPoint], buckets: list[Bucket], max_gap: timedelta = timedelta(minutes=20)
-) -> None:
+def aggregate(points: list[CounterPoint], buckets: list[Bucket], max_gap: timedelta = timedelta(minutes=20)) -> None:
     """Distribute counter deltas over buckets proportionally to time overlap."""
     for t0, t1, kwh, note in deltas(points):
         span = (t1 - t0).total_seconds()

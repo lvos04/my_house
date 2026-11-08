@@ -34,7 +34,7 @@ jobs:
       - name: Lint
         run: |
           ruff check apps/api/src apps/api/tests
-          ruff check integrations
+          pipx run ruff check integrations
       - name: Adapter contract tests
         run: pytest -q integrations/tests
       - name: API, engine and migration tests

@@ -33,9 +33,7 @@ async def _zone(db: DB, zone_id: uuid.UUID) -> tuple[ClimateZone, Home]:
 async def list_zones(home_id: uuid.UUID, db: DB, p: Auth) -> list[dict]:
     home = await get_home(db, home_id)
     zs = (
-        await db.execute(
-            select(ClimateZone).where(ClimateZone.home_id == home_id).order_by(ClimateZone.name.desc())
-        )
+        await db.execute(select(ClimateZone).where(ClimateZone.home_id == home_id).order_by(ClimateZone.name.desc()))
     ).scalars()
     return [await views.zone_view(db, z, home) for z in zs]
 
@@ -181,9 +179,7 @@ async def history(zone_id: uuid.UUID, db: DB, p: Auth, hours: int = Query(24, ge
 @router.get("/zones/{zone_id}/log")
 async def zone_log(zone_id: uuid.UUID, db: DB, p: Auth, limit: int = Query(50, ge=1, le=500)) -> list[dict]:
     rows = (
-        await db.execute(
-            select(ZoneLog).where(ZoneLog.zone_id == zone_id).order_by(ZoneLog.at.desc()).limit(limit)
-        )
+        await db.execute(select(ZoneLog).where(ZoneLog.zone_id == zone_id).order_by(ZoneLog.at.desc()).limit(limit))
     ).scalars()
     return [{"at": r.at, "kind": r.kind, "message": r.message} for r in rows]
 

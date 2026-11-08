@@ -40,11 +40,7 @@ async def create_code(body: CodeRequest, request: Request, db: DB, p: Admin) -> 
     code = new_pairing_code()
     expires = datetime.now(UTC) + CODE_TTL
     db.add(PairingCode(code_hash=token_hash(code), user_id=p.user.id, label=body.label, expires_at=expires))
-    home = (
-        (await db.execute(select(Home).where(Home.active_to.is_(None)).order_by(Home.active_from)))
-        .scalars()
-        .first()
-    )
+    home = (await db.execute(select(Home).where(Home.active_to.is_(None)).order_by(Home.active_from))).scalars().first()
     lan, remote = await server_urls(db, request)
     await audit(db, p.actor, "pairing_code_created", body.label)
     await db.commit()
@@ -82,20 +78,14 @@ async def redeem(body: Redeem, request: Request, db: DB) -> dict:
     row = res.first()
     if row is None:
         await db.rollback()
-        raise api_error(
-            400, "invalid_code", "Code ongeldig of verlopen. Maak een nieuwe QR-code in de web-app."
-        )
+        raise api_error(400, "invalid_code", "Code ongeldig of verlopen. Maak een nieuwe QR-code in de web-app.")
     user = await db.get(User, row.user_id)
     assert user is not None
     token = new_token()
     client = ApiClient(user_id=user.id, name=body.device_name, token_hash=token_hash(token))
     db.add(client)
     await audit(db, user.username, "phone_paired", body.device_name)
-    home = (
-        (await db.execute(select(Home).where(Home.active_to.is_(None)).order_by(Home.active_from)))
-        .scalars()
-        .first()
-    )
+    home = (await db.execute(select(Home).where(Home.active_to.is_(None)).order_by(Home.active_from))).scalars().first()
     lan, remote = await server_urls(db, request)
     await db.commit()
     return {
