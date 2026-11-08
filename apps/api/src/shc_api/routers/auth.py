@@ -1,32 +1,41 @@
 from __future__ import annotations
 
+import math
 import secrets
-import time
-from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 
 from ..config import get_settings
-from ..deps import CSRF_COOKIE, DB, SESSION_COOKIE, Auth
+from ..deps import CSRF_COOKIE, DB, SESSION_COOKIE, Auth, revoke_access
 from ..errors import api_error
+from ..events import publish_auth_revoked
 from ..models import Session as WebSession
 from ..models import User
 from ..security import (
     MIN_PASSWORD_LENGTH,
-    dummy_verify,
-    hash_password,
+    AttemptLimiter,
+    HashBusy,
+    dummy_verify_async,
+    hash_password_async,
+    lockout_seconds,
     new_token,
     token_hash,
-    verify_password,
+    verify_password_async,
 )
 from ..store import audit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-_attempts: dict[str, deque[float]] = defaultdict(deque)
+# Failed logins per client IP (request.client.host: the real client, as uvicorn derives it from
+# X-Forwarded-For of the trusted proxy only). Per-username lockout lives in the database
+# (users.failed_logins / locked_until), this map only throttles one address trying many usernames.
+IP_ATTEMPT_FACTOR = 4
+_attempts = AttemptLimiter(
+    get_settings().login_max_attempts * IP_ATTEMPT_FACTOR, get_settings().login_window_s, max_keys=10_000
+)
 
 
 def user_view(u: User) -> dict:
@@ -38,17 +47,78 @@ class Credentials(BaseModel):
     password: str = Field(min_length=1, max_length=256)
 
 
-def _client_ip(request: Request) -> str:
+def client_ip(request: Request) -> str:
     return request.client.host if request.client else "?"
 
 
-def _rate_limited(key: str) -> bool:
-    s = get_settings()
-    q = _attempts[key]
-    now = time.monotonic()
-    while q and now - q[0] > s.login_window_s:
-        q.popleft()
-    return len(q) >= s.login_max_attempts
+def _minutes(seconds: float) -> str:
+    m = max(1, math.ceil(seconds / 60))
+    return "1 minuut" if m == 1 else f"{m} minuten"
+
+
+def too_many(seconds: float, message: str | None = None) -> HTTPException:
+    secs = max(1, math.ceil(seconds))
+    return HTTPException(
+        status_code=429,
+        detail={
+            "code": "rate_limited",
+            "message": message or f"Te veel mislukte pogingen. Probeer het over {_minutes(secs)} opnieuw.",
+        },
+        headers={"Retry-After": str(secs)},
+    )
+
+
+def server_busy() -> HTTPException:
+    return HTTPException(
+        status_code=429,
+        detail={
+            "code": "rate_limited",
+            "message": "De server is even druk. Probeer het over een paar seconden opnieuw.",
+        },
+        headers={"Retry-After": "2"},
+    )
+
+
+async def hash_new_password(password: str) -> str:
+    if len(password) < MIN_PASSWORD_LENGTH:
+        raise api_error(422, "validation_error", f"Wachtwoord moet minimaal {MIN_PASSWORD_LENGTH} tekens zijn.")
+    try:
+        return await hash_password_async(password)
+    except HashBusy:
+        raise server_busy() from None
+
+
+async def password_matches(db: DB, user: User, password: str, *, ip: str | None = None) -> bool:
+    """Lockout-aware password check, used by login, password change and admin-role pairing.
+
+    Raises 429 while the account is locked (without checking the password) or when all hashing slots
+    are busy. A wrong password counts towards the lockout; the caller must commit."""
+    now = datetime.now(UTC)
+    if user.locked_until and user.locked_until > now:
+        raise too_many((user.locked_until - now).total_seconds())
+    try:
+        ok = await verify_password_async(user.password_hash, password)
+    except HashBusy:
+        raise server_busy() from None
+    if ok:
+        if user.failed_logins or user.locked_until:
+            await db.execute(update(User).where(User.id == user.id).values(failed_logins=0, locked_until=None))
+            user.failed_logins, user.locked_until = 0, None
+        return True
+    failures = (
+        await db.execute(
+            update(User)
+            .where(User.id == user.id)
+            .values(failed_logins=User.failed_logins + 1)
+            .returning(User.failed_logins)
+        )
+    ).scalar_one()
+    lock = lockout_seconds(failures, get_settings().login_max_attempts)
+    if lock:
+        until = now + timedelta(seconds=lock)
+        await db.execute(update(User).where(User.id == user.id).values(locked_until=until))
+        await audit(db, user.username, "user_locked", user.username, failures=failures, seconds=lock, ip=ip)
+    return False
 
 
 async def _start_session(db: DB, user: User, request: Request, response: Response) -> dict:
@@ -108,30 +178,39 @@ async def setup(body: Credentials, request: Request, response: Response, db: DB)
     await db.execute(select(func.pg_advisory_xact_lock(42_4242)))
     if (await db.execute(select(func.count()).select_from(User))).scalar_one() > 0:
         raise api_error(409, "setup_done", "Er bestaat al een beheerder. Log in.")
-    if len(body.password) < MIN_PASSWORD_LENGTH:
-        raise api_error(422, "validation_error", f"Wachtwoord moet minimaal {MIN_PASSWORD_LENGTH} tekens zijn.")
-    user = User(username=body.username, password_hash=hash_password(body.password), role="admin")
+    user = User(
+        username=body.username,
+        password_hash=await hash_new_password(body.password),
+        role="admin",
+        password_changed_at=datetime.now(UTC),
+    )
     db.add(user)
     await db.flush()
-    await audit(db, body.username, "setup_admin")
+    await audit(db, body.username, "setup_admin", ip=client_ip(request))
     return await _start_session(db, user, request, response)
 
 
 @router.post("/login")
 async def login(body: Credentials, request: Request, response: Response, db: DB) -> dict:
-    key = f"{_client_ip(request)}|{body.username.lower()}"
-    if _rate_limited(key):
-        raise api_error(429, "rate_limited", "Te veel pogingen. Probeer het over een paar minuten opnieuw.")
+    ip = client_ip(request)
+    if _attempts.blocked(ip):
+        raise too_many(_attempts.retry_after(ip))
     user = (await db.execute(select(User).where(User.username == body.username))).scalar_one_or_none()
-    if user is None:
-        dummy_verify()
-    if user is None or user.disabled or not verify_password(user.password_hash, body.password):
-        _attempts[key].append(time.monotonic())
-        await audit(db, body.username, "login_failed", ip=_client_ip(request))
+    ok = False
+    if user is None or user.disabled:
+        try:
+            await dummy_verify_async()  # same cost as a real check: do not reveal which usernames exist
+        except HashBusy:
+            raise server_busy() from None
+    else:
+        ok = await password_matches(db, user, body.password, ip=ip)
+    if not ok:
+        _attempts.hit(ip)
+        await audit(db, body.username, "login_failed", ip=ip)
         await db.commit()
         raise api_error(401, "auth_required", "Gebruikersnaam of wachtwoord klopt niet.")
-    _attempts.pop(key, None)
-    await audit(db, user.username, "login", ip=_client_ip(request))
+    assert user is not None
+    await audit(db, user.username, "login", ip=ip)
     return await _start_session(db, user, request, response)
 
 
@@ -139,31 +218,58 @@ async def login(body: Credentials, request: Request, response: Response, db: DB)
 async def logout(request: Request, response: Response, db: DB, p: Auth) -> Response:
     cookie = request.cookies.get(SESSION_COOKIE)
     if cookie:
-        await db.execute(delete(WebSession).where(WebSession.id == token_hash(cookie)))
+        sid = token_hash(cookie)
+        await db.execute(delete(WebSession).where(WebSession.id == sid))
+        await publish_auth_revoked(db, reason="logout", session_ids=[sid])
         await db.commit()
     response.status_code = 204
-    response.delete_cookie(SESSION_COOKIE, path="/")
-    response.delete_cookie(CSRF_COOKIE, path="/")
+    secure = get_settings().cookie_secure_for(request.url.scheme)
+    response.delete_cookie(SESSION_COOKIE, path="/", secure=secure, httponly=True, samesite="strict")
+    response.delete_cookie(CSRF_COOKIE, path="/", secure=secure, samesite="strict")
     return response
 
 
 @router.get("/me")
 async def me(p: Auth) -> dict:
-    return user_view(p.user)
+    return {
+        **user_view(p.user),
+        "via": p.via,
+        "client_role": p.client_role,
+        "is_admin": p.is_admin,
+        "can_control": p.can_control,
+        "password_changed_at": p.user.password_changed_at,
+    }
 
 
-class NewUser(Credentials):
-    role: str = Field(pattern="^(admin|viewer)$")
+class PasswordChange(BaseModel):
+    old_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=1, max_length=256)
+    keep_phones: bool = False
 
 
-@router.post("/users")
-async def create_user(body: NewUser, db: DB, p: Auth) -> dict:
-    if not p.is_admin:
-        raise api_error(403, "forbidden", "Alleen een beheerder mag gebruikers toevoegen.")
-    if len(body.password) < MIN_PASSWORD_LENGTH:
-        raise api_error(422, "validation_error", f"Wachtwoord moet minimaal {MIN_PASSWORD_LENGTH} tekens zijn.")
-    u = User(username=body.username, password_hash=hash_password(body.password), role=body.role)
-    db.add(u)
-    await audit(db, p.actor, "user_created", body.username, role=body.role)
+@router.post("/password")
+async def change_password(body: PasswordChange, request: Request, db: DB, p: Auth) -> dict:
+    """Change your own password. Logs out all your other web sessions and revokes your paired phones
+    (unless ``keep_phones``); the session or phone making the change stays signed in."""
+    user = await db.get(User, p.user.id, with_for_update=True)
+    assert user is not None
+    if not await password_matches(db, user, body.old_password, ip=client_ip(request)):
+        await db.commit()  # keep the failure count
+        raise api_error(403, "wrong_password", "Je huidige wachtwoord klopt niet.")
+    if body.new_password == body.old_password:
+        raise api_error(422, "validation_error", "Kies een ander wachtwoord dan je huidige.")
+    user.password_hash = await hash_new_password(body.new_password)
+    user.password_changed_at = datetime.now(UTC)
+    user.failed_logins, user.locked_until = 0, None
+    ended, revoked = await revoke_access(
+        db,
+        user.id,
+        reason="password_changed",
+        sessions=True,
+        phones=not body.keep_phones,
+        keep_session=p.session_id,
+        keep_client=p.client_id,
+    )
+    await audit(db, p.actor, "password_changed", user.username, sessions=ended, phones_revoked=revoked)
     await db.commit()
-    return user_view(u)
+    return {"sessions_ended": ended, "phones_revoked": revoked}

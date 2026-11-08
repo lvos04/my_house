@@ -5,6 +5,10 @@ Two encryption schemes exist in the field:
 - v2: AES-128-GCM with a fixed nonce and AAD, base64 `pack` + base64 `tag`
   (newer wifi modules). The generic keys are only used for scan/bind; after
   binding each unit has its own key.
+
+Some newer modules answer the scan in the v1 format but only accept a v2 bind, so
+the format of the scan answer says nothing reliable about the bind encryption; the
+adapter tries v1 first and then v2 (like the reference library).
 """
 
 from __future__ import annotations
@@ -18,6 +22,8 @@ from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from ..base import AdapterError
+
 GENERIC_KEY_V1 = b"a3K8Bx%2r8Y7#xDh"
 GENERIC_KEY_V2 = b"{yxAHAY_Lm6pbC/<"
 GCM_NONCE = bytes([0x54, 0x40, 0x78, 0x44, 0x49, 0x67, 0x5A, 0x51, 0x6C, 0x5E, 0x63, 0x13])
@@ -25,8 +31,10 @@ GCM_AAD = b"qualcomm-test"
 DEFAULT_PORT = 7000
 
 
-class GreeProtocolError(Exception):
-    pass
+class GreeProtocolError(AdapterError):
+    """A packet could not be decrypted or parsed (wrong key/encryption, garbage)."""
+
+    code = "protocol_error"
 
 
 def encrypt_v1(data: dict[str, Any], key: bytes) -> str:

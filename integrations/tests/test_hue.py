@@ -60,6 +60,7 @@ async def test_pair_success_stores_key_and_pin(plain_factory):
 @respx.mock
 async def test_poll_and_capabilities(plain_factory):
     route = respx.get(f"{BASE}/clip/v2/resource").respond(json=load("hue/resources.json"))
+    respx.get(f"{BASE}/api/k/rules").respond(json={})
     a = adapter(plain_factory)
     events = await a.poll()
     assert route.calls.last.request.headers["hue-application-key"] == "k"
@@ -91,9 +92,12 @@ async def test_set_light_readback_mismatch_not_confirmed(plain_factory):
 async def test_recall_scene_body(plain_factory):
     sid = "s0000000-0000-4000-8000-000000000001"
     put = respx.put(f"{BASE}/clip/v2/resource/scene/{sid}").respond(json={"data": []})
+    respx.get(f"{BASE}/clip/v2/resource/scene/{sid}").respond(
+        json={"errors": [], "data": [{"id": sid, "type": "scene", "status": {"active": "static"}}]}
+    )
     res = await adapter(plain_factory).execute(Command(sid, "recall_scene", {}))
     assert json.loads(put.calls.last.request.content) == {"recall": {"action": "active"}}
-    assert res.ok and not res.confirmed
+    assert res.ok and res.confirmed  # readback via scene.status.active
 
 
 async def test_unknown_action(plain_factory):
@@ -109,7 +113,7 @@ def test_eventstream_parsing():
     assert isinstance(light, StateUpdate) and light.state["on"] is False
     btn = next(e for e in events if isinstance(e, ButtonEvent) and e.event == "initial_press")
     assert btn.device_identity == "2f1a0000-0000-4000-8000-0000000000d9"
-    assert btn.event_id.endswith("13:40:01.123Z")
+    assert btn.event_id == "e2:b0000000-0000-4000-8000-000000000001"  # eventstream event id + resource id
     rot = next(e for e in events if isinstance(e, ButtonEvent) and e.event.startswith("rotate"))
     assert rot.event == "rotate_clock_wise"
     conn = events[-1]

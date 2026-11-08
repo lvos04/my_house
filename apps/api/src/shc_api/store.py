@@ -1,7 +1,10 @@
-"""Small shared DB helpers: settings, audit, alerts, role lookups, latest readings."""
+"""Small shared DB helpers: settings (plain and encrypted), audit, alerts, role lookups, readings."""
 
 from __future__ import annotations
 
+import base64
+import logging
+import math
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -13,6 +16,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from . import events
 from .models import Alert, AuditLog, Device, DeviceBinding, LogicalRole, SensorReading, Setting
 
+log = logging.getLogger(__name__)
+
+# Cumulative counters: a negative value is always a read error and is rejected at ingest.
+COUNTER_METRICS = frozenset(
+    {
+        "energy_import_kwh",
+        "energy_export_kwh",
+        "energy_import_t1_kwh",
+        "energy_import_t2_kwh",
+        "energy_export_t1_kwh",
+        "energy_export_t2_kwh",
+        "gas_m3",
+        "water_m3",
+    }
+)
+
 
 async def get_setting(db: AsyncSession, key: str, default: Any = None) -> Any:
     row = await db.get(Setting, key)
@@ -22,6 +41,34 @@ async def get_setting(db: AsyncSession, key: str, default: Any = None) -> Any:
 async def set_setting(db: AsyncSession, key: str, value: Any) -> None:
     stmt = insert(Setting).values(key=key, value={"v": value})
     await db.execute(stmt.on_conflict_do_update(index_elements=[Setting.key], set_={"value": {"v": value}}))
+
+
+def _box():
+    from .config import get_settings
+    from .security import SecretBox
+
+    return SecretBox(get_settings().resolved_secret_key())
+
+
+async def get_secret_setting(db: AsyncSession, key: str, default: Any = None) -> Any:
+    """Read a setting stored encrypted with the master key (SecretBox). Raises ValueError when the
+    stored value cannot be decrypted with the current key (e.g. after a key change without rekey)."""
+    raw = await get_setting(db, key)
+    if not raw:
+        return default
+    return _box().decrypt(base64.b64decode(raw)).get("v", default)
+
+
+async def set_secret_setting(db: AsyncSession, key: str, value: Any) -> None:
+    """Store a setting encrypted at rest (None removes it)."""
+    if value is None:
+        await db.execute(Setting.__table__.delete().where(Setting.key == key))
+        return
+    await set_setting(db, key, base64.b64encode(_box().encrypt({"v": value})).decode())
+
+
+# Settings whose value is SecretBox-encrypted (re-encrypted by `shc-api rekey`).
+SECRET_SETTINGS = ("backup_passphrase_enc",)
 
 
 async def audit(db: AsyncSession, actor: str, action: str, target: str | None = None, **detail: Any) -> None:
@@ -45,9 +92,14 @@ async def raise_alert(
     return a
 
 
-async def resolve_alert(db: AsyncSession, key: str) -> None:
+async def resolve_alert(db: AsyncSession, key: str) -> list[Alert]:
+    """Resolve the open alert(s) with this key and publish ``alert.resolved`` {id} for each."""
+    resolved = []
     for a in (await db.execute(select(Alert).where(Alert.key == key, Alert.resolved_at.is_(None)))).scalars():
         a.resolved_at = datetime.now(UTC)
+        resolved.append(a)
+        await events.publish(db, "alert.resolved", a.home_id, {"id": a.id})
+    return resolved
 
 
 def alert_view(a: Alert) -> dict:
@@ -130,7 +182,16 @@ async def ingest_reading(
     event_id: str | None = None,
     raw: dict | None = None,
 ) -> bool:
-    """Idempotent insert; returns False for duplicates."""
+    """Idempotent insert; returns False for duplicates and for rejected values.
+
+    Rejected: non-finite numbers, and negative values of cumulative counters (a counter can never be
+    below zero; such a reading would otherwise show up as a reset or as negative consumption)."""
+    if value is not None and not math.isfinite(value):
+        log.warning("Meting %s geweigerd: geen geldig getal (%r)", metric, value)
+        return False
+    if value is not None and value < 0 and metric in COUNTER_METRICS:
+        log.warning("Negatieve tellerstand geweigerd: %s = %s (apparaat %s)", metric, value, device_id)
+        return False
     eid = event_id or f"{metric}@{observed_at.isoformat()}"
     stmt = (
         insert(SensorReading)

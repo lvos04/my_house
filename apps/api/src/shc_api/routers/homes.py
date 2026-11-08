@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import socket
+import struct
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, available_timezones
 
 from fastapi import APIRouter
@@ -9,10 +12,12 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 
 from .. import views
+from ..config import get_settings
 from ..deps import DB, Admin, Auth, get_home
 from ..errors import not_found
-from ..models import Alert, ClimateZone, Home, LogicalRole, Room
-from ..store import audit
+from ..models import Alert, ClimateZone, Home, Integration, LogicalRole, Room
+from ..store import audit, get_setting
+from ..views.status import integration_details, sync_worker_alert, worker_check, zigbee_parts
 
 router = APIRouter(tags=["homes"])
 
@@ -70,6 +75,10 @@ async def create_home(body: HomeIn, db: DB, p: Admin) -> dict:
 @router.get("/homes/{home_id}/overview")
 async def overview(home_id: uuid.UUID, db: DB, p: Auth) -> dict:
     home = await get_home(db, home_id)
+    if home.active_to is None:
+        # The worker cannot report its own absence: raise/resolve that alert here (verbeterlijst 22).
+        await sync_worker_alert(db, home_id)
+        await db.commit()
     zones = (
         (await db.execute(select(ClimateZone).where(ClimateZone.home_id == home_id).order_by(ClimateZone.name.desc())))
         .scalars()
@@ -112,4 +121,150 @@ async def rooms(home_id: uuid.UUID, db: DB, p: Auth) -> list[dict]:
     return [{"id": r.id, "name": r.name, "function": r.function} for r in rows]
 
 
-_ = date  # imported for type clarity in views
+# --- installation preflight (verbeterlijst 43, plan §7) ----------------------------------------------
+
+MDNS_ADDR = ("224.0.0.251", 5353)
+MDNS_WAIT_S = 1.5
+
+
+def _mdns_query() -> bytes:
+    """A one-shot (legacy unicast) mDNS query for all advertised service types."""
+    header = struct.pack("!HHHHHH", 0, 0, 1, 0, 0, 0)
+    qname = b"".join(bytes([len(p)]) + p.encode() for p in "_services._dns-sd._udp.local".split(".")) + b"\0"
+    return header + qname + struct.pack("!HH", 12, 1)  # PTR, IN
+
+
+async def discovery_probe(wait_s: float = MDNS_WAIT_S) -> tuple[str, str]:
+    """Can this container find devices on the home network? (state, Dutch detail)."""
+    loop = asyncio.get_running_loop()
+    answered: asyncio.Future = loop.create_future()
+
+    class _Proto(asyncio.DatagramProtocol):
+        def datagram_received(self, data: bytes, addr) -> None:
+            if not answered.done():
+                answered.set_result(addr)
+
+        def error_received(self, exc: Exception) -> None:
+            if not answered.done():
+                answered.set_exception(exc)
+
+    unavailable = (
+        "warn",
+        "Automatisch zoeken is niet beschikbaar in het containernetwerk; vul de IP-adressen van de apparaten "
+        "handmatig in (en geef ze een vast adres in je router).",
+    )
+    try:
+        transport, _ = await loop.create_datagram_endpoint(
+            _Proto,
+            local_addr=("0.0.0.0", 0),  # noqa: S104 - an ephemeral client port, not a listening service
+            family=socket.AF_INET,
+        )
+    except OSError:
+        return unavailable
+    try:
+        sock = transport.get_extra_info("socket")
+        if sock is not None:
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
+        transport.sendto(_mdns_query(), MDNS_ADDR)
+        addr = await asyncio.wait_for(answered, timeout=wait_s)
+    except (TimeoutError, OSError):
+        return unavailable
+    finally:
+        transport.close()
+    return "ok", f"Netwerkdetectie werkt (antwoord van {addr[0]})."
+
+
+async def _zigbee_checks(db: DB) -> list[dict]:
+    integ = (
+        (
+            await db.execute(
+                select(Integration)
+                .join(Home, Home.id == Integration.home_id)
+                .where(Integration.provider == "zigbee", Integration.enabled.is_(True), Home.active_to.is_(None))
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if integ is None:
+        return [
+            {
+                "key": "zigbee",
+                "label": "Zigbee",
+                "state": "unknown",
+                "detail": "Zigbee is nog niet ingesteld (optioneel; nodig voor eigen sensoren).",
+            }
+        ]
+    parts = zigbee_parts(integ, integration_details(integ)["extra"])
+    for part in parts:
+        part["key"] = "mqtt" if part["key"].endswith(":mqtt") else "zigbee_dongle"
+    return parts
+
+
+@router.get("/system/preflight")
+async def preflight(db: DB, p: Admin) -> dict:
+    """Checks before/while installing: home, worker, Zigbee (MQTT + USB dongle), network discovery,
+    clock, home address and backups. Reads only."""
+    s = get_settings()
+    now = datetime.now(UTC)
+    checks: list[dict] = []
+    home = (await db.execute(select(Home).where(Home.active_to.is_(None)).limit(1))).scalars().first()
+    checks.append(
+        {
+            "key": "home",
+            "label": "Woning",
+            "state": "ok" if home else "error",
+            "detail": f"Woning ‘{home.name}’" if home else "Maak eerst een woning aan (naam en tijdzone).",
+        }
+    )
+    checks.append(await worker_check(db, now))
+    checks += await _zigbee_checks(db)
+    state, detail = await discovery_probe()
+    checks.append({"key": "discovery", "label": "Netwerkdetectie", "state": state, "detail": detail})
+    clock = await get_setting(db, "clock_check")
+    if isinstance(clock, dict):
+        checks.append(
+            {
+                "key": "clock",
+                "label": "Klok",
+                "state": clock.get("state", "unknown"),
+                "detail": clock.get("detail", ""),
+            }
+        )
+    else:
+        checks.append(
+            {
+                "key": "clock",
+                "label": "Klok",
+                "state": "unknown",
+                "detail": "Nog niet gecontroleerd; de achtergronddienst vergelijkt de klok elke 15 minuten met een "
+                "tijdserver.",
+            }
+        )
+    lan = await get_setting(db, "lan_url", s.lan_url)
+    checks.append(
+        {
+            "key": "lan_url",
+            "label": "Thuisadres",
+            "state": "ok" if lan else "warn",
+            "detail": f"Telefoons verbinden thuis via {lan}"
+            if lan
+            else "Stel het thuisadres in op de pagina Systeem (nodig om telefoons te koppelen).",
+        }
+    )
+    from ..worker.backup_job import load_backup_settings
+
+    try:
+        cfg = await load_backup_settings(db, s)
+    except Exception:
+        cfg = {"enabled": False, "passphrase_set": False}
+    if cfg.get("enabled"):
+        b_state, b_detail = "ok", f"Automatische back-up dagelijks om {cfg['hour']:02d}:00, {cfg['keep']} bewaard."
+    elif cfg.get("passphrase_error"):
+        b_state, b_detail = "error", cfg["passphrase_error"]
+    elif cfg.get("passphrase_set"):
+        b_state, b_detail = "warn", "Automatische back-ups staan uit."
+    else:
+        b_state, b_detail = "warn", "Stel een wachtwoordzin voor back-ups in op de pagina Systeem."
+    checks.append({"key": "backup", "label": "Back-up", "state": b_state, "detail": b_detail})
+    return {"checked_at": now, "ready": not any(c["state"] == "error" for c in checks), "checks": checks}

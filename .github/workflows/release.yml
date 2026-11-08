@@ -1,105 +1,235 @@
 name: Release
 
-# Runs on GitHub after a merge to main that changes VERSION (or by hand).
-# Creates tag v<VERSION>, pushes versioned images to GHCR and publishes a
-# GitHub release with the Android APK attached. Does nothing if that release exists.
+# Runs after a merge to main that changes VERSION (or by hand). Order:
+#   prepare → the complete CI (ci.yml: tests, audits, image scan, compose smoke test with a backup)
+#   → versioned images (provenance + SBOM) and the signed Android APK → GitHub release v<VERSION>.
+# Nothing is published unless every CI job passed. Does nothing if that release already exists.
 on:
   push:
     branches: [main]
     paths: [VERSION]
   workflow_dispatch:
 
-permissions:
-  contents: write
-  packages: write
+permissions: {}
 
-concurrency: release
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   prepare:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     outputs:
       version: ${{ steps.v.outputs.version }}
       exists: ${{ steps.v.outputs.exists }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - id: v
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="$(tr -d '[:space:]' < VERSION)"
+          # x.y.z with y and z below 100: the Android versionCode is x*10000 + y*100 + z.
+          if ! [[ "$version" =~ ^([0-9]+)\.([0-9]{1,2})\.([0-9]{1,2})$ ]]; then
+            echo "::error title=VERSION::'$version' is geen geldige versie (verwacht x.y.z, y en z onder 100)."
+            exit 1
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          if gh release view "v$version" >/dev/null 2>&1; then echo "exists=true"; else echo "exists=false"; fi >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Release v$version bestaat al; er wordt niets gepubliceerd."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
 
-  images:
+  ci:
     needs: prepare
     if: needs.prepare.outputs.exists == 'false'
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  images:
+    needs: [prepare, ci]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: p
         run: echo "prefix=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: apps/api/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: true
+          sbom: true
+          build-args: APP_VERSION=${{ needs.prepare.outputs.version }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
           tags: |
             ${{ steps.p.outputs.prefix }}-api:${{ needs.prepare.outputs.version }}
             ${{ steps.p.outputs.prefix }}-api:latest
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: apps/web
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: true
+          sbom: true
+          build-args: APP_VERSION=${{ needs.prepare.outputs.version }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
           tags: |
             ${{ steps.p.outputs.prefix }}-web:${{ needs.prepare.outputs.version }}
             ${{ steps.p.outputs.prefix }}-web:latest
 
   apk:
-    needs: prepare
-    if: needs.prepare.outputs.exists == 'false'
+    needs: [prepare, ci]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      signed: ${{ steps.key.outputs.signed }}
     defaults:
       run:
         working-directory: apps/android
+    env:
+      V: ${{ needs.prepare.outputs.version }}
+      BUILD_TOOLS: "35.0.0"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The APK is only published when it is signed with the owner's own release key (repository
+      # secrets). No key is ever stored in the repository. Without the secrets the release still
+      # publishes the server images and says how to add the key (docs/installatie-truenas.md).
+      - name: Signing key
+        id: key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            chmod 0600 "$RUNNER_TEMP/release.jks"
+            echo "SHC_SIGNING_STORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning title=Geen release-sleutel::De secrets ANDROID_KEYSTORE_B64/ANDROID_KEYSTORE_PASSWORD/ANDROID_KEY_ALIAS/ANDROID_KEY_PASSWORD ontbreken. Deze release bevat geen APK. Zie docs/installatie-truenas.md › Android-app: eigen release-sleutel."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.key.outputs.signed == 'true'
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@v3.2.1
+      - if: steps.key.outputs.signed == 'true'
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
           packages: "platform-tools platforms;android-35 build-tools;35.0.0"
-      - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew --no-daemon :core:test :app:testDebugUnitTest :app:assembleDebug
-      - run: cp app/build/outputs/apk/debug/app-debug.apk "huis-v${{ needs.prepare.outputs.version }}.apk"
-      - uses: actions/upload-artifact@v4
+      - if: steps.key.outputs.signed == 'true'
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+      # Contract C10: Gradle signs assembleRelease with the SHC_SIGNING_* variables.
+      - name: Unit tests and release build
+        if: steps.key.outputs.signed == 'true'
+        env:
+          SHC_SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          SHC_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          SHC_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon :core:test :app:testDebugUnitTest :app:assembleRelease
+      - name: Sign if Gradle did not, then verify the signature
+        if: steps.key.outputs.signed == 'true'
+        env:
+          SHC_SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          SHC_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          SHC_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          bt="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/build-tools/$BUILD_TOOLS"
+          out=app/build/outputs/apk/release
+          if [ -f "$out/app-release.apk" ]; then
+            apk="$out/app-release.apk"
+          elif [ -f "$out/app-release-unsigned.apk" ]; then
+            echo "Gradle leverde een niet-ondertekende APK; ondertekenen met apksigner."
+            "$bt/zipalign" -f -p 4 "$out/app-release-unsigned.apk" "$RUNNER_TEMP/aligned.apk"
+            "$bt/apksigner" sign --ks "$SHC_SIGNING_STORE_FILE" --ks-key-alias "$SHC_SIGNING_KEY_ALIAS" \
+              --ks-pass env:SHC_SIGNING_STORE_PASSWORD --key-pass env:SHC_SIGNING_KEY_PASSWORD \
+              --out "$RUNNER_TEMP/signed.apk" "$RUNNER_TEMP/aligned.apk"
+            apk="$RUNNER_TEMP/signed.apk"
+          else
+            echo "::error::Geen release-APK gevonden in $out"; ls -la "$out" || true; exit 1
+          fi
+          "$bt/apksigner" verify --verbose --print-certs "$apk" | tee "$RUNNER_TEMP/certs.txt"
+          got="$(grep -m1 'certificate SHA-256 digest:' "$RUNNER_TEMP/certs.txt" | awk '{print $NF}')"
+          want="$(keytool -exportcert -keystore "$SHC_SIGNING_STORE_FILE" -alias "$SHC_SIGNING_KEY_ALIAS" \
+            -storepass:env SHC_SIGNING_STORE_PASSWORD | sha256sum | cut -d' ' -f1)"
+          echo "Certificaat SHA-256: $got"
+          if [ -z "$got" ] || [ "$got" != "$want" ]; then
+            echo "::error::De APK is niet ondertekend met de verwachte sleutel (kreeg '$got', verwacht '$want')."
+            exit 1
+          fi
+          {
+            echo "### Android-APK v$V"
+            echo "Certificaat SHA-256: \`$got\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          cp "$apk" "huis-v$V.apk"
+          sha256sum "huis-v$V.apk" > "huis-v$V.apk.sha256"
+          echo "$got" > "huis-v$V.apk.certificate-sha256"
+      - if: steps.key.outputs.signed == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: apk
-          path: apps/android/huis-v*.apk
+          path: |
+            apps/android/huis-v*.apk
+            apps/android/huis-v*.apk.sha256
+            apps/android/huis-v*.apk.certificate-sha256
           if-no-files-found: error
+      - name: Remove the decoded key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks" "$RUNNER_TEMP/aligned.apk" "$RUNNER_TEMP/signed.apk"
 
   publish:
     needs: [prepare, images, apk]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: needs.apk.outputs.signed == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: apk
       - env:
           GH_TOKEN: ${{ github.token }}
           V: ${{ needs.prepare.outputs.version }}
+          SIGNED: ${{ needs.apk.outputs.signed }}
         run: |
-          gh release create "v$V" --target "$GITHUB_SHA" --title "Smart Home Control v$V" \
-            --notes-file docs/release-notes.md huis-v$V.apk
+          cp docs/release-notes.md "$RUNNER_TEMP/notes.md"
+          files=()
+          if [ "$SIGNED" = "true" ]; then
+            files=("huis-v$V.apk" "huis-v$V.apk.sha256" "huis-v$V.apk.certificate-sha256")
+          else
+            printf '\n> **Geen Android-APK in deze release:** er is nog geen release-sleutel ingesteld. Zie docs/installatie-truenas.md › Android-app: eigen release-sleutel.\n' >> "$RUNNER_TEMP/notes.md"
+          fi
+          gh release create "v$V" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Smart Home Control v$V" --notes-file "$RUNNER_TEMP/notes.md" "${files[@]}"

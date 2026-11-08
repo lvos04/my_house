@@ -55,6 +55,7 @@ def test_normalize_v2_uses_device_timestamp():
 
 @respx.mock
 async def test_v1_socket_poll_and_relay_blocked_by_default(plain_factory):
+    respx.get("http://10.0.0.5/api").respond(json=load("homewizard/v1_api_socket.json"))
     respx.get("http://10.0.0.5/api/v1/data").respond(json=load("homewizard/v1_data_socket.json"))
     respx.get("http://10.0.0.5/api/v1/state").respond(json=load("homewizard/v1_state_socket.json"))
     put = respx.put("http://10.0.0.5/api/v1/state").respond(json={"power_on": False})
@@ -63,7 +64,8 @@ async def test_v1_socket_poll_and_relay_blocked_by_default(plain_factory):
     )
     ev = await a.poll()
     assert any(isinstance(e, Reading) and e.metric == "power_w" and e.value == 1987.2 for e in ev)
-    assert any(isinstance(e, StateUpdate) and e.state["relay_on"] is True for e in ev)
+    st = next(e for e in ev if isinstance(e, StateUpdate))
+    assert st.state["relay_on"] is True and st.state["switch_lock"] is False
     for on in (True, False):
         with pytest.raises(PolicyDenied):
             await a.execute(Command("3c39e7000002", "set_relay", {"on": on}))
@@ -108,6 +110,7 @@ async def test_pair_v2_requires_button_then_token(plain_factory):
     assert res.credentials == {"token": "DOCEXAMPLETOKEN", "cert_fingerprint": "cd" * 32}
     assert json.loads(user.calls.last.request.content) == {"name": "local/smart_home_control"}
 
+    respx.get("https://10.0.0.7/api").respond(json=load("homewizard/v2_api_kwh.json"))
     m = respx.get("https://10.0.0.7/api/measurement").respond(json=load("homewizard/v2_measurement_p1.json"))
     await a.poll()
     h = m.calls.last.request.headers

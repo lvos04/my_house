@@ -1,0 +1,60 @@
+# Weekly update proposals for every dependency the project pins. Each pull request goes through
+# the full CI (tests, audits, image scan, compose smoke test) before anything can be released.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directories:
+      - /apps/api
+      - /integrations
+    schedule:
+      interval: weekly
+    groups:
+      python-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /apps/web
+    schedule:
+      interval: weekly
+    groups:
+      web-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: gradle
+    directory: /apps/android
+    schedule:
+      interval: weekly
+    groups:
+      android-minor-patch:
+        update-types: [minor, patch]
+
+  # Base images in the Dockerfiles (python, node, nginx, and the postgres image the API takes
+  # its PostgreSQL client key from).
+  - package-ecosystem: docker
+    directories:
+      - /apps/api
+      - /apps/web
+    schedule:
+      interval: weekly
+    ignore:
+      # PostgreSQL stays on major 16 (a major upgrade needs a dump/restore); the client in the
+      # API image must match the server.
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
+
+  # The stack itself: postgres, mosquitto, zigbee2mqtt, cloudflared.
+  - package-ecosystem: docker-compose
+    directory: /infra/compose
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]

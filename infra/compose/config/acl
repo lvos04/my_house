@@ -1,8 +1,12 @@
+# Managed by install.sh (a changed copy is backed up and replaced on re-run).
+
 # Zigbee2MQTT owns its tree.
 user zigbee2mqtt
 topic readwrite zigbee2mqtt/#
 
-# The app reads device data and may only send bridge requests (permit_join, rename).
+# The app reads device data and may only send the two bridge requests it uses:
+# allowing new devices to join and renaming a device.
 user shc
 topic read zigbee2mqtt/#
-topic write zigbee2mqtt/bridge/request/#
+topic write zigbee2mqtt/bridge/request/permit_join
+topic write zigbee2mqtt/bridge/request/device/rename

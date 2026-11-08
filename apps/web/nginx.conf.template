@@ -1,73 +1,195 @@
-# Rendered at container start by the nginx image (envsubst on ${API_UPSTREAM} / ${NGINX_RESOLVER}).
+# Rendered at container start by the nginx image: envsubst fills in only the environment
+# variables API_UPSTREAM, NGINX_RESOLVER and TUNNEL_IP (NGINX_ENVSUBST_FILTER in the Dockerfile);
+# every other $name below is an nginx variable. This file is included inside the http {} block.
+#
+# Proxy contract (infra/compose/compose.yaml):
+# - Only the cloudflared container (TUNNEL_IP, network "edge") is trusted for CF-Connecting-IP
+#   and X-Forwarded-Proto. Anything else that sends those headers (e.g. a device on the LAN) is ignored.
+# - X-Forwarded-For is overwritten with the real client address. The API trusts X-Forwarded-* only
+#   from this container (SHC_FORWARDED_ALLOW_IPS), so the cookie gets "Secure" exactly when the
+#   request reached the tunnel over https, and the login limits see real client addresses.
+# - Host keeps the port ($http_host), so the API's same-origin check also works on :8088.
+
 map $http_upgrade $connection_upgrade {
     default upgrade;
     ''      close;
 }
+
+# "https" only when the tunnel received the request over https; otherwise what nginx itself saw.
+map "$realip_remote_addr:$http_x_forwarded_proto" $forwarded_proto {
+    default              $scheme;
+    "${TUNNEL_IP}:https" https;
+}
+
+# HSTS only on answers that went out over https (via the tunnel). No includeSubDomains: other
+# hosts in your domain are none of this app's business.
+map $forwarded_proto $hsts {
+    https   "max-age=31536000";
+    default "";
+}
+
+# When the API is down (starting, migrating, updating): browser navigations get a page that
+# retries by itself, API calls get JSON.
+map $http_accept $unavailable_uri {
+    default       /_shc/unavailable.json;
+    "~*text/html" /_shc/unavailable.html;
+}
+
+# Hashed build assets are immutable; everything else (index.html, sw.js, the manifest, icons)
+# must be revalidated, or an update gets stuck in browsers and the PWA. The API sets its own.
+map $uri $cache_control {
+    default    "no-cache";
+    ~^/assets/ "public, max-age=31536000, immutable";
+    ~^/api/    "";
+}
+
+map $uri $error_cache_control {
+    default  "";
+    ~^/_shc/ "no-store";
+}
+
+map $uri $retry_after {
+    default                  "";
+    /_shc/unavailable.html   5;
+    /_shc/unavailable.json   5;
+    /_shc/rate-limited.json  60;
+}
+
+# Brake on unauthenticated endpoints, per real client address: 10 per minute, burst of 5.
+limit_req_zone $binary_remote_addr zone=shc_auth:10m rate=10r/m;
 
 server {
     listen 8080;
     server_name _;
     root /usr/share/nginx/html;
     server_tokens off;
-    client_max_body_size 512m;  # backup restore uploads
+    charset utf-8;
 
-    # Docker's embedded DNS; resolve per request so nginx starts even when the API is down.
+    # Real client address from Cloudflare, but only when the tunnel container sent the request.
+    set_real_ip_from ${TUNNEL_IP};
+    real_ip_header CF-Connecting-IP;
+
+    # Regular API calls are small; backup restore has its own location below.
+    client_max_body_size 1m;
+
+    # Docker's embedded DNS; resolve per request so nginx starts (and serves the app and the
+    # "starting" answers) while the API is still down.
     resolver ${NGINX_RESOLVER} valid=10s ipv6=off;
+    resolver_timeout 3s;
     set $api_upstream http://${API_UPSTREAM};
 
+    # Headers for every answer. Locations below never use add_header themselves, so these are
+    # always inherited (nginx drops server-level add_header in a location that has its own).
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "DENY" always;
     add_header Referrer-Policy "same-origin" always;
     add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;
     add_header Cross-Origin-Opener-Policy "same-origin" always;
     add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
+    add_header Strict-Transport-Security $hsts always;
+    add_header Cache-Control $cache_control;
+    add_header Cache-Control $error_cache_control always;
+    add_header Retry-After $retry_after always;
+
+    # Proxy defaults for every /api location (a location that sets its own proxy_set_header,
+    # like the WebSocket one, must repeat all of them).
+    proxy_http_version 1.1;
+    proxy_connect_timeout 5s;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $forwarded_proto;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header Forwarded "";
+
+    # Answers produced by nginx itself, in Dutch. Errors the API sends are passed on unchanged.
+    error_page 502 503 504 =503 $unavailable_uri;
+    error_page 413 =413 /_shc/too-large.json;
+    error_page 429 =429 /_shc/rate-limited.json;
+    limit_req_status 429;
+
+    location = /healthz {
+        access_log off;
+        default_type "text/plain";
+        return 200 "ok\n";
+    }
+
+    location = /_shc/unavailable.json {
+        internal;
+        default_type "application/json; charset=utf-8";
+        return 503 '{"detail":{"code":"api_unavailable","message":"De app start op of wordt bijgewerkt. Probeer het over een paar seconden opnieuw."}}';
+    }
+
+    location = /_shc/unavailable.html {
+        internal;
+        default_type "text/html; charset=utf-8";
+        return 503 '<!doctype html>
+<html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="5"><title>Even geduld</title>
+<style>body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;max-width:34rem;margin:15vh auto 0;padding:0 1rem;color:#1f2937;line-height:1.5}h1{font-size:1.4rem}p{color:#374151}</style></head>
+<body><h1>De app start of wordt bijgewerkt&hellip;</h1>
+<p>Dit duurt meestal minder dan een minuut. Deze pagina probeert het elke 5 seconden opnieuw.</p>
+<p>Staat dit er na 5 minuten nog? Kijk dan in TrueNAS bij Apps &rsaquo; smart-home naar de logs van de container <code>api</code>.</p>
+</body></html>
+';
+    }
+
+    location = /_shc/too-large.json {
+        internal;
+        default_type "application/json; charset=utf-8";
+        return 413 '{"detail":{"code":"request_too_large","message":"Het verzoek is te groot."}}';
+    }
+
+    location = /_shc/rate-limited.json {
+        internal;
+        default_type "application/json; charset=utf-8";
+        return 429 '{"detail":{"code":"rate_limited","message":"Te veel pogingen achter elkaar. Wacht een minuut en probeer het opnieuw."}}';
+    }
 
     location = /api/v1/ws {
         proxy_pass $api_upstream;
-        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Forwarded "";
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
     }
 
-    location /api/ {
+    # Logging in, first-time setup and redeeming a pairing code: rate limited before the API.
+    location ~ ^/api/v1/(auth/(login|setup)|pairing/redeem)$ {
+        limit_req zone=shc_auth burst=5 nodelay;
         proxy_pass $api_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_read_timeout 120s;
-        proxy_buffering off;  # streamed exports
     }
 
-    # Service worker and manifest must never be cached long, or updates get stuck.
-    location = /sw.js {
-        add_header Cache-Control "no-cache" always;
-        add_header X-Content-Type-Options "nosniff" always;
-        try_files $uri =404;
+    # Backup restore uploads: up to 2 GB, streamed straight through to the API (no temp file here).
+    location ^~ /api/v1/system/restore {
+        client_max_body_size 2g;
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_read_timeout 900s;
+        proxy_send_timeout 900s;
+        proxy_pass $api_upstream;
     }
-    location = /manifest.webmanifest {
-        add_header Cache-Control "no-cache" always;
-        try_files $uri =404;
+
+    location /api/ {
+        proxy_read_timeout 120s;
+        proxy_buffering off;  # streamed exports
+        proxy_pass $api_upstream;
     }
 
     location /assets/ {
-        add_header Cache-Control "public, max-age=31536000, immutable" always;
-        add_header X-Content-Type-Options "nosniff" always;
+        try_files $uri =404;
+    }
+
+    # nginx's mime table does not know .webmanifest (browsers want the right type for the PWA).
+    location = /manifest.webmanifest {
+        default_type application/manifest+json;
         try_files $uri =404;
     }
 
     location / {
-        add_header Cache-Control "no-cache" always;
-        add_header X-Content-Type-Options "nosniff" always;
-        add_header X-Frame-Options "DENY" always;
-        add_header Referrer-Policy "same-origin" always;
-        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
         try_files $uri /index.html;
     }
 }

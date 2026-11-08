@@ -20,4 +20,4 @@ Eerste versie van Smart Home Control: één lokale app voor Hue, Gree-airco, Hom
 - Versleutelde back-ups, herstel in veilige modus, verhuisassistent.
 - Optioneel bereikbaar buiten huis via Cloudflare Tunnel.
 
-De APK is een debug-build (ondertekend met een ontwikkelsleutel), geschikt om zelf te installeren, niet voor de Play Store.
+De APK is ondertekend met de eigen release-sleutel uit de GitHub-geheimen, geschikt om zelf te installeren (niet via de Play Store). Zonder ingestelde sleutel bevat de release geen APK; zie `docs/installatie-truenas.md`.

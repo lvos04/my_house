@@ -1,107 +1,11 @@
 import asyncio
-import json
 
 import pytest
+from fake_gree import DEVICE_KEY, MAC, Sleeps, start_unit
 
 from shc_integrations.base import Command, DeviceOffline, PairingRequired, PairResult, Reading, StateUpdate
 from shc_integrations.gree import GreeAdapter, decode_status, decode_temperature, encode_command
 from shc_integrations.gree import protocol as p
-
-DEVICE_KEY = "St8Vw1Yz4Bc7Ef0H"
-MAC = "f4911e000001"
-
-
-class FakeGreeUnit(asyncio.DatagramProtocol):
-    """Speaks the Gree LAN protocol well enough for contract tests (not a real device)."""
-
-    def __init__(self, version="v1", obey=True):
-        self.version = version
-        self.obey = obey
-        self.bound = False
-        self.state = {
-            "Pow": 0,
-            "Mod": 4,
-            "SetTem": 20,
-            "TemUn": 0,
-            "WdSpd": 0,
-            "SwUpDn": 0,
-            "TemSen": 61,
-            "TemRec": 0,
-            "Lig": 1,
-            "Quiet": 0,
-            "Tur": 0,
-        }
-        self.commands = []
-
-    def connection_made(self, transport):
-        self.transport = transport
-
-    def _reply(self, inner, key, addr):
-        out = {"t": "pack", "i": 0, "uid": 0, "cid": MAC, "tcid": ""}
-        if self.version == "v2":
-            out["pack"], out["tag"] = p.encrypt_v2(inner, key)
-        else:
-            out["pack"] = p.encrypt_v1(inner, key)
-        self.transport.sendto(json.dumps(out).encode(), addr)
-
-    def datagram_received(self, data, addr):
-        msg = json.loads(data)
-        generic = p.GENERIC_KEY_V2 if self.version == "v2" else p.GENERIC_KEY_V1
-        if msg.get("t") == "scan":
-            self._reply(
-                {
-                    "t": "dev",
-                    "cid": MAC,
-                    "mac": MAC,
-                    "mid": "10001",
-                    "model": "gree",
-                    "name": "unit1",
-                    "ver": "V1.2.1",
-                    "brand": "gree",
-                    "series": "gree",
-                },
-                generic,
-                addr,
-            )
-            return
-        if msg.get("i") == 1:
-            inner = p.open_packet(msg, generic)
-            assert inner["t"] == "bind"
-            self.bound = True
-            self._reply({"t": "bindok", "mac": MAC, "key": DEVICE_KEY, "r": 200}, generic, addr)
-            return
-        inner = p.open_packet(msg, DEVICE_KEY.encode())
-        if inner["t"] == "status":
-            cols = inner["cols"]
-            self._reply(
-                {"t": "dat", "mac": MAC, "r": 200, "cols": cols, "dat": [self.state[c] for c in cols]},
-                DEVICE_KEY.encode(),
-                addr,
-            )
-        elif inner["t"] == "cmd":
-            self.commands.append((inner["opt"], inner["p"]))
-            if self.obey:
-                self.state.update(dict(zip(inner["opt"], inner["p"], strict=True)))
-            self._reply(
-                {"t": "res", "mac": MAC, "r": 200, "opt": inner["opt"], "p": inner["p"], "val": inner["p"]},
-                DEVICE_KEY.encode(),
-                addr,
-            )
-
-
-async def start_unit(**kw):
-    loop = asyncio.get_running_loop()
-    unit = FakeGreeUnit(**kw)
-    transport, _ = await loop.create_datagram_endpoint(lambda: unit, local_addr=("127.0.0.1", 0))
-    return unit, transport, transport.get_extra_info("sockname")[1]
-
-
-class Sleeps:
-    def __init__(self):
-        self.calls = []
-
-    async def __call__(self, s):
-        self.calls.append(s)
 
 
 @pytest.mark.parametrize("version", ["v1", "v2"])
@@ -136,19 +40,13 @@ async def test_pair_status_and_command_roundtrip(version):
         assert temp.value == 21  # TemSen 61 with +40 offset
 
         out = await a.execute(
-            Command(MAC, "set_hvac", {"power": True, "mode": "heat", "target_c": 21.5, "fan": "medium"})
+            Command(MAC, "set_hvac", {"power": True, "mode": "heat", "target_c": 21, "fan": "medium"})
         )
         assert out.ok and out.confirmed
-        assert out.state["target_c"] == 21.5
+        assert out.state["target_c"] == 21
         opt, vals = unit.commands[-1]
-        assert dict(zip(opt, vals, strict=True)) == {
-            "Pow": 1,
-            "Mod": 4,
-            "TemUn": 0,
-            "SetTem": 21,
-            "TemRec": 1,
-            "WdSpd": 3,
-        }
+        # Celsius: whole degrees only, TemRec (the Fahrenheit bit) is not sent.
+        assert dict(zip(opt, vals, strict=True)) == {"Pow": 1, "Mod": 4, "TemUn": 0, "SetTem": 21, "WdSpd": 3}
     finally:
         transport.close()
 
@@ -205,7 +103,8 @@ async def test_not_paired():
 def test_temperature_offset_and_plausibility():
     assert decode_temperature(61) == 21
     assert decode_temperature(21) == 21
-    assert decode_temperature(0, offset=0) == 0
+    assert decode_temperature(0, offset=0) is None  # 0 = no sensor
+    assert decode_temperature(0) is None
     assert decode_temperature(150) is None
     assert decode_temperature(None) is None
 

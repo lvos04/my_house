@@ -9,16 +9,33 @@ Decision priority:
 
 The engine never toggles the unit on/off to hit comfort; it only nudges the setpoint
 within bounds so the inverter can modulate.
+
+Command tracking (verbeterlijst 10/11): ``last_commanded`` is the *baseline*: the unit
+state we last saw confirmed (after our own command, or adopted after a change with the
+remote control). It is never set from a command that was merely queued. External-change
+detection is skipped while a command is pending (and for one readback after it), and a
+difference must be seen in ``MISMATCH_READBACKS`` consecutive readbacks.
+
+Schedule blocks without a mode (verbeterlijst 12) keep the mode the unit runs in now and
+never start a unit that is off.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, tzinfo
 
 HEATING_MODES = {"heat"}
 COOLING_MODES = {"cool", "dry"}
+CORRECTED_MODES = {"heat", "cool", "dry"}  # modes where the external sensor nudges the setpoint
 ACTIVE_MODES = {"heat", "cool", "dry", "fan", "auto"}
+ALL_MODES = ("off", "heat", "cool", "dry", "fan", "auto")
+ENERGY_PRIORITIES = ("comfort", "balanced", "saving")
+
+# A unit/baseline difference must be seen in this many consecutive readbacks before it
+# counts as a change made with the remote control.
+MISMATCH_READBACKS = 2
 
 DEFAULT_POLICY = {
     "band_c": 0.5,
@@ -30,19 +47,51 @@ DEFAULT_POLICY = {
     "plausible_max_c": 40.0,
     "max_offset_c": 2.0,
     "override_default_minutes": 120,
+    "energy_priority": "balanced",  # comfort | balanced | saving
+    "watchdog_minutes": 60,  # 0 = off
+    "watchdog_min_progress_c": 0.3,
+}
+
+# Energy priority -> (band factor, share of max_offset allowed in the energy-costly direction)
+PRIORITY_RULES = {
+    "comfort": (0.75, 1.0),
+    "balanced": (1.0, 1.0),
+    "saving": (1.5, 0.5),
 }
 
 
 def policy_with_defaults(p: dict | None) -> dict:
-    return {**DEFAULT_POLICY, **(p or {})}
+    out = {**DEFAULT_POLICY, **(p or {})}
+    if out.get("energy_priority") not in ENERGY_PRIORITIES:
+        out["energy_priority"] = "balanced"
+    return out
+
+
+def effective_band(policy: dict) -> float:
+    """Comfort band after the energy priority: comfort reacts sooner, saving tolerates more."""
+    factor, _ = PRIORITY_RULES[policy.get("energy_priority", "balanced")]
+    return policy["band_c"] * factor
+
+
+def correction_limits(policy: dict, mode: str) -> tuple[float, float]:
+    """(min, max) setpoint correction. 'saving' halves the energy-costly direction."""
+    _, costly_share = PRIORITY_RULES[policy.get("energy_priority", "balanced")]
+    m = policy["max_offset_c"]
+    if mode in HEATING_MODES:  # raising the setpoint costs energy
+        return -m, m * costly_share
+    if mode in COOLING_MODES:  # lowering the setpoint costs energy
+        return -m * costly_share, m
+    return -m, m
 
 
 @dataclass(slots=True)
 class Capabilities:
-    modes: tuple[str, ...] = ("off", "heat", "cool", "dry", "fan", "auto")
+    modes: tuple[str, ...] = ALL_MODES
     min_c: float = 16.0
     max_c: float = 30.0
-    step_c: float = 0.5  # Gree units accept whole degrees on most models; adapter reports real step
+    step_c: float = 1.0  # most Gree units accept whole degrees; the adapter reports the real step
+    fan: bool | None = None  # None = not reported by the adapter
+    swing: bool | None = None
 
 
 @dataclass(slots=True)
@@ -56,7 +105,7 @@ class UnitState:
     online: bool
     mode: str | None  # current mode as read back from the unit ("off" when power off)
     target_c: float | None
-    at: datetime | None = None
+    at: datetime | None = None  # time of the readback
 
 
 @dataclass(slots=True)
@@ -64,7 +113,7 @@ class ScheduleEntry:
     days: tuple[int, ...]
     start: str  # "HH:MM"
     target_c: float
-    mode: str | None = None
+    mode: str | None = None  # None = keep the mode the unit runs in; never starts an off unit
     label: str = ""
 
 
@@ -82,10 +131,14 @@ class ZoneInput:
     unit: UnitState
     schedule: list[ScheduleEntry]
     last_command_at: datetime | None
-    last_commanded: dict  # {"mode":..., "target_c":...} last values we sent
+    last_commanded: dict  # baseline: {"mode":..., "target_c":...} last confirmed/adopted unit state
     start_times: list[datetime]
-    other_zone_modes: list[str] = field(default_factory=list)  # same outdoor group, current modes
+    other_zone_modes: list[str] = field(default_factory=list)  # same outdoor group, effective modes
     adaptive_offset_c: float = 0.0  # from active adaptive model (opt-in), already bounded
+    pending: bool = False  # a command is in flight, or we wait for the first readback after one
+    mismatch_count: int = 0  # consecutive readbacks that differed from the baseline so far
+    readback_new: bool = True  # the unit readback is newer than the last one counted as a mismatch
+    correction_c: float = 0.0  # stored setpoint correction (°C, unrounded)
 
 
 @dataclass(slots=True)
@@ -98,26 +151,53 @@ class Decision:
     override_source: str | None = None
     sensor_valid: bool = True
     log: list[str] = field(default_factory=list)
+    baseline: dict | None = None  # new baseline to store (observed unit state); None = keep
+    mismatch_count: int = 0
+    correction_c: float | None = None  # new correction to store; None = keep
+    mode: str | None = None  # mode the zone is regulated in (watchdog)
+    target_base_c: float | None = None  # scheduled target before correction (watchdog, view)
+    starting: bool = False  # the command starts a unit that is off
 
 
 # --- helpers ------------------------------------------------------------------
 
 
+def modes_conflict(mode: str | None, other: str | None) -> bool:
+    """True when two indoor units on one outdoor unit cannot run these modes together.
+
+    Heating conflicts with cooling/drying; "auto" may do either, so it conflicts with both.
+    Fan-only and off never conflict.
+    """
+    a, b = mode, other
+    if a in (None, "off", "fan") or b in (None, "off", "fan"):
+        return False
+    if a == "auto":
+        return b in HEATING_MODES | COOLING_MODES
+    if b == "auto":
+        return a in HEATING_MODES | COOLING_MODES
+    return (a in HEATING_MODES and b in COOLING_MODES) or (a in COOLING_MODES and b in HEATING_MODES)
+
+
+def _conflict_reason(mode: str, other: str) -> str:
+    if other == "auto":
+        return "Een andere ruimte staat op automatisch; de buitenunit kan niet tegelijk verwarmen en koelen."
+    if other in HEATING_MODES:
+        if mode == "auto":
+            return "Een andere ruimte verwarmt; automatisch kan ook gaan koelen. Kies verwarmen."
+        return "Een andere ruimte verwarmt; de buitenunit kan niet tegelijk koelen."
+    if mode == "auto":
+        return "Een andere ruimte koelt; automatisch kan ook gaan verwarmen. Kies koelen."
+    return "Een andere ruimte koelt; de buitenunit kan niet tegelijk verwarmen."
+
+
 def blocked_modes(caps: Capabilities, other_zone_modes: list[str]) -> list[dict]:
-    """Modes this zone may not use now because a zone on the same outdoor unit runs the opposite."""
+    """Modes this zone may not use now because a zone on the same outdoor unit runs a conflicting mode."""
     out = []
-    others = set(other_zone_modes)
-    if others & HEATING_MODES:
-        for m in ("cool", "dry"):
-            if m in caps.modes:
-                out.append(
-                    {
-                        "mode": m,
-                        "reason": "Een andere ruimte verwarmt; de buitenunit kan niet tegelijk koelen.",
-                    }
-                )
-    if others & COOLING_MODES and "heat" in caps.modes:
-        out.append({"mode": "heat", "reason": "Een andere ruimte koelt; de buitenunit kan niet tegelijk verwarmen."})
+    for m in caps.modes:
+        for o in other_zone_modes:
+            if modes_conflict(m, o):
+                out.append({"mode": m, "reason": _conflict_reason(m, o)})
+                break
     return out
 
 
@@ -125,7 +205,7 @@ def validate_request(
     caps: Capabilities, other_zone_modes: list[str], mode: str | None, target_c: float | None
 ) -> str | None:
     """Return a Dutch error message when a requested change is not allowed, else None."""
-    if mode is not None:
+    if mode is not None and mode != "off":
         if mode not in caps.modes:
             return f"Modus '{mode}' wordt door deze unit niet ondersteund."
         for b in blocked_modes(caps, other_zone_modes):
@@ -182,16 +262,43 @@ def next_change(schedule: list[ScheduleEntry], now: datetime, tz: tzinfo) -> tup
     return at, best[1]
 
 
+def round_to_step(v: float, step: float, prefer_up: bool = True) -> float:
+    """Round to the unit's setpoint step. Exact halves go up (or down with prefer_up=False),
+    never to "even" like Python's round(), so a correction is not swallowed by rounding."""
+    q = v / step
+    lo = math.floor(q + 1e-9)
+    frac = q - lo
+    if abs(frac - 0.5) < 1e-6:
+        n = lo + 1 if prefer_up else lo
+    elif frac > 0.5:
+        n = lo + 1
+    else:
+        n = lo
+    return round(n * step, 2)
+
+
+# Kept for callers that still use the old private name.
 def _round_step(v: float, step: float) -> float:
-    return round(round(v / step) * step, 2)
+    return round_to_step(v, step)
 
 
 def _starts_last_hour(start_times: list[datetime], now: datetime) -> int:
     return sum(1 for t in start_times if now - t < timedelta(hours=1))
 
 
+def observed_state(unit: UnitState) -> dict:
+    """The unit state as a baseline dict."""
+    out: dict = {"mode": unit.mode}
+    if unit.target_c is not None:
+        out["target_c"] = unit.target_c
+    return out
+
+
 def detect_external_change(unit: UnitState, last_commanded: dict, tolerance_c: float = 0.25) -> bool:
-    """True when the unit's state differs from what we last sent: someone used the remote / OEM app."""
+    """True when the unit's state differs from the baseline: someone used the remote / OEM app.
+
+    Fan speed is not compared: the engine never sets it, so a fan change does not pause the schedule.
+    """
     if not unit.online or not last_commanded or unit.mode is None:
         return False
     if last_commanded.get("mode") and unit.mode != last_commanded["mode"]:
@@ -200,6 +307,35 @@ def detect_external_change(unit: UnitState, last_commanded: dict, tolerance_c: f
     if lt is not None and unit.target_c is not None and unit.mode != "off" and abs(unit.target_c - lt) > tolerance_c:
         return True
     return False
+
+
+def matches_command(params: dict, mode: str | None, target_c: float | None, fan: str | None = None) -> bool:
+    """Does a unit readback show what a command asked for? (late confirmation)"""
+    want_mode = params.get("mode")
+    if want_mode is not None and mode != want_mode:
+        return False
+    if want_mode != "off":
+        if params.get("target_c") is not None and (target_c is None or abs(target_c - params["target_c"]) > 0.3):
+            return False
+        if params.get("fan") is not None and fan != params["fan"]:
+            return False
+    return True
+
+
+def watchdog_needed(mode: str | None, target_c: float | None, temp: float | None, band: float) -> bool:
+    """The unit runs to reach a target the room is clearly away from (heat: too cold, cool: too warm)."""
+    if mode is None or target_c is None or temp is None:
+        return False
+    if mode in HEATING_MODES:
+        return temp < target_c - band / 2
+    if mode in COOLING_MODES:
+        return temp > target_c + band / 2
+    return False
+
+
+def watchdog_progress(mode: str, start_temp: float, temp: float) -> float:
+    """°C moved toward the target since the watchdog window started (negative = wrong way)."""
+    return temp - start_temp if mode in HEATING_MODES else start_temp - temp
 
 
 # --- main decision ---------------------------------------------------------------
@@ -216,9 +352,12 @@ def decide(z: ZoneInput) -> Decision:
             z.control,
             None,
             "unit_offline",
-            "Airco niet bereikbaar; laatste instelling blijft actief. " "Gebruik zo nodig de afstandsbediening.",
+            "Airco niet bereikbaar; laatste instelling blijft actief. Gebruik zo nodig de afstandsbediening.",
+            override_until=z.override_until,
             sensor_valid=valid,
         )
+
+    observed = observed_state(z.unit)
 
     # 2. manual override & external changes (remote control) ----------------------------
     control = z.control
@@ -227,11 +366,43 @@ def decide(z: ZoneInput) -> Decision:
         control = "schedule"
         override_until = None
         log.append("Handmatige periode verlopen, terug naar schema.")
-    if control in ("schedule", "oem_fallback") and detect_external_change(z.unit, z.last_commanded):
+
+    baseline: dict | None = None
+    mismatch = 0
+    base = z.last_commanded or {}
+    if z.pending:
+        pass  # our own command is on its way: the unit may not show it yet
+    elif not base.get("mode"):
+        baseline = observed  # no baseline yet (new zone, after resume): adopt what the unit shows
+    elif detect_external_change(z.unit, base):
+        mismatch = z.mismatch_count + (1 if z.readback_new else 0)
+        if mismatch < MISMATCH_READBACKS:
+            # Seen once: wait for the next readback before concluding anything, and do not
+            # undo a possible remote change in the meantime.
+            return Decision(
+                control,
+                None,
+                "checking_change",
+                None,
+                override_until=override_until,
+                mismatch_count=mismatch,
+                log=log,
+                sensor_valid=valid,
+            )
+        baseline, mismatch = observed, 0
         if z.unit.mode == "off":
             # Deliberate off: never auto-reactivate (plan §5).
             log.append("Unit met afstandsbediening uitgezet; automaat blijft uit tot je hervat.")
-            return Decision("off", None, "external_off", "Uitgezet met afstandsbediening.", log=log, sensor_valid=valid)
+            return Decision(
+                "off",
+                None,
+                "external_off",
+                "Uitgezet met afstandsbediening.",
+                override_source="remote_control",
+                log=log,
+                sensor_valid=valid,
+                baseline=baseline,
+            )
         until = now + timedelta(minutes=p["override_default_minutes"])
         nc = next_change(z.schedule, now, z.tz)
         if nc and nc[0] < until:
@@ -246,85 +417,111 @@ def decide(z: ZoneInput) -> Decision:
             override_source="remote_control",
             log=log,
             sensor_valid=valid,
+            baseline=baseline,
         )
+
     if control in ("manual", "off"):
         return Decision(
             control,
             None,
-            "override_active",
-            None if control == "manual" else "Uitgezet; hervat om " "het schema te volgen.",
-            override_until=override_until,
+            "override_active" if control == "manual" else "zone_off",
+            None if control == "manual" else "Uitgezet; hervat om het schema te volgen.",
+            override_until=override_until if control == "manual" else None,
             log=log,
             sensor_valid=valid,
+            baseline=baseline,
+            mismatch_count=mismatch,
+            mode=z.unit.mode,
+            target_base_c=z.unit.target_c,
         )
+
+    out_control = "schedule" if valid else "oem_fallback"
+    common = {"log": log, "sensor_valid": valid, "baseline": baseline, "mismatch_count": mismatch}
+    sensor_notice = notice if not valid else None
+
+    if z.pending:
+        return Decision(out_control, None, "pending", sensor_notice, **common)
 
     # 4. schedule -------------------------------------------------------------------------------
     entry = scheduled_entry(z.schedule, now, z.tz)
-    mode = (entry.mode if entry and entry.mode else z.desired_mode) or "off"
-    base_target = entry.target_c if entry else z.desired_target_c
-    if mode == "off" or base_target is None:
-        send = None
-        if z.unit.mode not in (None, "off") and z.last_commanded.get("mode") not in (None, "off"):
-            send = {"mode": "off"}
-        return Decision("schedule", send, "schedule_off", None, log=log, sensor_valid=valid)
+    if entry is None:
+        return Decision(
+            out_control, None, "no_schedule", "Geen schema ingesteld; de airco houdt zijn eigen instelling.", **common
+        )
+    unit_mode = z.unit.mode
+    if entry.mode:
+        mode = entry.mode
+    elif unit_mode in (None, "off"):
+        # A block without a mode keeps the current mode, and never starts a unit that is off.
+        return Decision(out_control, None, "keep_off", sensor_notice, **common)
+    else:
+        mode = unit_mode
+    base_target = entry.target_c
+    common.update(mode=mode, target_base_c=base_target)
 
-    # 1. safety: shared outdoor unit
+    if mode == "off":
+        send = {"mode": "off"} if unit_mode not in (None, "off") else None
+        return Decision(out_control, send, "schedule_off", sensor_notice, **common)
+
+    # 1. safety: shared outdoor unit, capabilities
     for b in blocked_modes(z.caps, z.other_zone_modes):
         if b["mode"] == mode:
-            return Decision("schedule", None, "mode_blocked", b["reason"], log=log, sensor_valid=valid)
+            return Decision(out_control, None, "mode_blocked", b["reason"], **common)
+    if mode not in z.caps.modes:
+        return Decision(
+            out_control, None, "mode_unsupported", f"Modus '{mode}' wordt door deze unit niet ondersteund.", **common
+        )
 
-    # 3. sensor validity: no external correction, just the scheduled target on the unit's own sensor
-    target = base_target
-    out_control = "schedule"
-    if valid:
-        assert z.sensor and z.sensor.value is not None
-        err = base_target - z.sensor.value
-        if mode in COOLING_MODES:
-            err = -err
-        # 5. bounded correction: offset the unit setpoint when the room is outside the band
-        current_offset = (z.last_commanded.get("target_c") or base_target) - base_target
-        if abs(err) > p["band_c"] / 2:
-            step = max(-p["max_step_c"], min(p["max_step_c"], err))
-            sign = 1 if mode not in COOLING_MODES else -1
-            new_offset = current_offset + sign * step * 0.5
+    # 3./5. setpoint: scheduled target + stored correction (+ adaptive), bounded
+    correction = z.correction_c or 0.0
+    new_correction = correction
+    target: float | None = None
+    if mode != "fan":
+        if valid and mode in CORRECTED_MODES:
+            assert z.sensor and z.sensor.value is not None
+            err = base_target - z.sensor.value  # >0: room too cold, <0: room too warm (any mode)
+            if abs(err) > effective_band(p) / 2:
+                # Move at least one setpoint step toward the error, so rounding never swallows it.
+                delta = max(z.caps.step_c, min(p["max_step_c"], abs(err)) * 0.5)
+                new_correction = correction + math.copysign(delta, err)
+            lo, hi = correction_limits(p, mode)
+            new_correction = round(max(lo, min(hi, new_correction)), 2)
+            offset = new_correction + z.adaptive_offset_c
+            offset = max(-p["max_offset_c"], min(p["max_offset_c"], offset))
         else:
-            new_offset = current_offset
-        new_offset += z.adaptive_offset_c
-        new_offset = max(-p["max_offset_c"], min(p["max_offset_c"], new_offset))
-        target = base_target + new_offset
-    else:
-        out_control = "oem_fallback"
+            new_correction = 0.0  # stale/invalid sensor or uncorrected mode: OEM regulates on its own sensor
+            offset = 0.0
+        target = max(z.caps.min_c, min(z.caps.max_c, base_target + offset))
+        prev = z.unit.target_c if unit_mode == mode else None
+        if prev is not None and abs(target - prev) > p["max_step_c"]:
+            target = prev + (p["max_step_c"] if target > prev else -p["max_step_c"])
+            log.append("Setpoint-sprong begrensd.")
+        target = round_to_step(target, z.caps.step_c, prefer_up=offset >= 0)
+        target = max(z.caps.min_c, min(z.caps.max_c, target))
 
-    # hardware limits + step + max jump
-    target = max(z.caps.min_c, min(z.caps.max_c, target))
-    prev = z.last_commanded.get("target_c") if z.last_commanded.get("mode") == mode else None
-    if prev is not None and abs(target - prev) > p["max_step_c"]:
-        target = prev + (p["max_step_c"] if target > prev else -p["max_step_c"])
-        log.append("Setpoint-sprong begrensd.")
-    target = _round_step(target, z.caps.step_c)
-
-    want = {"mode": mode, "target_c": target}
-    same_mode = z.unit.mode == mode
-    same_target = z.unit.target_c is not None and abs(z.unit.target_c - target) < z.caps.step_c / 2
+    want: dict = {"mode": mode}
+    if target is not None:
+        want["target_c"] = target
+    same_mode = unit_mode == mode
+    same_target = target is None or (z.unit.target_c is not None and abs(z.unit.target_c - target) < z.caps.step_c / 2)
     if same_mode and same_target:
-        return Decision(out_control, None, "no_change", notice, log=log, sensor_valid=valid)
+        return Decision(out_control, None, "no_change", sensor_notice, correction_c=new_correction, **common)
 
-    # rate limits
+    # rate limits: a held-back change does not store its correction (no wind-up)
     if z.last_command_at and (now - z.last_command_at).total_seconds() < p["min_interval_s"] and same_mode:
         log.append("Geen wijziging: minimale tijd tussen wijzigingen nog niet verstreken.")
-        return Decision(out_control, None, "min_interval", notice, log=log, sensor_valid=valid)
-    if not same_mode and z.unit.mode in (None, "off"):
-        if _starts_last_hour(z.start_times, now) >= p["max_starts_per_hour"]:
-            log.append("Geen start: maximum aantal starts per uur bereikt.")
-            return Decision(
-                out_control,
-                None,
-                "max_starts",
-                "Maximum aantal starts per uur bereikt.",
-                log=log,
-                sensor_valid=valid,
-            )
+        return Decision(out_control, None, "min_interval", sensor_notice, **common)
+    starting = unit_mode in (None, "off")
+    if starting and _starts_last_hour(z.start_times, now) >= p["max_starts_per_hour"]:
+        log.append("Geen start: maximum aantal starts per uur bereikt.")
+        return Decision(out_control, None, "max_starts", "Maximum aantal starts per uur bereikt.", **common)
 
     return Decision(
-        out_control, want, "schedule" if valid else "fallback_schedule", notice, log=log, sensor_valid=valid
+        out_control,
+        want,
+        "schedule" if valid else "fallback_schedule",
+        sensor_notice,
+        correction_c=new_correction,
+        starting=starting,
+        **common,
     )
