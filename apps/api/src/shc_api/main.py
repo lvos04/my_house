@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from .config import VERSION, get_settings
 from .db import dispose
 from .events import hub
-from .routers import auth, devices, energy, homes, lights, pairing, system, ws, zones
+from .routers import auth, devices, energy, homes, lights, optimization, pairing, system, ws, zones
 
 API_PREFIX = "/api/v1"
 
@@ -34,7 +34,7 @@ def create_app() -> FastAPI:
         openapi_url=f"{API_PREFIX}/openapi.json",
         redoc_url=None,
     )
-    for r in (auth, pairing, homes, zones, lights, energy, devices, system, ws):
+    for r in (auth, pairing, homes, zones, lights, energy, devices, optimization, system, ws):
         app.include_router(r.router, prefix=API_PREFIX)
 
     @app.exception_handler(RequestValidationError)
@@ -48,7 +48,7 @@ def create_app() -> FastAPI:
                 "detail": {
                     "code": "validation_error",
                     "message": f"{loc}: {msg}" if loc else msg,
-                    "errors": exc.errors(),
+                    "errors": [{k: v for k, v in e.items() if k in ("loc", "msg", "type")} for e in exc.errors()],
                 }
             },
         )

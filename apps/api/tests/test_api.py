@@ -419,3 +419,25 @@ async def test_pair_persists_adapter_learned_config(admin, home, monkeypatch):
             await db.execute(select(Integration).where(Integration.config["serial"].astext == "SER123"))
         ).scalar_one()
         assert integ.config["api_version"] == "v1" and integ.config["host"] == "192.168.1.50"
+
+
+async def test_adaptive_and_experiment_endpoints(admin, home):
+    zid = (await admin.get(f"/homes/{home['id']}/zones")).json()[0]["id"]
+    st = (await admin.get(f"/zones/{zid}/adaptive")).json()
+    assert st["enabled"] is False and st["baseline"]["ready"] is False
+    r = await admin.post(f"/zones/{zid}/adaptive/fit")
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "insufficient_data"
+    assert (await admin.post(f"/zones/{zid}/adaptive/disable")).json()["enabled"] is False
+    body = {
+        "name": "Nachtverlaging",
+        "zone_id": zid,
+        "variants": [
+            {"label": "Constant", "start": "2026-10-01T00:00:00Z", "end": "2026-10-08T00:00:00Z"},
+            {"label": "Nacht 18°", "start": "2026-10-08T00:00:00Z", "end": "2026-10-15T00:00:00Z"},
+        ],
+    }
+    e = (await admin.post(f"/homes/{home['id']}/experiments", json=body)).json()
+    res = (await admin.get(f"/experiments/{e['id']}")).json()
+    assert res["verdict"] == "indicatief" and len(res["rows"]) == 2
+    bad = {**body, "variants": [{"label": "x", "start": "2026-10-02T00:00:00Z", "end": "2026-10-01T00:00:00Z"}] * 2}
+    assert (await admin.post(f"/homes/{home['id']}/experiments", json=bad)).status_code == 422

@@ -22,6 +22,7 @@ DEFAULT_ROLES = [
     ("boiler", "Boiler (alleen meten)", True),
     ("living_room_climate", "Klimaat woonkamer", False),
     ("bedroom_climate", "Klimaat slaapkamer", False),
+    ("outdoor_temp", "Buitentemperatuur (optioneel)", False),
 ]
 
 

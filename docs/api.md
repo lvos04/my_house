@@ -167,6 +167,17 @@ Integration = {provider, label, state: "ok"|"warn"|"error"|"not_configured", det
 | POST | `/homes/{id}/archive` (admin) — verhuisd: woning alleen-lezen, historie blijft |
 | GET | `/homes/{home_id}/alerts` · POST `/alerts/{id}/ack` |
 
+## Optimalisatie (opt-in)
+
+| Methode | Pad |
+|---|---|
+| GET | `/zones/{id}/adaptive` → `{enabled, baseline: {samples, running_samples, required, since, ready}, max_offset_c, models: [{id, version, params: {k_per_h, c_per_h, n, r2, usable}, created_at, active}]}` |
+| POST | `/zones/{id}/adaptive/fit` (admin) → nieuwe modelversie, of 409 `insufficient_data` |
+| POST | `/zones/{id}/adaptive/activate` (admin) `{model_id}` — een oudere versie activeren = terugzetten |
+| POST | `/zones/{id}/adaptive/disable` (admin) |
+| GET/POST | `/homes/{id}/experiments` — POST `{name, zone_id, variants: [{label, start, end}] (2–4)}` |
+| GET | `/experiments/{id}` → `{verdict: "vergelijkbaar"\|"indicatief"\|"onvoldoende", reasons, rows: [{variant, days, kwh_per_day, vs_first_pct, mean_abs_dev_c, starts, outdoor_mean_c}]}` |
+
 ## Realtime (WebSocket)
 
 `GET /api/v1/ws?home_id=<id>` — cookie-auth of eerste bericht `{"type":"auth","token":"shc_..."}`.

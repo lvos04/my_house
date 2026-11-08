@@ -10,6 +10,7 @@ import { ClimatePage } from './pages/Climate';
 import { LightsPage } from './pages/Lights';
 import { EnergyPage } from './pages/Energy';
 import { DevicesPage } from './pages/Devices';
+import { OptimizationPage } from './pages/Optimization';
 import { SystemPage } from './pages/System';
 import { Loading } from './components/bits';
 import { OfflineBanner } from './components/OfflineBanner';
@@ -52,6 +53,7 @@ function Gate() {
             <Route path="klimaat" element={<ClimatePage />} />
             <Route path="verlichting" element={<LightsPage />} />
             <Route path="energie" element={<EnergyPage />} />
+            <Route path="optimalisatie" element={<OptimizationPage />} />
             <Route path="apparaten" element={<DevicesPage />} />
             <Route path="systeem" element={<SystemPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

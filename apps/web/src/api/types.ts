@@ -106,6 +106,8 @@ export interface Zone {
   next_change: { at: Ts; target_c: number; label: string } | null;
   policy: ZonePolicy;
   notice: string | null;
+  unit_device_id?: string | null;
+  sensor_device_id?: string | null;
 }
 export interface ZoneCommand {
   mode?: HvacMode;
@@ -171,7 +173,7 @@ export interface HueButton {
 }
 
 export type Period = 'day' | 'week' | 'month' | 'year';
-export type MeterRole = 'grid_import' | 'grid_export' | 'airco' | 'boiler' | 'rest' | string;
+export type MeterRole = 'grid' | 'grid_import' | 'grid_export' | 'airco' | 'boiler' | 'rest' | string;
 export interface EnergyMeter {
   role: MeterRole;
   label: string;
@@ -226,6 +228,9 @@ export interface Device {
   kind: string;
   name: string;
   stable_identity: string;
+  model?: string | null;
+  firmware?: string | null;
+  lifecycle?: string;
   room: string | null;
   roles: string[];
   online: boolean;
@@ -235,6 +240,7 @@ export interface Device {
   compatibility: 'tested' | 'untested' | 'unsupported';
 }
 export interface Integration {
+  id: string | null;
   provider: string;
   label: string;
   state: 'ok' | 'warn' | 'error' | 'not_configured';
@@ -254,6 +260,42 @@ export interface PairingInstructions {
   steps: string[];
   retry_after_s: number | null;
 }
+/** 202 from POST /integrations/{provider}/pair: a human step is needed (link button, button press). */
+export interface ActionRequired extends PairingInstructions {
+  status: 'action_required';
+}
+export interface PairIn {
+  home_id: string;
+  host: string;
+  name?: string;
+  options?: Record<string, unknown>;
+}
+export interface IntegrationInstructions {
+  provider: string;
+  label: string;
+  steps: string[];
+  needs_manufacturer_app: string | null;
+  works_locally: boolean;
+}
+export const BIND_ROLES = [
+  { key: 'grid', label: 'Huis totaal (P1)' },
+  { key: 'airco', label: 'Airco totaal (kWh-meter)' },
+  { key: 'boiler', label: 'Boiler (alleen meten)' },
+] as const;
+export interface SystemSettings {
+  lan_url: string | null;
+  remote_url: string | null;
+  safe_mode: boolean;
+}
+export interface ZoneConfig {
+  name?: string;
+  unit_device_id?: string | null;
+  sensor_device_id?: string | null;
+}
+export interface NewHome {
+  name: string;
+  timezone: string;
+}
 
 export interface SystemStatus {
   checks: StatusCheck[];
@@ -261,10 +303,17 @@ export interface SystemStatus {
 export interface Backup {
   id: string;
   created_at: Ts;
-  size_bytes: number | null;
   kind: string;
-  status: string;
+  filename: string | null;
+  size_bytes: number | null;
+  sha256?: string | null;
   checksum: string | null;
+  status: string;
+  detail: { tables?: Record<string, number>; secrets_included?: boolean; zigbee2mqtt_included?: boolean } | null;
+}
+export interface BackupIn {
+  passphrase: string;
+  include_secrets: boolean;
 }
 
 export type WsMessage =
@@ -273,3 +322,60 @@ export type WsMessage =
   | { type: 'energy.live'; data: LivePower }
   | { type: 'alert.created'; data: Alert }
   | { type: 'status.updated'; data: StatusCheck[] };
+
+export interface Room {
+  id: string;
+  name: string;
+  function: string | null;
+}
+export interface PermitJoinResult {
+  command_id: string;
+  open_until: Ts;
+}
+
+export interface AdaptiveModel {
+  id: string;
+  version: number;
+  params: { k_per_h: number; c_per_h: number; n: number; r2: number; usable: boolean; [k: string]: unknown };
+  created_at: Ts | null;
+  active: boolean;
+}
+export interface AdaptiveStatus {
+  enabled: boolean;
+  baseline: { samples: number; running_samples: number; required: number; since: Ts | null; ready: boolean };
+  max_offset_c: number;
+  models: AdaptiveModel[];
+}
+export interface ExperimentVariant {
+  label: string;
+  start: Ts;
+  end: Ts;
+  zone_id?: string;
+}
+export interface Experiment {
+  id: string;
+  name: string;
+  variants: ExperimentVariant[];
+  status: string;
+  created_at?: Ts;
+}
+export interface ExperimentIn {
+  name: string;
+  zone_id: string;
+  variants: { label: string; start: Ts; end: Ts }[];
+}
+export type Verdict = 'vergelijkbaar' | 'indicatief' | 'onvoldoende';
+export interface ExperimentRow {
+  variant: string;
+  days: number;
+  kwh_per_day: number | null;
+  vs_first_pct: number | null;
+  mean_abs_dev_c: number | null;
+  starts: number;
+  outdoor_mean_c: number | null;
+}
+export interface ExperimentResult extends Experiment {
+  verdict: Verdict;
+  reasons: string[];
+  rows: ExperimentRow[];
+}

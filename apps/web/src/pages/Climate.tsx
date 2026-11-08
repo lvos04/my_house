@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
-import type { Schedule, Zone, ZoneHistory } from '../api/types';
+import type { Schedule, Zone, ZoneHistory, ZonePolicy } from '../api/types';
+import { useIsAdmin } from '../user';
 import { useCanAct, useHome } from '../state';
 import { ActionButton, Empty, ErrorNote, Loading, QualityBadge } from '../components/bits';
 import { ModeButtons, PendingLine, useZoneCommand, measurementLine } from '../components/zone';
@@ -79,7 +80,93 @@ export function HistoryChart({ history }: { history: ZoneHistory }) {
   );
 }
 
-function ZoneDetail({ zone, tz }: { zone: Zone; tz?: string }) {
+export function ZoneSettings({ zone, homeId }: { zone: Zone; homeId: string }) {
+  const qc = useQueryClient();
+  const devices = useQuery({ queryKey: ['devices', homeId], queryFn: () => api.devices(homeId) });
+  const units = devices.data?.filter((d) => d.kind === 'ac_unit') ?? [];
+  const sensors = devices.data?.filter((d) => d.kind === 'zigbee_sensor') ?? [];
+  const [unit, setUnit] = useState(zone.unit_device_id ?? '');
+  const [sensor, setSensor] = useState(zone.sensor_device_id ?? '');
+  // Prefill from the server (zone_view returns the current binding) and follow external changes.
+  useEffect(() => setUnit(zone.unit_device_id ?? ''), [zone.unit_device_id]);
+  useEffect(() => setSensor(zone.sensor_device_id ?? ''), [zone.sensor_device_id]);
+  const [pol, setPol] = useState({
+    band_c: String(zone.policy.band_c),
+    min_interval_min: String(Math.round(zone.policy.min_interval_s / 60)),
+    max_step_c: String(zone.policy.max_step_c),
+    max_starts_per_hour: String(zone.policy.max_starts_per_hour),
+    stale_after_min: String(Math.round(zone.policy.stale_after_s / 60)),
+  });
+  const onSaved = (z: Zone) => {
+    qc.setQueryData(['zone', z.id], z);
+    qc.invalidateQueries({ queryKey: ['zones'] });
+    qc.invalidateQueries({ queryKey: ['zonelog', z.id] });
+  };
+  const link = useMutation({ mutationFn: () => api.patchZone(zone.id, { unit_device_id: unit || null, sensor_device_id: sensor || null }), onSuccess: onSaved });
+  const num = (v: string) => Number(v.replace(',', '.'));
+  const policy = useMutation({
+    mutationFn: () => {
+      const p: ZonePolicy = {
+        band_c: num(pol.band_c),
+        min_interval_s: Math.round(num(pol.min_interval_min) * 60),
+        max_step_c: num(pol.max_step_c),
+        max_starts_per_hour: Math.round(num(pol.max_starts_per_hour)),
+        stale_after_s: Math.round(num(pol.stale_after_min) * 60),
+      };
+      return api.putZonePolicy(zone.id, p);
+    },
+    onSuccess: onSaved,
+  });
+  const field = (k: keyof typeof pol, label: string, min: number, max: number, step: number) => (
+    <label className="field">{label}
+      <input type="number" min={min} max={max} step={step} required value={pol[k]} onChange={(e) => setPol({ ...pol, [k]: e.target.value })} />
+    </label>
+  );
+  return (
+    <div className="grid-auto">
+      <section aria-labelledby="link-h" className="card">
+        <h2 id="link-h" style={{ fontSize: 16, fontFamily: 'var(--font-body)' }}>Zone-koppeling</h2>
+        <p className="small muted" style={{ margin: 0 }}>Kies de airco-unit en de externe sensor voor deze zone. Hang de sensor op een representatieve plek, niet in de luchtstroom of in de zon.</p>
+        {devices.isLoading ? <Loading /> : (
+          <form className="form-grid" onSubmit={(e) => { e.preventDefault(); link.mutate(); }}>
+            <label className="field">Airco-unit
+              <select value={unit} onChange={(e) => setUnit(e.target.value)}>
+                <option value="">Geen</option>
+                {units.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </label>
+            <label className="field">Temperatuursensor
+              <select value={sensor} onChange={(e) => setSensor(e.target.value)}>
+                <option value="">Sensor van de unit zelf</option>
+                {sensors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </label>
+            <ActionButton type="submit" className="btn primary" disabled={link.isPending}>Opslaan</ActionButton>
+          </form>
+        )}
+        {link.isSuccess && <span className="small muted" role="status">Koppeling opgeslagen.</span>}
+        {link.error && <ErrorNote error={link.error} />}
+      </section>
+      <section aria-labelledby="pol-h" className="card">
+        <h2 id="pol-h" style={{ fontSize: 16, fontFamily: 'var(--font-body)' }}>Regelgrenzen</h2>
+        <p className="small muted" style={{ margin: 0 }}>Deze grenzen voorkomen pendelen. De beveiligingen van de airco zelf blijven altijd leidend.</p>
+        <form className="form-grid" onSubmit={(e) => { e.preventDefault(); policy.mutate(); }}>
+          {field('band_c', 'Comfortband ± °C', 0.2, 3, 0.1)}
+          {field('min_interval_min', 'Min. tijd tussen wijzigingen (min)', 5, 120, 1)}
+          {field('max_step_c', 'Max. setpoint-sprong °C', 0.5, 3, 0.5)}
+          {field('max_starts_per_hour', 'Max. starts per uur', 1, 6, 1)}
+          {field('stale_after_min', 'Sensor verouderd na (min)', 5, 120, 1)}
+          <ActionButton type="submit" className="btn primary" disabled={policy.isPending}>Opslaan</ActionButton>
+        </form>
+        {policy.isSuccess && <span className="small muted" role="status">Regelgrenzen opgeslagen.</span>}
+        {policy.error && <ErrorNote error={policy.error} />}
+      </section>
+    </div>
+  );
+}
+
+function ZoneDetail({ zone, tz, homeId }: { zone: Zone; tz?: string; homeId: string }) {
+  const isAdmin = useIsAdmin();
   const qc = useQueryClient();
   const canAct = useCanAct();
   const cmd = useZoneCommand(zone);
@@ -168,6 +255,7 @@ function ZoneDetail({ zone, tz }: { zone: Zone; tz?: string }) {
           <Empty>Nog geen aanpassingen.</Empty>
         )}
       </section>
+      {isAdmin && <ZoneSettings zone={zone} homeId={homeId} />}
     </>
   );
 }
@@ -197,7 +285,7 @@ export function ClimatePage() {
           </div>
         )}
       </header>
-      {zone ? <ZoneDetail key={zone.id} zone={zone} tz={tz} /> : <Empty>Nog geen klimaatzones. Koppel eerst de airco-units via Apparaten.</Empty>}
+      {zone ? <ZoneDetail key={zone.id} zone={zone} tz={tz} homeId={homeId} /> : <Empty>Nog geen klimaatzones. Koppel eerst de airco-units via Apparaten.</Empty>}
     </>
   );
 }

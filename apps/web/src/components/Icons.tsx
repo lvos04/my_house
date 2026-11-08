@@ -14,3 +14,4 @@ export const PlusIcon = (p: P) => (<svg {...base} {...p}><path d="M12 5v14M5 12h
 export const FlameIcon = (p: P) => (<svg {...base} width={14} height={14} strokeWidth={2} {...p}><path d="M12 2c2 4-3 6-1 10a4 4 0 01-4 4 4 4 0 0010 0c0-5-5-8-5-14z" /></svg>);
 export const SnowIcon = (p: P) => (<svg {...base} width={14} height={14} strokeWidth={2} {...p}><path d="M12 2v20M4 6l16 12M20 6L4 18" /></svg>);
 export const CloudOffIcon = (p: P) => (<svg {...base} {...p}><path d="M3 3l18 18" /><path d="M8 8a5 5 0 00-1 9h10" /><path d="M12 6a5 5 0 015 5h1a3 3 0 012 5" /></svg>);
+export const TrendIcon = (p: P) => (<svg {...base} {...p}><path d="M3 17l5-5 4 4 8-8" /><path d="M15 8h5v5" /></svg>);

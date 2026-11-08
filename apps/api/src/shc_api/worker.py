@@ -481,6 +481,7 @@ class Worker:
                     last_commanded=z.last_commanded or {},
                     start_times=[datetime.fromisoformat(t) for t in (z.start_times or [])],
                     other_zone_modes=await views.other_zone_modes(db, z),
+                    adaptive_offset_c=await self._adaptive_offset(db, z, sensor, home),
                 )
                 d = cl.decide(zi)
                 changed = d.control != z.control
@@ -528,6 +529,25 @@ class Worker:
                 if d.send or changed or d.log:
                     await events.publish(db, "zone.updated", home.id, await views.zone_view(db, z, home))
                 await db.commit()
+
+    async def _adaptive_offset(self, db, z: ClimateZone, sensor, home: Home) -> float:
+        """Bounded advice from the active model; 0 unless the zone is opted in."""
+        if not z.adaptive_enabled or sensor is None or sensor.value is None:
+            return 0.0
+        from .adaptive import advised_offset
+        from .models import AdaptiveModelVersion
+
+        m = (
+            await db.execute(
+                select(AdaptiveModelVersion).where(
+                    AdaptiveModelVersion.zone_id == z.id, AdaptiveModelVersion.active.is_(True)
+                )
+            )
+        ).scalar_one_or_none()
+        entry = cl.scheduled_entry(await views.schedule_entries(db, z.id), datetime.now(UTC), ZoneInfo(home.timezone))
+        if m is None or entry is None:
+            return 0.0
+        return advised_offset(m.params, entry.target_c, sensor.value, cl.policy_with_defaults(z.policy)["band_c"])
 
     @staticmethod
     def _describe(d: cl.Decision) -> str:

@@ -180,3 +180,42 @@ def test_counter_reset_and_duplicates_and_gap():
 def test_big_drop_is_not_negative_usage():
     d = e.deltas([P(10, 0, 500.0), P(10, 15, 300.0)])
     assert d[0][2] == 0.0
+
+
+# --- adaptive & experiments --------------------------------------------------
+
+
+def test_adaptive_fit_recovers_room_response():
+    from shc_api import adaptive as ad
+
+    k_true, c_true = 0.8, -0.2
+    temp, sp = 18.0, 21.0
+    samples = []
+    t0 = datetime(2026, 11, 1, tzinfo=UTC)
+    for i in range(200):
+        samples.append(ad.Sample(t0 + timedelta(minutes=15 * i), temp, sp, True))
+        sp = 21.0 if (i // 24) % 2 == 0 else 19.0
+        temp += (k_true * (sp - temp) + c_true) * 0.25 + (0.02 if i % 3 else -0.02)
+    m = ad.fit(samples)
+    assert m and m["usable"] and abs(m["k_per_h"] - k_true) < 0.15
+    off = ad.advised_offset(m, 21.0, 19.5, 0.5)
+    assert 0 < off <= ad.MAX_ADAPTIVE_OFFSET
+    assert ad.advised_offset(m, 21.0, 20.9, 0.5) == 0.0
+    assert ad.fit(samples[:20]) is None
+
+
+def test_experiment_comparison_is_honest():
+    from shc_api.adaptive import PeriodStats, compare
+
+    ok = compare([PeriodStats("Constant", 7, 21.0, 0.3, 4, 6.0), PeriodStats("Nachtverlaging", 7, 18.2, 0.5, 9, 6.8)])
+    assert ok["verdict"] == "vergelijkbaar" and ok["rows"][1]["vs_first_pct"] == pytest.approx(-13.3, abs=0.1)
+    weather = compare([PeriodStats("A", 7, 21.0, 0.3, 4, 2.0), PeriodStats("B", 7, 15.0, 0.3, 4, 9.0)])
+    assert weather["verdict"] == "indicatief" and any("Buitentemperatuur" in r for r in weather["reasons"])
+    no_out = compare([PeriodStats("A", 7, 21.0, 0.3, 4, None), PeriodStats("B", 3, 15.0, 0.3, 4, None)])
+    assert no_out["verdict"] == "indicatief" and len(no_out["reasons"]) == 2
+
+
+def test_adaptive_offset_is_bounded_by_policy_in_engine():
+    z = zone(sensor=c.SensorValue(19.0, NOW), adaptive_offset_c=5.0)
+    d = c.decide(z)
+    assert d.send and d.send["target_c"] <= 21.0 + c.DEFAULT_POLICY["max_offset_c"]

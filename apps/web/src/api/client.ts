@@ -123,17 +123,45 @@ export const api = {
   },
 
   devices: (homeId: string) => get<T.Device[]>(`/homes/${homeId}/devices`),
+  patchDevice: (id: string, body: { name?: string; room_id?: string | null }) => request<T.Device>('PATCH', `/devices/${id}`, body),
+  bindDevice: (id: string, role: string) => post<T.Device>(`/devices/${id}/bind`, { role }),
   integrations: () => get<T.Integration[]>('/integrations'),
-  discover: (provider: string) => post<T.DiscoveredDevice[]>(`/integrations/${provider}/discover`),
-  pair: (provider: string, body: Record<string, unknown>) =>
-    post<T.Device | T.PairingInstructions>(`/integrations/${provider}/pair`, body),
+  rooms: (homeId: string) => get<T.Room[]>(`/homes/${homeId}/rooms`),
+  zigbeeSetup: (homeId: string) => post<T.Device>('/integrations/zigbee/setup', { home_id: homeId }),
+  zigbeePermitJoin: (homeId: string, seconds = 120) => post<T.PermitJoinResult>('/integrations/zigbee/permit-join', { home_id: homeId, seconds }),
+  integrationInstructions: (provider: string) => get<T.IntegrationInstructions>(`/integrations/${provider}/instructions`),
+  discover: (provider: string, homeId: string, timeout_s?: number) =>
+    post<T.DiscoveredDevice[]>(`/integrations/${provider}/discover`, timeout_s ? { home_id: homeId, timeout_s } : { home_id: homeId }),
+  pair: (provider: string, body: T.PairIn) => post<T.Device | T.ActionRequired>(`/integrations/${provider}/pair`, body),
+
+  patchZone: (id: string, body: T.ZoneConfig) => request<T.Zone>('PATCH', `/zones/${id}`, body),
+  putZonePolicy: (id: string, p: T.ZonePolicy) => put<T.Zone>(`/zones/${id}/policy`, p),
+
+  adaptive: (zoneId: string) => get<T.AdaptiveStatus>(`/zones/${zoneId}/adaptive`),
+  adaptiveFit: (zoneId: string) => post<T.AdaptiveModel>(`/zones/${zoneId}/adaptive/fit`),
+  adaptiveActivate: (zoneId: string, modelId: string) => post<T.AdaptiveStatus>(`/zones/${zoneId}/adaptive/activate`, { model_id: modelId }),
+  adaptiveDisable: (zoneId: string) => post<T.AdaptiveStatus>(`/zones/${zoneId}/adaptive/disable`),
+  experiments: (homeId: string) => get<T.Experiment[]>(`/homes/${homeId}/experiments`),
+  createExperiment: (homeId: string, e: T.ExperimentIn) => post<T.Experiment>(`/homes/${homeId}/experiments`, e),
+  experimentResult: (id: string) => get<T.ExperimentResult>(`/experiments/${id}`),
+
+  createHome: (h: T.NewHome) => post<T.Home>('/homes', h),
+  archiveHome: (id: string) => post<T.Home>(`/homes/${id}/archive`),
 
   systemStatus: () => get<T.SystemStatus>('/system/status'),
+  settings: () => get<T.SystemSettings>('/system/settings'),
+  putSettings: (s: { lan_url: string | null; remote_url: string | null }) => put<T.SystemSettings>('/system/settings', s),
+  releaseSafeMode: () => post<{ safe_mode: boolean }>('/system/safe-mode/release'),
   backups: () => get<T.Backup[]>('/system/backups'),
-  createBackup: () => post<T.Backup>('/system/backups'),
+  createBackup: (b: T.BackupIn) => post<T.Backup>('/system/backups', b),
+  backupDownloadUrl: (id: string) => `${API_BASE}/system/backups/${id}/download`,
   alerts: (homeId: string) => get<T.Alert[]>(`/homes/${homeId}/alerts`),
   ackAlert: (id: string) => post<void>(`/alerts/${id}/ack`),
 };
+
+export function isActionRequired(x: unknown): x is T.ActionRequired {
+  return typeof x === 'object' && x !== null && (x as { status?: string }).status === 'action_required';
+}
 
 export function parseQrPayload(raw: string): T.QrPayload | null {
   try {

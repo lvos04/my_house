@@ -6,15 +6,17 @@ export const ROLE_COLOR: Record<string, string> = {
   airco: 'var(--cool)',
   boiler: 'var(--boiler)',
   rest: 'var(--rest)',
+  grid: 'var(--text-2)',
   grid_import: 'var(--text-2)',
   grid_export: 'var(--ok)',
 };
 export const STACK_ROLES = ['airco', 'boiler', 'rest'];
+const GRID_ROLES = new Set(['grid', 'grid_import', 'grid_export']);
 
 /** Meters that make up consumption (excludes grid totals) in display order. */
 export function partMeters(s: EnergySummary): EnergyMeter[] {
   const order = (r: string) => (STACK_ROLES.indexOf(r) + 1 || 99);
-  return s.meters.filter((m) => m.role !== 'grid_import' && m.role !== 'grid_export').sort((a, b) => order(a.role) - order(b.role));
+  return s.meters.filter((m) => !GRID_ROLES.has(m.role)).sort((a, b) => order(a.role) - order(b.role));
 }
 
 export function MeterList({ meters, currency }: { meters: EnergyMeter[]; currency: string }) {
