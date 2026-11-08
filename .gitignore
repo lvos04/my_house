@@ -9,3 +9,7 @@ dist/
 *.shcbak
 .env
 secrets/
+.gradle/
+build/
+local.properties
+*.apk

@@ -1,0 +1,8 @@
+# Zigbee2MQTT owns its tree.
+user zigbee2mqtt
+topic readwrite zigbee2mqtt/#
+
+# The app reads device data and may only send bridge requests (permit_join, rename).
+user shc
+topic read zigbee2mqtt/#
+topic write zigbee2mqtt/bridge/request/#

@@ -15,7 +15,9 @@ VERSION = "0.1.0"
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SHC_", env_file=None, extra="ignore")
 
-    database_url: str = "postgresql+asyncpg://shc:shc@localhost:5432/shc"
+    database_url: str = "postgresql+asyncpg://shc@localhost:5432/shc"
+    # Password from a Docker secret file, injected into database_url when set.
+    database_password_file: Path | None = None
     # Key used to encrypt device credentials at rest. Either the value itself or a file
     # (Docker secret). Must be 32+ random bytes, base64 or hex.
     secret_key: str | None = None
@@ -43,6 +45,17 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
     trusted_proxies: list[str] = Field(default_factory=lambda: ["127.0.0.1", "172.16.0.0/12", "10.0.0.0/8"])
+
+    def model_post_init(self, _ctx) -> None:
+        if self.database_password_file and self.database_password_file.exists():
+            from urllib.parse import quote, urlsplit, urlunsplit
+
+            pw = quote(self.database_password_file.read_text().strip(), safe="")
+            u = urlsplit(self.database_url)
+            user = u.username or "shc"
+            host = u.hostname or "localhost"
+            netloc = f"{user}:{pw}@{host}" + (f":{u.port}" if u.port else "")
+            self.database_url = urlunsplit((u.scheme, netloc, u.path, u.query, u.fragment))
 
     def resolved_secret_key(self) -> str:
         if self.secret_key_file and self.secret_key_file.exists():
