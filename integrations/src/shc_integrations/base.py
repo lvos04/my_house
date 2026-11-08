@@ -163,6 +163,9 @@ class CommandResult:
     confirmed: bool  # True only after readback showed the requested state
     detail: str = ""
     state: dict[str, Any] | None = None
+    # The device/hub received the command but reported an error for it (e.g. a Hue Bridge
+    # "errors" list). Never confirmed; the API stores such a command as "failed" with `detail`.
+    rejected: bool = False
 
 
 @dataclass(slots=True)

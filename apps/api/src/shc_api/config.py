@@ -84,8 +84,12 @@ class Settings(BaseSettings):
     backup_hour_local: int = 3
     backup_keep: int = 14
 
-    # Reference clock for the time check; None disables the NTP comparison.
+    # Reference clock for the time check ("host" or "host:port"); None disables the NTP comparison.
     ntp_server: str | None = "pool.ntp.org"
+
+    # Extra device addresses pairing accepts although they are not on the home network (comma-separated
+    # host names or IPs, e.g. for a test setup). Empty: only private IPs and LAN names.
+    pairing_allowed_hosts: str = ""
 
     log_level: str = "INFO"
 
@@ -108,6 +112,9 @@ class Settings(BaseSettings):
         if self.cookie_secure == "auto":
             return scheme == "https"
         return self.cookie_secure == "true"
+
+    def pairing_allowed_host_set(self) -> set[str]:
+        return {h.strip().lower() for h in self.pairing_allowed_hosts.split(",") if h.strip()}
 
     def model_post_init(self, _ctx) -> None:
         if self.database_password_file and self.database_password_file.exists():

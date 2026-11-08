@@ -150,8 +150,13 @@ async def test_pair_host_validation(admin, monkeypatch, home):
     assert validate_host("192.168.1.5") == "192.168.1.5"
     assert validate_host("Hue-Bridge.local") == "hue-bridge.local"
     assert validate_host("meter.home.arpa") == "meter.home.arpa"
-    monkeypatch.setenv("SHC_PAIRING_ALLOWED_HOSTS", "mosquitto")
+    from shc_api.config import Settings, get_settings
+
+    monkeypatch.setattr(get_settings(), "pairing_allowed_hosts", "Mosquitto, test-bridge")
     assert validate_host("mosquitto") == "mosquitto"
+    assert validate_host("test-bridge") == "test-bridge"
+    monkeypatch.setenv("SHC_PAIRING_ALLOWED_HOSTS", "a.example, 10.9.9.9 ,")
+    assert Settings().pairing_allowed_host_set() == {"a.example", "10.9.9.9"}
 
 
 async def test_patch_integration_address_checks_identity(admin, monkeypatch):

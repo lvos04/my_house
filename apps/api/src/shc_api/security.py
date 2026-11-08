@@ -177,16 +177,42 @@ def _url_parts(url: str) -> tuple[str, str] | None:
         return None
     if u.scheme not in ("http", "https") or not u.hostname:
         return None
-    if u.username or u.password or u.query or u.fragment or u.path not in ("", "/"):
+    if _has_extras(u):
         return None
     return u.scheme, u.hostname
+
+
+def _has_extras(u) -> bool:
+    return bool(u.username or u.password or u.query or u.fragment or u.path not in ("", "/"))
+
+
+def _extras_problem(url: str, what: str) -> str | None:
+    """A specific message for an otherwise valid http(s) address with a path, user name or query."""
+    try:
+        u = urlsplit(url.strip())
+        _ = u.port
+    except ValueError:
+        return None
+    if u.scheme in ("http", "https") and u.hostname and _has_extras(u):
+        return f"{what}: alleen schema, naam en eventueel poort invullen (zonder pad, gebruikersnaam of ?…)."
+    return None
+
+
+def normalize_server_url(url: str) -> str:
+    """Canonical form of an address that passed lan_url_problem/remote_url_problem: scheme://host[:port]
+    (trailing slash removed, IPv6 in brackets)."""
+    u = urlsplit(url.strip())
+    host = u.hostname or ""
+    return f"{u.scheme}://" + (f"[{host}]" if ":" in host else host) + (f":{u.port}" if u.port else "")
 
 
 def lan_url_problem(url: str) -> str | None:
     """Dutch explanation of what is wrong with a home-network address, or None when it is fine."""
     parts = _url_parts(url)
     if parts is None:
-        return "Het thuisadres is geen geldig adres (verwacht bijvoorbeeld http://192.168.1.20:8088)."
+        return _extras_problem(url, "Thuisadres") or (
+            "Het thuisadres is geen geldig adres (verwacht bijvoorbeeld http://192.168.1.20:8088)."
+        )
     if not is_private_host(parts[1]):
         return (
             "Het thuisadres moet een adres in je thuisnetwerk zijn (bijvoorbeeld http://192.168.1.20:8088 "
@@ -199,7 +225,9 @@ def remote_url_problem(url: str) -> str | None:
     """Dutch explanation of what is wrong with the address used outside the home, or None."""
     parts = _url_parts(url)
     if parts is None:
-        return "Het adres buiten huis is geen geldig adres (verwacht bijvoorbeeld https://huis.voorbeeld.nl)."
+        return _extras_problem(url, "Adres buiten huis") or (
+            "Het adres buiten huis is geen geldig adres (verwacht bijvoorbeeld https://huis.voorbeeld.nl)."
+        )
     if parts[0] != "https":
         return "Het adres buiten huis moet met https:// beginnen: het toegangstoken gaat dan over internet."
     if is_private_host(parts[1]) or parts[1].lower() == "localhost":

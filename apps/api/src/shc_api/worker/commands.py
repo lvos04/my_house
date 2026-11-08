@@ -32,6 +32,7 @@ from ..models import ClimateZone, CommandRecord, Device, Home, ZoneLog
 from ..policy import DeviceFacts, PolicyDenied, check_command
 from ..store import get_setting, roles_of
 from ..views.common import caps_of, other_zone_modes
+from ..views.lights import BRIDGE_ERROR_PREFIX
 
 log = logging.getLogger("shc.worker")
 
@@ -66,6 +67,10 @@ class CommandsMixin:
                 params = _translate(dev, action, params)
                 res = await adapter.execute(Command(dev.stable_identity, action, params))
                 ok, confirmed, detail, state = res.ok, res.confirmed, res.detail, res.state
+                if not confirmed and device_reported_error(res):
+                    # Received but refused by the device/hub (e.g. Hue Bridge "errors"): store it as
+                    # failed with the message, the same as the lights view shows it (item 27).
+                    ok = False
             except Exception as e:  # adapter errors, timeouts, unsupported
                 ok, confirmed, detail = False, False, str(e)[:500] or type(e).__name__
             await self._record_result(cmd_id, ok, confirmed, detail, state)
@@ -209,6 +214,16 @@ class CommandsMixin:
                 cmd.home_id,
                 {"id": cmd.id, "status": cmd.status, "detail": cmd.detail, "attempts": cmd.attempts},
             )
+
+
+def device_reported_error(res) -> bool:
+    """True when an adapter result says the device or hub reported an error for the command.
+
+    ``CommandResult.rejected`` is the contract flag; the "Hue Bridge meldt" prefix is kept as a
+    fallback for results from adapters that predate the flag."""
+    if getattr(res, "rejected", False):
+        return True
+    return bool(res.ok) and (res.detail or "").startswith(BRIDGE_ERROR_PREFIX)
 
 
 def _translate(dev: Device, action: str, params: dict) -> dict:

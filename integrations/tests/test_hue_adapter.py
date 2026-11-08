@@ -62,8 +62,29 @@ async def test_put_errors_mean_not_confirmed_even_if_readback_matches(plain_fact
         json={"errors": [], "data": [{"id": L1, "type": "light", "on": {"on": True}}]}
     )
     res = await make(plain_factory).execute(Command(L1, "set_light", {"on": True}))
-    assert res.ok is True and res.confirmed is False
+    assert res.ok is True and res.confirmed is False and res.rejected is True
     assert "communication issues" in res.detail and res.detail.startswith("Hue Bridge meldt")
+
+
+@respx.mock
+async def test_scene_recall_errors_are_rejected(plain_factory):
+    sid = "44444444-0000-4000-8000-000000000002"
+    respx.put(f"{BASE}/clip/v2/resource/scene/{sid}").respond(
+        207, json={"data": [], "errors": [{"description": "scene has unreachable lights"}]}
+    )
+    res = await make(plain_factory).execute(Command(sid, "recall_scene", {}))
+    assert res.ok is True and res.confirmed is False and res.rejected is True
+    assert res.detail == "Hue Bridge meldt: scene has unreachable lights"
+
+
+@respx.mock
+async def test_readback_mismatch_is_not_rejected(plain_factory):
+    respx.put(f"{BASE}/clip/v2/resource/light/{L1}").respond(json={"data": [{"rid": L1}], "errors": []})
+    respx.get(f"{BASE}/clip/v2/resource/light/{L1}").respond(
+        json={"errors": [], "data": [{"id": L1, "type": "light", "on": {"on": False}}]}
+    )
+    res = await make(plain_factory).execute(Command(L1, "set_light", {"on": True}))
+    assert res.ok is True and res.confirmed is False and res.rejected is False
 
 
 @respx.mock

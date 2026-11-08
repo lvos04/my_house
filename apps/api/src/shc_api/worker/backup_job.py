@@ -19,6 +19,7 @@ import json
 import logging
 import sys
 from datetime import UTC, datetime, time, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -35,6 +36,24 @@ CATCH_UP_AFTER = timedelta(hours=23)
 MAX_BACKOFF = timedelta(hours=6)
 BACKUP_TIMEOUT_S = 6 * 3600
 STALE_RUNNING = timedelta(hours=8)
+# The backup child process volunteers as the first victim when the container runs out of memory, so an
+# OOM inside the api/worker container kills the backup, not the worker or the API (infra request, C3).
+OOM_SCORE_ADJ = 500
+OOM_SCORE_ADJ_FILE = Path("/proc/self/oom_score_adj")
+
+
+def prefer_oom_kill(score: int = OOM_SCORE_ADJ, path: Path = OOM_SCORE_ADJ_FILE) -> bool:
+    """Best effort: raise this process's ``oom_score_adj`` to ``score`` (never lowers it; raising needs
+    no privileges). Returns True when the value is (now) at least ``score``."""
+    try:
+        current = int(path.read_text().strip() or 0)
+        if current >= score:
+            return True
+        path.write_text(f"{score}\n")
+        return True
+    except (OSError, ValueError) as exc:
+        log.debug("oom_score_adj niet aangepast: %s", exc)
+        return False
 
 
 # --- settings -----------------------------------------------------------------------------------
@@ -212,7 +231,8 @@ async def prune_auto_backups(keep: int, settings: Settings | None = None) -> lis
 
 
 async def run_backup_process(args: list[str], stdin: bytes | None = None, limit_s: float = BACKUP_TIMEOUT_S) -> dict:
-    """Run `shc-api backup ... --json` in a separate process; returns its JSON result (or an error)."""
+    """Run `shc-api backup ... --json` in a separate process; returns its JSON result (or an error).
+    The child raises its own oom_score_adj first (``prefer_oom_kill``, called by the CLI)."""
     proc = await asyncio.create_subprocess_exec(
         sys.executable,
         "-m",

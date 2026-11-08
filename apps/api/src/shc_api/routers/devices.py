@@ -7,7 +7,6 @@ import asyncio
 import ipaddress
 import json
 import logging
-import os
 import re
 import uuid
 from datetime import UTC, datetime
@@ -974,7 +973,7 @@ async def instructions(provider: str, p: Auth) -> dict:
 
 
 def _allowed_hosts() -> set[str]:
-    return {h.strip().lower() for h in os.environ.get("SHC_PAIRING_ALLOWED_HOSTS", "").split(",") if h.strip()}
+    return get_settings().pairing_allowed_host_set()  # SHC_PAIRING_ALLOWED_HOSTS
 
 
 def validate_host(v: str) -> str:

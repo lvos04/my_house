@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
-import ipaddress
 import json
 import logging
 import re
@@ -14,7 +13,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Request, Response
@@ -23,12 +21,14 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, text, update
 
 from .. import backup as bk
-from .. import views
+from .. import events, views
 from ..config import VERSION, get_settings
 from ..deps import DB, Admin, Auth
 from ..errors import api_error, not_found
 from ..models import BackupRecord, Device, DeviceBinding, Home, Integration, LogicalRole
+from ..security import lan_url_problem, normalize_server_url, remote_url_problem
 from ..store import audit, get_setting, set_secret_setting, set_setting
+from ..views.status import publish_status
 from ..worker.backup_job import (
     backup_due,
     load_backup_settings,
@@ -62,35 +62,11 @@ async def status(db: DB, p: Auth) -> dict:
 
 # --- addresses (verbeterlijst 17: server side) ----------------------------------------------------
 
-LOCAL_SUFFIXES = (".local", ".lan", ".home.arpa", ".internal", ".localdomain")
-
-
-def _private_host(host: str) -> bool:
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
-        h = host.lower().rstrip(".")
-        return h.endswith(LOCAL_SUFFIXES) or ("." not in h and h not in ("localhost", ""))
-    return (ip.is_private or ip.is_link_local) and not ip.is_loopback and not ip.is_unspecified
-
-
-def _clean_url(v: str, what: str) -> tuple[str, str]:
-    v = v.strip()
-    try:
-        u = urlsplit(v)
-        port = u.port
-    except ValueError as exc:
-        raise ValueError(f"{what}: ongeldig adres") from exc
-    if u.scheme not in ("http", "https") or not u.hostname:
-        raise ValueError(f"{what}: gebruik een adres dat begint met http:// of https://")
-    if u.username or u.password or u.query or u.fragment or u.path not in ("", "/"):
-        raise ValueError(f"{what}: alleen schema, naam en eventueel poort (zonder pad of gebruikersnaam)")
-    host = u.hostname
-    netloc = (f"[{host}]" if ":" in host else host) + (f":{port}" if port else "")
-    return u.scheme, f"{u.scheme}://{netloc}"
-
 
 class Addresses(BaseModel):
+    """Same rules as pairing (security.lan_url_problem / remote_url_problem), so the address saved here
+    is always one a QR code can be made with."""
+
     lan_url: str | None = None
     remote_url: str | None = None
 
@@ -99,27 +75,20 @@ class Addresses(BaseModel):
     def _lan(cls, v: str | None) -> str | None:
         if v is None or not v.strip():
             return None
-        _scheme, url = _clean_url(v, "Thuisadres")
-        host = urlsplit(url).hostname or ""
-        if not _private_host(host):
-            raise ValueError(
-                "Thuisadres: gebruik het adres van de NAS in je thuisnetwerk "
-                "(bijvoorbeeld http://192.168.1.20:8088 of http://nas.local:8088), geen internetadres"
-            )
-        return url
+        problem = lan_url_problem(v)
+        if problem:
+            raise ValueError(problem)
+        return normalize_server_url(v)
 
     @field_validator("remote_url")
     @classmethod
     def _remote(cls, v: str | None) -> str | None:
         if v is None or not v.strip():
             return None
-        scheme, url = _clean_url(v, "Adres buiten huis")
-        if scheme != "https":
-            raise ValueError("Adres buiten huis: moet met https:// beginnen (het toegangstoken gaat over internet)")
-        host = urlsplit(url).hostname or ""
-        if _private_host(host) or host in ("localhost",):
-            raise ValueError("Adres buiten huis: dit is een adres in je thuisnetwerk; gebruik je tunneladres")
-        return url
+        problem = remote_url_problem(v)
+        if problem:
+            raise ValueError(problem)
+        return normalize_server_url(v)
 
 
 @router.get("/system/settings")
@@ -147,6 +116,8 @@ async def release_safe_mode(db: DB, p: Admin) -> dict:
     """User confirms device matching after restore/move; commands are allowed again."""
     await set_setting(db, "safe_mode", False)
     await audit(db, p.actor, "safe_mode_released")
+    await db.flush()
+    await publish_status(db)
     await db.commit()
     return {"safe_mode": False}
 
@@ -616,6 +587,10 @@ async def _run_restore_job(job: dict, path: Path, passphrase: str, mode: str, ma
         job.update(state="done", step="klaar", report=report, finished_at=datetime.now(UTC))
         path.unlink(missing_ok=True)
         path.with_suffix(".json").unlink(missing_ok=True)
+        with contextlib.suppress(Exception):  # maintenance off, safe mode on: tell open screens
+            async with sessionmaker()() as db:
+                await publish_status(db)
+                await db.commit()
     except Exception as exc:
         msg = str(exc) if isinstance(exc, bk.BackupError) else f"{exc.__class__.__name__}: {exc}"
         job.update(state="failed", step="mislukt", error=msg[:500], finished_at=datetime.now(UTC))
@@ -623,6 +598,8 @@ async def _run_restore_job(job: dict, path: Path, passphrase: str, mode: str, ma
         with contextlib.suppress(Exception):
             async with sessionmaker()() as db:
                 await set_setting(db, "maintenance", maint_before)
+                await db.flush()
+                await publish_status(db)
                 await db.commit()
 
 
@@ -667,6 +644,8 @@ async def restore_apply(body: ApplyIn, db: DB, p: Admin) -> dict:
     maint_before = bool(await get_setting(db, "maintenance", False))
     await set_setting(db, "maintenance", True)
     await audit(db, p.actor, "restore_started", body.upload_id, mode=body.mode)
+    await db.flush()
+    await publish_status(db)
     await db.commit()
     job_id = secrets.token_urlsafe(24)
     job = {
@@ -835,7 +814,15 @@ async def archive_home(home_id: uuid.UUID, db: DB, p: Admin) -> dict:
     if not h:
         raise not_found("Woning")
     h.active_to = h.active_to or datetime.now(UTC)
-    res = await db.execute(update(Integration).where(Integration.home_id == home_id).values(enabled=False))
-    await audit(db, p.actor, "home_archived", h.name, integrations_disabled=res.rowcount or 0)
+    res = await db.execute(
+        update(Integration).where(Integration.home_id == home_id).values(enabled=False).returning(Integration.id)
+    )
+    integ_ids = list(res.scalars())
+    await audit(db, p.actor, "home_archived", h.name, integrations_disabled=len(integ_ids))
+    await db.flush()
+    # The worker stops these adapters at once (its LISTEN wakes the reload loop) instead of within 2 min.
+    for iid in integ_ids:
+        await events.publish(db, "integration.changed", home_id, {"id": iid})
+    await publish_status(db, [home_id])
     await db.commit()
     return views.home_view(h)

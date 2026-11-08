@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import shutil
 import uuid
+from collections.abc import Iterable
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -258,6 +259,18 @@ async def status_checks(db: AsyncSession, home_id: uuid.UUID | None = None) -> l
     out.append(await backup_check(db, now))
     out += await integration_checks(db, home_id, detailed=False)
     return out
+
+
+async def publish_status(db: AsyncSession, home_ids: Iterable[uuid.UUID] | None = None) -> None:
+    """Queue ``status.updated`` (delivered on commit) for ``home_ids``, by default every active home.
+    Used after changes the worker does not see as an integration change: safe mode released,
+    maintenance switched, a home archived or a restore finished."""
+    from .. import events
+
+    if home_ids is None:
+        home_ids = (await db.execute(select(Home.id).where(Home.active_to.is_(None)))).scalars().all()
+    for hid in home_ids:
+        await events.publish(db, "status.updated", hid, await status_checks(db, hid))
 
 
 async def open_alerts(db: AsyncSession, home_id: uuid.UUID, limit: int = 20) -> list[dict]:

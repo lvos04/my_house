@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from .. import views
 from ..config import get_settings
-from ..deps import DB, Admin, Auth, get_home
+from ..deps import DB, Admin, Auth, Control, get_home
 from ..errors import not_found
 from ..models import Alert, ClimateZone, Home, Integration, LogicalRole, Room
 from ..store import audit, get_setting
@@ -104,7 +104,7 @@ async def alerts(home_id: uuid.UUID, db: DB, p: Auth) -> list[dict]:
 
 
 @router.post("/alerts/{alert_id}/ack")
-async def ack(alert_id: uuid.UUID, db: DB, p: Auth) -> dict:
+async def ack(alert_id: uuid.UUID, db: DB, p: Control) -> dict:
     a = await db.get(Alert, alert_id)
     if not a:
         raise not_found("Melding")

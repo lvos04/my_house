@@ -562,7 +562,11 @@ class HueAdapter(Adapter):
             if errors:
                 # The bridge accepted the request but says it may not have effect: never "confirmed".
                 return CommandResult(
-                    ok=True, confirmed=False, detail="Hue Bridge meldt: " + "; ".join(errors), state=state
+                    ok=True,
+                    confirmed=False,
+                    detail="Hue Bridge meldt: " + "; ".join(errors),
+                    state=state,
+                    rejected=True,
                 )
             confirmed = all(
                 (k != "on" or state.get("on") == body["on"]["on"])
@@ -574,7 +578,9 @@ class HueAdapter(Adapter):
         await self._group_limiter.wait("grouped_light")
         _, errors = await self._put(f"/clip/v2/resource/scene/{rid}", {"recall": {"action": "active"}})
         if errors:
-            return CommandResult(ok=True, confirmed=False, detail="Hue Bridge meldt: " + "; ".join(errors))
+            return CommandResult(
+                ok=True, confirmed=False, detail="Hue Bridge meldt: " + "; ".join(errors), rejected=True
+            )
         back = await self._get(f"/clip/v2/resource/scene/{rid}")
         active = ((back.get("data") or [{}])[0].get("status") or {}).get("active")
         if active is None:

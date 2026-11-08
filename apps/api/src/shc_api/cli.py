@@ -162,7 +162,11 @@ def migrate(url: str | None = None, *, backup_dir: Path | None = None, pre_dump:
 
 async def _backup(args) -> int:
     from . import backup as bk
+    from .worker.backup_job import prefer_oom_kill
 
+    # Started by the worker/API as a child process: an out-of-memory kill should hit this backup,
+    # not the long-running worker or API in the same container (best effort).
+    prefer_oom_kill()
     if args.auto:
         from .worker.backup_job import run_auto_backup
 
@@ -249,11 +253,14 @@ async def set_maintenance(on: bool, url: str | None = None) -> None:
 
     from .config import get_settings
     from .store import set_setting
+    from .views.status import publish_status
 
     engine = create_async_engine(url or get_settings().database_url, poolclass=NullPool)
     try:
         async with AsyncSession(engine) as db:
             await set_setting(db, "maintenance", on)
+            await db.flush()
+            await publish_status(db)  # open screens show "herstel/onderhoud bezig" at once
             await db.commit()
     finally:
         await engine.dispose()
@@ -532,12 +539,13 @@ async def _rekey(args) -> int:
 
 async def reset_password(username: str, password: str, url: str | None = None) -> dict:
     """New password; logs out all web sessions and revokes the user's paired phones."""
-    from sqlalchemy import delete, select, update
+    from sqlalchemy import select
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
     from sqlalchemy.pool import NullPool
 
     from .config import get_settings
-    from .models import ApiClient, Session, User
+    from .deps import revoke_access
+    from .models import User
     from .security import MIN_PASSWORD_LENGTH, hash_password
     from .store import audit
 
@@ -554,20 +562,10 @@ async def reset_password(username: str, password: str, url: str | None = None) -
             u.failed_logins = 0
             u.locked_until = None
             u.password_changed_at = now
-            sessions = (await db.execute(delete(Session).where(Session.user_id == u.id))).rowcount or 0
-            phones = (
-                await db.execute(
-                    update(ApiClient)
-                    .where(ApiClient.user_id == u.id, ApiClient.revoked_at.is_(None))
-                    .values(revoked_at=now)
-                )
-            ).rowcount or 0
+            # Same helper as the API: ends sessions, revokes phones and publishes auth.revoked (in this
+            # transaction), so every API process closes the user's open WebSockets at once.
+            sessions, phones = await revoke_access(db, u.id, reason="password_reset")
             await audit(db, "cli", "password_reset", username, sessions=sessions, phones_revoked=phones)
-            from . import events
-
-            notify = getattr(events, "publish_auth_revoked", None)  # closes open WebSockets (security stream)
-            if notify is not None:
-                await notify(db, reason="password_reset", user_id=u.id, sessions=True, clients=True)
             await db.commit()
     finally:
         await engine.dispose()
