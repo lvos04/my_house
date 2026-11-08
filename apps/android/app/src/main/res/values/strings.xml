@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Huis</string>
+
+    <!-- Navigatie -->
+    <string name="nav_start">Start</string>
+    <string name="nav_climate">Klimaat</string>
+    <string name="nav_energy">Energie</string>
+    <string name="nav_more">Meer</string>
+
+    <!-- Verbinding -->
+    <string name="route_lan">Thuis</string>
+    <string name="route_remote">Onderweg</string>
+    <string name="route_none">Geen verbinding</string>
+    <string name="offline_banner">Geen verbinding. Je ziet de laatst bekende waarden van %1$s. Bediening is uitgeschakeld.</string>
+    <string name="connecting">Verbinden…</string>
+    <string name="retry">Opnieuw proberen</string>
+
+    <!-- Start -->
+    <string name="greeting_morning">Goedemorgen</string>
+    <string name="greeting_afternoon">Goedemiddag</string>
+    <string name="greeting_evening">Goedenavond</string>
+    <string name="greeting_night">Goedenacht</string>
+    <string name="alerts_button">Meldingen (%1$d)</string>
+    <string name="target">Doel</string>
+    <string name="target_lower">Doeltemperatuur lager</string>
+    <string name="target_higher">Doeltemperatuur hoger</string>
+    <string name="sent_pending">Verzonden · wacht op bevestiging van de airco…</string>
+    <string name="lights">Verlichting</string>
+    <string name="lights_off">Uit</string>
+    <string name="lights_unreachable">Niet bereikbaar</string>
+    <string name="power_now">Nu</string>
+    <string name="no_zones">Nog geen klimaatzones ingesteld. Doe dit in de web-app.</string>
+    <string name="measured_at">%1$s · %2$s</string>
+    <string name="stale_sensor">Sensor verouderd</string>
+    <string name="unit_offline">Airco offline</string>
+
+    <!-- Klimaat -->
+    <string name="back">Terug</string>
+    <string name="mode">Modus</string>
+    <string name="now_value">nu %1$s · %2$s</string>
+    <string name="profile">Profiel</string>
+    <string name="control">Regeling</string>
+    <string name="next_change">Volgende wijziging</string>
+    <string name="fan">Ventilator</string>
+    <string name="override_2h">Handmatig voor 2 uur</string>
+    <string name="resume_schedule">Terug naar schema</string>
+    <string name="override_until">Handmatig tot %1$s</string>
+    <string name="humidity">Luchtvochtigheid</string>
+    <string name="mode_unavailable">%1$s kan nu niet: %2$s</string>
+
+    <!-- Energie -->
+    <string name="energy_today_until">Vandaag t/m %1$s</string>
+    <string name="energy_per_hour">Verbruik per uur vandaag</string>
+    <string name="energy_per_unit_note">Verbruik per binnenunit wordt niet gemeten. Beide units delen één compressor.</string>
+    <string name="energy_rest_note">“Overig” is berekend: totaal min de gemeten apparaten.</string>
+    <string name="energy_incomplete">Deels ontbrekende metingen</string>
+    <string name="no_energy">Nog geen energiegegevens.</string>
+
+    <!-- Meer -->
+    <string name="connection">Verbinding</string>
+    <string name="home">Woning</string>
+    <string name="lan_address">Thuisadres</string>
+    <string name="remote_address">Extern adres (tunnel)</string>
+    <string name="not_set">Niet ingesteld</string>
+    <string name="current_route">Huidige route</string>
+    <string name="realtime">Live updates</string>
+    <string name="realtime_on">Actief</string>
+    <string name="realtime_off">Niet verbonden</string>
+    <string name="cf_access">Cloudflare Access (optioneel)</string>
+    <string name="cf_access_help">Alleen nodig als je tunnel achter Cloudflare Access staat. Maak in Cloudflare een service token en vul de twee waarden hier in.</string>
+    <string name="cf_client_id">Client ID</string>
+    <string name="cf_client_secret">Client secret</string>
+    <string name="save">Opslaan</string>
+    <string name="saved">Opgeslagen</string>
+    <string name="alerts">Meldingen</string>
+    <string name="no_alerts">Geen open meldingen.</string>
+    <string name="acknowledge">Gezien</string>
+    <string name="notifications_enable">Meldingen op deze telefoon toestaan</string>
+    <string name="unpair">Ontkoppelen</string>
+    <string name="unpair_title">Telefoon ontkoppelen?</string>
+    <string name="unpair_body">De app vergeet de sleutel. Trek de sleutel ook in via de web-app (Systeem › Telefoon koppelen) als je deze telefoon kwijt bent.</string>
+    <string name="cancel">Annuleren</string>
+    <string name="version">Versie %1$s</string>
+
+    <!-- Koppelen -->
+    <string name="pair_step">Stap 1 van 2</string>
+    <string name="pair_title">Koppel met je huis</string>
+    <string name="pair_body">Open in de web-app Systeem › Telefoon koppelen en scan de QR-code.</string>
+    <string name="pair_camera_needed">Geef toegang tot de camera om de QR-code te scannen.</string>
+    <string name="pair_camera_allow">Camera toestaan</string>
+    <string name="pair_route_lan">Lokaal adres, het snelst</string>
+    <string name="pair_route_remote">Via je Cloudflare-tunnel</string>
+    <string name="pair_route_info">De app kiest zelf. Elke telefoon krijgt een eigen sleutel die je kunt intrekken.</string>
+    <string name="pair_manual">Adres handmatig invoeren</string>
+    <string name="pair_scan_instead">QR-code scannen</string>
+    <string name="pair_address">Adres van je server</string>
+    <string name="pair_address_hint">bijv. 192.168.1.20:8080 of https://huis.voorbeeld.nl</string>
+    <string name="pair_code">Koppelcode</string>
+    <string name="pair_code_hint">bijv. K7Q4-9XPM</string>
+    <string name="pair_submit">Koppelen</string>
+    <string name="pair_busy">Bezig met koppelen…</string>
+    <string name="pair_invalid_address">Dit adres klopt niet.</string>
+    <string name="pair_invalid_code">Deze code klopt niet.</string>
+    <string name="pair_unreachable">De server is niet bereikbaar op dit adres.</string>
+    <string name="camera_preview">Camerabeeld</string>
+
+    <!-- Kwaliteit -->
+    <string name="quality_measured">gemeten</string>
+    <string name="quality_derived">afgeleid</string>
+    <string name="quality_estimated">geschat</string>
+    <string name="quality_missing">ontbreekt</string>
+
+    <!-- Widget en meldingen -->
+    <string name="widget_name">Huis</string>
+    <string name="widget_description">Temperatuur van je zones en het huidige verbruik</string>
+    <string name="widget_empty">Open de app om te koppelen</string>
+    <string name="notification_channel">Meldingen van je huis</string>
+    <string name="notification_channel_desc">Waarschuwingen en fouten, zoals een offline apparaat of verouderde sensor</string>
+</resources>

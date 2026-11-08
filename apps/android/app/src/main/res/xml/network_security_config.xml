@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The LAN address of the NAS is usually plain http (http://192.168.x.x:8080).
+     Cleartext is allowed for that; the remote (Cloudflare) URL must be https,
+     which the app enforces when pairing. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

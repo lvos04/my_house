@@ -1,0 +1,9 @@
+{"errors": [], "data": [
+ {"id": "1d6c6a4c-0000-4000-8000-000000000001", "type": "light", "owner": {"rid": "2f1a0000-0000-4000-8000-0000000000d1", "rtype": "device"}, "metadata": {"name": "Plafond", "archetype": "ceiling_round"}, "on": {"on": true}, "dimming": {"brightness": 60.0, "min_dim_level": 0.2}},
+ {"id": "1d6c6a4c-0000-4000-8000-000000000002", "type": "light", "owner": {"rid": "2f1a0000-0000-4000-8000-0000000000d2", "rtype": "device"}, "metadata": {"name": "Ledstrip", "archetype": "hue_lightstrip"}, "on": {"on": false}, "dimming": {"brightness": 100.0}},
+ {"id": "a0b1c2d3-0000-4000-8000-0000000000g1", "type": "grouped_light", "owner": {"rid": "r0000000-0000-4000-8000-000000000001", "rtype": "room"}, "on": {"on": true}, "dimming": {"brightness": 60.0}},
+ {"id": "r0000000-0000-4000-8000-000000000001", "type": "room", "metadata": {"name": "Woonkamer", "archetype": "living_room"}, "children": [{"rid": "2f1a0000-0000-4000-8000-0000000000d1", "rtype": "device"}], "services": [{"rid": "a0b1c2d3-0000-4000-8000-0000000000g1", "rtype": "grouped_light"}]},
+ {"id": "s0000000-0000-4000-8000-000000000001", "type": "scene", "metadata": {"name": "Avond"}, "group": {"rid": "r0000000-0000-4000-8000-000000000001", "rtype": "room"}},
+ {"id": "b0000000-0000-4000-8000-000000000001", "type": "button", "owner": {"rid": "2f1a0000-0000-4000-8000-0000000000d9", "rtype": "device"}, "metadata": {"control_id": 1}, "button": {"button_report": {"updated": "2026-11-08T13:00:00.000Z", "event": "short_release"}}},
+ {"id": "x0000000-0000-4000-8000-000000000001", "type": "bridge", "bridge_id": "ecb5fafffe000001"}
+]}

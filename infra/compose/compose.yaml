@@ -1,0 +1,160 @@
+# Smart Home Control — complete stack.
+#
+# Linux:   cd infra/compose && ./../scripts/install.sh && docker compose up -d
+#          optional parts: docker compose --profile zigbee --profile tunnel up -d
+# TrueNAS: render a single YAML for Apps › Discover › Custom App with
+#          python3 infra/scripts/render_truenas.py --root /mnt/<pool>/apps/smart-home [--with zigbee,tunnel]
+#
+# Everything persistent lives under ${SHC_ROOT}; nothing depends on this host, IP or NAS path.
+
+name: smart-home-control
+
+x-common: &common
+  restart: unless-stopped
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+x-app-env: &app-env
+  SHC_DATABASE_URL: postgresql+asyncpg://shc@db:5432/shc
+  SHC_DATABASE_PASSWORD_FILE: /run/secrets/db_password
+  SHC_SECRET_KEY_FILE: /run/secrets/secret_key
+  SHC_MQTT_HOST: mosquitto
+  SHC_MQTT_USERNAME: shc
+  SHC_MQTT_PASSWORD_FILE: /run/secrets/mqtt_shc_password
+  SHC_LAN_URL: ${SHC_LAN_URL:-}
+  SHC_REMOTE_URL: ${SHC_REMOTE_URL:-}
+  SHC_COOKIE_SECURE: ${SHC_COOKIE_SECURE:-false}
+  SHC_FORWARDED_ALLOW_IPS: "*"
+  TZ: ${TZ:-Europe/Amsterdam}
+
+secrets:
+  db_password: { file: "${SHC_ROOT:-./data}/secrets/db_password" }
+  secret_key: { file: "${SHC_ROOT:-./data}/secrets/secret_key" }
+  mqtt_shc_password: { file: "${SHC_ROOT:-./data}/secrets/mqtt_shc_password" }
+
+services:
+  db:
+    <<: *common
+    image: postgres:16.6-alpine3.21
+    environment:
+      POSTGRES_USER: shc
+      POSTGRES_DB: shc
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      TZ: ${TZ:-Europe/Amsterdam}
+    secrets: [db_password]
+    volumes:
+      - ${SHC_ROOT:-./data}/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shc -d shc"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    shm_size: 128mb
+    deploy:
+      resources: { limits: { memory: 1g } }
+
+  api:
+    <<: *common
+    image: ${SHC_IMAGE_PREFIX:-ghcr.io/lvos04/my_house}-api:${SHC_VERSION:-0.1.0}
+    command: ["serve"]
+    environment: *app-env
+    secrets: [db_password, secret_key, mqtt_shc_password]
+    volumes:
+      - ${SHC_ROOT:-./data}/app:/data
+      - ${SHC_ROOT:-./data}/backups:/backups
+      - ${SHC_ROOT:-./data}/zigbee2mqtt:/data/zigbee2mqtt:ro
+    read_only: true
+    tmpfs: ["/tmp"]
+    user: "10001:10001"
+    depends_on:
+      db: { condition: service_healthy }
+    deploy:
+      resources: { limits: { memory: 512m } }
+
+  worker:
+    <<: *common
+    image: ${SHC_IMAGE_PREFIX:-ghcr.io/lvos04/my_house}-api:${SHC_VERSION:-0.1.0}
+    command: ["worker"]
+    environment: *app-env
+    secrets: [db_password, secret_key, mqtt_shc_password]
+    volumes:
+      - ${SHC_ROOT:-./data}/app:/data
+      - ${SHC_ROOT:-./data}/backups:/backups
+      - ${SHC_ROOT:-./data}/zigbee2mqtt:/data/zigbee2mqtt:ro
+    read_only: true
+    tmpfs: ["/tmp"]
+    user: "10001:10001"
+    healthcheck:
+      disable: true
+    depends_on:
+      api: { condition: service_healthy }
+    deploy:
+      resources: { limits: { memory: 384m } }
+
+  web:
+    <<: *common
+    image: ${SHC_IMAGE_PREFIX:-ghcr.io/lvos04/my_house}-web:${SHC_VERSION:-0.1.0}
+    environment:
+      API_UPSTREAM: api:8000
+    ports:
+      - "${SHC_HTTP_PORT:-8088}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp:uid=101,gid=101,mode=0755
+      - /var/cache/nginx:uid=101,gid=101,mode=0755
+      - /etc/nginx/conf.d:uid=101,gid=101,mode=0755
+    depends_on:
+      api: { condition: service_healthy }
+    deploy:
+      resources: { limits: { memory: 128m } }
+
+  mosquitto:
+    <<: *common
+    image: eclipse-mosquitto:2.0.20
+    user: "1883:1883"
+    volumes:
+      - ${SHC_ROOT:-./data}/mosquitto/config:/mosquitto/config:ro
+      - ${SHC_ROOT:-./data}/mosquitto/data:/mosquitto/data
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 1883 || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources: { limits: { memory: 64m } }
+
+  # Optional: needs the USB coordinator. The stable /dev/serial/by-id path makes the
+  # container fail fast with a clear error when the dongle is missing.
+  zigbee2mqtt:
+    <<: *common
+    profiles: ["zigbee"]
+    image: koenkk/zigbee2mqtt:2.0.0
+    environment:
+      TZ: ${TZ:-Europe/Amsterdam}
+    volumes:
+      - ${SHC_ROOT:-./data}/zigbee2mqtt:/app/data
+      - /run/udev:/run/udev:ro
+    devices:
+      - "${SHC_ZIGBEE_DEVICE:-/dev/serial/by-id/CHANGE-ME}:/dev/zigbee"
+    group_add: ["dialout"]
+    depends_on:
+      mosquitto: { condition: service_healthy }
+    deploy:
+      resources: { limits: { memory: 256m } }
+
+  # Optional: reach the app from outside via Cloudflare Tunnel (no port forwarding).
+  # Put Cloudflare Access in front of it; see docs/buiten-huis.md.
+  cloudflared:
+    <<: *common
+    profiles: ["tunnel"]
+    image: cloudflare/cloudflared:2024.12.2
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${SHC_TUNNEL_TOKEN:-}
+    read_only: true
+    depends_on:
+      web: { condition: service_healthy }
+    deploy:
+      resources: { limits: { memory: 128m } }

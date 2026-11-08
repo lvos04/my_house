@@ -1,0 +1,68 @@
+name: Android
+
+on:
+  push:
+    tags: ["v*"]  # path filters are not applied to tag pushes
+    paths:
+      - "apps/android/**"
+      - ".github/workflows/android.yml"
+  pull_request:
+    paths:
+      - "apps/android/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write  # needed to attach the APK to a release on version tags
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3.2.1
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests
+        run: ./gradlew --no-daemon :core:test :app:testDebugUnitTest
+
+      - name: Build debug APK
+        run: ./gradlew --no-daemon :app:assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: huis-debug-apk
+          path: apps/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports
+          path: |
+            apps/android/core/build/reports/tests/
+            apps/android/app/build/reports/tests/
+          if-no-files-found: ignore
+
+      - name: Attach APK to GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: .
+        run: |
+          cp apps/android/app/build/outputs/apk/debug/app-debug.apk "huis-${GITHUB_REF_NAME}.apk"
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --title "Smart Home Control $GITHUB_REF_NAME" --notes-file docs/release-notes.md
+          gh release upload "$GITHUB_REF_NAME" "huis-${GITHUB_REF_NAME}.apk" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
