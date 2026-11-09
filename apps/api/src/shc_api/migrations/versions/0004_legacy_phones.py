@@ -15,6 +15,11 @@ token that is never used again never expired and stayed a full admin (verbeterli
 Downgrade restores the server default "admin" and gives the limited tokens their admin role
 back (found through the audit-log lines). The expiry dates stay: schema 0003 understands them.
 
+Both periods count as elapsed time (hours), like CLIENT_TTL in deps.py (180 x 24 h). With
+``interval '180 days'`` PostgreSQL keeps the wall-clock time of the session time zone, so on a
+database outside UTC (compose gives it TZ=Europe/Amsterdam) the date moved an hour across a
+daylight-saving change and the result depended on the server setting.
+
 Revision ID: 0004
 Revises: 0003
 Create Date: 2026-11-09
@@ -29,7 +34,8 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Flag first (the audit line keeps the old values), then change the rows.
+    # Flag first (the audit line keeps the old values), then change the rows. 4320 hours = 180 days and
+    # 720 hours = 30 days, counted in hours so they are elapsed time in every session time zone.
     op.execute(
         """
         INSERT INTO audit_log (at, actor, action, target, detail)
@@ -38,8 +44,8 @@ def upgrade() -> None:
                    'client', c.id::text,
                    'old_role', c.role,
                    'new_role', CASE WHEN c.role = 'admin' THEN 'control' ELSE c.role END,
-                   'expires_at', greatest(coalesce(c.last_used_at, c.created_at) + interval '180 days',
-                                          now() + interval '30 days')
+                   'expires_at', greatest(coalesce(c.last_used_at, c.created_at) + interval '4320 hours',
+                                          now() + interval '720 hours')
                )
         FROM api_clients AS c
         WHERE c.expires_at IS NULL AND c.revoked_at IS NULL
@@ -48,7 +54,8 @@ def upgrade() -> None:
     op.execute(
         """
         UPDATE api_clients
-        SET expires_at = greatest(coalesce(last_used_at, created_at) + interval '180 days', now() + interval '30 days'),
+        SET expires_at = greatest(coalesce(last_used_at, created_at) + interval '4320 hours',
+                                  now() + interval '720 hours'),
             role = CASE WHEN role = 'admin' THEN 'control' ELSE role END
         WHERE expires_at IS NULL AND revoked_at IS NULL
         """

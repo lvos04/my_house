@@ -136,7 +136,13 @@ async def test_admin_phone_is_refused_for_users_pairing_and_backups(admin, home,
 # --- 18: legacy phone tokens (migration 0004, scratch database) ---------------------------------------
 
 
-async def test_migration_0004_limits_legacy_phone_tokens():
+# The database of a NAS need not run in UTC (infra/compose/compose.yaml gives it TZ=Europe/Amsterdam) and
+# the migration must give the same moments in every session time zone. In the two zones with daylight
+# saving time one token's 180 days always span a change of UTC offset, whatever day the test runs.
+@pytest.mark.parametrize("tz", ["UTC", "Europe/Amsterdam", "Australia/Sydney"])
+async def test_migration_0004_limits_legacy_phone_tokens(tz):
+    from zoneinfo import ZoneInfo
+
     from alembic import command
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import create_async_engine
@@ -156,9 +162,24 @@ async def test_migration_0004_limits_legacy_phone_tokens():
             await engine.dispose()
 
     uid = uuid.uuid4()
-    unused, recent, viewer, revoked, current = (uuid.uuid4() for _ in range(5))
+    unused, recent, older, viewer, revoked, current = (uuid.uuid4() for _ in range(6))
     now = datetime.now(UTC)
+    zone = ZoneInfo(tz)
+
+    def offset_changes(t):
+        return t.astimezone(zone).utcoffset() != (t + timedelta(days=180)).astimezone(zone).utcoffset()
+
+    # A last use 1-149 days ago (so 180 days later is still past the 30-day minimum) whose 180 days end at a
+    # different UTC offset than they start (a span over two changes would cancel out, hence the search).
+    # Both zones have such a day in that range on every day of the year.
+    older_use = now - timedelta(days=149)
+    if tz != "UTC":
+        older_use = next((t for t in (now - timedelta(days=149 - d) for d in range(149)) if offset_changes(t)), None)
+        assert older_use is not None
     async with temp_db("0003") as url:
+        # Every new session in this scratch database (the migration's too) gets this time zone.
+        await sql(url, f"ALTER DATABASE \"{url.rsplit('/', 1)[1]}\" SET timezone TO '{tz}'", fetch=False)
+        assert (await sql(url, "SHOW timezone"))[0][0] == tz
         await sql(
             url,
             "INSERT INTO users (id, username, password_hash, role, disabled, created_at) "
@@ -171,6 +192,8 @@ async def test_migration_0004_limits_legacy_phone_tokens():
             (unused, None, now - timedelta(days=400), None, None, None),
             # paired before 0002, used yesterday but the clock never started (expires_at NULL)
             (recent, None, now - timedelta(days=300), now - timedelta(days=1), None, None),
+            # the same, last used across a change of UTC offset in `tz` (see older_use)
+            (older, None, now - timedelta(days=320), older_use, None, None),
             (viewer, "viewer", now - timedelta(days=10), None, None, None),
             (revoked, None, now - timedelta(days=50), None, now - timedelta(days=5), None),
             (current, "admin", now - timedelta(days=3), now, None, now + timedelta(days=177)),
@@ -196,17 +219,23 @@ async def test_migration_0004_limits_legacy_phone_tokens():
 
         await asyncio.to_thread(command.upgrade, bk.alembic_config(url), "0004")
         got = {r[0]: (r[1], r[2]) for r in await sql(url, "SELECT id, role, expires_at FROM api_clients")}
-        assert got[unused][0] == "control" and got[recent][0] == "control"
-        assert got[viewer][0] == "viewer" and got[current] == ("admin", rows[4][5])
-        # 180 days after the last use, but never sooner than 30 days from now (time to refresh).
-        assert timedelta(days=29) < got[unused][1] - now <= timedelta(days=30, minutes=5)
-        assert abs(got[recent][1] - (now + timedelta(days=179))) < timedelta(minutes=5)
-        assert got[revoked][1] == rows[3][4]
+        assert got[unused][0] == "control" and got[recent][0] == "control" and got[older][0] == "control"
+        assert got[viewer][0] == "viewer" and got[current] == ("admin", rows[5][5])
+        # 180 days after the last use, but never sooner than 30 days from now (time to refresh). Both count
+        # as elapsed time, exactly like CLIENT_TTL in deps.py (180 x 24 h), whatever the session time zone.
+        assert abs(got[unused][1] - (now + timedelta(days=30))) < timedelta(minutes=5)
+        assert got[recent][1] == rows[1][3] + timedelta(days=180)
+        assert got[older][1] == rows[2][3] + timedelta(days=180)
+        assert got[revoked][1] == rows[4][4]
         assert not [k for k, v in got.items() if v[1] is None]
         flagged = await sql(
-            url, "SELECT detail->>'client', detail->>'old_role' FROM audit_log WHERE action = 'legacy_phone_limited'"
+            url,
+            "SELECT detail->>'client', detail->>'old_role', detail->>'expires_at' FROM audit_log "
+            "WHERE action = 'legacy_phone_limited'",
         )
-        assert {r[0] for r in flagged} == {str(unused), str(recent), str(viewer)}
+        assert {r[0] for r in flagged} == {str(unused), str(recent), str(older), str(viewer)}
+        # The audit line names the same moment as the row.
+        assert all(datetime.fromisoformat(r[2]) == got[uuid.UUID(r[0])][1] for r in flagged)
         default = await sql(
             url,
             "SELECT column_default FROM information_schema.columns "
@@ -216,7 +245,8 @@ async def test_migration_0004_limits_legacy_phone_tokens():
 
         await asyncio.to_thread(command.downgrade, bk.alembic_config(url), "0003")
         back = dict(await sql(url, "SELECT id, role FROM api_clients"))
-        assert back[unused] == "admin" and back[recent] == "admin" and back[viewer] == "viewer"
+        assert back[unused] == "admin" and back[recent] == "admin" and back[older] == "admin"
+        assert back[viewer] == "viewer"
         default = await sql(
             url,
             "SELECT column_default FROM information_schema.columns "
