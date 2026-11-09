@@ -6,6 +6,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 import kotlin.random.Random
 
@@ -26,15 +28,46 @@ class LogicTest {
     }
 
     @Test
-    fun formatsRelativeTimes() {
+    fun relativeTimesAreNumbersForTheAppToWord() {
         val now = Instant.parse("2026-11-08T13:40:00Z")
         val ams = ZoneId.of("Europe/Amsterdam")
-        assertEquals("zojuist", NlFormat.relative("2026-11-08T13:39:40Z", now, ams))
-        assertEquals("3 min geleden", NlFormat.relative("2026-11-08T13:37:00Z", now, ams))
-        assertEquals("2 uur geleden", NlFormat.relative("2026-11-08T11:30:00Z", now, ams))
-        assertEquals("gisteren 14:05", NlFormat.relative("2026-11-07T13:05:00Z", now, ams))
-        assertEquals("onbekend", NlFormat.relative(null, now, ams))
+        assertEquals(RelativeTime.JustNow, RelativeTime.of("2026-11-08T13:39:40Z", now, ams))
+        assertEquals(RelativeTime.JustNow, RelativeTime.of("2026-11-08T13:41:00Z", now, ams)) // phone clock behind
+        assertEquals(RelativeTime.MinutesAgo(3), RelativeTime.of("2026-11-08T13:37:00Z", now, ams))
+        assertEquals(RelativeTime.MinutesAgo(1), RelativeTime.of("2026-11-08T13:39:10Z", now, ams))
+        assertEquals(RelativeTime.HoursAgo(2), RelativeTime.of("2026-11-08T11:30:00Z", now, ams))
+        assertEquals(RelativeTime.HoursAgo(5), RelativeTime.of("2026-11-08T07:41:00Z", now, ams))
+        // 6 hours or more: the clock time in the home's zone (UTC+1 in November).
+        assertEquals(RelativeTime.Today(LocalTime.of(8, 5)), RelativeTime.of("2026-11-08T07:05:30Z", now, ams))
+        assertEquals(RelativeTime.Yesterday(LocalTime.of(14, 5)), RelativeTime.of("2026-11-07T13:05:00Z", now, ams))
+        assertEquals(
+            RelativeTime.OnDate(LocalDate.of(2026, 11, 3), LocalTime.of(9, 12)),
+            RelativeTime.of("2026-11-03T08:12:00Z", now, ams),
+        )
+        // Today and yesterday follow the home's calendar day, not UTC.
+        val morning = Instant.parse("2026-11-09T07:00:00Z") // 08:00 on 9 November in Amsterdam
+        assertEquals(RelativeTime.Today(LocalTime.of(0, 30)), RelativeTime.of("2026-11-08T23:30:00Z", morning, ams))
+        assertEquals(RelativeTime.Yesterday(LocalTime.of(23, 30)), RelativeTime.of("2026-11-08T22:30:00Z", morning, ams))
+        assertEquals(RelativeTime.Unknown, RelativeTime.of(null, now, ams))
+        assertEquals(RelativeTime.Unknown, RelativeTime.of("gisteren", now, ams))
         assertEquals("14:40", NlFormat.clock("2026-11-08T13:40:00Z", ams))
+        assertEquals("09:05", NlFormat.hhmm(LocalTime.of(9, 5)))
+    }
+
+    @Test
+    fun agesAreRoundedLikeTheWebApp() {
+        assertEquals(RelativeTime.Unknown, RelativeTime.ofAge(null))
+        assertEquals(RelativeTime.JustNow, RelativeTime.ofAge(Duration.ofSeconds(59)))
+        assertEquals(RelativeTime.JustNow, RelativeTime.ofAge(Duration.ofSeconds(-30)))
+        assertEquals(RelativeTime.MinutesAgo(1), RelativeTime.ofAge(Duration.ofSeconds(60)))
+        assertEquals(RelativeTime.MinutesAgo(42), RelativeTime.ofAge(Duration.ofMinutes(42)))
+        // 59.5 minutes rounds to a whole hour, never "60 min".
+        assertEquals(RelativeTime.HoursAgo(1), RelativeTime.ofAge(Duration.ofSeconds(3570)))
+        assertEquals(RelativeTime.HoursAgo(5), RelativeTime.ofAge(Duration.ofMinutes(5 * 60 + 12)))
+        assertEquals(RelativeTime.HoursAgo(6), RelativeTime.ofAge(Duration.ofMinutes(5 * 60 + 45)))
+        assertEquals(RelativeTime.HoursAgo(47), RelativeTime.ofAge(Duration.ofHours(47)))
+        assertEquals(RelativeTime.DaysAgo(2), RelativeTime.ofAge(Duration.ofHours(48)))
+        assertEquals(RelativeTime.DaysAgo(3), RelativeTime.ofAge(Duration.ofHours(70)))
     }
 
     @Test
@@ -117,8 +150,9 @@ class LogicTest {
         assertTrue(Freshness.isStale("2026-11-08T13:09:00Z", now))
         assertTrue(Freshness.isStale(null, now))
         assertTrue(Freshness.isStale("gisteren", now))
-        assertEquals("Bijgewerkt 3 min geleden", Freshness.ageLabel("2026-11-08T13:37:00Z", now, ams))
-        assertEquals("Bijgewerkt gisteren 14:05", Freshness.ageLabel("2026-11-07T13:05:00Z", now, ams))
-        assertEquals("Nog niet bijgewerkt", Freshness.ageLabel(null, now, ams))
+        assertEquals(DataAge.Updated(RelativeTime.MinutesAgo(3)), Freshness.age("2026-11-08T13:37:00Z", now, ams))
+        assertEquals(DataAge.Updated(RelativeTime.Yesterday(LocalTime.of(14, 5))), Freshness.age("2026-11-07T13:05:00Z", now, ams))
+        assertEquals(DataAge.Never, Freshness.age(null, now, ams))
+        assertEquals(DataAge.Never, Freshness.age("gisteren", now, ams))
     }
 }

@@ -4,9 +4,12 @@ import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.min
@@ -46,30 +49,11 @@ object NlFormat {
         null
     }
 
-    /** "zojuist", "3 min geleden", "2 uur geleden", "gisteren 14:05", "3 nov 09:12". */
-    fun relative(iso: String?, now: Instant = Instant.now(), zone: ZoneId = ZoneId.of("Europe/Amsterdam")): String {
-        val at = parseInstant(iso) ?: return "onbekend"
-        val d = Duration.between(at, now)
-        val secs = d.seconds
-        return when {
-            secs < 45 -> "zojuist"
-            secs < 3600 -> "${(secs + 30) / 60} min geleden"
-            secs < 6 * 3600 -> "${secs / 3600} uur geleden"
-            else -> {
-                val local = at.atZone(zone)
-                val today = now.atZone(zone).toLocalDate()
-                val time = local.format(DateTimeFormatter.ofPattern("HH:mm", nl))
-                when (local.toLocalDate()) {
-                    today -> "vandaag $time"
-                    today.minusDays(1) -> "gisteren $time"
-                    else -> local.format(DateTimeFormatter.ofPattern("d MMM HH:mm", nl))
-                }
-            }
-        }
-    }
-
     fun clock(iso: String?, zone: ZoneId = ZoneId.of("Europe/Amsterdam")): String =
         parseInstant(iso)?.atZone(zone)?.format(DateTimeFormatter.ofPattern("HH:mm", nl)) ?: "–"
+
+    /** "09:05": a 24-hour clock time, the same in every language. */
+    fun hhmm(time: LocalTime): String = String.format(Locale.ROOT, "%02d:%02d", time.hour, time.minute)
 
     fun quality(q: Quality): String = when (q) {
         Quality.MEASURED -> "gemeten"
@@ -94,6 +78,81 @@ object NlFormat {
         "oem_fallback" -> "Eigen regeling airco"
         "off" -> "Uit"
         else -> control
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Relative time: :core decides how long ago, the app words it from strings.xml ("zojuist",
+// "3 min geleden", "gisteren 14:05", "3 nov 09:12"), so no Dutch text lives here.
+// ---------------------------------------------------------------------------
+
+/** How long ago something happened, as numbers; the app turns it into text (strings.xml, plurals). */
+sealed interface RelativeTime {
+    /** No time, or one that cannot be read ("onbekend"). */
+    data object Unknown : RelativeTime
+
+    /** Just now, or a clock running slightly ahead ("zojuist"). */
+    data object JustNow : RelativeTime
+
+    /** "3 min geleden". */
+    data class MinutesAgo(val minutes: Int) : RelativeTime
+
+    /** "2 uur geleden". */
+    data class HoursAgo(val hours: Int) : RelativeTime
+
+    /** "3 dagen geleden"; only for an age without a moment ([ofAge]). */
+    data class DaysAgo(val days: Int) : RelativeTime
+
+    /** Earlier today, 6 hours or more ago ("vandaag 08:05"). [time] is in the home's time zone. */
+    data class Today(val time: LocalTime) : RelativeTime
+
+    /** "gisteren 14:05". */
+    data class Yesterday(val time: LocalTime) : RelativeTime
+
+    /** Before yesterday ("3 nov 09:12"). */
+    data class OnDate(val date: LocalDate, val time: LocalTime) : RelativeTime
+
+    companion object {
+        private val AMSTERDAM: ZoneId = ZoneId.of("Europe/Amsterdam")
+
+        /**
+         * The moment [iso] (ISO 8601) seen from [now]: under 45 s just now, then minutes, then
+         * whole hours up to 6 hours, then today / yesterday / a date with the time in [zone].
+         */
+        fun of(iso: String?, now: Instant = Instant.now(), zone: ZoneId = AMSTERDAM): RelativeTime {
+            val at = NlFormat.parseInstant(iso) ?: return Unknown
+            val secs = Duration.between(at, now).seconds
+            return when {
+                secs < 45 -> JustNow
+                secs < 3600 -> MinutesAgo(((secs + 30) / 60).toInt())
+                secs < 6 * 3600 -> HoursAgo((secs / 3600).toInt())
+                else -> {
+                    val local = at.atZone(zone)
+                    val today = now.atZone(zone).toLocalDate()
+                    val time = local.toLocalTime().truncatedTo(ChronoUnit.MINUTES)
+                    when (val date = local.toLocalDate()) {
+                        today -> Today(time)
+                        today.minusDays(1) -> Yesterday(time)
+                        else -> OnDate(date, time)
+                    }
+                }
+            }
+        }
+
+        /**
+         * An age without a moment, such as the server's "last backup 5.2 hours ago". Rounded as
+         * the web app's ago(): under a minute just now, then minutes, hours (under 48), days.
+         */
+        fun ofAge(age: Duration?): RelativeTime {
+            if (age == null) return Unknown
+            val secs = age.seconds.coerceAtLeast(0)
+            if (secs < 60) return JustNow
+            val minutes = (secs / 60.0).roundToLong()
+            if (minutes < 60) return MinutesAgo(minutes.toInt())
+            val hours = (minutes / 60.0).roundToLong()
+            if (hours < 48) return HoursAgo(hours.toInt())
+            return DaysAgo((hours / 24.0).roundToLong().toInt())
+        }
     }
 }
 
@@ -216,7 +275,16 @@ object Freshness {
         return Duration.between(at, now) > after
     }
 
-    /** "Bijgewerkt 3 min geleden", "Bijgewerkt gisteren 14:05". */
-    fun ageLabel(savedAt: String?, now: Instant = Instant.now(), zone: ZoneId = ZoneId.of("Europe/Amsterdam")): String =
-        if (NlFormat.parseInstant(savedAt) == null) "Nog niet bijgewerkt" else "Bijgewerkt " + NlFormat.relative(savedAt, now, zone)
+    /** How old [savedAt] is; the widget words it ("Bijgewerkt 3 min geleden", "Nog niet bijgewerkt"). */
+    fun age(savedAt: String?, now: Instant = Instant.now(), zone: ZoneId = ZoneId.of("Europe/Amsterdam")): DataAge =
+        if (NlFormat.parseInstant(savedAt) == null) DataAge.Never else DataAge.Updated(RelativeTime.of(savedAt, now, zone))
+}
+
+/** The age of cached data (widget footer), for the app to word from strings.xml. */
+sealed interface DataAge {
+    /** Nothing saved yet, or an unreadable time ("Nog niet bijgewerkt"). */
+    data object Never : DataAge
+
+    /** "Bijgewerkt 3 min geleden"; [ago] is never [RelativeTime.Unknown]. */
+    data class Updated(val ago: RelativeTime) : DataAge
 }

@@ -60,6 +60,8 @@ import nl.huis.smarthome.ui.LightsUi
 import nl.huis.smarthome.ui.MainViewModel
 import nl.huis.smarthome.ui.NotifPrompt
 import nl.huis.smarthome.ui.NotifUi
+import nl.huis.smarthome.ui.SystemLine
+import nl.huis.smarthome.ui.SystemLineUi
 import nl.huis.smarthome.ui.UnitState
 import nl.huis.smarthome.ui.ZoneUi
 import nl.huis.smarthome.ui.components.CommandStatusText
@@ -75,6 +77,8 @@ import nl.huis.smarthome.ui.components.TargetReadout
 import nl.huis.smarthome.ui.components.UnitNotLinked
 import nl.huis.smarthome.ui.components.ZonePillView
 import nl.huis.smarthome.ui.components.qualityText
+import nl.huis.smarthome.ui.components.relativeText
+import nl.huis.smarthome.ui.components.textSource
 import nl.huis.smarthome.ui.theme.Huis
 import nl.huis.smarthome.ui.theme.noFontScale
 import java.time.LocalTime
@@ -131,6 +135,11 @@ fun HomeScreen(
             item(key = "banner") { ConnectionBanner(state, vm::retry) }
         }
         if (state.readOnly) item(key = "readonly") { ReadOnlyNote(state) }
+        // Always there with an overview, also when all is well; problems get the block below too.
+        val systemLine = SystemLineUi.of(overview?.status.orEmpty())
+        if (overview != null && !systemLine.isEmpty) {
+            item(key = "system") { SystemStatusLine(systemLine, Modifier.alpha(dim)) }
+        }
         val attention = AttentionUi.of(overview?.status.orEmpty())
         if (attention.level != AttentionLevel.NONE) {
             item(key = "attention") { AttentionCard(attention, isAdmin = state.isAdmin) }
@@ -182,6 +191,38 @@ fun HomeScreen(
         }
 
         overview?.powerNow?.let { power -> item(key = "power") { PowerCard(power, Modifier.alpha(dim)) } }
+    }
+}
+
+/**
+ * "Laatste back-up 5 uur geleden · Achtergronddienst actief" (+ "Veilige modus aan"): one quiet
+ * line, so the user also sees that backups and the worker run when nothing is wrong.
+ */
+@Composable
+private fun SystemStatusLine(line: SystemLine, modifier: Modifier = Modifier) {
+    val dot = when (line.level) {
+        AttentionLevel.NONE -> Huis.colors.ok
+        AttentionLevel.WARN -> Huis.colors.warn
+        AttentionLevel.ERROR -> Huis.colors.error
+    }
+    // The dot's colour for TalkBack; nothing extra when all is well.
+    val levelText = when (line.level) {
+        AttentionLevel.NONE -> null
+        AttentionLevel.WARN -> stringResource(R.string.attention_state_warn)
+        AttentionLevel.ERROR -> stringResource(R.string.attention_state_error)
+    }
+    Row(
+        modifier.fillMaxWidth().semantics(mergeDescendants = true) { levelText?.let { stateDescription = it } },
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box(Modifier.padding(top = 5.dp)) { StatusDot(dot) }
+        Text(
+            SystemLineUi.text(textSource(), line),
+            color = Huis.colors.muted,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
@@ -314,12 +355,12 @@ private fun Reading(zone: Zone, modifier: Modifier = Modifier) {
         )
         if (t.stale) {
             Text(
-                stringResource(R.string.stale_sensor_since, NlFormat.relative(t.at)),
+                stringResource(R.string.stale_sensor_since, relativeText(t.at)),
                 color = Huis.colors.warn,
                 style = MaterialTheme.typography.bodySmall,
             )
         } else {
-            QualityLabel(t.quality, t.at?.let { NlFormat.relative(it) })
+            QualityLabel(t.quality, t.at?.let { relativeText(it) })
         }
     }
 }
@@ -400,7 +441,7 @@ fun PowerSummary(power: LivePower) {
             modifier = Modifier.weight(1f).semantics { heading() },
         )
         Text(
-            stringResource(R.string.power_source, qualityText(quality), NlFormat.relative(power.at)),
+            stringResource(R.string.power_source, qualityText(quality), relativeText(power.at)),
             color = Huis.colors.muted,
             style = MaterialTheme.typography.bodySmall,
         )

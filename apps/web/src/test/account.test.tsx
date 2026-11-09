@@ -220,7 +220,117 @@ describe('audit log', () => {
     expect(actions.size).toBeGreaterThan(40); // the pattern still finds the calls
     expect([...actions].filter((a) => !(a in AUDIT_ACTION_LABEL)).sort()).toEqual([]);
   });
+
+  // Database migrations write audit rows themselves (raw SQL or op.bulk_insert), e.g. 0004 with
+  // "legacy_phone_limited". Those rows show up in the Logboek too, so they need a label as well.
+  const migrations = join(apiSrc, 'migrations/versions');
+  it('reads the action of a migration audit insert, whatever the column order', () => {
+    expect(migrationAuditActions(`op.execute("""
+        INSERT INTO audit_log (at, actor, action, target, detail)
+        SELECT now(), 'systeem (x, y)', 'legacy_phone_limited', left(c.name, 200), jsonb_build_object('a', 1)
+        FROM api_clients AS c
+    """)`)).toEqual({ actions: ['legacy_phone_limited'], unreadable: 0, inserts: 1 });
+    expect(migrationAuditActions(`op.execute("INSERT INTO audit_log (actor, target, action) VALUES ('systeem', 'x', 'a_one'), ('systeem', 'y', 'a_two')")`))
+      .toEqual({ actions: ['a_one', 'a_two'], unreadable: 0, inserts: 1 });
+    expect(migrationAuditActions(`op.execute("""insert into audit_log (detail, action) select '{}'::jsonb, 'last_col' from t""")`))
+      .toEqual({ actions: ['last_col'], unreadable: 0, inserts: 1 });
+    expect(migrationAuditActions(`op.bulk_insert(audit_log, [{"actor": "systeem", "action": "bulk_one"}])`))
+      .toEqual({ actions: ['bulk_one'], unreadable: 0, inserts: 0 });
+    // An action the guard cannot read (computed in SQL) is reported instead of silently skipped.
+    expect(migrationAuditActions(`op.execute("INSERT INTO audit_log (actor, action) SELECT 'x', c.kind FROM t")`))
+      .toEqual({ actions: [], unreadable: 1, inserts: 1 });
+  });
+
+  it.skipIf(!existsSync(migrations))('has a label for every audit action a database migration writes', () => {
+    const actions = new Set<string>();
+    let inserts = 0;
+    let unreadable = 0;
+    for (const name of readdirSync(migrations).filter((n) => n.endsWith('.py'))) {
+      const found = migrationAuditActions(readFileSync(join(migrations, name), 'utf8'));
+      found.actions.forEach((a) => actions.add(a));
+      inserts += found.inserts;
+      unreadable += found.unreadable;
+    }
+    expect(inserts).toBeGreaterThan(0); // 0004 inserts audit rows: the pattern still finds it
+    expect(actions).toContain('legacy_phone_limited');
+    expect(unreadable).toBe(0); // write the action as a literal so this guard can check it
+    expect([...actions].filter((a) => !(a in AUDIT_ACTION_LABEL)).sort()).toEqual([]);
+  });
 });
+
+/**
+ * Action names in the audit rows a migration inserts: raw SQL "INSERT INTO audit_log (…, action, …)
+ * SELECT|VALUES …" (the value at the position of the action column, as a '…' literal) and
+ * op.bulk_insert / sa.insert rows with "action": "…" or action="…". `unreadable` counts SQL inserts
+ * whose action is not a plain literal.
+ */
+function migrationAuditActions(src: string): { actions: string[]; unreadable: number; inserts: number } {
+  const actions: string[] = [];
+  let unreadable = 0;
+  let inserts = 0;
+  const insertRe = /\bINSERT\s+INTO\s+audit_log\s*\(([^)]*)\)\s*(SELECT|VALUES)\b/gi;
+  for (const m of src.matchAll(insertRe)) {
+    inserts++;
+    const col = m[1].split(',').map((c) => c.trim().toLowerCase()).indexOf('action');
+    if (col < 0) { unreadable++; continue; }
+    const rows = m[2].toUpperCase() === 'SELECT'
+      ? [sqlList(src, m.index! + m[0].length, 'select')]
+      : sqlValuesRows(src, m.index! + m[0].length);
+    for (const row of rows) {
+      const lit = row[col]?.trim().match(/^'([a-z_]+)'$/);
+      if (lit) actions.push(lit[1]); else unreadable++;
+    }
+  }
+  for (const m of src.matchAll(/["']action["']\s*:\s*"([a-z_]+)"|\baction\s*=\s*"([a-z_]+)"/g)) actions.push(m[1] ?? m[2]);
+  return { actions, unreadable, inserts };
+}
+
+/** Top-level comma-separated items from `from` on, until a closing parenthesis (VALUES row), a
+ * top-level FROM/WHERE (SELECT list) or the end of the Python string. Quotes and nesting respected. */
+function sqlList(src: string, from: number, kind: 'select' | 'row'): string[] {
+  const items: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (let i = from; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === "'") {
+      const end = src.indexOf("'", i + 1);
+      if (end < 0) break;
+      cur += src.slice(i, end + 1);
+      i = end;
+      continue;
+    }
+    if (ch === '"') break; // end of the Python string that holds the SQL
+    if (depth === 0 && kind === 'select' && /^(FROM|WHERE)\b/i.test(src.slice(i, i + 6)) && /\s/.test(src[i - 1] ?? ' ')) break;
+    if (ch === '(') depth++;
+    if (ch === ')') {
+      if (depth === 0) break;
+      depth--;
+    }
+    if (ch === ',' && depth === 0) { items.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  items.push(cur);
+  return items;
+}
+
+/** The rows of "VALUES (…), (…)" starting at `from` (just after the VALUES keyword). */
+function sqlValuesRows(src: string, from: number): string[][] {
+  const rows: string[][] = [];
+  let i = from;
+  for (;;) {
+    while (i < src.length && /\s/.test(src[i])) i++;
+    if (src[i] !== '(') break;
+    const row = sqlList(src, i + 1, 'row');
+    rows.push(row);
+    // Skip past this row: its items, the commas between them and the closing parenthesis.
+    i = i + 1 + row.join(',').length + 1;
+    while (i < src.length && /\s/.test(src[i])) i++;
+    if (src[i] !== ',') break;
+    i++;
+  }
+  return rows;
+}
 
 describe('account page tabs', () => {
   it('admins get accessible tabs with arrow-key navigation; viewers only their own account', async () => {

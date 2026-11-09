@@ -6,7 +6,7 @@ Native Android-app (Kotlin + Jetpack Compose) voor Smart Home Control. De app pr
 
 | Onderdeel | Functie |
 |---|---|
-| **Start** | Klimaatzones met +/− (één eindwaarde, verzonden 0,8 s na de laatste tik), verlichtingsgroepen aan/uit, huidig verbruik, meldingenbadge. Bovenaan een blok **"Let op"** als de achtergronddienst geen hartslag geeft, de veilige modus aan staat, de laatste back-up te oud is of er onderhoud loopt (zelfde regels als het overzicht in de web-app) |
+| **Start** | Klimaatzones met +/− (één eindwaarde, verzonden 0,8 s na de laatste tik), verlichtingsgroepen aan/uit, huidig verbruik, meldingenbadge. Bovenaan altijd een korte **systeemregel**, ook als alles goed gaat: "Laatste back-up 5 uur geleden · Achtergronddienst actief" (en "Veilige modus aan" als die aan staat), met een stip in groen, oranje of rood. Daaronder een blok **"Let op"** als de achtergronddienst geen hartslag geeft, de veilige modus aan staat, de laatste back-up te oud is of er onderhoud loopt (zelfde regels als het overzicht in de web-app) |
 | **Klimaat** | Doeltemperatuur, modus (geblokkeerde modi met uitleg, bv. gedeelde buitenunit), volgende wijziging, het **weekschema** (alleen lezen: dagen met dezelfde blokken samen, het blok dat nu geldt gemarkeerd; aanpassen in de web-app onder Klimaat), 2 uur handmatig, "Terug naar schema" (ook als de airco uit staat) |
 | **Energie** | Verbruik per uur en per meter, met kwaliteitslabel (gemeten / afgeleid / geschat / ontbreekt) |
 | **Meer** | Meldingen, verbinding, adressen, Cloudflare Access, ontkoppelen |
@@ -120,7 +120,8 @@ apps/android
 ├── core/   Pure Kotlin (JVM): API-modellen, HTTP- en WebSocket-client, QR-payload,
 │           adresregels en serverherkenning, routekeuze met één herkansing,
 │           foutindeling (offline/serverfout/niet meer gekoppeld), commando-volging,
-│           debounce, tokenvernieuwing, meldingenplan, Nederlandse opmaak.
+│           debounce, tokenvernieuwing, meldingenplan, relatieve tijd en
+│           schemadagen als getallen, Nederlandse getalnotatie.
 │           Heeft geen Android nodig en is los te testen.
 └── app/    Android: Compose-UI, versleutelde opslag, repository, netwerkwissels,
             widget (Glance), WorkManager, CameraX + ML Kit QR-scanner.
@@ -131,7 +132,7 @@ Belangrijke klassen voor wie de schermen bouwt:
 - `data/HomeRepository` — één bron van waarheid voor UI, widget en achtergrondtaak. `state` (`HomeState`) bevat o.a. `connection` (verbonden, offline, opstarten, *niet jouw server*, *niet meer gekoppeld*), `unpaired` (reden), `readOnly`, `commands` (status per zone of lampgroep) en `drafts`.
 - `core/Network.kt` — adresregels, serverherkenning, routekeuze, foutindeling.
 - `core/Commands.kt` — commando-volging en debounce.
-- `core/Schedule.kt` — weekschema: dagen groeperen, het blok dat nu geldt.
+- `core/Schedule.kt` — weekschema: dagen groeperen (`dayParts`), het blok dat nu geldt.
 
 Teksten die de gebruiker ziet staan in `app/src/main/res/values/strings.xml`. `core` kent geen Android-resources en geeft daarom codes terug, die `app/src/main/java/nl/huis/smarthome/data/CoreTexts.kt` omzet naar een tekst uit `strings.xml`:
 
@@ -143,10 +144,15 @@ Teksten die de gebruiker ziet staan in `app/src/main/res/values/strings.xml`. `c
 | `UnpairReason` | Waarom de telefoon niet meer gekoppeld is |
 | `ApiProblem` | Fouten die de app zelf beschrijft: Cloudflare Access, tunnel onbereikbaar, doorverwijzing, wifi-inlogpagina, onbekend adres, onversleuteld geweigerd, kale HTTP-statuscodes |
 | `CommandLabel` | De statusregel onder een zone of lampgroep (*Verzonden · wacht op bevestiging…*, *Bevestigd*, *Mislukt*, *Geweigerd* …) |
+| `RelativeTime` | Hoe lang geleden, als getallen: *zojuist*, *3 min geleden*, *2 uur geleden*, *9 dagen geleden*, *vandaag 08:05*, *gisteren 14:05*, *3 nov 09:12* (`CoreTexts.relative`, met `<plurals>`) |
+| `DataAge` | De leeftijd van de gegevens in de widget: *Bijgewerkt 3 min geleden*, *Nog niet bijgewerkt* (`CoreTexts.age`) |
+| `DayParts` | De dagen van het weekschema: *elke dag*, *ma–vr*, *za en zo*, *ma, wo en vr*; voor TalkBack *maandag t/m vrijdag* (`CoreTexts.days`) |
 
 De `when`-blokken in `CoreTexts` zijn volledig: een nieuwe code in `core` compileert pas als er een tekst bij staat, en de test `CoreTextsTest` controleert dat elke code een eigen tekst heeft die overeenkomt met strings.xml. Elke code houdt een Nederlandse terugvaltekst (`dutch`) voor de JVM-tests. Meldingen van de server zelf (de reden na *Mislukt:* of *Geweigerd:*) toont de app zoals de server ze stuurt.
 
-Nog alleen in het Nederlands in `core`: de opmaak van relatieve tijd (`NlFormat.relative`: "zojuist", "3 min geleden" …), de versheid in de widget (`Freshness.ageLabel`: "Bijgewerkt …") en de dagen van het weekschema (`WeekSchedule.daysLabel`: "elke dag", "ma–vr", "za en zo").
+Tijden en dagen geeft `core` als getallen terug (`RelativeTime.of`, `RelativeTime.ofAge`, `Freshness.age`, `WeekSchedule.dayParts`); de app maakt er tekst van met `strings.xml` en `<plurals>`. De formatters in `CoreTexts` lezen hun teksten via `TextSource`: in de app de Android-resources, in de unit-tests `strings.xml` zelf (`FormattedTextsTest` controleert zo de Nederlandse uitkomst). Alleen de getalnotatie (`NlFormat`: "20,6°", "1.240 W", "€ 2,18") staat nog in `core`.
+
+De systeemregel op Start komt uit `Overview.status`: `age_h` van de regel `backup` (leeftijd van de laatste goede back-up), de toestand en `age_s` van `worker` (hartslag; zonder bruikbare toestand telt een hartslag jonger dan 120 s als actief), `maintenance` (achtergronddienst gepauzeerd) en `safe_mode`. Wat de server niet meldt, laat de regel weg (`SystemLineUi` in `ui/Presentation.kt`).
 
 De `core`-tests draaien op elke JVM (`./gradlew :core:test`). Kan de Android SDK niet worden geïnstalleerd, dan kun je `core` testen met een los Gradle-project dat `core/` als project insluit en alleen Maven Central gebruikt.
 

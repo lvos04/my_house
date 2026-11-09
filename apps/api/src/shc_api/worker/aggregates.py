@@ -7,9 +7,11 @@
   committing per chunk. Rows in the recomputed window are replaced (idempotent).
 - ``retention_round`` (every 3600 s): deletes raw power readings older than the power retention
   and raw counter readings older than the counter retention, in batches — but never counter
-  readings that are not yet aggregated. Also prunes old zone log lines and the push-event dedupe
-  ledger. The periods are set in the app (Setting "retention", GET/PUT /system/retention); the
-  SHC_RETENTION_*_DAYS environment values are the defaults.
+  readings that are not yet aggregated. All other raw readings (temperature, humidity, target_c,
+  unit_temperature, battery, link_quality, pressure, battery_voltage, ...) go after the sensor
+  retention, which never drops below the adaptive model's baseline window. Also prunes old zone log
+  lines and the push-event dedupe ledger. The periods are set in the app (Setting "retention",
+  GET/PUT /system/retention); the SHC_RETENTION_*_DAYS environment values are the defaults.
 - ``live_round`` (every 5 s): publishes ``energy.live`` (views.energy.live_power) for a home when
   a newer power reading exists, at most once per 5 s per home.
 """
@@ -25,11 +27,13 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 
+from .. import adaptive as ad
 from .. import energy as en
 from .. import events
 from ..config import Settings, get_settings
 from ..db import sessionmaker
 from ..models import Device, DeviceBinding, EnergyHourly, Home, LogicalRole, SensorReading
+from ..store import COUNTER_METRICS as METER_COUNTERS
 from ..store import get_setting
 from ..views.energy import ENERGY_ROLES, device_rate, live_power, rate_overrides
 
@@ -47,13 +51,20 @@ COUNTER_SAFETY = timedelta(days=1)  # keep this much raw data behind the aggrega
 NO_COUNTER_KINDS = ("light", "light_group", "scene", "button", "hue_device", "hue_bridge", "ac_unit", "zigbee_bridge")
 
 
-# Retention periods (days) set in the app: Setting "retention" = {power_days, counter_days, log_days}.
+# Retention periods (days) set in the app: Setting "retention" = {power_days, counter_days, log_days,
+# sensor_days}.
 RETENTION_KEY = "retention"
-RETENTION_FIELDS = ("power_days", "counter_days", "log_days")
+RETENTION_FIELDS = ("power_days", "counter_days", "log_days", "sensor_days")
+# Sensor readings are kept at least a month, and never shorter than the adaptive model looks back.
+SENSOR_MIN_DAYS = max(30, ad.BASELINE_DAYS)
 # Lowest values the app accepts: a week of power detail, a quarter of raw counters (the hourly totals
-# are kept forever and un-aggregated counters are never deleted), a week of zone log.
-RETENTION_MIN = {"power_days": 7, "counter_days": 90, "log_days": 7}
+# are kept forever and un-aggregated counters are never deleted), a week of zone log, a month of
+# sensor readings.
+RETENTION_MIN = {"power_days": 7, "counter_days": 90, "log_days": 7, "sensor_days": SENSOR_MIN_DAYS}
 RETENTION_MAX_DAYS = 3650
+# Never removed by the sensor retention: power has its own period, and cumulative meter readings
+# (electricity, gas, water) follow the counter rules above or are the only record there is.
+NOT_SENSOR_METRICS = tuple(sorted({*en.POWER_METRICS, *en.COUNTER_METRICS, *METER_COUNTERS}))
 
 
 def retention_defaults(s: Settings | None = None) -> dict[str, int]:
@@ -63,11 +74,13 @@ def retention_defaults(s: Settings | None = None) -> dict[str, int]:
         "power_days": s.retention_power_days,
         "counter_days": s.retention_counter_days,
         "log_days": s.retention_log_days,
+        # Also from the environment, never below the minimum (the adaptive model needs its window).
+        "sensor_days": max(SENSOR_MIN_DAYS, s.retention_sensor_days),
     }
 
 
 async def load_retention(db, s: Settings | None = None) -> dict:
-    """Effective periods: ``{power_days, counter_days, log_days, source: {field: "app"|"env"}}``.
+    """Effective periods: ``{power_days, counter_days, log_days, sensor_days, source: {field: "app"|"env"}}``.
     A stored value outside the accepted range is ignored (the default applies)."""
     defaults = retention_defaults(s)
     stored = await get_setting(db, RETENTION_KEY, {}) or {}
@@ -201,7 +214,7 @@ class AggregatesMixin:
         async with sessionmaker()() as db:
             keep = await load_retention(db, self.settings)
         now = datetime.now(UTC)
-        out = {"power": 0, "counters": 0, "zone_log": 0, "processed_events": 0}
+        out = {"power": 0, "counters": 0, "sensors": 0, "zone_log": 0, "processed_events": 0}
         power_cut = now - timedelta(days=keep["power_days"])
         out["power"] = await _batched_delete(
             "DELETE FROM sensor_readings WHERE id IN (SELECT id FROM sensor_readings "
@@ -225,6 +238,13 @@ class AggregatesMixin:
                 "WHERE device_id = :d AND metric = :mt AND observed_at < :cut LIMIT :n)",
                 {"d": device_id, "mt": metric, "cut": cut},
             )
+        # Everything that is not power or a meter counter: temperature, humidity, target_c, battery, ...
+        sensor_cut = now - timedelta(days=max(SENSOR_MIN_DAYS, keep["sensor_days"]))
+        out["sensors"] = await _batched_delete(
+            "DELETE FROM sensor_readings WHERE id IN (SELECT id FROM sensor_readings "
+            "WHERE observed_at < :cut AND metric <> ALL(:m) LIMIT :n)",
+            {"m": list(NOT_SENSOR_METRICS), "cut": sensor_cut},
+        )
         log_cut = now - timedelta(days=keep["log_days"])
         out["zone_log"] = await _batched_delete(
             "DELETE FROM zone_log WHERE id IN (SELECT id FROM zone_log WHERE at < :cut LIMIT :n)", {"cut": log_cut}

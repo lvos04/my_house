@@ -627,6 +627,8 @@ def test_documented_message_types_exist():
     assert documented, "docs/api.md lists no realtime message types"
     unknown = documented - set(events.MESSAGE_TYPES) - set(events.INTERNAL_TYPES)
     assert not unknown, f"docs/api.md names message types the server never sends: {sorted(unknown)}"
+    undocumented = {t for t in events.MESSAGE_TYPES if f"`{t}`" not in section}
+    assert not undocumented, f"message types the server sends but docs/api.md does not describe: {sorted(undocumented)}"
 
 
 async def test_status_updated_is_really_emitted_for_a_backup_change(admin, home):

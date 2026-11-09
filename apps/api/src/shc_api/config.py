@@ -76,6 +76,8 @@ class Settings(BaseSettings):
     retention_power_days: int = 30
     retention_counter_days: int = 365
     retention_log_days: int = 90
+    # Other raw readings (temperature, humidity, target_c, battery, ...): at least 30 days, see aggregates.
+    retention_sensor_days: int = 400
 
     # Automatic backups: hour of day (local time) to run, and how many automatic backups to keep.
     backup_hour_local: int = 3

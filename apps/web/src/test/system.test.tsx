@@ -36,8 +36,8 @@ const backup = (over: Partial<Backup>): Backup => ({
   status: 'ok', app_version: '0.2.0', schema_revision: '0003_followups', secrets_included: true, zigbee2mqtt_included: true, error: null, detail: {}, downloadable: true, ...over,
 });
 const retention: RetentionSettings = {
-  power_days: 30, counter_days: 365, log_days: 90, source: { power_days: 'env', counter_days: 'env', log_days: 'env' },
-  defaults: { power_days: 30, counter_days: 365, log_days: 90 }, minimums: { power_days: 7, counter_days: 90, log_days: 7 }, maximum: 3650,
+  power_days: 30, counter_days: 365, log_days: 90, sensor_days: 400, source: { power_days: 'env', counter_days: 'env', log_days: 'env', sensor_days: 'env' },
+  defaults: { power_days: 30, counter_days: 365, log_days: 90, sensor_days: 400 }, minimums: { power_days: 7, counter_days: 90, log_days: 7, sensor_days: 30 }, maximum: 3650,
   note: 'Uurtotalen van energie en gas worden altijd bewaard.',
 };
 

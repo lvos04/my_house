@@ -250,6 +250,7 @@ export function BackupList() {
 const RETENTION_ROWS: { key: RetentionField; label: string; help: string }[] = [
   { key: 'power_days', label: 'Vermogen (detail)', help: 'Momentane wattages; uurtotalen blijven altijd bewaard.' },
   { key: 'counter_days', label: 'Meterstanden (ruw)', help: 'Losse meterstanden; nog niet verwerkte standen worden nooit verwijderd.' },
+  { key: 'sensor_days', label: 'Sensormetingen (temperatuur, vochtigheid, batterij)', help: 'Ruwe metingen van sensoren en airco-units; de zelflerende regeling gebruikt de laatste 14 dagen.' },
   { key: 'log_days', label: 'Logboek klimaatregeling', help: 'Regels van het aanpassingslog per zone.' },
 ];
 

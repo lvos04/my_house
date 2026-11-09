@@ -28,8 +28,11 @@ class RealtimeTest {
         val status = RealtimeEvent.parse("""{"type":"status.updated","data":[{"key":"worker","label":"Achtergronddienst","state":"ok","detail":"Laatste hartslag 10 s geleden","age_s":10},{"key":"safe_mode"}]}""")
         assertEquals(2, (status as RealtimeEvent.StatusUpdated).status.size)
         assertEquals("", status.status[1].label)
-        val wrapped = RealtimeEvent.parse("""{"type":"status.updated","data":{"status":[{"key":"backup","label":"Back-up","state":"warn"}]}}""")
+        assertEquals(10.0, status.status[0].ageS!!, 0.0)
+        assertNull(status.status[1].ageS)
+        val wrapped = RealtimeEvent.parse("""{"type":"status.updated","data":{"status":[{"key":"backup","label":"Back-up","state":"warn","age_h":40.5,"auto_failures":0}]}}""")
         assertEquals("backup", (wrapped as RealtimeEvent.StatusUpdated).status.single().key)
+        assertEquals(40.5, wrapped.status.single().ageH!!, 0.0)
 
         assertEquals(RealtimeEvent.AlertResolved("a1"), RealtimeEvent.parse("""{"type":"alert.resolved","data":{"id":"a1"}}"""))
         val live = RealtimeEvent.parse("""{"type":"energy.live","data":{"at":"2026-11-08T13:40:00Z","total_w":900,"complete":false,"note":"Onvolledig","parts":[{"role":"airco","label":"Airco","watts":null,"quality":"missing","stale":true}]}}""")

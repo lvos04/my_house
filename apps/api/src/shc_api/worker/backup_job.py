@@ -9,6 +9,12 @@
   backup data in memory and its loops keep running; the worker loop only starts it and returns.
 - A failed attempt is recorded (Setting "backup_state") and retried with back-off (1 h, 2 h, ... max
   6 h), never immediately; it raises an alert, which is resolved by the next successful backup.
+- An interrupted attempt counts as a failed one: ``backup_state.running_since`` without a result
+  means the worker (or its container) stopped while the backup process ran. ``backup_due`` treats it
+  as a failure, and the worker records it at start and in every backup round in which it runs no
+  backup itself (``recover_interrupted_backup``): failures + 1 with the same back-off, error
+  "Back-up onderbroken (worker herstart)", automatic backup rows still "running" become "failed" and
+  the half-written temporary file is removed.
 - Only automatic backups are pruned, file and row together; manual backups are never removed.
 - Schedule "dump_daily_full_weekly" (optional, item 32): on most days an encrypted database dump
   (pg_dump, ``shc-api backup --auto --dump``, quick and small) and once a week the full export with
@@ -44,6 +50,7 @@ FULL_SLACK = timedelta(hours=12)  # a weekly export at 03:00 may start a little 
 MAX_BACKOFF = timedelta(hours=6)
 BACKUP_TIMEOUT_S = 6 * 3600
 STALE_RUNNING = timedelta(hours=8)
+INTERRUPTED_ERROR = "Back-up onderbroken (worker herstart)"
 # The backup child process volunteers as the first victim when the container runs out of memory, so an
 # OOM inside the api/worker container kills the backup, not the worker or the API (infra request, C3).
 OOM_SCORE_ADJ = 500
@@ -120,6 +127,15 @@ def _ts(v) -> datetime | None:
     return datetime.fromisoformat(v) if v else None
 
 
+def _parse_ts(v) -> datetime | None:
+    """Like ``_ts``, but None for anything that is not an ISO timestamp (hand-edited setting)."""
+    try:
+        t = datetime.fromisoformat(v) if isinstance(v, str) and v else None
+    except ValueError:
+        return None
+    return t.replace(tzinfo=UTC) if t is not None and t.tzinfo is None else t
+
+
 async def last_auto_times(db) -> tuple[datetime | None, datetime | None]:
     """(last automatic full export, last automatic database dump)."""
     return _ts(await get_setting(db, "last_auto_backup")), _ts(await get_setting(db, "last_auto_dump"))
@@ -151,6 +167,33 @@ def last_slot(now: datetime, hour: int, tz: ZoneInfo) -> datetime:
     return slot.astimezone(UTC)
 
 
+def interrupted_since(state: dict, last_auto: datetime | None = None) -> datetime | None:
+    """Start of an automatic backup that has no result: ``running_since`` is set when the backup
+    process starts and dropped when its result is recorded. None when nothing is pending, or when an
+    automatic backup newer than that start exists (``last_auto``): the process did finish and only
+    the worker's bookkeeping was lost."""
+    since = _parse_ts(state.get("running_since")) if isinstance(state, dict) else None
+    if since is None or (last_auto is not None and last_auto >= since):
+        return None
+    return since
+
+
+def interrupted_state(state: dict, since: datetime) -> dict:
+    """``state`` with the interrupted attempt counted as a failed one (same shape as a recorded failure)."""
+    return {
+        "last_attempt": since.isoformat(),
+        "last_error": INTERRUPTED_ERROR,
+        "failures": int(state.get("failures", 0) or 0) + 1,
+        "last_ok": state.get("last_ok"),
+    }
+
+
+def effective_state(state: dict, last_auto: datetime | None = None) -> dict:
+    """The backup state as the schedule sees it: an interrupted attempt counts as failed."""
+    since = interrupted_since(state, last_auto)
+    return interrupted_state(state, since) if since is not None else state
+
+
 def retry_after(state: dict) -> datetime | None:
     """When the next attempt may start after failures (None: no failure pending)."""
     failures = int(state.get("failures", 0) or 0)
@@ -163,7 +206,9 @@ def retry_after(state: dict) -> datetime | None:
 
 def backup_due(now: datetime, hour: int, tz: ZoneInfo, last_auto: datetime | None, state: dict) -> bool:
     """Due at the first opportunity after the hour, when the last automatic backup is older than 23 h
-    and before the most recent slot; failed attempts back off instead of retrying immediately."""
+    and before the most recent slot; failed attempts back off instead of retrying immediately. An
+    attempt that was interrupted (``running_since`` without a result) counts as a failed one."""
+    state = effective_state(state, last_auto)
     ra = retry_after(state)
     if ra and now < ra:
         return False
@@ -176,6 +221,7 @@ def backup_due(now: datetime, hour: int, tz: ZoneInfo, last_auto: datetime | Non
 
 def next_due(now: datetime, hour: int, tz: ZoneInfo, last_auto: datetime | None, state: dict) -> datetime:
     """Best estimate of the next automatic backup (for display)."""
+    state = effective_state(state, last_auto)
     if backup_due(now, hour, tz, last_auto, state):
         return now
     if last_auto is None:
@@ -301,6 +347,19 @@ async def run_backup_process(args: list[str], stdin: bytes | None = None, limit_
     return result
 
 
+def remove_partial_auto_files(backup_dir: Path) -> int:
+    """Delete the temporary files of automatic backups that never finished (``.shc-auto-*.tmp``; a
+    finished backup is renamed to its final name). Only called when no backup process runs."""
+    n = 0
+    for p in backup_dir.glob(".shc-auto-*.tmp"):
+        try:
+            p.unlink()
+            n += 1
+        except OSError as exc:
+            log.warning("Tijdelijk back-upbestand %s niet verwijderd: %s", p.name, exc)
+    return n
+
+
 class BackupMixin:
     # Provided by core.Worker.
     settings: Settings
@@ -311,6 +370,8 @@ class BackupMixin:
         task = getattr(self, "_backup_task", None)
         if task is not None and not task.done():
             return
+        # No backup process of ours runs now: a running_since left behind is an interrupted attempt.
+        await self.recover_interrupted_backup()
         now = datetime.now(UTC)
         async with sessionmaker()() as db:
             # Never raises on a passphrase that does not decrypt (restore on a new NAS, key change):
@@ -343,6 +404,52 @@ class BackupMixin:
             await db.commit()
         self._backup_task = asyncio.create_task(self._auto_backup_watch(state, kind))
 
+    async def recover_interrupted_backup(self) -> bool:
+        """Record an automatic backup that has no result (the worker or its container stopped while the
+        backup process ran) as a failed attempt: failures + 1 with the usual back-off and alert, the
+        automatic backup rows still "running" become "failed" and the half-written file is removed.
+        Called when the worker starts and in every backup round without a backup of its own running.
+        Returns True when something was recorded."""
+        task = getattr(self, "_backup_task", None)
+        if task is not None and not task.done():
+            return False  # our own backup process is still running
+        async with sessionmaker()() as db:
+            state = await get_setting(db, "backup_state", {}) or {}
+            if not isinstance(state, dict) or "running_since" not in state:
+                return False
+            last_full, last_dump = await last_auto_times(db)
+        last_auto = latest(last_full, last_dump)
+        started = _parse_ts(state.get("running_since"))
+        if started is not None and last_auto is not None and last_auto >= started:
+            # The process finished (it records last_auto_*), only the worker stopped before the result.
+            await self.record_auto_result({"status": "ok", "filename": "(na herstart vastgesteld)"}, state, started)
+            return True
+        started = started or datetime.now(UTC)
+        async with sessionmaker()() as db:
+            rows = (
+                (
+                    await db.execute(
+                        select(BackupRecord).where(BackupRecord.auto.is_(True), BackupRecord.status == "running")
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for b in rows:
+                b.status = "failed"
+                b.detail = {**(b.detail or {}), "error": INTERRUPTED_ERROR}
+            await db.commit()
+        removed = remove_partial_auto_files(self.settings.backup_dir)
+        log.warning(
+            "Automatische back-up van %s is onderbroken (worker herstart); %d regel(s) op mislukt gezet, "
+            "%d tijdelijk bestand(en) verwijderd",
+            started.isoformat(),
+            len(rows),
+            removed,
+        )
+        await self.record_auto_result({"status": "failed", "error": INTERRUPTED_ERROR}, state, started)
+        return True
+
     async def _auto_backup_watch(self, state: dict, kind: str = "full") -> dict:
         started = datetime.now(UTC)
         try:
@@ -373,13 +480,14 @@ class BackupMixin:
                     "last_ok": state.get("last_ok"),
                 }
                 nxt = retry_after(new_state)
+                sep = " " if err.endswith((".", "!", "?")) else ". "
                 await raise_alert(
                     db,
                     home_id,
                     ALERT_KEY,
                     "error",
                     "Automatische back-up mislukt",
-                    f"{err} Volgende poging rond {nxt:%H:%M} UTC." if nxt else err,
+                    f"{err}{sep}Volgende poging rond {nxt:%H:%M} UTC." if nxt else err,
                     "backup",
                 )
                 log.warning("Automatische back-up mislukt (%d): %s", failures, err)

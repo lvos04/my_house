@@ -209,10 +209,14 @@ Overview = {
   alerts: [Alert]             // open meldingen, nieuwste eerst
 }
 Check = {key, label, state: "ok"|"warn"|"error"|"unknown", detail, ...}
-Alert = {id, severity: "info"|"warn"|"error", title, detail, created_at, acknowledged: bool, source}
+Alert = {id, key, severity: "info"|"warn"|"error", title, detail, created_at, acknowledged: bool, source}
 ```
 
 Een melding wordt één keer geopend per oorzaak en verdwijnt (`alert.resolved`) zodra de oorzaak weg is.
+`key` is die oorzaak, vast en machineleesbaar, bijvoorbeeld `watchdog:{zone_id}` (kamer warmt of koelt
+niet), `backup_failed` of `integration:{id}:{code}`. Er is per `key` hoogstens één open melding. Doet de
+oorzaak zich opnieuw voor terwijl de melding nog open is, dan houdt hij zijn `id` en krijgt hij de nieuwe
+`title` en `detail` (bijvoorbeeld een andere zonenaam of een nieuwe tijd voor de volgende poging).
 Het overzicht controleert ook zelf de hartslag van de achtergronddienst: is die ouder dan 3 minuten,
 dan staat er een melding *Achtergronddienst reageert niet*.
 
@@ -512,15 +516,19 @@ sleutel); de foutmelding bevat `integration_id`, `device_id` en `diagnostics`.
 | GET | `/system/settings` | `auth` | → `{lan_url, remote_url, safe_mode, maintenance}` |
 | PUT | `/system/settings` | `web-admin` | `{lan_url, remote_url}` → idem. Zelfde regels als bij koppelen: thuisadres in het thuisnetwerk, extern adres https. Leeg = `null` |
 | POST | `/system/safe-mode/release` | `admin` | → `{safe_mode: false}`: apparaten kloppen, commando's mogen weer |
-| GET | `/system/retention` | `admin` | → `{power_days, counter_days, log_days, source, defaults, minimums, maximum, note}` |
-| PUT | `/system/retention` | `admin` | deel van `{power_days, counter_days, log_days}` (`null` = standaard) → idem |
+| GET | `/system/retention` | `admin` | → `{power_days, counter_days, log_days, sensor_days, source, defaults, minimums, maximum, note}` |
+| PUT | `/system/retention` | `admin` | deel van `{power_days, counter_days, log_days, sensor_days}` (`null` = standaard) → idem |
 
-**Bewaartermijnen** (dagen): `power_days` = vermogensmetingen (standaard 30), `counter_days` = ruwe
-meterstanden (standaard 365), `log_days` = logboek van de klimaatregeling (standaard 90). De
-standaardwaarden komen uit `SHC_RETENTION_*_DAYS`; wat je in de app instelt, gaat voor. Uurtotalen van
-energie en gas blijven altijd bewaard, en meterstanden die nog niet in uurtotalen zijn verwerkt, worden
-nooit verwijderd. Andere metingen (temperatuur, vochtigheid, doeltemperatuur, batterij) worden niet
-automatisch opgeruimd.
+**Bewaartermijnen** (dagen): `power_days` = vermogensmetingen (standaard 30, minimaal 7),
+`counter_days` = ruwe meterstanden (standaard 365, minimaal 90), `log_days` = logboek van de
+klimaatregeling (standaard 90, minimaal 7), `sensor_days` = alle andere ruwe metingen: temperatuur,
+vochtigheid, doeltemperatuur, binnentemperatuur van de airco, batterij, signaalsterkte, luchtdruk en
+batterijspanning (standaard 400, minimaal 30: het adaptieve model gebruikt de laatste 14 dagen). Elk
+veld staat ook in `source` (`"app"` of `"env"`), `defaults` en `minimums`. De standaardwaarden komen uit
+`SHC_RETENTION_*_DAYS` (ook `SHC_RETENTION_SENSOR_DAYS`, nooit lager dan het minimum); wat je in de app
+instelt, gaat voor. Uurtotalen van energie en gas blijven altijd bewaard, en meterstanden die nog niet
+in uurtotalen zijn verwerkt, worden nooit verwijderd. Meterstanden (stroom, gas, water) vallen nooit
+onder `sensor_days`. De worker ruimt elk uur op, in porties.
 
 **Veilige modus** staat aan na elk herstel: de worker stuurt geen enkel commando naar apparaten tot
 een beheerder hem opheft. **Onderhoudsmodus** staat aan tijdens een herstel: de worker pauzeert.
@@ -558,7 +566,10 @@ De wachtwoordzin wordt versleuteld met de hoofdsleutel opgeslagen en nooit terug
 draait in een apart proces met vlak geheugengebruik. Schema `daily_full` maakt elke dag een volledige
 export (`.shcbak`); `dump_daily_full_weekly` maakt meestal een versleutelde database-dump (`.shcdump`,
 kind `db_dump`, zonder Zigbee2MQTT-gegevens) en minstens elke 7 dagen een volledige export. Alleen
-automatische back-ups worden opgeruimd (`keep` per soort). Zie [onderhoud.md](onderhoud.md).
+automatische back-ups worden opgeruimd (`keep` per soort). Een automatische back-up die nog liep toen de
+worker (of zijn container) stopte, telt als mislukte poging: `failures` + 1 met dezelfde wachttijd,
+`last_error` = "Back-up onderbroken (worker herstart)", en de bijbehorende `Backup` krijgt status
+`failed`. Zie [onderhoud.md](onderhoud.md).
 
 ### Push-meldingen buiten de app
 

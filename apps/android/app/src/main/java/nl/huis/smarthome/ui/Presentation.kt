@@ -1,6 +1,7 @@
 package nl.huis.smarthome.ui
 
 import androidx.camera.core.CameraState
+import nl.huis.smarthome.R
 import nl.huis.smarthome.core.ApiProblem
 import nl.huis.smarthome.core.CommandLabel
 import nl.huis.smarthome.core.CommandStatus
@@ -8,10 +9,15 @@ import nl.huis.smarthome.core.ConnectionStatus
 import nl.huis.smarthome.core.LightGroup
 import nl.huis.smarthome.core.NlFormat
 import nl.huis.smarthome.core.PendingCommandRef
+import nl.huis.smarthome.core.RelativeTime
 import nl.huis.smarthome.core.StatusItem
 import nl.huis.smarthome.core.UnitLink
 import nl.huis.smarthome.core.Zone
+import nl.huis.smarthome.data.CoreTexts
 import nl.huis.smarthome.data.HomeState
+import nl.huis.smarthome.data.TextSource
+import java.time.Duration
+import kotlin.math.roundToLong
 
 // ---------------------------------------------------------------------------------------------
 // What the screens show, decided without Android so it can be unit-tested (app/src/test/.../ui).
@@ -348,6 +354,95 @@ object AttentionUi {
         }
         return Attention(items, level)
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Compact system line on the start screen, always shown with an overview (also when all is well):
+// "Laatste back-up 5 uur geleden · Achtergronddienst actief" (+ "Veilige modus aan"). Problems
+// also keep their prominent attention block right below it.
+// ---------------------------------------------------------------------------------------------
+
+enum class WorkerHealth {
+    /** Recent heartbeat: devices are read and the climate control runs. */
+    ACTIVE,
+
+    /** Paused on purpose while a restore runs (maintenance). */
+    PAUSED,
+
+    /** No (recent) heartbeat. */
+    DOWN,
+}
+
+sealed interface BackupAge {
+    /** The server has no good backup yet. */
+    data object None : BackupAge
+
+    /** The last good backup was made [ago]. */
+    data class Ago(val ago: RelativeTime) : BackupAge
+}
+
+data class SystemLine(
+    /** Null when the server does not report it; that part is left out. */
+    val backup: BackupAge?,
+    /** Null when the server does not report it; that part is left out. */
+    val worker: WorkerHealth?,
+    val safeMode: Boolean,
+    /** Colour of the dot: the same level as the attention block (NONE = all well). */
+    val level: AttentionLevel,
+) {
+    val isEmpty: Boolean get() = backup == null && worker == null && !safeMode
+}
+
+object SystemLineUi {
+    /** Heartbeat age below which a worker without a usable state still counts as running (server: 120 s). */
+    private const val WORKER_OK_S = 120.0
+
+    fun of(status: List<StatusItem>): SystemLine {
+        val maintenance = status.any { it.key == "maintenance" }
+        val worker = status.firstOrNull { it.key == "worker" }?.let { w ->
+            val beatAge = w.ageS // a local: no smart cast on a property from :core
+            when {
+                maintenance -> WorkerHealth.PAUSED
+                w.state == "ok" -> WorkerHealth.ACTIVE
+                w.state == "error" -> WorkerHealth.DOWN
+                // Without a usable state, the heartbeat age decides (as the server does).
+                beatAge != null -> if (beatAge < WORKER_OK_S) WorkerHealth.ACTIVE else WorkerHealth.DOWN
+                // "warn" without a heartbeat age is the worker paused for a restore.
+                w.state == "warn" -> WorkerHealth.PAUSED
+                else -> null
+            }
+        }
+        val backup = status.firstOrNull { it.key == "backup" }?.let { b ->
+            val hours = b.ageH
+            when {
+                hours != null -> BackupAge.Ago(RelativeTime.ofAge(Duration.ofSeconds((hours * 3600).roundToLong())))
+                b.state == "warn" || b.state == "error" -> BackupAge.None
+                else -> null
+            }
+        }
+        return SystemLine(
+            backup = backup,
+            worker = worker,
+            safeMode = status.any { it.key == "safe_mode" },
+            level = AttentionUi.of(status).level,
+        )
+    }
+
+    /** "Laatste back-up 5 uur geleden · Achtergronddienst actief · Veilige modus aan". */
+    fun text(t: TextSource, line: SystemLine): String = listOfNotNull(
+        when (val b = line.backup) {
+            null -> null
+            BackupAge.None -> t.string(R.string.system_backup_none)
+            is BackupAge.Ago -> t.string(R.string.system_backup_ago, CoreTexts.relative(t, b.ago))
+        },
+        when (line.worker) {
+            null -> null
+            WorkerHealth.ACTIVE -> t.string(R.string.system_worker_active)
+            WorkerHealth.PAUSED -> t.string(R.string.system_worker_paused)
+            WorkerHealth.DOWN -> t.string(R.string.system_worker_down)
+        },
+        if (line.safeMode) t.string(R.string.system_safe_mode) else null,
+    ).joinToString(" · ")
 }
 
 // ---------------------------------------------------------------------------------------------

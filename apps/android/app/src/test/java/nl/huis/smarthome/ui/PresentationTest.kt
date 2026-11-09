@@ -11,6 +11,7 @@ import nl.huis.smarthome.core.Measurement
 import nl.huis.smarthome.core.Override
 import nl.huis.smarthome.core.PendingCommandRef
 import nl.huis.smarthome.core.Quality
+import nl.huis.smarthome.core.RelativeTime
 import nl.huis.smarthome.core.StatusItem
 import nl.huis.smarthome.core.TrackedCommand
 import nl.huis.smarthome.core.Zone
@@ -310,6 +311,49 @@ class PresentationTest {
 
         assertEquals(AttentionLevel.NONE, AttentionUi.of(listOf(backupOk, integration)).level)
         assertEquals(AttentionLevel.NONE, AttentionUi.of(emptyList()).level)
+    }
+
+    @Test
+    fun systemLineIsThereWhenAllIsWell() {
+        val worker = StatusItem("worker", "Achtergronddienst", "ok", "Laatste hartslag 12 s geleden", ageS = 12.0)
+        val backup = StatusItem("backup", "Back-up", "ok", "Laatste back-up 5 uur geleden", ageH = 5.2)
+        val integration = StatusItem("integration:1", "Hue Bridge", "error", "Niet bereikbaar")
+
+        // All well: no attention block, but the line says the backup age and that the worker runs.
+        val ok = listOf(worker, backup, integration)
+        assertEquals(AttentionLevel.NONE, AttentionUi.of(ok).level)
+        val line = SystemLineUi.of(ok)
+        assertEquals(SystemLine(BackupAge.Ago(RelativeTime.HoursAgo(5)), WorkerHealth.ACTIVE, safeMode = false, level = AttentionLevel.NONE), line)
+        assertFalse(line.isEmpty)
+
+        // Safe mode is added; the dot takes the level of the attention block.
+        val safe = SystemLineUi.of(ok + StatusItem("safe_mode", "Veilige modus", "warn"))
+        assertTrue(safe.safeMode)
+        assertEquals(AttentionLevel.WARN, safe.level)
+
+        // No heartbeat and no backup yet.
+        val down = SystemLineUi.of(listOf(StatusItem("worker", state = "error", ageS = 600.0), StatusItem("backup", state = "warn")))
+        assertEquals(WorkerHealth.DOWN, down.worker)
+        assertEquals(BackupAge.None, down.backup)
+        assertEquals(AttentionLevel.ERROR, down.level)
+    }
+
+    @Test
+    fun systemLineWorkerStateFollowsMaintenanceAndHeartbeat() {
+        fun worker(vararg items: StatusItem) = SystemLineUi.of(items.toList()).worker
+        // A restore pauses the worker on purpose.
+        assertEquals(WorkerHealth.PAUSED, worker(StatusItem("worker", state = "warn"), StatusItem("maintenance", state = "warn")))
+        assertEquals(WorkerHealth.PAUSED, worker(StatusItem("worker", state = "warn")))
+        // Without a usable state the heartbeat age decides, as on the server (120 s).
+        assertEquals(WorkerHealth.ACTIVE, worker(StatusItem("worker", state = "unknown", ageS = 30.0)))
+        assertEquals(WorkerHealth.DOWN, worker(StatusItem("worker", state = "unknown", ageS = 300.0)))
+        assertNull(worker(StatusItem("worker", state = "unknown")))
+        assertNull(worker(StatusItem("backup", state = "ok", ageH = 1.0)))
+
+        // A backup age in days; an "ok" backup line without an age is left out rather than guessed.
+        assertEquals(BackupAge.Ago(RelativeTime.DaysAgo(9)), SystemLineUi.of(listOf(StatusItem("backup", state = "warn", ageH = 216.0))).backup)
+        assertNull(SystemLineUi.of(listOf(StatusItem("backup", state = "ok"))).backup)
+        assertTrue(SystemLineUi.of(emptyList()).isEmpty)
     }
 
     @Test

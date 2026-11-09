@@ -57,6 +57,19 @@ De YAML bevat geen geheimen: ook het tunneltoken wordt als bestand uit `secrets/
 
 **Interne netwerken.** De app maakt drie interne netwerken: `172.30.250.0/29`, `172.30.251.0/28` en `172.30.252.0/27`. Meldt TrueNAS bij het installeren iets als *Pool overlaps with other one*, dan gebruikt een andere app die adressen al. Voeg dan `--net-prefix 10.251` toe (of een ander vrij privé-bereik) en maak de YAML opnieuw.
 
+**Tijdserver.** De app controleert regelmatig of de klok van de NAS goed loopt. Daarvoor vraagt hij de tijd op bij een tijdserver (NTP, UDP-poort 123). Standaard is dat `pool.ntp.org` op internet. Meestal hoef je hier niets aan te doen. Kies een andere tijdserver als:
+
+- je router of firewall uitgaand NTP naar internet blokkeert. In **Systeem** blijft *Tijdsynchronisatie* dan op *onbekend* staan met *Tijdserver … niet bereikbaar*;
+- je de tijd liever uit je eigen netwerk haalt, bijvoorbeeld van je router of NAS.
+
+Voeg dan `--ntp-server` toe met het IP-adres of de naam van dat apparaat en maak de YAML opnieuw, bijvoorbeeld:
+
+```bash
+python3 /mnt/tank/apps/smart-home/src/infra/scripts/render_truenas.py --root /mnt/tank/apps/smart-home --lan-url http://192.168.1.20:8088 --ntp-server 192.168.1.1 > /mnt/tank/apps/smart-home/smart-home.yaml
+```
+
+Dat apparaat moet zelf de tijd kunnen geven: zoek in de instellingen van je router of NAS naar *NTP-server* of *tijdserver*. Een andere poort dan 123 geef je zo mee: `--ntp-server 192.168.1.1:1123`. Met `--ntp-server ""` zet je de klokcontrole helemaal uit; de rest van de app werkt dan gewoon. Draai je de app zonder TrueNAS (met `docker compose`), zet dan `SHC_NTP_SERVER` in de omgeving.
+
 ## 4. App installeren
 
 **Apps › Discover Apps › ⋮ › Install via YAML**. Naam: `smart-home`. Plak de inhoud van `smart-home.yaml` en klik **Save**.
@@ -116,7 +129,7 @@ Bij koppelen accepteert de app alleen adressen in je thuisnetwerk: een privé-IP
 1. Maak een back-up (**Systeem › Back-ups › Nu maken**). Vóór een database-update maakt de app daarnaast zelf een dump in `backups/pre-migrate-….sql.gz`.
 2. Haal de nieuwe versie op: `git -C /mnt/tank/apps/smart-home/src pull`.
 3. Voer `install.sh` opnieuw uit (stap 2). Nieuwe versies kunnen andere rechten nodig hebben.
-4. Maak de YAML opnieuw (stap 3) en werk de app bij: **Apps › smart-home › Edit**, plak de nieuwe inhoud, **Save**.
+4. Maak de YAML opnieuw (stap 3), met dezelfde opties als eerst (zoals `--with`, `--net-prefix` en `--ntp-server`), en werk de app bij: **Apps › smart-home › Edit**, plak de nieuwe inhoud, **Save**.
 
 Tijdens het bijwerken toont de app *De app start of wordt bijgewerkt…* tot de API klaar is. Werk eerst de server bij en daarna de Android-app. Terugdraaien: zie [onderhoud.md](onderhoud.md#updates-en-terugdraaien).
 

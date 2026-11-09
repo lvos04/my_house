@@ -2,6 +2,7 @@ package nl.huis.smarthome.core
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import java.time.DayOfWeek
 import java.time.LocalDateTime
 import java.util.Locale
 
@@ -39,9 +40,30 @@ data class DayGroup(val days: List<Int>, val entries: List<DayEntry>)
 /** The block in force at a moment: [day] is the day whose block it is (maybe yesterday's). */
 data class ActiveBlock(val day: Int, val entry: DayEntry)
 
+/**
+ * The days of a [DayGroup], for the app to word from strings.xml: "elke dag", "ma–vr",
+ * "za en zo", "ma, wo en vr" (and the full names for TalkBack).
+ */
+sealed interface DayParts {
+    /** No valid days. */
+    data object None : DayParts
+
+    /** All seven days ("elke dag"). */
+    data object EveryDay : DayParts
+
+    /** In week order; the app joins them as "ma, wo en vr". */
+    data class Listed(val parts: List<DayPart>) : DayParts
+}
+
+sealed interface DayPart {
+    /** One day ("wo", spoken "woensdag"). */
+    data class Single(val day: DayOfWeek) : DayPart
+
+    /** Three or more days in a row ("ma–vr", spoken "maandag t/m vrijdag"). */
+    data class Range(val first: DayOfWeek, val last: DayOfWeek) : DayPart
+}
+
 object WeekSchedule {
-    private val SHORT = listOf("ma", "di", "wo", "do", "vr", "za", "zo")
-    private val LONG = listOf("maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag")
     private val TIME = Regex("^([01]\\d|2[0-3]):[0-5]\\d$")
 
     /** The blocks that start on [day], in time order (invalid times and days are left out). */
@@ -65,12 +87,14 @@ object WeekSchedule {
         return out
     }
 
-    /** "ma–vr", "za en zo", "ma, wo en vr"; with [long] the full names for TalkBack. */
-    fun daysLabel(days: List<Int>, long: Boolean = false): String {
-        val names = if (long) LONG else SHORT
+    /**
+     * The days 0 = Monday … 6 = Sunday as parts: a run of three or more days in a row becomes a
+     * range ("ma–vr"), shorter runs stay single days ("za en zo"); all seven is "elke dag".
+     */
+    fun dayParts(days: List<Int>): DayParts {
         val sorted = days.filter { it in 0..6 }.distinct().sorted()
-        if (sorted.isEmpty()) return ""
-        if (sorted.size == 7) return "elke dag"
+        if (sorted.isEmpty()) return DayParts.None
+        if (sorted.size == 7) return DayParts.EveryDay
         val runs = mutableListOf<List<Int>>()
         for (d in sorted) {
             val last = runs.lastOrNull()
@@ -78,13 +102,16 @@ object WeekSchedule {
         }
         val parts = runs.flatMap { run ->
             if (run.size >= 3) {
-                listOf(if (long) "${names[run.first()]} t/m ${names[run.last()]}" else "${names[run.first()]}–${names[run.last()]}")
+                listOf(DayPart.Range(dayOfWeek(run.first()), dayOfWeek(run.last())))
             } else {
-                run.map { names[it] }
+                run.map { DayPart.Single(dayOfWeek(it)) }
             }
         }
-        return if (parts.size == 1) parts[0] else parts.dropLast(1).joinToString(", ") + " en " + parts.last()
+        return DayParts.Listed(parts)
     }
+
+    /** The server's day number (0 = Monday … 6 = Sunday) as a [DayOfWeek]. */
+    fun dayOfWeek(day: Int): DayOfWeek = DayOfWeek.of(day + 1)
 
     /**
      * The block in force at [now] (local time of the home): the last block that started today at

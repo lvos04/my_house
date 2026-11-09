@@ -62,6 +62,7 @@ import nl.huis.smarthome.core.UnitLink
 import nl.huis.smarthome.core.WeekSchedule
 import nl.huis.smarthome.core.Zone
 import nl.huis.smarthome.core.ZoneSchedule
+import nl.huis.smarthome.data.CoreTexts
 import nl.huis.smarthome.data.HomeState
 import nl.huis.smarthome.ui.CommandUi
 import nl.huis.smarthome.ui.MainViewModel
@@ -85,7 +86,9 @@ import nl.huis.smarthome.ui.components.durationText
 import nl.huis.smarthome.ui.components.fanLabel
 import nl.huis.smarthome.ui.components.modeLabel
 import nl.huis.smarthome.ui.components.qualityText
+import nl.huis.smarthome.ui.components.relativeText
 import nl.huis.smarthome.ui.components.targetSpoken
+import nl.huis.smarthome.ui.components.textSource
 import nl.huis.smarthome.ui.theme.Huis
 import nl.huis.smarthome.ui.theme.noFontScale
 import java.time.LocalDateTime
@@ -286,8 +289,8 @@ private fun RoomReading(zone: Zone, modifier: Modifier = Modifier, centered: Boo
         }
         val line = listOfNotNull(
             if (centered) stringResource(R.string.now_short, NlFormat.temperature(t.value)) else null,
-            if (t.stale) stringResource(R.string.stale_sensor_since, NlFormat.relative(t.at)) else qualityText(t.quality),
-            t.at?.takeIf { !t.stale }?.let { NlFormat.relative(it) },
+            if (t.stale) stringResource(R.string.stale_sensor_since, relativeText(t.at)) else qualityText(t.quality),
+            t.at?.takeIf { !t.stale }?.let { relativeText(it) },
         ).joinToString(" · ")
         Text(
             line,
@@ -449,10 +452,12 @@ private fun WeekScheduleCard(schedule: ZoneSchedule?, timezone: String?, online:
 
 @Composable
 private fun ScheduleDayGroup(group: DayGroup, active: DayEntry?) {
-    val spokenDays = WeekSchedule.daysLabel(group.days, long = true)
+    val texts = textSource()
+    val days = WeekSchedule.dayParts(group.days)
+    val spokenDays = CoreTexts.days(texts, days, spoken = true)
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
-            WeekSchedule.daysLabel(group.days),
+            CoreTexts.days(texts, days),
             style = MaterialTheme.typography.titleSmall,
             color = Huis.colors.ink,
             modifier = Modifier.semantics { contentDescription = spokenDays },

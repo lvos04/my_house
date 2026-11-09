@@ -37,6 +37,13 @@
     <string name="attention_state_warn">waarschuwing</string>
     <string name="attention_more_admin">Details en wat je kunt doen staan in de web-app onder Systeem.</string>
     <string name="attention_more">Een beheerder ziet de details in de web-app onder Systeem.</string>
+    <!-- Systeemregel op Start, altijd zichtbaar: "Laatste back-up 5 uur geleden · Achtergronddienst actief" -->
+    <string name="system_backup_ago">Laatste back-up %1$s</string>
+    <string name="system_backup_none">Nog geen back-up</string>
+    <string name="system_worker_active">Achtergronddienst actief</string>
+    <string name="system_worker_paused">Achtergronddienst gepauzeerd</string>
+    <string name="system_worker_down">Achtergronddienst reageert niet</string>
+    <string name="system_safe_mode">Veilige modus aan</string>
     <string name="measured_at">%1$s · %2$s</string>
     <string name="stale_sensor">Sensor verouderd</string>
     <string name="unit_offline">Airco offline</string>
@@ -317,4 +324,59 @@
     <string name="unpaired_reason_unknown_token">De server kent deze telefoon niet (meer), bijvoorbeeld na een herstel. Koppel opnieuw met een QR-code uit de web-app.</string>
     <string name="unpaired_reason_store_reset">De beveiligde opslag op deze telefoon was beschadigd en is gewist. Koppel opnieuw met een QR-code uit de web-app.</string>
     <string name="unpaired_reason_upgrade">Koppel deze telefoon opnieuw, zodat de app je server kan herkennen voordat hij je sleutel stuurt.</string>
+    <!-- Relatieve tijd (core: RelativeTime): "zojuist", "3 min geleden", "gisteren 14:05", "3 nov 09:12" -->
+    <string name="time_unknown">onbekend</string>
+    <string name="time_just_now">zojuist</string>
+    <plurals name="time_minutes_ago">
+        <item quantity="one">%1$d min geleden</item>
+        <item quantity="other">%1$d min geleden</item>
+    </plurals>
+    <plurals name="time_hours_ago">
+        <item quantity="one">%1$d uur geleden</item>
+        <item quantity="other">%1$d uur geleden</item>
+    </plurals>
+    <plurals name="time_days_ago">
+        <item quantity="one">%1$d dag geleden</item>
+        <item quantity="other">%1$d dagen geleden</item>
+    </plurals>
+    <string name="time_today">vandaag %1$s</string>
+    <string name="time_yesterday">gisteren %1$s</string>
+    <!-- dag, maand, tijd: "3 nov 09:12" -->
+    <string name="time_on_date">%1$d %2$s %3$s</string>
+    <string name="month_jan">jan</string>
+    <string name="month_feb">feb</string>
+    <string name="month_mar">mrt</string>
+    <string name="month_apr">apr</string>
+    <string name="month_may">mei</string>
+    <string name="month_jun">jun</string>
+    <string name="month_jul">jul</string>
+    <string name="month_aug">aug</string>
+    <string name="month_sep">sep</string>
+    <string name="month_oct">okt</string>
+    <string name="month_nov">nov</string>
+    <string name="month_dec">dec</string>
+    <!-- Leeftijd van de gegevens in de widget (core: DataAge) -->
+    <string name="updated_ago">Bijgewerkt %1$s</string>
+    <string name="updated_never">Nog niet bijgewerkt</string>
+    <!-- Dagen van het weekschema (core: DayParts): "elke dag", "ma–vr", "za en zo", "ma, wo en vr" -->
+    <string name="days_every_day">elke dag</string>
+    <string name="days_range">%1$s–%2$s</string>
+    <!-- Voor TalkBack: "maandag t/m vrijdag" -->
+    <string name="days_range_spoken">%1$s t/m %2$s</string>
+    <!-- Laatste twee delen van een opsomming: "ma, wo en vr" -->
+    <string name="list_and">%1$s en %2$s</string>
+    <string name="day_mon">ma</string>
+    <string name="day_tue">di</string>
+    <string name="day_wed">wo</string>
+    <string name="day_thu">do</string>
+    <string name="day_fri">vr</string>
+    <string name="day_sat">za</string>
+    <string name="day_sun">zo</string>
+    <string name="day_mon_spoken">maandag</string>
+    <string name="day_tue_spoken">dinsdag</string>
+    <string name="day_wed_spoken">woensdag</string>
+    <string name="day_thu_spoken">donderdag</string>
+    <string name="day_fri_spoken">vrijdag</string>
+    <string name="day_sat_spoken">zaterdag</string>
+    <string name="day_sun_spoken">zondag</string>
 </resources>

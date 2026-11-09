@@ -24,7 +24,7 @@ Meer over back-ups, herstel en sleutels: [onderhoud.md](onderhoud.md).
 | *Back-up*: *Zigbee in laatste back-up: nee* | De app kan de Zigbee2MQTT-map niet lezen | Voer `install.sh` opnieuw uit (zet de rechten) en maak een nieuwe back-up |
 | **Systeem › Meldingen buiten de app**: *Opgeslagen push-adres onbruikbaar* | Het adres is met een andere hoofdsleutel versleuteld | Vul het adres opnieuw in, of kies *Adres verwijderen* |
 | Testbericht komt niet aan | Adres fout of ntfy niet bereikbaar | Controleer het onderwerp in de ntfy-app; de foutmelding staat bij *Testbericht sturen* |
-| *Tijdsynchronisatie* blijft *onbekend* (*Tijdserver … niet bereikbaar*) of waarschuwt | De worker kan `pool.ntp.org` (UDP 123) niet bereiken, of de klok van de NAS wijkt af | Sta uitgaand NTP toe in je router en zet NTP aan op de NAS. Een eigen NTP-server instellen kan nu nog niet via de YAML; de rest van de app werkt door |
+| *Tijdsynchronisatie* blijft *onbekend* (*Tijdserver … niet bereikbaar*) of waarschuwt | De worker kan `pool.ntp.org` (UDP 123) niet bereiken, of de klok van de NAS wijkt af | Sta uitgaand NTP toe in je router en zet NTP aan op de NAS, of gebruik een eigen tijdserver (bijvoorbeeld je router): `--ntp-server <adres>` bij `render_truenas.py`, of `SHC_NTP_SERVER` bij docker compose. De rest van de app werkt door |
 | *Vrije schijfruimte* oranje | Minder dan 15 % vrij | Ruim oude back-ups en `pre-migrate-…`-dumps in `<root>/backups/` op, of verkort de bewaartermijnen |
 
 ## Apparaten

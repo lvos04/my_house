@@ -82,6 +82,44 @@ def _net_prefix(value: str) -> str:
     return value
 
 
+_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+_HOSTNAME = re.compile(rf"^(?=.{{1,253}}$){_LABEL}(?:\.{_LABEL})*\.?$")
+NTP_HELP = "verwacht een naam of IP-adres, eventueel met :poort, bijvoorbeeld 192.168.1.1 of ntp.lan:123"
+
+
+def _ntp_server(value: str) -> str:
+    """The worker's reference clock: host, host:port, IPv6 (bare or [v6]:port), or empty (= no check).
+
+    The worker reads it the same way (worker/health.py, split_host_port); this also keeps quotes,
+    spaces and '$' out of the generated YAML."""
+    value = value.strip()
+    if not value:
+        return ""
+    host, port = value, None
+    if value.startswith("["):
+        host, sep, rest = value[1:].partition("]")
+        if not sep or (rest and not rest.startswith(":")):
+            raise argparse.ArgumentTypeError(NTP_HELP)
+        port = rest[1:] if rest else None
+        try:
+            ipaddress.IPv6Address(host)
+        except ValueError:
+            raise argparse.ArgumentTypeError(NTP_HELP) from None
+    elif value.count(":") > 1:
+        try:
+            ipaddress.IPv6Address(value)  # bare IPv6 without a port
+        except ValueError:
+            raise argparse.ArgumentTypeError(NTP_HELP) from None
+    else:
+        host, _, port = value.partition(":")
+        port = port if ":" in value else None
+        if not _HOSTNAME.match(host):
+            raise argparse.ArgumentTypeError(NTP_HELP)
+    if port is not None and not (port.isdigit() and 1 <= int(port) <= 65535):
+        raise argparse.ArgumentTypeError(f"ongeldige poort '{port}': {NTP_HELP}")
+    return value
+
+
 def _check_token_file(path: Path, ap: argparse.ArgumentParser) -> list[str]:
     """Problems with the tunnel token file that would stop cloudflared (or leak the token)."""
     if not path.is_file():
@@ -119,6 +157,13 @@ def main(argv: list[str] | None = None) -> int:
         help="only for older instructions: the token must be in <root>/secrets/tunnel_token",
     )
     ap.add_argument("--tz", default="Europe/Amsterdam")
+    ap.add_argument(
+        "--ntp-server",
+        type=_ntp_server,
+        default="pool.ntp.org",
+        help="tijdserver voor de klokcontrole (standaard pool.ntp.org); bijvoorbeeld je router of NAS "
+        'als uitgaand NTP geblokkeerd is. Leeg ("") zet de controle uit',
+    )
     ap.add_argument(
         "--net-prefix",
         type=_net_prefix,
@@ -163,6 +208,7 @@ def main(argv: list[str] | None = None) -> int:
         "SHC_REMOTE_URL": a.remote_url,
         "SHC_ZIGBEE_DEVICE": a.zigbee_device,
         "SHC_NET_PREFIX": a.net_prefix,
+        "SHC_NTP_SERVER": a.ntp_server,
         "TZ": a.tz,
     }
     try:

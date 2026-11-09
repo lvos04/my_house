@@ -744,8 +744,8 @@ async def test_retention_settings_validate_and_drive_the_cleanup(admin):
             s.retention_counter_days,
             s.retention_log_days,
         )
-        assert v["source"] == {"power_days": "env", "counter_days": "env", "log_days": "env"}
-        assert v["minimums"] == {"power_days": 7, "counter_days": 90, "log_days": 7}
+        assert v["source"] == {"power_days": "env", "counter_days": "env", "log_days": "env", "sensor_days": "env"}
+        assert v["minimums"] == {"power_days": 7, "counter_days": 90, "log_days": 7, "sensor_days": 30}
         for body, word in (
             ({"power_days": 3}, "minimaal 7"),
             ({"counter_days": 30}, "minimaal 90"),

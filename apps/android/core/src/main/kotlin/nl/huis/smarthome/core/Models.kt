@@ -48,6 +48,10 @@ data class StatusItem(
     val state: String = "unknown",
     val detail: String? = null,
     val code: String? = null,
+    /** "worker": seconds since the last heartbeat; null without one or during maintenance. */
+    @SerialName("age_s") val ageS: Double? = null,
+    /** "backup": hours since the last good backup; null while there is none. */
+    @SerialName("age_h") val ageH: Double? = null,
 )
 
 @Serializable

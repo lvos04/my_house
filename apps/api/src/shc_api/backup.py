@@ -1518,6 +1518,14 @@ def _after_restore(conn, manifest: dict, mode: str, report: RestoreReport) -> No
             "WHERE status = 'running'"
         )
     )
+    # An automatic backup was running when this one was made (its own "running_since"): that attempt
+    # belongs to the old server and is no interrupted backup here (worker/backup_job.py).
+    conn.execute(
+        text(
+            "UPDATE settings SET value = jsonb_set(value, '{v}', (value -> 'v') - 'running_since' - 'running_kind') "
+            "WHERE key = 'backup_state' AND jsonb_typeof(value -> 'v') = 'object'"
+        )
+    )
     _set(conn, "safe_mode", True)
     _set(conn, "maintenance", False)
     _set(

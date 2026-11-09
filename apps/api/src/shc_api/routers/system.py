@@ -21,6 +21,7 @@ from sqlalchemy import select, text, update
 
 from .. import backup as bk
 from .. import events, notify, views
+from ..adaptive import BASELINE_DAYS
 from ..config import VERSION, get_settings
 from ..deps import DB, Admin, Auth, WebAdmin
 from ..errors import api_error, not_found
@@ -396,6 +397,7 @@ RETENTION_LABELS = {
     "power_days": "Vermogen (detail)",
     "counter_days": "Meterstanden (ruw)",
     "log_days": "Logboek klimaatregeling",
+    "sensor_days": "Sensormetingen (temperatuur, vochtigheid, batterij)",
 }
 
 
@@ -407,8 +409,9 @@ class RetentionIn(BaseModel):
     power_days: int | None = None
     counter_days: int | None = None
     log_days: int | None = None
+    sensor_days: int | None = None
 
-    @field_validator("power_days", "counter_days", "log_days")
+    @field_validator("power_days", "counter_days", "log_days", "sensor_days")
     @classmethod
     def _range(cls, v: int | None, info) -> int | None:
         if v is None:
@@ -427,12 +430,15 @@ async def retention_view(db) -> dict:
         "power_days": keep["power_days"],
         "counter_days": keep["counter_days"],
         "log_days": keep["log_days"],
+        "sensor_days": keep["sensor_days"],
         "source": keep["source"],
         "defaults": retention_defaults(),
         "minimums": dict(RETENTION_MIN),
         "maximum": RETENTION_MAX_DAYS,
         "note": "Uurtotalen van energie en gas worden altijd bewaard. Meterstanden die nog niet in "
-        "uurtotalen zijn verwerkt, worden nooit verwijderd.",
+        "uurtotalen zijn verwerkt, worden nooit verwijderd. Sensormetingen blijven minstens "
+        f"{RETENTION_MIN['sensor_days']} dagen bewaard: het adaptieve model gebruikt de laatste "
+        f"{BASELINE_DAYS} dagen.",
     }
 
 

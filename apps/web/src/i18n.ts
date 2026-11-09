@@ -151,7 +151,8 @@ export const COMPARE_STATUS_LABEL: Dict = { compatible: 'Werkt', partial: 'Gedee
 export const RESTORE_STATE_LABEL: Dict = { running: 'Bezig', done: 'Klaar', failed: 'Mislukt' };
 
 /** Audit log actions (GET /audit). "request" rows are generic API calls. Also the options of the
- * "Soort" filter, so every action the backend writes needs a label here (checked in account.test.tsx). */
+ * "Soort" filter, so every action the backend writes needs a label here, including the rows that
+ * database migrations insert themselves (both checked in account.test.tsx). */
 export const AUDIT_ACTION_LABEL: Dict = {
   request: 'Wijziging via de app',
   setup_admin: 'Beheerder aangemaakt (eerste start)',
@@ -168,6 +169,7 @@ export const AUDIT_ACTION_LABEL: Dict = {
   phone_revoked: 'Telefoon ingetrokken',
   phone_unpaired: 'Telefoon ontkoppeld',
   phone_token_refreshed: 'Telefoonsleutel vernieuwd',
+  legacy_phone_limited: 'Oude telefoonkoppeling beperkt (database-update)',
   home_created: 'Woning aangemaakt',
   home_archived: 'Woning gearchiveerd',
   settings_updated: 'Adressen gewijzigd',

@@ -31,7 +31,9 @@ import nl.huis.smarthome.R
 import nl.huis.smarthome.core.Freshness
 import nl.huis.smarthome.core.NlFormat
 import nl.huis.smarthome.data.CachedOverview
+import nl.huis.smarthome.data.CoreTexts
 import nl.huis.smarthome.data.OverviewCache
+import nl.huis.smarthome.data.TextSource
 import nl.huis.smarthome.huisApp
 import nl.huis.smarthome.work.AlertWorker
 import java.time.Instant
@@ -48,6 +50,8 @@ private data class WidgetTexts(
     val stale: String,
     val unpaired: String,
     val powerNow: String,
+    /** "Bijgewerkt 3 min geleden" / "Nog niet bijgewerkt" for the cached data. */
+    val age: String,
 )
 
 /**
@@ -60,13 +64,15 @@ class HomeWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val cached = OverviewCache.read(context)
         val unpaired = runCatching { context.huisApp.repository.state.value.unpaired != null }.getOrDefault(false)
+        val now = Instant.now()
         val texts = WidgetTexts(
             empty = context.getString(R.string.widget_empty),
             stale = context.getString(R.string.widget_stale),
             unpaired = context.getString(R.string.widget_unpaired),
             powerNow = context.getString(R.string.power_now),
+            age = CoreTexts.age(TextSource.of(context), Freshness.age(cached?.savedAt, now)),
         )
-        provideContent { WidgetContent(cached, unpaired, texts, Instant.now()) }
+        provideContent { WidgetContent(cached, unpaired, texts, now) }
     }
 }
 
@@ -125,11 +131,10 @@ private fun WidgetContent(cached: CachedOverview?, unpaired: Boolean, texts: Wid
             }
         }
         Spacer(GlanceModifier.height(4.dp))
-        val age = Freshness.ageLabel(cached.savedAt, now)
         val footer = when {
             unpaired -> texts.unpaired
-            stale -> "${texts.stale} · $age"
-            else -> age
+            stale -> "${texts.stale} · ${texts.age}"
+            else -> texts.age
         }
         Text(footer, style = TextStyle(color = if (stale) Warn else Muted, fontSize = 11.sp))
     }

@@ -17,6 +17,8 @@ The concern-specific loops live in the mixins this class is assembled from.
   changed ones again (verbeterlijst 24).
 - Integration state is debounced (verbeterlijst 28): a transient problem only becomes "error" after
   3 consecutive failures or 5 minutes; one log line per state change; ``status.updated`` on change.
+- At start, an automatic backup that was still running when the previous worker stopped is recorded
+  as a failed attempt (``recover_backup_at_start``, see backup_job).
 """
 
 from __future__ import annotations
@@ -236,6 +238,7 @@ class Worker(IngestMixin, CommandsMixin, ClimateMixin, HealthMixin, BackupMixin,
             await self.load_integrations()
         except Exception:
             log.exception("Koppelingen laden bij het starten mislukt; de herlaadlus probeert het opnieuw")
+        await self.recover_backup_at_start()
         self.tasks = [
             asyncio.create_task(self._forever(name, fn, interval, wake))
             for name, fn, interval, wake in self.loop_specs()
@@ -246,6 +249,17 @@ class Worker(IngestMixin, CommandsMixin, ClimateMixin, HealthMixin, BackupMixin,
             await asyncio.gather(*self.tasks)
         finally:
             self._watchdog_stop.set()
+
+    async def recover_backup_at_start(self) -> bool:
+        """A backup that was running when the previous worker stopped counts as a failed attempt
+        (backup_job.recover_interrupted_backup). Not during a restore: the backup loop does it later."""
+        try:
+            if await self.in_maintenance():
+                return False
+            return await self.recover_interrupted_backup()
+        except Exception as exc:
+            log.warning("Onderbroken back-up nakijken bij het starten mislukt (%s); de back-uplus doet het later", exc)
+            return False
 
     async def in_maintenance(self) -> bool:
         """True while a restore runs (Setting "maintenance"). Cached; a failed read keeps the last value."""
@@ -479,6 +493,11 @@ class Worker(IngestMixin, CommandsMixin, ClimateMixin, HealthMixin, BackupMixin,
         if integ.provider == "zigbee":
             cfg.setdefault("host", self.settings.mqtt_host)
             cfg.setdefault("port", self.settings.mqtt_port)
+        if integ.provider == "homewizard":
+            # Zone-less device timestamps (v2 "timestamp", the gas meter time) are local time of the home.
+            tz = await self._home_timezone(integ.home_id)
+            if tz:
+                cfg.setdefault("timezone", tz)
         try:
             adapter = cls(cfg, creds, **kwargs)
         except Exception as exc:
@@ -506,6 +525,10 @@ class Worker(IngestMixin, CommandsMixin, ClimateMixin, HealthMixin, BackupMixin,
         self.integ_tasks[integ.id] = tasks  # keeps a reference: asyncio holds tasks only weakly
         log.info("Koppeling geladen: %s (%s)", integ.name, integ.provider)
         return True
+
+    async def _home_timezone(self, home_id: uuid.UUID) -> str | None:
+        async with sessionmaker()() as db:
+            return (await db.execute(select(Home.timezone).where(Home.id == home_id))).scalar_one_or_none()
 
     async def _seed_inventory(self, integ: Integration, adapter) -> None:
         """Tell an adapter that reports deletions after a full reload (Hue) which of its devices the

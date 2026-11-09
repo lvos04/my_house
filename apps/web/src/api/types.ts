@@ -304,6 +304,8 @@ export interface Alert {
   created_at: Ts;
   acknowledged: boolean;
   source: string;
+  /** Stable identity of the open alert, e.g. "watchdog:{zone_id}". Missing on older servers. */
+  key?: string;
 }
 
 /* ------------------------------------------------------------------ measurements */
@@ -1152,12 +1154,14 @@ export interface NotifyTestResult {
   ok: boolean;
   error: string | null;
 }
-export type RetentionField = 'power_days' | 'counter_days' | 'log_days';
+export type RetentionField = 'power_days' | 'counter_days' | 'log_days' | 'sensor_days';
 /** GET/PUT /system/retention (admin): days raw data is kept. Hourly energy/gas totals are kept forever. */
 export interface RetentionSettings {
   power_days: number;
   counter_days: number;
   log_days: number;
+  /** Raw sensor readings (temperature, humidity, battery, unit readbacks). */
+  sensor_days: number;
   /** "app" = set here, "env" = SHC_RETENTION_*_DAYS default. */
   source: Record<RetentionField, 'app' | 'env'>;
   defaults: Record<RetentionField, number>;

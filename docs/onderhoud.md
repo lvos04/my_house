@@ -66,6 +66,9 @@ Hoe het werkt:
   als je dat hebt ingesteld, zie [Meldingen buiten de app](#meldingen-buiten-de-app)). De worker probeert
   het opnieuw na 1 uur, dan 2 uur, enzovoort, tot maximaal 6 uur ertussen. Nooit direct opnieuw. De
   melding verdwijnt na de eerstvolgende geslaagde back-up.
+- **Onderbroken?** Werd de worker (of de hele container) herstart terwijl een back-up liep, dan telt dat
+  als mislukte poging met dezelfde wachttijd: de melding zegt *Back-up onderbroken (worker herstart)*,
+  de back-up staat in de lijst als mislukt en het half geschreven tijdelijke bestand wordt opgeruimd.
 - **Opruimen.** Alleen automatische back-ups worden opgeruimd (bestand én regel in de lijst), exports en
   dumps elk apart tot het ingestelde aantal. Handmatige back-ups en de dumps van vóór een update blijven
   altijd staan.
@@ -320,13 +323,21 @@ gaat daar altijd voor. De TrueNAS-YAML bevat bewust geen geheimen: stel het adre
 | Vermogen (detail) | 30 dagen | 7 dagen |
 | Meterstanden (ruw) | 365 dagen | 90 dagen |
 | Logboek klimaatregeling | 90 dagen | 7 dagen |
+| Sensormetingen (temperatuur, vochtigheid, batterij) | 400 dagen | 30 dagen |
 
 Maximaal 3650 dagen.
 
 Uurtotalen van energie en gas blijven altijd bewaard, en meterstanden die nog niet in uurtotalen zijn
 verwerkt, worden nooit verwijderd. De standaardwaarden komen uit `SHC_RETENTION_POWER_DAYS`,
-`SHC_RETENTION_COUNTER_DAYS` en `SHC_RETENTION_LOG_DAYS`; wat je in de app instelt, gaat voor.
-Temperatuur, vochtigheid en de doeltemperatuur van de airco worden niet automatisch opgeruimd.
+`SHC_RETENTION_COUNTER_DAYS`, `SHC_RETENTION_LOG_DAYS` en `SHC_RETENTION_SENSOR_DAYS`; wat je in de app
+instelt, gaat voor.
+
+*Sensormetingen* zijn alle ruwe metingen behalve vermogen en meterstanden: temperatuur, vochtigheid, de
+doeltemperatuur en binnentemperatuur van de airco, batterij, signaalsterkte, luchtdruk en
+batterijspanning. Ze blijven minstens 30 dagen bewaard (ook als `SHC_RETENTION_SENSOR_DAYS` lager is),
+want het adaptieve model rekent met de laatste 14 dagen. Grafieken en experimenten die verder teruggaan
+dan de ingestelde termijn hebben daar geen temperatuurgegevens meer. De worker ruimt elk uur op, in
+porties, zodat de database niet lang bezig is.
 
 ## Telefoons
 

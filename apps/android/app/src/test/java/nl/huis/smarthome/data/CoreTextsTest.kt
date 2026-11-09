@@ -12,6 +12,8 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.w3c.dom.Element
 import java.io.File
+import java.time.DayOfWeek
+import java.time.Month
 import javax.xml.parsers.DocumentBuilderFactory
 
 /**
@@ -28,6 +30,9 @@ class CoreTextsTest {
         assertDistinct(ConnectionChange.entries.map { CoreTexts.of(it) })
         assertDistinct(PairError.entries.map { CoreTexts.of(it) })
         assertDistinct(UnpairReason.entries.map { CoreTexts.of(it) })
+        // Short and spoken day names (week schedule) and month names ("3 nov 09:12").
+        assertDistinct(DayOfWeek.entries.flatMap { listOf(CoreTexts.day(it), CoreTexts.day(it, spoken = true)) })
+        assertDistinct(Month.entries.map { CoreTexts.month(it) })
     }
 
     @Test

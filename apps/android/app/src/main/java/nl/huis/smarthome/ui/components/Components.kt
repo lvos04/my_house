@@ -31,6 +31,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,11 +47,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import nl.huis.smarthome.R
 import nl.huis.smarthome.core.ApiProblem
-import nl.huis.smarthome.core.NlFormat
 import nl.huis.smarthome.core.Quality
+import nl.huis.smarthome.core.RelativeTime
 import nl.huis.smarthome.core.RouteKind
 import nl.huis.smarthome.data.CoreTexts
 import nl.huis.smarthome.data.HomeState
+import nl.huis.smarthome.data.TextSource
 import nl.huis.smarthome.ui.BannerKind
 import nl.huis.smarthome.ui.CommandLine
 import nl.huis.smarthome.ui.ConnectionUi
@@ -130,6 +132,16 @@ fun QualityLabel(q: Quality, extra: String? = null, modifier: Modifier = Modifie
     )
 }
 
+/** strings.xml texts for the formatters in [CoreTexts] (relative times, days, the system line). */
+@Composable
+@ReadOnlyComposable
+fun textSource(): TextSource = TextSource.of(LocalContext.current.resources)
+
+/** "zojuist", "3 min geleden", "gisteren 14:05" … for an ISO time from the server ("onbekend" without one). */
+@Composable
+@ReadOnlyComposable
+fun relativeText(iso: String?): String = CoreTexts.relative(textSource(), RelativeTime.of(iso))
+
 @Composable
 fun StatusDot(color: Color, size: Int = 8) {
     Box(Modifier.size(size.dp).clip(CircleShape).background(color))
@@ -187,7 +199,7 @@ fun RouteChip(state: HomeState) {
 fun ConnectionBanner(state: HomeState, onRetry: () -> Unit, modifier: Modifier = Modifier) {
     val banner = ConnectionUi.banner(state)
     if (banner.kind == BannerKind.NONE) return
-    val since = NlFormat.relative(state.updatedAt?.toString())
+    val since = relativeText(state.updatedAt?.toString())
     val lastKnown = if (state.overview == null) null else stringResource(R.string.banner_last_known, since)
     when (banner.kind) {
         BannerKind.NONE -> Unit

@@ -64,6 +64,7 @@ import nl.huis.smarthome.ui.components.HuisCard
 import nl.huis.smarthome.ui.components.InfoBox
 import nl.huis.smarthome.ui.components.SectionTitle
 import nl.huis.smarthome.ui.components.StatusDot
+import nl.huis.smarthome.ui.components.relativeText
 import nl.huis.smarthome.ui.theme.Huis
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -390,7 +391,7 @@ private fun AlertRow(alert: Alert, canAck: Boolean, onAck: () -> Unit) {
         Column(Modifier.padding(top = 7.dp)) { StatusDot(color) }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(alert.title, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold))
-            val sub = listOfNotNull(alert.detail, NlFormat.relative(alert.createdAt)).joinToString(" · ")
+            val sub = listOfNotNull(alert.detail, alert.createdAt?.let { relativeText(it) }).joinToString(" · ")
             Text(sub, color = Huis.colors.muted, style = MaterialTheme.typography.bodySmall)
         }
         if (canAck) {

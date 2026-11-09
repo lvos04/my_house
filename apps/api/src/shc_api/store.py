@@ -93,11 +93,16 @@ async def audit(db: AsyncSession, actor: str, action: str, target: str | None = 
 async def raise_alert(
     db: AsyncSession, home_id: uuid.UUID | None, key: str, severity: str, title: str, detail: str, source: str
 ) -> Alert | None:
-    """Open an alert once per key; returns the new alert or None if already open."""
+    """Open an alert once per key; returns the new alert or None if already open.
+
+    An alert that is already open keeps its id, but gets the new title and detail: the cause can be
+    described differently by now (another zone name, a new retry time)."""
+    title = title[:200]
     existing = (
         await db.execute(select(Alert).where(Alert.key == key, Alert.resolved_at.is_(None)))
     ).scalar_one_or_none()
     if existing:
+        existing.title = title
         existing.detail = detail
         return None
     a = Alert(home_id=home_id, key=key, severity=severity, title=title, detail=detail, source=source)
@@ -118,8 +123,10 @@ async def resolve_alert(db: AsyncSession, key: str) -> list[Alert]:
 
 
 def alert_view(a: Alert) -> dict:
+    """``key`` is the stable cause (e.g. ``watchdog:{zone_id}``, ``backup_failed``): one open alert per key."""
     return {
         "id": a.id,
+        "key": a.key,
         "severity": a.severity,
         "title": a.title,
         "detail": a.detail,

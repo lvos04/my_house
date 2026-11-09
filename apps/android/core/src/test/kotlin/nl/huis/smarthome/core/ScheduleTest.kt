@@ -3,6 +3,14 @@ package nl.huis.smarthome.core
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.time.DayOfWeek
+import java.time.DayOfWeek.FRIDAY
+import java.time.DayOfWeek.MONDAY
+import java.time.DayOfWeek.SATURDAY
+import java.time.DayOfWeek.SUNDAY
+import java.time.DayOfWeek.THURSDAY
+import java.time.DayOfWeek.TUESDAY
+import java.time.DayOfWeek.WEDNESDAY
 import java.time.LocalDateTime
 
 class ScheduleTest {
@@ -39,14 +47,20 @@ class ScheduleTest {
     }
 
     @Test
-    fun dayLabels() {
-        assertEquals("ma–vr", WeekSchedule.daysLabel(weekdays))
-        assertEquals("maandag t/m vrijdag", WeekSchedule.daysLabel(weekdays, long = true))
-        assertEquals("za en zo", WeekSchedule.daysLabel(listOf(6, 5)))
-        assertEquals("ma, wo en vr", WeekSchedule.daysLabel(listOf(0, 2, 4)))
-        assertEquals("ma–wo en za", WeekSchedule.daysLabel(listOf(0, 1, 2, 5)))
-        assertEquals("elke dag", WeekSchedule.daysLabel((0..6).toList()))
-        assertEquals("do", WeekSchedule.daysLabel(listOf(3)))
+    fun dayPartsAreRangesAndSingleDays() {
+        fun single(d: DayOfWeek) = DayPart.Single(d)
+        assertEquals(DayParts.Listed(listOf(DayPart.Range(MONDAY, FRIDAY))), WeekSchedule.dayParts(weekdays))
+        assertEquals(DayParts.Listed(listOf(single(SATURDAY), single(SUNDAY))), WeekSchedule.dayParts(listOf(6, 5)))
+        assertEquals(DayParts.Listed(listOf(single(MONDAY), single(WEDNESDAY), single(FRIDAY))), WeekSchedule.dayParts(listOf(0, 2, 4)))
+        assertEquals(DayParts.Listed(listOf(DayPart.Range(MONDAY, WEDNESDAY), single(SATURDAY))), WeekSchedule.dayParts(listOf(0, 1, 2, 5)))
+        // Two days in a row stay two single days ("ma en di"), not a range.
+        assertEquals(DayParts.Listed(listOf(single(MONDAY), single(TUESDAY))), WeekSchedule.dayParts(listOf(1, 0, 1)))
+        assertEquals(DayParts.Listed(listOf(single(THURSDAY))), WeekSchedule.dayParts(listOf(3)))
+        assertEquals(DayParts.EveryDay, WeekSchedule.dayParts((0..6).toList()))
+        assertEquals(DayParts.EveryDay, WeekSchedule.dayParts((0..6).toList() + 7))
+        assertEquals(DayParts.None, WeekSchedule.dayParts(emptyList()))
+        assertEquals(DayParts.None, WeekSchedule.dayParts(listOf(7, -1)))
+        assertEquals(SUNDAY, WeekSchedule.dayOfWeek(6))
     }
 
     @Test

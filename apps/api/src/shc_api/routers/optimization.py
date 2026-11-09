@@ -29,7 +29,7 @@ from ..models import (
 from ..store import audit, device_for_role, resolve_alert
 
 router = APIRouter(tags=["optimization"])
-BASELINE_DAYS = 14
+BASELINE_DAYS = ad.BASELINE_DAYS
 
 
 async def _series(db, device_id, metric, since):

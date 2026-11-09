@@ -16,6 +16,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 MIN_SAMPLES = 96  # ~24 h of running time in 15-minute steps
+# Days of raw readings the model is fitted on (temperature, target_c). The sensor retention never
+# keeps less than this (worker/aggregates.py, RETENTION_MIN["sensor_days"]).
+BASELINE_DAYS = 14
 MIN_R2 = 0.3
 MAX_ADAPTIVE_OFFSET = 0.5
 

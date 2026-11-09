@@ -54,7 +54,7 @@ jobs:
       - name: Lint
         run: |
           ruff check apps/api/src apps/api/tests
-          ruff check --config apps/api/pyproject.toml infra/scripts infra/e2e
+          ruff check --config apps/api/pyproject.toml infra/scripts infra/e2e infra/tests
           # integrations follows a newer ruff than the API's dev pin
           pipx run ruff==0.17.4 check integrations
       - name: Adapter contract tests
@@ -164,6 +164,8 @@ jobs:
           persist-credentials: false
       - name: Shell scripts
         run: shellcheck infra/scripts/*.sh
+      - name: Infra script tests (render_truenas.py, smoke_test.py; standard library only)
+        run: python3 -m unittest discover -s infra/tests -v
       - name: compose.yaml for every profile and every TrueNAS render
         run: bash infra/scripts/validate_compose.sh
 

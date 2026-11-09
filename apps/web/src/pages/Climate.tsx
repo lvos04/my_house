@@ -131,17 +131,23 @@ function signed(v: number): string {
   return `${v > 0 ? '+' : '−'}${Math.abs(v).toLocaleString('nl-NL', { maximumFractionDigits: 2 })}°`;
 }
 
-/** Title the worker gives a zone's watchdog alert (worker/climate_loop._watchdog, key "watchdog:{zone_id}"). */
+/** Key of a zone's watchdog alert (worker/climate_loop._watchdog). */
+export const watchdogAlertKey = (zoneId: string) => `watchdog:${zoneId}`;
+/** Title the worker gives that alert; only used for servers that do not send the alert key yet. */
 export const watchdogAlertTitle = (zoneName: string) => `${zoneName}: temperatuur reageert niet`;
 
 /**
  * The open watchdog alert of a zone, if any (item 45). Only that alert means the room really does not
  * respond: zone.watchdog_since is just the start of the current watchdog window, which is set at every
  * normal heat-up or cool-down and moves on every window, so it is no reason for a warning by itself.
+ * Matched on the alert key, so a renamed zone or two zones with the same name still get the right one;
+ * an alert without a key (older server) falls back to source + title.
  */
-export function watchdogAlert(alerts: readonly Alert[] | null | undefined, zone: Pick<Zone, 'name'>): Alert | undefined {
+export function watchdogAlert(alerts: readonly Alert[] | null | undefined, zone: Pick<Zone, 'id' | 'name'>): Alert | undefined {
+  if (!Array.isArray(alerts)) return undefined;
+  const key = watchdogAlertKey(zone.id);
   const title = watchdogAlertTitle(zone.name);
-  return Array.isArray(alerts) ? alerts.find((a) => a.source === 'climate' && a.title === title) : undefined;
+  return alerts.find((a) => (a.key ? a.key === key : a.source === 'climate' && a.title === title));
 }
 
 function TodayCard({ zone, tz, homeId }: { zone: Zone; tz?: string; homeId: string }) {
