@@ -19,7 +19,7 @@ Verder: klimaatregeling met weekschema's, comfortprofielen, waakhond en veilige 
 
 ## Ontwerp
 
-Het visuele ontwerp (web en Android) staat op het canvas [Smart Home Control](https://claude.ai/artifact/9jVrAYrtre4K8BkM4rekav). Ontwerptaal "Rustig huis": warme lichte ondergrond, oranje = verwarmen, blauw = koelen, elk getal met een kwaliteitslabel (gemeten · afgeleid · geschat · ontbreekt). De omzetting naar de platform-ontwerptaal Peil is ontworpen in [docs/ontwerp/PEIL_MIGRATIE.md](docs/ontwerp/PEIL_MIGRATIE.md) (nog niet gebouwd).
+De web-app en de Android-app volgen de ontwerptaal **Peil** 1.1.0 van het TrueNAS Home Platform (gepinde kopie in [design/ontwerptaal/](design/ontwerptaal/HERKOMST.md)): licht en donker (in de web-app te kiezen: Systeem, Licht of Donker), een status altijd als icoon + woord + vorm (Gezond · Beperkt · Storing · Onbekend · Verouderd), groen alleen voor gemeten gezondheid, oranje = verwarmen, blauw = koelen, en elk getal met een kwaliteitslabel (gemeten · afgeleid · geschat · geen meting). Alleen het uiterlijk is veranderd; functies, API en installatie zijn gelijk gebleven. Ontwerp en uitvoering: [docs/ontwerp/PEIL_MIGRATIE.md](docs/ontwerp/PEIL_MIGRATIE.md), [docs/ontwerp/PEIL_REVIEW.md](docs/ontwerp/PEIL_REVIEW.md) en ADR-0008 tot en met ADR-0011 in [docs/adr/](docs/adr/). Het oudere ontwerp-canvas [Smart Home Control](https://claude.ai/artifact/9jVrAYrtre4K8BkM4rekav) ("Rustig huis") is daarmee vervangen.
 
 ## Snel starten
 

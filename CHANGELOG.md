@@ -67,6 +67,12 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
 - Ontwerpreview: de Peil-matrix controleert ook dat inhoud binnen zijn knop of tegel blijft; een volledige
   Tab-doorloop (390 en 1440 px, licht en donker) eist een focusring van minstens 3:1 die nooit achter een vaste balk
   ligt; de offline-test eist "nooit groen" en Onbekend voor een nooit opgehaalde pagina.
+- Controle (QA-review): de offline-browsertest zet nu zelf een verse hartslag van de achtergronddienst (testgegevens),
+  zodat er online echt een gemeten "Gezond" staat en "nooit groen offline" iets toetst, ook als de test los draait
+  (zonder die hartslag stond er online geen enkel Gezond en slaagde de controle altijd). Tegen een build zonder de
+  offline-regel faalt de test nu aantoonbaar.
+- OpenAPI-driftcontrole (contract §5): `apps/api/tests/test_openapi_snapshot.py` faalt als `create_app().openapi()`
+  afwijkt van `docs/openapi/my_house.openapi.json`. Dit is het driftdeel van P3-10; de rest van P3-10 staat nog open.
 
 ### Documentatie
 
@@ -86,6 +92,10 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
 
 ### Gerepareerd
 
+- **Startscript van de webcontainer (`HUB_URL`)** weigert nu ook andere schrijfwijzen van loopback- en lege adressen,
+  zoals `0177.0.0.1`, `2130706433`, `0x7f.1`, `[0::1]` en `[0:0:0:0:0:ffff:7f00:1]`. Een IPv4-adres mag alleen in de
+  gewone vorm a.b.c.d. De browser verborg de link in die gevallen al (`src/hub.ts` controleert met de URL-parser);
+  nu staat zo'n adres ook niet meer in `/_shc/config.json` en meldt het logboek waarom het genegeerd is.
 - **Database-update 0004 hangt niet meer af van de tijdzone van de database.** De vervaldatum van oude
   telefoonsleutels (180 dagen na het laatste gebruik, minstens 30 dagen na de update) is nu precies 180 × 24 uur,
   net als bij een nieuwe koppeling. Voorheen kon die op een database buiten UTC een uur verschuiven rond de

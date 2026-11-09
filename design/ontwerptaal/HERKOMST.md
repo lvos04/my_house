@@ -2,8 +2,14 @@
 
 Versie-gepinde kopie van de ontwerptaal **Peil 1.1.0** (9 november 2026, design-agent; goedgekeurd na de onafhankelijke
 ontwerpreview 1.0.0 → 1.1.0). De bron van waarheid wordt na de overdracht
-`ai-server-manager/docs/platform-v2/ONTWERPTAAL.md` + `ai-server-manager/design/ontwerptaal/` (contract 1.2 §13). Tot die
-commit bestaat staat de bron in de map `definitief/` van de ontwerptaal (buiten de repos).
+`ai-server-manager/docs/platform-v2/ONTWERPTAAL.md` + `ai-server-manager/design/ontwerptaal/` (contract 1.2 §13). Deze
+kopie is gemaakt uit de map `definitief/` van de ontwerptaal (buiten de repos), vóór die commit bestond.
+
+**Controle tegen de bron in ai-server-manager** (9 november 2026, commit `172ee87` "Ontwerptaal Peil 1.1.0 als bron van
+waarheid", branch `ccr-c133d7a0-kuz1cv`): `ontwerptaal.css`, `aliaslagen/my_house.css`, `tokens.json` en `components.json`
+zijn daar byte-gelijk aan de sha256 hieronder. `ONTWERPTAAL.md` (daar in `docs/platform-v2/`) en `COMPONENTEN.md` verschillen
+daar alleen in één regel met relatieve links. Het ADR heet daar `docs/adr/ADR-0015-ontwerptaal-peil.md` en heeft twee extra
+slotparagrafen (de besluiten van de gebruiker en de plaats van de bron); die besluiten staan voor my_house in ADR-0008.
 
 **Status in my_house:** de omzetting staat in [`docs/ontwerp/PEIL_MIGRATIE.md`](../../docs/ontwerp/PEIL_MIGRATIE.md).
 De web-app gebruikt kopieën met herkomstkop in `apps/web/src/` (§14 daar). De Android-app genereert zijn kleuren en

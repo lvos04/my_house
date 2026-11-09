@@ -220,7 +220,7 @@ verwijzen naar §9).
 | 4 | Diensten zonder geldige auth → 401 `{code:"unauthorized"}` | **Deels**: 401 `auth_required`/`token_revoked` in `{"detail":…}` | Connector-routes volgen het contract (ADR-0003 punt 3) |
 | 5 | `/healthz`, `/readyz` zonder auth | **Deels**: `/api/v1/health`, nginx `/healthz` | P3-03 |
 | 5 | Foutformaat, `Idempotency-Key`, ETag, cursor | **Nee** | Op connector-routes (ADR-0003) |
-| 5 | OpenAPI-export `docs/openapi/<dienst>.openapi.json`, CI-drift | **Momentopname toegevoegd in P0**, driftcontrole ontbreekt | P3-10 |
+| 5 | OpenAPI-export `docs/openapi/<dienst>.openapi.json`, CI-drift | **Momentopname toegevoegd in P0**; driftcontrole als pytest in de backend-job van de CI (`apps/api/tests/test_openapi_snapshot.py`, QA-review Peil-ronde, 9 nov 2026) | — (driftdeel van P3-10 gedaan) |
 | 6 | Connectorcontract | **Nee** | P3-03, P3-05 |
 | 7 | Event-envelope, outbox | **Nee** | P3-04 |
 | 8 | Ondertekend `ExecutionRequest`, boiler altijd geblokkeerd | Boiler **ja**; handtekening **nee** | P3-05, P3-06 |
@@ -439,7 +439,7 @@ Daarnaast **14 aangevulde rijen** (11.5) voor eisen zonder rij.
 | P3-07 | P0 | Geen nieuwe velden voor host/protocolversie/firmware/testlog (G1, G5). Wel: gate `untested` → 409, detectiemethode + terugvalkolom, historie van `device_marked_tested` tonen |
 | P3-08 | P1 | Plus tests voor de commando-TTL (G2) en `_recover_interrupted` (A6) |
 | P3-09 | P1 | **P0** (11.4): onbekende (nieuwere) revisie herkennen **vóór** de dump; geen dump; nette weigering + herstelpagina |
-| P3-10 | P1 | alembic: alleen één test `head → base → head` (G9); OpenAPI-drift en EX50 blijven |
+| P3-10 | P1 | alembic: alleen één test `head → base → head` (G9); EX50 blijft; OpenAPI-drift gedaan (`test_openapi_snapshot.py`, QA-review Peil-ronde) |
 | P3-11 | P1 | Wachtwoordherstel alleen voor de enige beheerder (G8); rest ongewijzigd |
 
 ### 11.7 Ook nooit dubbel bouwen (aanvulling op §10)
