@@ -98,7 +98,7 @@ chmod 0755 "$STATE/python"
 export E2E_PYTHON="$STATE/python"
 
 STATUS=1
-# shellcheck disable=SC2329 # called by the EXIT trap
+# shellcheck disable=SC2317,SC2329 # called by the EXIT trap
 cleanup() {
   set +e
   if [[ "$STATUS" != 0 ]]; then

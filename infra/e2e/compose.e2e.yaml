@@ -37,5 +37,14 @@ services:
     networks:
       lan: { ipv4_address: "${SHC_E2E_LAN_PREFIX:-192.168.77}.10" }
     # The image's own healthcheck asks the API on :8000, which this container does not run.
+    # Instead: a Gree scan over UDP must get an answer (compose --wait needs a healthcheck).
     healthcheck:
-      disable: true
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(2); s.sendto(b'{\"t\":\"scan\"}', ('127.0.0.1', 7000)); s.recvfrom(4096)"
+      interval: 5s
+      timeout: 4s
+      retries: 10
+      start_period: 5s
