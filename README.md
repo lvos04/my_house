@@ -19,7 +19,7 @@ Verder: klimaatregeling met weekschema's, comfortprofielen, waakhond en veilige 
 
 ## Ontwerp
 
-Het visuele ontwerp (web en Android) staat op het canvas [Smart Home Control](https://claude.ai/artifact/9jVrAYrtre4K8BkM4rekav). Ontwerptaal "Rustig huis": warme lichte ondergrond, oranje = verwarmen, blauw = koelen, elk getal met een kwaliteitslabel (gemeten · afgeleid · geschat · ontbreekt).
+Het visuele ontwerp (web en Android) staat op het canvas [Smart Home Control](https://claude.ai/artifact/9jVrAYrtre4K8BkM4rekav). Ontwerptaal "Rustig huis": warme lichte ondergrond, oranje = verwarmen, blauw = koelen, elk getal met een kwaliteitslabel (gemeten · afgeleid · geschat · ontbreekt). De omzetting naar de platform-ontwerptaal Peil is ontworpen in [docs/ontwerp/PEIL_MIGRATIE.md](docs/ontwerp/PEIL_MIGRATIE.md) (nog niet gebouwd).
 
 ## Snel starten
 
