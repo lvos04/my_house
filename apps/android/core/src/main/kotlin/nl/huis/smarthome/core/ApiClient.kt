@@ -14,6 +14,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
+import java.util.Locale
 import kotlin.coroutines.resumeWithException
 
 /** Credentials of this phone. The Cloudflare Access headers only ever go to the remote address. */
@@ -27,8 +28,8 @@ data class Credentials(
 
 /** Why the server no longer accepts this phone (verbeterlijst 18). */
 enum class UnpairReason(val message: String) {
-    REVOKED("De koppeling is ingetrokken. Koppel opnieuw met een QR-code uit de web-app (Systeem › Telefoon koppelen)."),
-    EXPIRED("De koppeling is verlopen. Koppel opnieuw met een QR-code uit de web-app (Systeem › Telefoon koppelen)."),
+    REVOKED("De koppeling is ingetrokken. Koppel opnieuw met een QR-code uit de web-app (Account › Telefoons)."),
+    EXPIRED("De koppeling is verlopen. Koppel opnieuw met een QR-code uit de web-app (Account › Telefoons)."),
     UNKNOWN_TOKEN("De server kent deze telefoon niet (meer), bijvoorbeeld na een herstel. Koppel opnieuw met een QR-code uit de web-app."),
     STORE_RESET("De beveiligde opslag op deze telefoon was beschadigd en is gewist. Koppel opnieuw met een QR-code uit de web-app."),
     UPGRADE("Koppel deze telefoon opnieuw, zodat de app je server kan herkennen voordat hij je sleutel stuurt.");
@@ -46,15 +47,67 @@ enum class UnpairReason(val message: String) {
 }
 
 /**
+ * A failure that the client describes itself, because the answer had no message of the server's
+ * own (a Cloudflare or proxy page, a redirect, a refused route, a bare status code). The app shows
+ * its strings.xml text for it (data/CoreTexts.kt), so TalkBack and translations read the same
+ * resources; [dutch] is the same text for JVM callers and tests. [SERVER_ERROR] names the status.
+ */
+enum class ApiProblem(val dutch: String) {
+    UNVERIFIED_ROUTE("Dit adres is niet als jouw server herkend; de app stuurt er geen sleutel heen."),
+    CLEARTEXT_REFUSED("Onversleuteld verbinden kan alleen met een adres in je thuisnetwerk."),
+    BAD_RESPONSE("Onverwacht antwoord van de server."),
+    NOT_API("Dit adres geeft geen antwoord van je huis."),
+    CF_ACCESS_LOGIN("Cloudflare Access laat de app niet door. Vul de service token in onder Meer › Cloudflare Access."),
+    CF_FORBIDDEN("Toegang geweigerd onderweg (Cloudflare). Controleer Meer › Cloudflare Access."),
+    REDIRECT("Dit adres stuurt door naar een andere pagina; het lijkt niet je huis."),
+    TUNNEL_UNAVAILABLE("De tunnel naar je huis werkt nu niet."),
+    SERVER_UNAVAILABLE("Je huis is nu niet bereikbaar."),
+    REPAIR_NEEDED("Opnieuw koppelen nodig."),
+    NO_RIGHTS("Je hebt hier geen rechten voor."),
+    NOT_FOUND("Niet gevonden."),
+    CONFLICT("Dit kan nu niet."),
+    TOO_LARGE("Het verzoek is te groot."),
+    TOO_MANY_REQUESTS("Te veel verzoeken, probeer het zo opnieuw."),
+    SERVER_ERROR("Serverfout (%d).");
+
+    /** The text needs the HTTP status (`%d` here, `%1$d` in strings.xml). */
+    val withStatus: Boolean get() = this == SERVER_ERROR
+
+    /** The Dutch text for an answer with [status]. */
+    fun dutch(status: Int): String = if (withStatus) dutch.format(Locale.ROOT, status) else dutch
+
+    companion object {
+        /** The client's text for a bare [status] (no usable message in the answer). */
+        fun forStatus(status: Int): ApiProblem = when (status) {
+            401 -> REPAIR_NEEDED
+            403 -> NO_RIGHTS
+            404 -> NOT_FOUND
+            409 -> CONFLICT
+            413 -> TOO_LARGE
+            429 -> TOO_MANY_REQUESTS
+            503 -> SERVER_UNAVAILABLE
+            else -> SERVER_ERROR
+        }
+    }
+}
+
+/**
  * An HTTP answer that was not a success. [fromApi] is true when the body was the API's own JSON
- * error (`{"detail": …}`); false for proxy, Cloudflare or captive-portal pages.
+ * error (`{"detail": …}`); false for proxy, Cloudflare or captive-portal pages. [problem] is set
+ * when [message] is the client's own text rather than the server's: the app then shows the
+ * strings.xml text for that code instead of [message].
  */
 class ApiException(
     val status: Int,
     val code: String,
     override val message: String,
     val fromApi: Boolean = false,
+    val problem: ApiProblem? = null,
 ) : IOException(message) {
+    /** A failure the client describes itself: [message] is [problem]'s Dutch text. */
+    constructor(status: Int, code: String, problem: ApiProblem, fromApi: Boolean = false) :
+        this(status, code, problem.dutch(status), fromApi, problem)
+
     /** Set when the server says this phone is not paired any more. */
     val unpairReason: UnpairReason?
         get() = UnpairReason.fromCode(code)
@@ -87,8 +140,19 @@ class ApiClient(
 
     // ---- Without login (before a route is known) ----
 
-    suspend fun identity(base: String, kind: RouteKind, client: OkHttpClient = http): ServerIdentity =
-        call(Route(kind, base), "GET", "pairing/identity", null, ServerIdentity.serializer(), auth = false, client = client)
+    /**
+     * Who answers on [base]. With a [challenge] (a paired phone) the answer carries the server's
+     * proof, checked with [IdentityProof.check]; the token itself is never sent here.
+     */
+    suspend fun identity(
+        base: String,
+        kind: RouteKind,
+        client: OkHttpClient = http,
+        challenge: IdentityChallenge? = null,
+    ): ServerIdentity {
+        val path = if (challenge == null) "pairing/identity" else "pairing/identity?${challenge.query}"
+        return call(Route(kind, base), "GET", path, null, ServerIdentity.serializer(), auth = false, client = client)
+    }
 
     suspend fun redeem(base: String, kind: RouteKind, code: String, deviceName: String): RedeemResponse =
         call(
@@ -119,6 +183,9 @@ class ApiClient(
         post(route, "zones/$zoneId/command", ShcJson.encodeToString(ZoneCommand.serializer(), command), CommandAccepted.serializer())
 
     suspend fun resume(route: Route, zoneId: String): Zone = post(route, "zones/$zoneId/resume", "{}", Zone.serializer())
+
+    /** The zone's week schedule (read-only in the app; edited in the web app). */
+    suspend fun schedule(route: Route, zoneId: String): ZoneSchedule = get(route, "zones/$zoneId/schedule", ZoneSchedule.serializer())
 
     suspend fun lights(route: Route, homeId: String): LightsResponse = get(route, "homes/$homeId/lights", LightsResponse.serializer())
 
@@ -169,10 +236,10 @@ class ApiClient(
             .header("Accept", "application/json")
         if (auth) {
             if (!route.verified) {
-                throw ApiException(0, "unverified_route", "Dit adres is niet als jouw server herkend; de app stuurt er geen sleutel heen.")
+                throw ApiException(0, "unverified_route", ApiProblem.UNVERIFIED_ROUTE)
             }
             if (route.baseUrl.startsWith("http://") && !cleartextAllowed(route.baseUrl)) {
-                throw ApiException(0, "cleartext_refused", "Onversleuteld verbinden kan alleen met een adres in je thuisnetwerk.")
+                throw ApiException(0, "cleartext_refused", ApiProblem.CLEARTEXT_REFUSED)
             }
             creds.token?.let { builder.header("Authorization", "Bearer $it") }
         }
@@ -207,10 +274,10 @@ class ApiClient(
                 ShcJson.decodeFromString(ser, text)
             } catch (e: IllegalArgumentException) {
                 if (looksLikeJson(text)) {
-                    throw ApiException(r.code, "bad_response", "Onverwacht antwoord van de server.", fromApi = true)
+                    throw ApiException(r.code, "bad_response", ApiProblem.BAD_RESPONSE, fromApi = true)
                 }
                 // e.g. a wifi login page answering 200 with HTML: not our API.
-                throw ApiException(r.code, "not_api", "Dit adres geeft geen antwoord van je huis.")
+                throw ApiException(r.code, "not_api", ApiProblem.NOT_API)
             }
         }
     }
@@ -229,10 +296,14 @@ class ApiClient(
                         is JsonObject -> {
                             val code = (detail["code"] as? JsonPrimitive)?.contentOrNull ?: "http_$status"
                             val msg = (detail["message"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
-                                ?: fallbackMessage(status)
+                                ?: return ApiException(status, code, ApiProblem.forStatus(status), fromApi = true)
                             return ApiException(status, code, msg, fromApi = true)
                         }
-                        is JsonPrimitive -> return ApiException(status, "http_$status", detail.contentOrNull ?: fallbackMessage(status), fromApi = true)
+                        is JsonPrimitive -> {
+                            val msg = detail.contentOrNull?.takeIf { it.isNotBlank() }
+                                ?: return ApiException(status, "http_$status", ApiProblem.forStatus(status), fromApi = true)
+                            return ApiException(status, "http_$status", msg, fromApi = true)
+                        }
                         else -> Unit
                     }
                 } catch (e: IllegalArgumentException) {
@@ -240,28 +311,14 @@ class ApiClient(
                 }
             }
             return when {
-                status in 300..399 && location?.contains("cloudflareaccess.com") == true -> ApiException(
-                    status,
-                    "cf_access_login",
-                    "Cloudflare Access laat de app niet door. Vul de service token in onder Meer › Cloudflare Access.",
-                )
-                status in 300..399 -> ApiException(status, "redirect", "Dit adres stuurt door naar een andere pagina; het lijkt niet je huis.")
-                status == 530 || status in 520..529 -> ApiException(status, "tunnel_unavailable", "De tunnel naar je huis werkt nu niet.")
-                status in 500..599 -> ApiException(status, "server_unavailable", "Je huis is nu niet bereikbaar.")
-                status == 403 -> ApiException(status, "http_403", "Toegang geweigerd onderweg (Cloudflare). Controleer Meer › Cloudflare Access.")
-                else -> ApiException(status, "http_$status", fallbackMessage(status))
+                status in 300..399 && location?.contains("cloudflareaccess.com") == true ->
+                    ApiException(status, "cf_access_login", ApiProblem.CF_ACCESS_LOGIN)
+                status in 300..399 -> ApiException(status, "redirect", ApiProblem.REDIRECT)
+                status == 530 || status in 520..529 -> ApiException(status, "tunnel_unavailable", ApiProblem.TUNNEL_UNAVAILABLE)
+                status in 500..599 -> ApiException(status, "server_unavailable", ApiProblem.SERVER_UNAVAILABLE)
+                status == 403 -> ApiException(status, "http_403", ApiProblem.CF_FORBIDDEN)
+                else -> ApiException(status, "http_$status", ApiProblem.forStatus(status))
             }
-        }
-
-        private fun fallbackMessage(status: Int): String = when (status) {
-            401 -> "Opnieuw koppelen nodig."
-            403 -> "Je hebt hier geen rechten voor."
-            404 -> "Niet gevonden."
-            409 -> "Dit kan nu niet."
-            413 -> "Het verzoek is te groot."
-            429 -> "Te veel verzoeken, probeer het zo opnieuw."
-            503 -> "Je huis is nu niet bereikbaar."
-            else -> "Serverfout ($status)."
         }
     }
 }

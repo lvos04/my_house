@@ -39,14 +39,20 @@ class CommandsTest {
         val retry = tr.onUpdate(CommandUpdate("c1", "queued", "Time-out — opnieuw proberen (poging 2 van 3)", attempts = 1, retrying = true), t0.plusSeconds(5))!!
         assertEquals(CommandStatus.RETRYING, retry.status)
         assertEquals("Lukte niet, opnieuw proberen…", retry.label)
+        assertEquals(CommandLabel.RETRYING, retry.labelCode)
+        assertNull(retry.reason) // the retry detail is not part of the line
         // The poll shows the same command as queued: keep "retrying".
         assertNull(tr.onZone(zone(pending = PendingCommandRef("c1", "queued")), t0.plusSeconds(6)))
         val sent = tr.onUpdate(CommandUpdate("c1", "sent", "Niet bevestigd"), t0.plusSeconds(20))!!
         assertEquals(CommandStatus.SENT, sent.status)
+        assertEquals(CommandLabel.SENT_UNCONFIRMED, sent.labelCode)
+        assertNull(sent.reason)
         assertTrue(sent.inFlight) // a climate "sent" can still be confirmed or fail later
         val failed = tr.onUpdate(CommandUpdate("c1", "failed", "De unit liet de gevraagde stand niet zien"), t0.plusSeconds(140))!!
         assertTrue(failed.status.failed)
         assertEquals("Mislukt: De unit liet de gevraagde stand niet zien", failed.label)
+        assertEquals(CommandLabel.FAILED, failed.labelCode)
+        assertEquals("De unit liet de gevraagde stand niet zien", failed.reason)
         // Unknown ids are ignored.
         assertNull(tr.onUpdate(CommandUpdate("other", "confirmed"), t0))
     }
@@ -57,6 +63,8 @@ class CommandsTest {
         tr.accepted("c1", "z1", CommandTarget.ZONE, t0, requested = ZoneCommand(mode = "cool"))
         val d = tr.onUpdate(CommandUpdate("c1", "denied", "De slaapkamer verwarmt"), t0.plusSeconds(1))!!
         assertEquals("Geweigerd: De slaapkamer verwarmt", d.label)
+        assertEquals(CommandLabel.DENIED, d.labelCode)
+        assertEquals("De slaapkamer verwarmt", d.reason)
 
         tr.accepted("c2", "z1", CommandTarget.ZONE, t0, requested = ZoneCommand(targetC = 22.0))
         // Another command (other phone, a button) is now pending for the zone: ours was replaced.
@@ -95,11 +103,28 @@ class CommandsTest {
     }
 
     @Test
+    fun everyStatusHasAStatusLineCode() {
+        val codes = CommandStatus.entries.flatMap { status ->
+            CommandTarget.entries.map { target ->
+                TrackedCommand("c1", "t1", target, status, detail = "reden", sentAt = t0, updatedAt = t0).labelCode
+            }
+        }.toSet()
+        assertEquals(CommandLabel.entries.toSet(), codes)
+        // Only a failure or refusal carries the server's reason.
+        val reasons = CommandStatus.entries.filter {
+            TrackedCommand("c1", "t1", CommandTarget.ZONE, it, detail = "reden", sentAt = t0, updatedAt = t0).reason != null
+        }
+        assertEquals(listOf(CommandStatus.FAILED, CommandStatus.DENIED), reasons)
+        assertNull(TrackedCommand("c1", "t1", CommandTarget.ZONE, CommandStatus.FAILED, detail = " ", sentAt = t0, updatedAt = t0).reason)
+    }
+
+    @Test
     fun lightCommandsAreDoneWhenSentAndFailOnBridgeErrors() {
         val tr = CommandTracker()
         tr.accepted("l1", "g1", CommandTarget.LIGHT_GROUP, t0)
         val s = tr.onUpdate(CommandUpdate("l1", "sent", ""), t0.plusSeconds(1))!!
         assertEquals("Verzonden", s.label)
+        assertEquals(CommandLabel.SENT, s.labelCode)
         tr.accepted("l2", "g1", CommandTarget.LIGHT_GROUP, t0)
         assertEquals(CommandStatus.FAILED, tr.onUpdate(CommandUpdate("l2", "sent", "Hue Bridge meldt: lamp onbereikbaar"), t0)!!.status)
     }

@@ -1,0 +1,6 @@
+{
+  "name": "shc-e2e-compose",
+  "private": true,
+  "type": "module",
+  "description": "Browser tests against the compose stack; run with infra/scripts/e2e_compose.sh. Uses apps/web/node_modules."
+}

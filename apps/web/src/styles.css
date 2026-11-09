@@ -111,7 +111,9 @@ button, input, select { font: inherit; color: inherit; }
 .page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
 .eyebrow { font-size: 14px; color: var(--muted); }
 .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
-.grid-auto { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+/* min(300px, 100%): one column that fits a 320 px phone instead of a 300 px card in 288 px (item 40). */
+.grid-auto { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 16px; }
+.grid-auto > * { min-width: 0; }
 .grid-status { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .section { display: flex; flex-direction: column; gap: 12px; }

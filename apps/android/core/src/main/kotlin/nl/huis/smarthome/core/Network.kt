@@ -11,6 +11,11 @@ import java.io.IOException
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.util.Base64
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 // ---------------------------------------------------------------------------
 // Which hosts count as "home network" (verbeterlijst 17).
@@ -81,28 +86,48 @@ object HostRules {
     }
 }
 
+/**
+ * Why an address cannot be used. The app shows the matching text from its strings.xml (so
+ * TalkBack and translations read the same resources); [dutch] is the same text for JVM callers
+ * such as the QR-code parser.
+ */
+enum class AddressProblem(val dutch: String) {
+    LAN_INVALID("Het thuisadres is geen geldig adres."),
+    LAN_SCHEME("Het thuisadres moet met http:// of https:// beginnen."),
+    LAN_NOT_HOME(
+        "Het thuisadres moet een adres in je thuisnetwerk zijn (bijvoorbeeld http://192.168.1.20:8088 of http://nas.local:8088), geen internetadres.",
+    ),
+    REMOTE_INVALID("Het externe adres is geen geldig adres."),
+    REMOTE_NOT_HTTPS("Het externe adres moet met https:// beginnen: je sleutel gaat dan over internet."),
+    REMOTE_IS_HOME("Het externe adres is een adres in je thuisnetwerk; vul het adres van je tunnel in."),
+}
+
 /** Rules for the two server addresses the app uses (same semantics as the server's checks). */
 object ServerUrls {
-    /** Dutch reason why [url] cannot be the home (LAN) address, or null when it is fine. */
-    fun lanProblem(url: String): String? {
-        val u = url.toHttpUrlOrNull() ?: return "Het thuisadres is geen geldig adres."
-        if (u.scheme != "http" && u.scheme != "https") return "Het thuisadres moet met http:// of https:// beginnen."
-        if (!HostRules.isPrivateHost(u.host)) {
-            return "Het thuisadres moet een adres in je thuisnetwerk zijn (bijvoorbeeld http://192.168.1.20:8088 of http://nas.local:8088), geen internetadres."
+    /** Why [url] cannot be the home (LAN) address, or null when it is fine. */
+    fun lanIssue(url: String): AddressProblem? {
+        val u = url.toHttpUrlOrNull() ?: return AddressProblem.LAN_INVALID
+        if (u.scheme != "http" && u.scheme != "https") return AddressProblem.LAN_SCHEME
+        if (!HostRules.isPrivateHost(u.host)) return AddressProblem.LAN_NOT_HOME
+        return null
+    }
+
+    /** Why [url] cannot be the address used outside the home, or null when it is fine. */
+    fun remoteIssue(url: String): AddressProblem? {
+        val u = url.toHttpUrlOrNull() ?: return AddressProblem.REMOTE_INVALID
+        if (u.scheme != "https") return AddressProblem.REMOTE_NOT_HTTPS
+        val h = u.host.lowercase()
+        if (HostRules.isPrivateHost(h) || h == "localhost" || h.startsWith("127.") || h == "::1") {
+            return AddressProblem.REMOTE_IS_HOME
         }
         return null
     }
 
+    /** Dutch reason why [url] cannot be the home (LAN) address, or null when it is fine. */
+    fun lanProblem(url: String): String? = lanIssue(url)?.dutch
+
     /** Dutch reason why [url] cannot be the address used outside the home, or null when it is fine. */
-    fun remoteProblem(url: String): String? {
-        val u = url.toHttpUrlOrNull() ?: return "Het externe adres is geen geldig adres."
-        if (u.scheme != "https") return "Het externe adres moet met https:// beginnen: je sleutel gaat dan over internet."
-        val h = u.host.lowercase()
-        if (HostRules.isPrivateHost(h) || h == "localhost" || h.startsWith("127.") || h == "::1") {
-            return "Het externe adres is een adres in je thuisnetwerk; vul het adres van je tunnel in."
-        }
-        return null
-    }
+    fun remoteProblem(url: String): String? = remoteIssue(url)?.dutch
 
     /** Plain http is only ever used towards a home-network host. */
     fun cleartextAllowed(url: String): Boolean {
@@ -113,13 +138,20 @@ object ServerUrls {
 
 // ---------------------------------------------------------------------------
 // Server identity (verbeterlijst 17): GET /pairing/identity before any token is sent.
+//
+// The server id alone is public (it is in the QR code and anyone on the network can ask for it),
+// so a paired phone also sends a fresh random nonce and its client id. Only the real server knows
+// the hash of this phone's token and can answer with the right proof (IdentityProof). On the home
+// address (often plain http) the token is only sent after a valid proof; over https to the tunnel
+// a matching server id is enough when the server gives no proof, because TLS already proves the
+// host.
 // ---------------------------------------------------------------------------
 
 enum class IdentityVerdict {
-    /** Same server as at pairing: the token may be sent. */
+    /** Same server as at pairing (and, where required, it proved it): the token may be sent. */
     MATCH,
 
-    /** Another server answered: never send the token ("Dit is niet jouw server"). */
+    /** Another server answered, or a wrong proof: never send the token ("Dit is niet jouw server"). */
     MISMATCH,
 
     /** Something answered, but not with an identity of this app (old server, router, wifi login page). */
@@ -127,6 +159,27 @@ enum class IdentityVerdict {
 
     /** Pairing from before server ids existed: nothing to compare with. */
     UNKNOWN_EXPECTED,
+
+    /** The home address names our server id but did not answer the challenge: not trusted. */
+    UNPROVEN,
+
+    /** Pairing from before client ids were stored: no challenge possible on the home address. */
+    NO_CHALLENGE,
+}
+
+/** The outcome of the challenge in one identity answer. */
+enum class ProofState {
+    /** No challenge was sent (no token or no client id on this phone yet). */
+    NOT_ASKED,
+
+    /** Challenge sent, but the answer has no (usable) proof: old server, unknown client, or an impostor. */
+    MISSING,
+
+    /** The proof matches this phone's token: the real server. */
+    VALID,
+
+    /** A proof that does not match: not our server (or a token the server no longer has). */
+    INVALID,
 }
 
 object ServerIdentityCheck {
@@ -134,10 +187,95 @@ object ServerIdentityCheck {
 
     fun normalize(id: String?): String? = id?.trim()?.lowercase()?.takeIf { ID.matches(it) }
 
+    /** Only compares server ids: used before a token exists (pairing). */
     fun verify(expected: String?, actual: String?): IdentityVerdict {
         val a = normalize(actual) ?: return IdentityVerdict.NOT_A_SERVER
         val e = normalize(expected) ?: return IdentityVerdict.UNKNOWN_EXPECTED
         return if (a == e) IdentityVerdict.MATCH else IdentityVerdict.MISMATCH
+    }
+
+    /**
+     * Whether the token may go to [kind] after this identity answer. The home address needs a
+     * valid proof; the tunnel (https only) accepts a matching id when the server sent no proof,
+     * but never a wrong proof.
+     */
+    fun verifyRoute(expected: String?, actual: String?, proof: ProofState, kind: RouteKind): IdentityVerdict {
+        val ids = verify(expected, actual)
+        if (ids != IdentityVerdict.MATCH) return ids
+        return when (proof) {
+            ProofState.VALID -> IdentityVerdict.MATCH
+            ProofState.INVALID -> IdentityVerdict.MISMATCH
+            ProofState.MISSING -> if (kind == RouteKind.REMOTE) IdentityVerdict.MATCH else IdentityVerdict.UNPROVEN
+            ProofState.NOT_ASKED -> if (kind == RouteKind.REMOTE) IdentityVerdict.MATCH else IdentityVerdict.NO_CHALLENGE
+        }
+    }
+}
+
+/** One identity request's challenge: a fresh random nonce and this phone's client id. */
+class IdentityChallenge private constructor(val nonce: String, val clientId: String) {
+    /** Query string for GET /pairing/identity (both values are URL-safe by construction). */
+    val query: String get() = "nonce=$nonce&client_id=$clientId"
+
+    companion object {
+        private val CLIENT_ID = Regex("^[0-9a-fA-F-]{8,64}$")
+        private val NONCE = Regex("^[A-Za-z0-9_-]{16,128}$")
+        private val random = SecureRandom()
+
+        /** A new challenge, or null when this phone has no (valid) client id to ask with. */
+        fun create(clientId: String?): IdentityChallenge? {
+            val id = clientId?.trim()?.lowercase()?.takeIf { CLIENT_ID.matches(it) } ?: return null
+            return IdentityChallenge(newNonce(), id)
+        }
+
+        /** For tests: a challenge with a fixed nonce. */
+        fun of(nonce: String, clientId: String): IdentityChallenge {
+            require(NONCE.matches(nonce)) { "nonce" }
+            require(CLIENT_ID.matches(clientId)) { "client id" }
+            return IdentityChallenge(nonce, clientId.lowercase())
+        }
+
+        /** 32 random bytes, base64url without padding (43 characters). */
+        fun newNonce(): String {
+            val bytes = ByteArray(32)
+            random.nextBytes(bytes)
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+        }
+    }
+}
+
+/**
+ * The server's answer to an [IdentityChallenge] (contract with `identity_proof` in
+ * apps/api/src/shc_api/routers/pairing.py, algorithm "hmac-sha256-v1"):
+ * HMAC-SHA256 with as key the UTF-8 bytes of sha256(token) in lowercase hex (what the server
+ * stores), over the UTF-8 lines "shc-identity-v1", server_id and nonce joined by "\n"; lowercase hex.
+ */
+object IdentityProof {
+    const val ALG = "hmac-sha256-v1"
+
+    fun expected(token: String, serverId: String, nonce: String): String {
+        val key = hex(MessageDigest.getInstance("SHA-256").digest(token.toByteArray(Charsets.UTF_8)))
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(key.toByteArray(Charsets.UTF_8), "HmacSHA256"))
+        return hex(mac.doFinal("shc-identity-v1\n$serverId\n$nonce".toByteArray(Charsets.UTF_8)))
+    }
+
+    /** Checks [answer] against the challenge that was sent with it. */
+    fun check(challenge: IdentityChallenge?, token: String?, answer: ServerIdentity): ProofState {
+        if (challenge == null || token.isNullOrEmpty()) return ProofState.NOT_ASKED
+        val proof = answer.proof?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return ProofState.MISSING
+        if (answer.proofAlg != null && answer.proofAlg != ALG) return ProofState.MISSING
+        val serverId = answer.serverId ?: return ProofState.MISSING
+        val want = expected(token, serverId, challenge.nonce)
+        // Constant time: a wrong proof must not reveal how much of it was right.
+        return if (MessageDigest.isEqual(want.toByteArray(Charsets.UTF_8), proof.toByteArray(Charsets.UTF_8))) {
+            ProofState.VALID
+        } else {
+            ProofState.INVALID
+        }
+    }
+
+    private fun hex(bytes: ByteArray): String = buildString(bytes.size * 2) {
+        bytes.forEach { b -> append(Character.forDigit((b.toInt() shr 4) and 0xf, 16)).append(Character.forDigit(b.toInt() and 0xf, 16)) }
     }
 }
 
@@ -157,20 +295,28 @@ data class Route(val kind: RouteKind, val baseUrl: String, val serverId: String?
 
 /** Result of asking an address who it is. */
 sealed interface Probe {
-    /** The address answered over HTTP; [serverId] is null when the answer was not an identity. */
-    data class Answered(val serverId: String?) : Probe
+    /**
+     * The address answered over HTTP; [serverId] is null when the answer was not an identity.
+     * [proof] says whether it answered this phone's challenge.
+     */
+    data class Answered(val serverId: String?, val proof: ProofState = ProofState.NOT_ASKED) : Probe
 
     /** No answer: network error, timeout, 5xx or a Cloudflare error page. */
     data object Unreachable : Probe
 
-    /** Something in between refused us (Cloudflare Access without a valid service token). */
-    data class Blocked(val reason: String) : Probe
+    /**
+     * Something in between refused us (Cloudflare Access without a valid service token). The app
+     * shows the strings.xml text for [problem]; [reason] is the Dutch text for JVM callers.
+     */
+    data class Blocked(val problem: ApiProblem) : Probe {
+        val reason: String get() = problem.dutch
+    }
 
     companion object {
         /** Maps a failed identity request to a probe result. */
         fun fromFailure(e: Throwable): Probe = when {
-            e is ApiException && e.code == "cf_access_login" -> Blocked(e.message)
-            e is ApiException && e.status == 403 && !e.fromApi -> Blocked(e.message)
+            e is ApiException && e.code == "cf_access_login" -> Blocked(e.problem ?: ApiProblem.CF_ACCESS_LOGIN)
+            e is ApiException && e.status == 403 && !e.fromApi -> Blocked(e.problem ?: ApiProblem.CF_FORBIDDEN)
             e is ApiException && e.routeProblem && e.status >= 500 -> Unreachable
             e is ApiException && e.code == "api_unavailable" -> Unreachable
             e is ApiException -> Answered(null) // e.g. 404 from an old server, a redirect or an HTML page
@@ -187,15 +333,20 @@ data class RouteChoice(
     val unverifiable: Boolean = false,
     /** Server id learned on a legacy pairing (over https only); the caller stores it. */
     val learnedServerId: String? = null,
-    /** Dutch reason when the tunnel refused us (Cloudflare Access). */
-    val blockedReason: String? = null,
-)
+    /** Why the tunnel refused us (Cloudflare Access); the app shows its strings.xml text. */
+    val blocked: ApiProblem? = null,
+) {
+    /** Dutch text of [blocked], for JVM callers. */
+    val blockedReason: String? get() = blocked?.dutch
+}
 
 object RouteSelector {
     /**
      * Probes the LAN address first (the caller uses a short timeout for it) and falls back to the
      * remote address. An address is only used when it obeys [ServerUrls] and its identity matches
-     * [expectedServerId]. A legacy pairing (no expected id) may learn the id over https only.
+     * [expectedServerId]: on the home address that includes a valid answer to the challenge
+     * ([ServerIdentityCheck.verifyRoute]). A legacy pairing (no expected id) may learn the id over
+     * https only; one without a client id can only use the tunnel until it has learned it.
      */
     suspend fun select(
         lanUrl: String?,
@@ -207,14 +358,15 @@ object RouteSelector {
             if (lanUrl != null && ServerUrls.lanProblem(lanUrl) == null) add(lanUrl to RouteKind.LAN)
             if (remoteUrl != null && ServerUrls.remoteProblem(remoteUrl) == null) add(remoteUrl to RouteKind.REMOTE)
         }
+        val hasRemote = candidates.any { it.second == RouteKind.REMOTE }
         var wrong = false
         var unverifiable = false
-        var blocked: String? = null
+        var blocked: ApiProblem? = null
         for ((base, kind) in candidates) {
             when (val p = probe(base, kind)) {
                 Probe.Unreachable -> Unit
-                is Probe.Blocked -> blocked = p.reason
-                is Probe.Answered -> when (ServerIdentityCheck.verify(expectedServerId, p.serverId)) {
+                is Probe.Blocked -> blocked = p.problem
+                is Probe.Answered -> when (ServerIdentityCheck.verifyRoute(expectedServerId, p.serverId, p.proof, kind)) {
                     IdentityVerdict.MATCH ->
                         return RouteChoice(Route(kind, base, ServerIdentityCheck.normalize(p.serverId)))
                     IdentityVerdict.UNKNOWN_EXPECTED -> {
@@ -224,11 +376,14 @@ object RouteSelector {
                         }
                         unverifiable = true
                     }
-                    IdentityVerdict.MISMATCH, IdentityVerdict.NOT_A_SERVER -> wrong = true
+                    // Without a tunnel this phone can never learn its client id: pair again.
+                    // With one, wait for the tunnel instead of forcing that.
+                    IdentityVerdict.NO_CHALLENGE -> if (!hasRemote) unverifiable = true
+                    IdentityVerdict.MISMATCH, IdentityVerdict.NOT_A_SERVER, IdentityVerdict.UNPROVEN -> wrong = true
                 }
             }
         }
-        return RouteChoice(null, wrongServer = wrong, unverifiable = unverifiable && !wrong, blockedReason = blocked)
+        return RouteChoice(null, wrongServer = wrong, unverifiable = unverifiable && !wrong, blocked = blocked)
     }
 }
 
@@ -244,8 +399,7 @@ interface RouteSource {
 class NoRouteException(val choice: RouteChoice?) : IOException(
     when {
         choice?.wrongServer == true -> "Dit is niet jouw server. De app stuurt je sleutel er niet heen."
-        choice?.blockedReason != null -> choice.blockedReason
-        else -> "Geen verbinding met je huis."
+        else -> choice?.blocked?.dutch ?: "Geen verbinding met je huis."
     },
 )
 
@@ -429,16 +583,27 @@ object ConnectionText {
 
     /**
      * A one-off message when the status changes (never on every failed poll). Null when the
-     * banner already says enough.
+     * banner already says enough. The app shows its strings.xml text for [ConnectionText.change].
      */
-    fun transition(old: ConnectionStatus, new: ConnectionStatus): String? = when {
+    fun transition(old: ConnectionStatus, new: ConnectionStatus): String? = change(old, new)?.dutch
+
+    /** Which one-off connection message fits this status change, if any. */
+    fun change(old: ConnectionStatus, new: ConnectionStatus): ConnectionChange? = when {
         old == new -> null
-        old == ConnectionStatus.ONLINE && new == ConnectionStatus.OFFLINE -> "Verbinding met je huis verbroken."
-        old == ConnectionStatus.ONLINE && new == ConnectionStatus.STARTING -> "Je huis wordt bijgewerkt of start opnieuw op."
-        new == ConnectionStatus.WRONG_SERVER -> "Dit is niet jouw server. De app stuurt je sleutel er niet heen."
-        new == ConnectionStatus.ONLINE && (old == ConnectionStatus.OFFLINE || old == ConnectionStatus.STARTING) -> "Weer verbonden met je huis."
+        old == ConnectionStatus.ONLINE && new == ConnectionStatus.OFFLINE -> ConnectionChange.LOST
+        old == ConnectionStatus.ONLINE && new == ConnectionStatus.STARTING -> ConnectionChange.RESTARTING
+        new == ConnectionStatus.WRONG_SERVER -> ConnectionChange.WRONG_SERVER
+        new == ConnectionStatus.ONLINE && (old == ConnectionStatus.OFFLINE || old == ConnectionStatus.STARTING) -> ConnectionChange.RESTORED
         else -> null
     }
+}
+
+/** A connection change worth a one-off message; [dutch] mirrors the app's strings.xml text. */
+enum class ConnectionChange(val dutch: String) {
+    LOST("Verbinding met je huis verbroken."),
+    RESTARTING("Je huis wordt bijgewerkt of start opnieuw op."),
+    WRONG_SERVER("Dit is niet jouw server. De app stuurt je sleutel er niet heen."),
+    RESTORED("Weer verbonden met je huis."),
 }
 
 // ---------------------------------------------------------------------------

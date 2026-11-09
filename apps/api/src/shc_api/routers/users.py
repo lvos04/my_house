@@ -1,7 +1,9 @@
 """User management and the audit log (verbeterlijst 18).
 
-All endpoints here need an admin: a web session of an admin user, or a phone paired with role admin.
-Changing your own password is ``POST /auth/password`` (routers/auth.py)."""
+User management needs an admin on a web session (``WebAdmin``): a phone token is refused, even one
+paired with role admin, so a stolen phone cannot create a new admin before it is revoked. The audit
+log may also be read from an admin phone. Changing your own password is ``POST /auth/password``
+(routers/auth.py; it asks for the current password)."""
 
 from __future__ import annotations
 
@@ -13,7 +15,7 @@ from fastapi import APIRouter, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
-from ..deps import DB, Admin, Principal, revoke_access
+from ..deps import DB, Admin, Principal, WebAdmin, revoke_access
 from ..errors import api_error, not_found
 from ..models import ApiClient, AuditLog, User
 from ..models import Session as WebSession
@@ -59,7 +61,7 @@ async def user_full(db: DB, u: User) -> dict:
 
 
 @router.get("/users")
-async def list_users(db: DB, p: Admin) -> list[dict]:
+async def list_users(db: DB, p: WebAdmin) -> list[dict]:
     users = (await db.execute(select(User).order_by(User.created_at, User.username))).scalars().all()
     return [await user_full(db, u) for u in users]
 
@@ -86,12 +88,12 @@ async def _create(body: NewUser, db: DB, p: Principal) -> dict:
 
 
 @router.post("/users")
-async def create_user(body: NewUser, db: DB, p: Admin) -> dict:
+async def create_user(body: NewUser, db: DB, p: WebAdmin) -> dict:
     return await _create(body, db, p)
 
 
 @router.post("/auth/users", deprecated=True)
-async def create_user_legacy(body: NewUser, db: DB, p: Admin) -> dict:
+async def create_user_legacy(body: NewUser, db: DB, p: WebAdmin) -> dict:
     """Old path, kept for existing clients; use ``POST /users``."""
     return await _create(body, db, p)
 
@@ -126,7 +128,7 @@ class UserPatch(BaseModel):
 
 
 @router.patch("/users/{user_id}")
-async def patch_user(user_id: uuid.UUID, body: UserPatch, db: DB, p: Admin) -> dict:
+async def patch_user(user_id: uuid.UUID, body: UserPatch, db: DB, p: WebAdmin) -> dict:
     u = await _target(db, user_id)
     changes: dict = {}
     if body.role is not None and body.role != u.role:
@@ -162,7 +164,7 @@ class PasswordReset(BaseModel):
 
 
 @router.post("/users/{user_id}/password")
-async def reset_password(user_id: uuid.UUID, body: PasswordReset, db: DB, p: Admin) -> dict:
+async def reset_password(user_id: uuid.UUID, body: PasswordReset, db: DB, p: WebAdmin) -> dict:
     """Admin sets a new password for another user: all their web sessions end and their phones are
     revoked (they pair again with a QR code)."""
     u = await _target(db, user_id)
@@ -178,7 +180,7 @@ async def reset_password(user_id: uuid.UUID, body: PasswordReset, db: DB, p: Adm
 
 
 @router.delete("/users/{user_id}", status_code=204)
-async def delete_user(user_id: uuid.UUID, db: DB, p: Admin) -> Response:
+async def delete_user(user_id: uuid.UUID, db: DB, p: WebAdmin) -> Response:
     u = await _target(db, user_id)
     if u.id == p.user.id:
         raise api_error(409, "self_delete", "Je kunt je eigen account niet verwijderen.")

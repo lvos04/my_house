@@ -1,8 +1,8 @@
 name: CI
 
-# Tests, audits, image scan and a smoke test of the whole stack. Runs on pull requests and on
-# pushes to other branches; main runs it through edge.yml and every release through release.yml
-# (workflow_call), so nothing is published that did not pass exactly these jobs.
+# Tests, audits, image scan, a smoke test of the whole stack and browser tests against it. Runs on
+# pull requests and on pushes to other branches; main runs it through edge.yml and every release
+# through release.yml (workflow_call), so nothing is published that did not pass exactly these jobs.
 on:
   push:
     branches-ignore: [main]
@@ -38,16 +38,23 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
+            apps/api/requirements.txt
             apps/api/pyproject.toml
             integrations/pyproject.toml
+      # Runtime dependencies exactly as in the image: the hashed lock apps/api/requirements.txt
+      # (verbeterlijst 41), without the path lines of the two local packages (see apps/api/Dockerfile).
+      # The test tools go on top with every locked version as a constraint, so they cannot change one.
       - name: Install
         run: |
-          python -m pip install --upgrade pip
-          pip install -e "integrations[test]" -e "apps/api[dev]"
+          grep -vE '^[./]' apps/api/requirements.txt > "$RUNNER_TEMP/lock.txt"
+          pip install --require-hashes --only-binary=:all: -r "$RUNNER_TEMP/lock.txt"
+          pip freeze > "$RUNNER_TEMP/locked.txt"
+          pip install -c "$RUNNER_TEMP/locked.txt" -e "integrations[test]" -e "apps/api[dev]"
+          pip check
       - name: Lint
         run: |
           ruff check apps/api/src apps/api/tests
-          ruff check --config apps/api/pyproject.toml infra/scripts
+          ruff check --config apps/api/pyproject.toml infra/scripts infra/e2e
           # integrations follows a newer ruff than the API's dev pin
           pipx run ruff==0.17.4 check integrations
       - name: Adapter contract tests
@@ -87,7 +94,8 @@ jobs:
     name: e2e
     # Browser tests (Playwright, Chromium) against the real stack: PostgreSQL + API + the built web app
     # behind `vite preview`. apps/web/e2e/run-stack.sh starts everything on free ports, runs the tests
-    # and cleans up; devices are test data in the database, no hardware and no worker.
+    # and cleans up; devices are test data in the database, no hardware and no worker. A subset runs
+    # once more behind nginx with the worker, in the images of the "stack" job (e2e_compose.sh).
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
@@ -112,6 +120,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
+            apps/api/requirements.txt
             apps/api/pyproject.toml
             integrations/pyproject.toml
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -119,10 +128,12 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
-      - name: Install API and integrations
+      - name: Install API and integrations (dependencies from the hashed lock, like the image)
         run: |
-          python -m pip install --upgrade pip
-          pip install -e integrations -e apps/api
+          grep -vE '^[./]' apps/api/requirements.txt > "$RUNNER_TEMP/lock.txt"
+          pip install --require-hashes --only-binary=:all: -r "$RUNNER_TEMP/lock.txt"
+          pip install --no-deps -e integrations -e apps/api
+          pip check
       - name: Install web dependencies
         working-directory: apps/web
         run: npm ci
@@ -159,6 +170,7 @@ jobs:
   stack:
     name: images, scan and smoke test
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     permissions:
       contents: read
     env:
@@ -238,6 +250,32 @@ jobs:
           python3 infra/scripts/smoke_test.py --base http://127.0.0.1:8088 --expect-unavailable
           docker compose start api
           docker compose up -d --wait --wait-timeout 120
+      # Browser tests against these images as deployed (verbeterlijst 42): nginx, API, worker and a fake
+      # Gree airco on a test network (infra/e2e/compose.e2e.yaml), on a new data folder. A subset of
+      # apps/web/e2e (first start, live updates over the WebSocket through nginx, API stopped and back)
+      # plus a command from the browser that the worker executes and the unit confirms.
+      - name: Stop the smoke-test stack
+        run: docker compose down -v --remove-orphans
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install web dependencies and Chromium for Playwright
+        working-directory: apps/web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Browser tests against the stack (nginx, API, worker)
+        run: infra/scripts/e2e_compose.sh
+      - name: Browser test report, traces and stack logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-compose-report
+          path: infra/e2e/.output/
+          retention-days: 14
+          if-no-files-found: ignore
       - name: Logs
         if: failure()
         run: |

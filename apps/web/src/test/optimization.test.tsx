@@ -1,18 +1,18 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { ConnectionProvider, HomeProvider, PendingProvider } from '../state';
 import { UserContext } from '../user';
 import { ExperimentResultView, OptimizationPage, activateLabel, localInputToIso } from '../pages/Optimization';
-import type { AdaptiveModel, ExperimentResult } from '../api/types';
+import type { AdaptiveModel, Experiment, ExperimentResult } from '../api/types';
 import { zone } from './fixtures';
 
-function wrap(children: ReactNode) {
+function wrap(children: ReactNode, client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   localStorage.setItem('shc.home', 'h1');
   return (
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={client}>
       <ConnectionProvider initial={{ apiReachable: true, wsState: 'open' }}>
         <PendingProvider>
           <UserContext.Provider value={{ id: 'u1', username: 'admin', role: 'admin' }}>
@@ -42,6 +42,7 @@ function mockApi(route: (method: string, url: string, body: unknown) => { status
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   localStorage.clear();
 });
 
@@ -107,5 +108,76 @@ describe('Optimalisatie', () => {
     render(<ExperimentResultView r={{ ...base, verdict: 'vergelijkbaar', reasons: [] }} />);
     expect(screen.getByText('Vergelijkbare meting')).toBeInTheDocument();
     expect(screen.getByText('10,0% besparing')).toBeInTheDocument();
+  });
+  it('stops or deletes an auto-apply experiment with the choice to restore the zone, and shows what happened (item 45)', async () => {
+    const exp = (over: Partial<Experiment>): Experiment => ({
+      id: 'e1', name: 'Nacht', zone_id: 'z1', status: 'running', auto_apply: true, current_variant: 0, paused_reason: null,
+      variants: [
+        { label: 'Constant', start: '2026-11-01T00:00:00Z', end: '2026-11-08T00:00:00Z', profile_id: null },
+        { label: 'Nachtverlaging', start: '2026-11-08T00:00:00Z', end: '2026-11-15T00:00:00Z', profile_id: null },
+      ],
+      ...over,
+    });
+    let list: Experiment[] = [exp({}), exp({ id: 'e2', name: 'Meten', auto_apply: false }), exp({ id: 'e3', name: 'Voorverwarmen', status: 'paused' })];
+    const calls = mockApi((m, url) => {
+      if (url.endsWith('/homes/h1/zones')) return { body: [zone()] };
+      if (url.endsWith('/zones/z1/adaptive')) return { body: { enabled: false, baseline: { samples: 0, running_samples: 0, required: 192, since: null, ready: false }, max_offset_c: 1.5, models: [] } };
+      if (url.endsWith('/homes/h1/experiments') && m === 'GET') return { body: list };
+      const stop = url.match(/\/experiments\/(e\d)\/stop(\?restore=false)?$/);
+      if (stop && m === 'POST') {
+        list = list.map((x) => (x.id === stop[1] ? { ...x, status: 'stopped', current_variant: null } : x));
+        const e = list.find((x) => x.id === stop[1])!;
+        return { body: { ...e, zone_restored: !e.auto_apply ? 'none' : stop[2] ? 'kept' : 'restored' } };
+      }
+      const del = url.match(/\/experiments\/(e\d)(\?restore=false)?$/);
+      if (del && m === 'DELETE') {
+        list = list.filter((x) => x.id !== del[1]);
+        return { body: {} };
+      }
+      return undefined;
+    });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    render(wrap(<OptimizationPage />, client));
+    const user = userEvent.setup();
+    const card = async (name: string) => (await screen.findByRole('heading', { name })).closest('article')!;
+
+    // auto-apply: Stoppen opens the choice (restore by default), no browser dialog
+    const nacht = await card('Nacht');
+    await user.click(within(nacht).getByRole('button', { name: 'Stoppen' }));
+    expect(confirm).not.toHaveBeenCalled();
+    const choice = within(nacht).getByRole('group', { name: 'Experiment Nacht stoppen' });
+    expect(within(choice).getByRole('radio', { name: /Terugzetten/ })).toBeChecked();
+    expect(within(choice).getByRole('radio', { name: /Houden.*dat hij nu heeft/ })).not.toBeChecked();
+    await user.click(within(choice).getByRole('radio', { name: /Houden/ }));
+    await user.click(within(choice).getByRole('button', { name: 'Experiment Nacht stoppen' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/v1/experiments/e1/stop?restore=false')).toBe(true));
+    expect(await within(nacht).findByRole('status')).toHaveTextContent('Experiment gestopt. De zone houdt het profiel en schema van het experiment.');
+    expect(within(nacht).queryByRole('group')).not.toBeInTheDocument();
+    // the zone may have its old profile and schedule back: refetch them
+    const keys = invalidate.mock.calls.map(([f]) => JSON.stringify(f?.queryKey));
+    for (const k of [['zone', 'z1'], ['schedule', 'z1'], ['profiles', 'h1'], ['zones', 'h1'], ['experiments', 'h1']]) expect(keys).toContain(JSON.stringify(k));
+
+    // only measuring: a plain confirmation, the zone is not touched
+    const meten = await card('Meten');
+    await user.click(within(meten).getByRole('button', { name: 'Stoppen' }));
+    expect(confirm).toHaveBeenLastCalledWith(expect.stringContaining('de zone verandert niet'));
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/v1/experiments/e2/stop')).toBe(true));
+
+    // delete a paused auto-apply experiment: same choice, restore by default
+    const voor = await card('Voorverwarmen');
+    await user.click(within(voor).getByRole('button', { name: 'Verwijderen' }));
+    const delChoice = within(voor).getByRole('group', { name: 'Experiment Voorverwarmen verwijderen' });
+    expect(within(delChoice).getByText('De resultaten zijn daarna weg.')).toBeInTheDocument();
+    await user.click(within(delChoice).getByRole('button', { name: 'Experiment Voorverwarmen verwijderen' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/v1/experiments/e3')).toBe(true));
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Voorverwarmen' })).not.toBeInTheDocument());
+
+    // a stopped one is deleted with a plain confirmation (it already let go of the zone)
+    const stopped = await card('Nacht');
+    await user.click(within(stopped).getByRole('button', { name: 'Verwijderen' }));
+    expect(confirm).toHaveBeenLastCalledWith(expect.stringContaining('De resultaten zijn daarna weg.'));
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/v1/experiments/e1')).toBe(true));
   });
 });

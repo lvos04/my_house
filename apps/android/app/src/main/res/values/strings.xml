@@ -31,6 +31,12 @@
     <string name="lights_unreachable">Niet bereikbaar</string>
     <string name="power_now">Nu</string>
     <string name="no_zones">Nog geen klimaatzones ingesteld. Doe dit in de web-app.</string>
+    <string name="attention_title_error">Er is een probleem met het systeem</string>
+    <string name="attention_title_warn">Let op</string>
+    <string name="attention_state_error">fout</string>
+    <string name="attention_state_warn">waarschuwing</string>
+    <string name="attention_more_admin">Details en wat je kunt doen staan in de web-app onder Systeem.</string>
+    <string name="attention_more">Een beheerder ziet de details in de web-app onder Systeem.</string>
     <string name="measured_at">%1$s · %2$s</string>
     <string name="stale_sensor">Sensor verouderd</string>
     <string name="unit_offline">Airco offline</string>
@@ -48,6 +54,17 @@
     <string name="override_until">Handmatig tot %1$s</string>
     <string name="humidity">Luchtvochtigheid</string>
     <string name="mode_unavailable">%1$s kan nu niet: %2$s</string>
+    <string name="schedule_title">Weekschema</string>
+    <string name="schedule_loading">Weekschema laden…</string>
+    <string name="schedule_offline">Het weekschema verschijnt zodra er verbinding is met je huis.</string>
+    <string name="schedule_empty">Deze zone heeft nog geen weekschema. Zonder schema verwarmt of koelt de regeling niet uit zichzelf.</string>
+    <string name="schedule_profile">Volgt profiel %1$s</string>
+    <string name="schedule_no_blocks">Geen eigen blokken: het laatste blok van de dag ervoor loopt door.</string>
+    <string name="schedule_keep_mode">modus blijft</string>
+    <string name="schedule_now">nu</string>
+    <string name="schedule_now_spoken">geldt nu</string>
+    <string name="schedule_edit_hint">Het weekschema aanpassen kan in de web-app onder Klimaat.</string>
+    <string name="schedule_edit_hint_other">Een beheerder kan het weekschema aanpassen in de web-app onder Klimaat.</string>
 
     <!-- Energie -->
     <string name="energy_today_until">Vandaag t/m %1$s</string>
@@ -79,14 +96,14 @@
     <string name="notifications_enable">Meldingen op deze telefoon toestaan</string>
     <string name="unpair">Ontkoppelen</string>
     <string name="unpair_title">Telefoon ontkoppelen?</string>
-    <string name="unpair_body">De app trekt de sleutel van deze telefoon in op de server en vergeet daarna alle gegevens. Is de server niet bereikbaar, trek de sleutel dan zelf in via de web-app (Systeem › Telefoon koppelen).</string>
+    <string name="unpair_body">De app trekt de sleutel van deze telefoon in op de server en vergeet daarna alle gegevens. Is de server niet bereikbaar, trek de sleutel dan zelf in via de web-app (Account › Telefoons).</string>
     <string name="cancel">Annuleren</string>
     <string name="version">Versie %1$s</string>
 
     <!-- Koppelen -->
     <string name="pair_step">Stap 1 van 2</string>
     <string name="pair_title">Koppel met je huis</string>
-    <string name="pair_body">Open in de web-app Systeem › Telefoon koppelen en scan de QR-code.</string>
+    <string name="pair_body">Open in de web-app Account › Telefoons en scan de QR-code.</string>
     <string name="pair_camera_needed">Geef toegang tot de camera om de QR-code te scannen.</string>
     <string name="pair_camera_allow">Camera toestaan</string>
     <string name="pair_route_lan">Lokaal adres, het snelst</string>
@@ -130,7 +147,7 @@
     <string name="server_starting">Je huis start op of wordt bijgewerkt. Even geduld.</string>
     <string name="read_only">Deze telefoon kan alleen meekijken.</string>
     <string name="unpair_revoked">Ontkoppeld. De sleutel is ook op de server ingetrokken.</string>
-    <string name="unpair_local_only">Ontkoppeld op deze telefoon. De server was niet bereikbaar: trek de sleutel in via de web-app (Systeem › Telefoon koppelen).</string>
+    <string name="unpair_local_only">Ontkoppeld op deze telefoon. De server was niet bereikbaar: trek de sleutel in via de web-app (Account › Telefoons).</string>
     <string name="store_reset">De beveiligde opslag op deze telefoon was beschadigd en is gewist. Koppel opnieuw.</string>
     <string name="addresses_edit">Adressen bewerken</string>
 
@@ -216,10 +233,88 @@
     <string name="unpair_busy">Bezig met ontkoppelen…</string>
 
     <string name="unpaired_home">Woning: %1$s</string>
-    <string name="unpaired_note">De app stuurt de oude sleutel nergens meer heen. Tik op Opnieuw koppelen en scan een nieuwe QR-code uit de web-app (Systeem › Telefoon koppelen).</string>
+    <string name="unpaired_note">De app stuurt de oude sleutel nergens meer heen. Tik op Opnieuw koppelen en scan een nieuwe QR-code uit de web-app (Account › Telefoons).</string>
     <string name="pair_scan_again">Opnieuw scannen</string>
     <string name="pair_camera_blocked">De camera staat uit voor deze app. Zet hem aan in de instellingen van Android, of voer het adres handmatig in.</string>
     <string name="pair_camera_error">De camera kan niet worden gestart. Voer het adres en de koppelcode handmatig in.</string>
+    <string name="pair_camera_in_use">De camera wordt door een andere app gebruikt. Sluit die app en probeer het opnieuw, of voer het adres en de koppelcode handmatig in.</string>
+    <string name="pair_camera_disabled">De camera staat uit op deze telefoon (privacy-instelling of beleid van een beheerder). Zet hem aan en probeer het opnieuw, of voer het adres en de koppelcode handmatig in.</string>
+    <string name="pair_camera_retry">Camera opnieuw proberen</string>
     <string name="pair_manual_short">Handmatig invoeren</string>
     <string name="pair_failed">Koppelen lukte niet. Probeer het opnieuw.</string>
+    <string name="pair_address_missing">Vul het adres van je server in.</string>
+    <string name="pair_not_our_code">Dit is geen koppelcode van je Huis-app.</string>
+    <string name="pair_server_too_old">Je server is te oud voor deze app. Werk de server bij en probeer het opnieuw.</string>
+    <string name="pair_other_installation">Dit is niet jouw server: het adres hoort bij een andere installatie.</string>
+    <string name="pair_store_failed">De koppeling kon niet veilig op deze telefoon worden opgeslagen. Probeer het opnieuw.</string>
+    <string name="pair_wrong_server">Dit is niet jouw server: op dit adres antwoordt een ander apparaat. De app stuurt de koppelcode er niet heen.</string>
+
+    <!-- Meldingen uit de data-laag (HomeRepository) -->
+    <string name="msg_no_home">Er is nog geen woning ingesteld. Doe dit in de web-app.</string>
+    <string name="msg_generic_error">Er ging iets mis.</string>
+    <string name="msg_not_sent_offline">Niet verzonden: geen verbinding met je huis.</string>
+    <string name="msg_zone_no_unit">Er is nog geen airco gekoppeld aan %1$s.</string>
+    <string name="msg_zone_unit_offline">De airco van %1$s is niet bereikbaar.</string>
+    <string name="msg_zone_choose_mode">Kies eerst een modus: de airco van %1$s staat uit.</string>
+    <string name="addresses_lan_invalid">Het thuisadres klopt niet.</string>
+    <string name="addresses_remote_invalid">Het externe adres klopt niet.</string>
+    <string name="addresses_none">Vul minstens één adres in.</string>
+    <string name="addresses_not_paired">Deze telefoon is niet gekoppeld.</string>
+    <!-- Adresregels (core: AddressProblem) -->
+    <string name="address_lan_invalid">Het thuisadres is geen geldig adres.</string>
+    <string name="address_lan_scheme">Het thuisadres moet met http:// of https:// beginnen.</string>
+    <string name="address_lan_not_home">Het thuisadres moet een adres in je thuisnetwerk zijn (bijvoorbeeld http://192.168.1.20:8088 of http://nas.local:8088), geen internetadres.</string>
+    <string name="address_remote_invalid">Het externe adres is geen geldig adres.</string>
+    <string name="address_remote_not_https">Het externe adres moet met https:// beginnen: je sleutel gaat dan over internet.</string>
+    <string name="address_remote_is_home">Het externe adres is een adres in je thuisnetwerk; vul het adres van je tunnel in.</string>
+    <!-- Eenmalige meldingen bij een andere verbindingsstatus (core: ConnectionChange) -->
+    <string name="connection_lost">Verbinding met je huis verbroken.</string>
+    <string name="connection_restarting">Je huis wordt bijgewerkt of start opnieuw op.</string>
+    <string name="connection_wrong_server">Dit is niet jouw server. De app stuurt je sleutel er niet heen.</string>
+    <string name="connection_restored">Weer verbonden met je huis.</string>
+    <!-- Geweigerde QR-code of handmatige invoer (core: PairError) -->
+    <string name="pair_newer_version">Deze koppelcode is van een nieuwere versie. Werk de app bij.</string>
+    <string name="pair_code_missing">De koppelcode ontbreekt.</string>
+    <string name="pair_qr_lan_invalid">Het thuisadres in de QR-code klopt niet.</string>
+    <string name="pair_qr_remote_invalid">Het externe adres in de QR-code klopt niet.</string>
+    <string name="pair_qr_no_address">De QR-code bevat geen serveradres.</string>
+    <string name="pair_needs_https">Een adres buiten je thuisnetwerk moet met https:// beginnen. Thuis kun je het IP-adres van je server gebruiken (bijvoorbeeld 192.168.1.20:8088).</string>
+    <string name="pair_address_rule">Dit adres kan de app niet gebruiken.</string>
+    <!-- Statusregel van een opdracht van deze telefoon (core: CommandLabel) -->
+    <string name="command_queued">Verzonden · wacht op bevestiging…</string>
+    <string name="command_retrying">Lukte niet, opnieuw proberen…</string>
+    <string name="command_sent">Verzonden</string>
+    <string name="command_sent_unconfirmed">Verzonden, nog niet bevestigd</string>
+    <string name="command_confirmed">Bevestigd</string>
+    <string name="command_failed">Mislukt</string>
+    <string name="command_denied">Geweigerd</string>
+    <string name="command_cancelled">Vervangen door een nieuwere opdracht</string>
+    <string name="command_timeout">Geen bevestiging ontvangen. Controleer de stand.</string>
+    <!-- "Mislukt: <reden van de server>" -->
+    <string name="command_with_reason">%1$s: %2$s</string>
+    <!-- Melding na een mislukte opdracht: "<zone of lampgroep>: <statusregel>" -->
+    <string name="command_for_target">%1$s: %2$s</string>
+    <!-- Fouten die de app zelf beschrijft, zonder tekst van de server (core: ApiProblem) -->
+    <string name="api_unverified_route">Dit adres is niet als jouw server herkend; de app stuurt er geen sleutel heen.</string>
+    <string name="api_cleartext_refused">Onversleuteld verbinden kan alleen met een adres in je thuisnetwerk.</string>
+    <string name="api_bad_response">Onverwacht antwoord van de server.</string>
+    <string name="api_not_api">Dit adres geeft geen antwoord van je huis.</string>
+    <string name="api_cf_access_login">Cloudflare Access laat de app niet door. Vul de service token in onder Meer › Cloudflare Access.</string>
+    <string name="api_cf_forbidden">Toegang geweigerd onderweg (Cloudflare). Controleer Meer › Cloudflare Access.</string>
+    <string name="api_redirect">Dit adres stuurt door naar een andere pagina; het lijkt niet je huis.</string>
+    <string name="api_tunnel_unavailable">De tunnel naar je huis werkt nu niet.</string>
+    <string name="api_server_unavailable">Je huis is nu niet bereikbaar.</string>
+    <string name="api_repair_needed">Opnieuw koppelen nodig.</string>
+    <string name="api_no_rights">Je hebt hier geen rechten voor.</string>
+    <string name="api_not_found">Niet gevonden.</string>
+    <string name="api_conflict">Dit kan nu niet.</string>
+    <string name="api_too_large">Het verzoek is te groot.</string>
+    <string name="api_too_many_requests">Te veel verzoeken, probeer het zo opnieuw.</string>
+    <string name="api_server_error">Serverfout (%1$d).</string>
+    <!-- Waarom deze telefoon niet meer gekoppeld is (core: UnpairReason) -->
+    <string name="unpaired_reason_revoked">De koppeling is ingetrokken. Koppel opnieuw met een QR-code uit de web-app (Account › Telefoons).</string>
+    <string name="unpaired_reason_expired">De koppeling is verlopen. Koppel opnieuw met een QR-code uit de web-app (Account › Telefoons).</string>
+    <string name="unpaired_reason_unknown_token">De server kent deze telefoon niet (meer), bijvoorbeeld na een herstel. Koppel opnieuw met een QR-code uit de web-app.</string>
+    <string name="unpaired_reason_store_reset">De beveiligde opslag op deze telefoon was beschadigd en is gewist. Koppel opnieuw met een QR-code uit de web-app.</string>
+    <string name="unpaired_reason_upgrade">Koppel deze telefoon opnieuw, zodat de app je server kan herkennen voordat hij je sleutel stuurt.</string>
 </resources>

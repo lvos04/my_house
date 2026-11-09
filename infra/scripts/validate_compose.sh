@@ -52,6 +52,18 @@ for profiles in "" "zigbee" "tunnel" "zigbee,tunnel"; do
   fi
 done
 
+# The test-only additions for the browser tests (infra/e2e/compose.e2e.yaml) still merge cleanly.
+check "compose.yaml + infra/e2e/compose.e2e.yaml" \
+  env SHC_ROOT="$ROOT" docker compose -f "$COMPOSE" -f "$HERE/e2e/compose.e2e.yaml" config -q
+
+# The push-address fallback (verbeterlijst 28) reaches api and worker from the environment; the
+# TrueNAS render leaves it empty (set it in the app there: it is stored encrypted, not in the YAML).
+check "SHC_NOTIFY_URL naar api en worker" sh -c \
+  'SHC_ROOT="$1" SHC_NOTIFY_URL="$3" docker compose -f "$2" config --format json | python3 -c "$4" "$3"' \
+  _ "$ROOT" "$COMPOSE" https://ntfy.example.nl/shc-test \
+  'import json, sys; s = json.load(sys.stdin)["services"]
+sys.exit(any(s[n]["environment"].get("SHC_NOTIFY_URL") != sys.argv[1] for n in ("api", "worker")))'
+check "TrueNAS-YAML laat SHC_NOTIFY_URL leeg" grep -q 'SHC_NOTIFY_URL: ""' "$WORK/truenas-basis.yaml"
 # The cookie must not be forced to Secure (verbeterlijst 3): auto unless the user overrides it.
 check "cookie Secure staat op auto" grep -q "SHC_COOKIE_SECURE: auto" "$WORK/truenas-basis.yaml"
 # A different internal address range moves every fixed address with it.

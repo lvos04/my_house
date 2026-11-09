@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import func, select, update
 
 from shc_api.db import sessionmaker
-from shc_api.models import Alert, ClimateZone, CommandRecord, Device, ZoneLog
+from shc_api.models import Alert, ClimateZone, CommandRecord, Device, SensorReading, ZoneLog
 from shc_api.store import ingest_reading
 
 from .conftest import Session
@@ -477,8 +477,9 @@ async def test_zone_log_only_grows_when_the_decision_changes(admin):
     async with sessionmaker()() as db:
         db.add(ZoneLog(zone_id=zid, kind="engine", message="heel oud", at=old))
         await db.commit()
-    rig.w._zone_log_cleaned_at = None
+    # Old lines go in the retention round (period from the app), not in the climate round.
     await rig.round()
+    await rig.w.retention_round()
     async with sessionmaker()() as db:
         assert (
             await db.execute(select(func.count()).select_from(ZoneLog).where(ZoneLog.message == "heel oud"))
@@ -513,6 +514,58 @@ async def test_watchdog_alerts_when_room_does_not_warm_up(admin):
     await sensor_value(rig, "Woonkamer", 21.9, datetime.now(UTC))
     await rig.readback("Woonkamer")
     await rig.round()  # inside the band now: watchdog stops and resolves
+    async with sessionmaker()() as db:
+        assert (
+            await db.execute(select(Alert).where(Alert.key == f"watchdog:{zid}", Alert.resolved_at.is_(None)))
+        ).scalar_one_or_none() is None
+
+
+async def unit_temperature(rig: Rig, name: str, value: float, at: datetime | None = None):
+    """A reading of the unit's own room sensor (Gree "unit_temperature", stored as "temperature")."""
+    async with sessionmaker()() as db:
+        await ingest_reading(db, rig.units[name], "temperature", value, "°C", at or datetime.now(UTC))
+        await db.commit()
+
+
+async def test_watchdog_uses_the_units_own_temperature_without_a_zone_sensor(admin):
+    """Item 45: a zone without an external sensor regulates on the unit's own sensor (oem_fallback); the
+    watchdog the app shows ("Waakhond: na 30 min") must work there too, on the unit's room temperature."""
+    rig = await make_rig(admin, living=("heat", 22.0), sensor=False)
+    zid = rig.zones["Woonkamer"]
+    assert (await admin.put(f"/zones/{zid}/policy", {"watchdog_minutes": 30})).status_code == 200
+    await rig.schedule("Woonkamer", 22, "heat")
+    now = datetime.now(UTC)
+    await rig.set_zone("Woonkamer", last_command_at=now)
+    await rig.round()
+    assert (await rig.zone("Woonkamer")).watchdog_since is None  # no room temperature at all yet: no window
+
+    await unit_temperature(rig, "Woonkamer", 18.5, now - timedelta(minutes=45))
+    await unit_temperature(rig, "Woonkamer", 18.6, now)
+    await rig.readback("Woonkamer")
+    await rig.round()
+    z = await rig.zone("Woonkamer")
+    assert z.control == "oem_fallback" and z.watchdog_since is not None
+    await rig.set_zone("Woonkamer", watchdog_since=now - timedelta(minutes=40))
+    await rig.readback("Woonkamer")
+    await rig.round()
+    async with sessionmaker()() as db:
+        alert = (
+            await db.execute(select(Alert).where(Alert.key == f"watchdog:{zid}", Alert.resolved_at.is_(None)))
+        ).scalar_one()
+    assert "reageert niet" in alert.title
+    assert "gemeten door de airco zelf" in alert.detail and "18.5" in alert.detail
+    # A stale unit reading (older than stale_after_s, 30 min) pauses the watchdog and resolves its alert,
+    # just like a stale external sensor does.
+    async with sessionmaker()() as db:
+        await db.execute(
+            update(SensorReading)
+            .where(SensorReading.device_id == rig.units["Woonkamer"])
+            .values(observed_at=SensorReading.observed_at - timedelta(hours=2))
+        )
+        await db.commit()
+    await rig.readback("Woonkamer")
+    await rig.round()
+    assert (await rig.zone("Woonkamer")).watchdog_since is None
     async with sessionmaker()() as db:
         assert (
             await db.execute(select(Alert).where(Alert.key == f"watchdog:{zid}", Alert.resolved_at.is_(None)))

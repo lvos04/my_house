@@ -110,6 +110,13 @@ export const DAY_LABEL = ['maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijda
 export const DAY_SHORT = ['ma', 'di', 'wo', 'do', 'vr', 'za', 'zo'] as const;
 
 export const EXPERIMENT_STATUS_LABEL: Dict = { defined: 'Gepland', running: 'Loopt', paused: 'Gepauzeerd', finished: 'Afgerond', stopped: 'Gestopt' };
+/** POST /experiments/{id}/stop → zone_restored: what happened to the zone's profile and schedule. */
+export const ZONE_RESTORED_TEXT: Dict = {
+  restored: 'De zone heeft weer het profiel en schema van vóór het experiment.',
+  kept: 'De zone houdt het profiel en schema van het experiment.',
+  changed: 'De zone kreeg intussen met de hand een ander profiel; dat blijft staan.',
+  none: 'Er stond geen experimentprofiel op de zone; daar is niets aan veranderd.',
+};
 
 export const USER_ROLE_LABEL: Dict = { admin: 'Beheerder', viewer: 'Kijker' };
 /** Role of a paired phone. */
@@ -117,10 +124,19 @@ export const CLIENT_ROLE_LABEL: Dict = { admin: 'Beheren', control: 'Bedienen', 
 export const CLIENT_ROLE_HELP: Dict = {
   control: 'Klimaat en licht bedienen; geen instellingen, gebruikers of back-ups.',
   viewer: 'Alleen kijken; niets bedienen.',
-  admin: 'Alles, ook gebruikers, telefoons en back-ups. Vraagt je wachtwoord.',
+  // A phone token never reaches users, pairing/phones, backups/restore, addresses or push settings, not
+  // even with role admin (403 web_session_required): those need a web session started with the password.
+  admin: "Klimaat en licht bedienen, en apparaten, zones, schema's, profielen, instellingen en het logboek beheren. Gebruikers, telefoons, back-ups, adressen en pushmeldingen alleen in de web-app. Vraagt je wachtwoord.",
 };
 
 export const BACKUP_STATUS_LABEL: Dict = { running: 'Bezig', ok: 'Gelukt', failed: 'Mislukt' };
+/** Backup.kind: a full export (.shcbak) or an encrypted database dump (.shcdump). */
+export const BACKUP_KIND_LABEL: Dict = { export: 'Volledige export', db_dump: 'Database-dump' };
+/** BackupSettings.schedule. */
+export const BACKUP_SCHEDULE_LABEL: Dict = {
+  daily_full: 'Elke dag een volledige export',
+  dump_daily_full_weekly: 'Elke dag een database-dump, elke week een volledige export',
+};
 export const SCHEMA_RELATION_LABEL: Dict = {
   same: 'Zelfde versie als deze server',
   older: 'Oudere versie: wordt na het terugzetten bijgewerkt',
@@ -134,7 +150,8 @@ export const RESTORE_MODE_LABEL: Dict = {
 export const COMPARE_STATUS_LABEL: Dict = { compatible: 'Werkt', partial: 'Gedeeltelijk', unavailable: 'Niet beschikbaar', new: 'Nieuw gevonden' };
 export const RESTORE_STATE_LABEL: Dict = { running: 'Bezig', done: 'Klaar', failed: 'Mislukt' };
 
-/** Audit log actions (GET /audit). "request" rows are generic API calls. */
+/** Audit log actions (GET /audit). "request" rows are generic API calls. Also the options of the
+ * "Soort" filter, so every action the backend writes needs a label here (checked in account.test.tsx). */
 export const AUDIT_ACTION_LABEL: Dict = {
   request: 'Wijziging via de app',
   setup_admin: 'Beheerder aangemaakt (eerste start)',
@@ -184,6 +201,9 @@ export const AUDIT_ACTION_LABEL: Dict = {
   experiment_deleted: 'Experiment verwijderd',
   adaptive_fit: 'Adaptief model berekend',
   adaptive_activate: 'Adaptief model aangezet',
+  adaptive_disable: 'Adaptief model uitgezet',
+  profile_applied: 'Profiel toegepast op zone',
+  profile_restored: 'Profiel en schema teruggezet (na experiment)',
   tariff_added: 'Tarief toegevoegd',
   tariff_updated: 'Tarief gewijzigd',
   tariff_deleted: 'Tarief verwijderd',
@@ -194,6 +214,13 @@ export const AUDIT_ACTION_LABEL: Dict = {
   button_mapping_removed: 'Knopkoppeling verwijderd',
   zone_command: 'Klimaatcommando',
   zone_resume: 'Terug naar schema',
+  light_command: 'Lichtcommando',
+  alert_acknowledged: 'Melding afgehandeld (gezien)',
+  integration_pair_failed: 'Koppelen van apparaat mislukt',
+  zigbee_setup: 'Zigbee ingesteld',
+  zigbee_permit_join: 'Zigbee: nieuwe apparaten toegelaten',
+  notify_url_updated: 'Push-adres gewijzigd',
+  retention_updated: 'Bewaartermijnen gewijzigd',
 };
 
 /** Why a web session or phone was signed out (WS error reason / auth notice). */

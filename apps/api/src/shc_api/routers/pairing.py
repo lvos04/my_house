@@ -6,18 +6,20 @@ http is only allowed on the home network, the remote address must be https; code
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from ..config import get_settings
-from ..deps import CLIENT_TTL, DB, Admin, Phone
+from ..deps import CLIENT_TTL, DB, Phone, WebAdmin
 from ..errors import api_error, not_found
 from ..events import publish_auth_revoked
 from ..models import ApiClient, Home, PairingCode, Setting, User
@@ -66,13 +68,43 @@ async def _active_home(db: DB) -> Home | None:
     return (await db.execute(select(Home).where(Home.active_to.is_(None)).order_by(Home.active_from))).scalars().first()
 
 
+IDENTITY_PROOF_ALG = "hmac-sha256-v1"
+
+
+def identity_proof(token_hash_hex: str, server_id: str, nonce: str) -> str:
+    """Answer to the phone's challenge (verbeterlijst 17).
+
+    ``HMAC-SHA256(key, msg)`` as lowercase hex, where key = the UTF-8 bytes of sha256(token) in
+    lowercase hex (what the server stores) and msg = the UTF-8 bytes of the three lines
+    "shc-identity-v1", server_id and nonce joined by a single LF. Only this server (which stores the
+    token hash) and the phone (which holds the token) can compute it; a device that merely read the
+    public server_id cannot."""
+    msg = f"shc-identity-v1\n{server_id}\n{nonce}"
+    return hmac.new(token_hash_hex.encode(), msg.encode(), hashlib.sha256).hexdigest()
+
+
 @router.get("/pairing/identity")
-async def identity(db: DB) -> dict:
-    """No login needed: lets a phone check it is talking to the server it was paired with."""
+async def identity(
+    db: DB,
+    nonce: str | None = Query(None, min_length=16, max_length=128, pattern=r"^[A-Za-z0-9_-]+$"),
+    client_id: uuid.UUID | None = None,
+) -> dict:
+    """No login needed: lets a phone check it is talking to the server it was paired with.
+
+    ``server_id`` alone is public (it is in the QR code and anyone on the network can read it), so a
+    paired phone also sends a fresh random ``nonce`` and its ``client_id``; the answer then carries
+    ``proof`` = :func:`identity_proof`. The phone sends its token only when the proof matches. For an
+    unknown client id ``proof`` is null. Revoked or expired phones still get a proof, so the app can
+    show "koppel opnieuw" after the 401 instead of "onbekende server"."""
     sid = await server_identity(db)
     home = await _active_home(db)
+    out: dict = {"server_id": sid, "name": home.name if home else None}
+    if nonce is not None and client_id is not None:
+        hashed = (await db.execute(select(ApiClient.token_hash).where(ApiClient.id == client_id))).scalar()
+        out["proof"] = identity_proof(hashed, sid, nonce) if hashed else None
+        out["proof_alg"] = IDENTITY_PROOF_ALG
     await db.commit()
-    return {"server_id": sid, "name": home.name if home else None}
+    return out
 
 
 class CodeRequest(BaseModel):
@@ -83,7 +115,7 @@ class CodeRequest(BaseModel):
 
 
 @router.post("/pairing/codes")
-async def create_code(body: CodeRequest, request: Request, db: DB, p: Admin) -> dict:
+async def create_code(body: CodeRequest, request: Request, db: DB, p: WebAdmin) -> dict:
     lan, remote = await configured_urls(db)
     if not lan:
         raise api_error(
@@ -214,7 +246,7 @@ async def redeem(body: Redeem, request: Request, db: DB) -> dict:
 
 
 @router.get("/clients")
-async def clients(db: DB, p: Admin) -> list[dict]:
+async def clients(db: DB, p: WebAdmin) -> list[dict]:
     rows = await db.execute(
         select(ApiClient, User.username).join(User, User.id == ApiClient.user_id).order_by(ApiClient.created_at.desc())
     )
@@ -267,7 +299,7 @@ async def unpair_self(db: DB, p: Phone) -> Response:
 
 
 @router.delete("/clients/{client_id}", status_code=204)
-async def revoke(client_id: uuid.UUID, db: DB, p: Admin) -> Response:
+async def revoke(client_id: uuid.UUID, db: DB, p: WebAdmin) -> Response:
     c = await db.get(ApiClient, client_id)
     if not c:
         raise not_found("Telefoon")

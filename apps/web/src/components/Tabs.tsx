@@ -14,8 +14,10 @@ export interface TabItem<K extends string = string> {
  *     {(key) => <Panel for={key} />}
  *   </Tabs>
  *
- * Without children it renders only the tablist (e.g. a segmented period switch); then give the
- * content `aria-labelledby={tabId(idBase, key)}` yourself or use TabPanel.
+ * Without children it renders only the tablist, for content that lives elsewhere on the page (e.g. the
+ * energy period switch). Then pass `hasPanel` and the same `idBase`, and wrap that content in
+ * `<TabPanel idBase={…} value={key}>`: the selected tab gets aria-controls, the panel role=tabpanel and
+ * aria-labelledby (a tablist with no panel is not a tab set).
  */
 export function Tabs<K extends string>({
   label,
@@ -25,6 +27,7 @@ export function Tabs<K extends string>({
   children,
   className = 'tabs',
   idBase,
+  hasPanel = false,
 }: {
   label: string;
   items: TabItem<K>[];
@@ -33,6 +36,8 @@ export function Tabs<K extends string>({
   children?: (key: K) => ReactNode;
   className?: string;
   idBase?: string;
+  /** No children: the caller renders the panel itself with <TabPanel> (same idBase). */
+  hasPanel?: boolean;
 }) {
   const autoId = useId();
   const base = idBase ?? autoId;
@@ -68,7 +73,7 @@ export function Tabs<K extends string>({
               role="tab"
               id={tabId(base, i.key)}
               aria-selected={selected}
-              aria-controls={children && selected ? panelId(base, i.key) : undefined}
+              aria-controls={(children || hasPanel) && selected ? panelId(base, i.key) : undefined}
               tabIndex={selected ? 0 : -1}
               disabled={i.disabled}
               onClick={() => onChange(i.key)}
@@ -85,6 +90,31 @@ export function Tabs<K extends string>({
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * The panel of a `<Tabs hasPanel idBase={idBase}>` rendered elsewhere: the content for tab `value`.
+ * `focusable` (default) puts the panel in the tab order, as the pattern asks when its content does not
+ * start with something focusable; pass false when it starts with a control (e.g. another tablist).
+ */
+export function TabPanel({
+  idBase,
+  value,
+  focusable = true,
+  className,
+  children,
+}: {
+  idBase: string;
+  value: string;
+  focusable?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div role="tabpanel" id={panelId(idBase, value)} aria-labelledby={tabId(idBase, value)} tabIndex={focusable ? 0 : undefined} className={className}>
+      {children}
+    </div>
   );
 }
 

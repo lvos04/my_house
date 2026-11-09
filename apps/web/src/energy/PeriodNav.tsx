@@ -10,14 +10,19 @@ const NOW_LABEL: Record<Period, string> = { day: 'Vandaag', week: 'Deze week', m
 /**
  * Period switch, previous/next and a date picker. `date` is a day in the home's time zone; `onDate(null)`
  * means "follow today" (the page then rolls over at the home's midnight).
+ *
+ * The switch is a tab set: the page wraps the period's figures in `<TabPanel idBase={idBase} value={period}>`
+ * (the selected tab points to it with aria-controls, the panel is labelled by the tab).
  */
 export function PeriodNav({
+  idBase,
   period,
   date,
   today,
   onPeriod,
   onDate,
 }: {
+  idBase: string;
   period: Period;
   date: string;
   today: string;
@@ -30,7 +35,7 @@ export function PeriodNav({
   const next = canGoNext(date, period, today);
   return (
     <div className="en-nav" role="group" aria-label="Periode kiezen">
-      <Tabs label="Periode" items={PERIODS.map((p) => ({ key: p, label: PERIOD_LABEL[p] }))} value={period} onChange={onPeriod} className="tabs en-tabs" />
+      <Tabs label="Periode" items={PERIODS.map((p) => ({ key: p, label: PERIOD_LABEL[p] }))} value={period} onChange={onPeriod} className="tabs en-tabs" idBase={idBase} hasPanel />
       <div className="en-nav-row">
         <button type="button" className="icon-btn" aria-label={`${PREV_LABEL[period]}: ${periodTitle(shiftPeriod(date, period, -1), period, today)}`} onClick={() => go(shiftPeriod(date, period, -1))}>
           <span aria-hidden="true">‹</span>

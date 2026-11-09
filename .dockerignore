@@ -7,6 +7,8 @@
 **/.ruff_cache
 **/dist
 **/*.egg-info
+# setuptools output of local builds: stale files there would end up in the image's packages.
+**/build
 **/*.shcbak
 **/.env
 **/secrets

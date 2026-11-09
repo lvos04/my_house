@@ -48,7 +48,8 @@ async def test_phone_roles_control_vs_admin(admin, home, app):
         assert r.status_code == 403 and r.json()["detail"]["message"] == "Alleen-lezen toegang."
         assert (await phone.get(f"/api/v1/zones/{zid}", headers=h)).status_code == 200
         await _set_role(cid, "admin")  # phones paired before migration 0002
-        assert (await phone.post("/api/v1/pairing/codes", json={}, headers=h)).status_code == 200
+        r = await phone.post("/api/v1/pairing/codes", json={}, headers=h)
+        assert r.status_code == 403 and r.json()["detail"]["code"] == "web_session_required"
 
 
 async def test_viewer_cannot_resume_or_control(admin, home, app):

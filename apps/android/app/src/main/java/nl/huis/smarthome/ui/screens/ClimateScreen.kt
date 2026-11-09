@@ -32,6 +32,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -53,9 +55,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import nl.huis.smarthome.R
+import nl.huis.smarthome.core.DayEntry
+import nl.huis.smarthome.core.DayGroup
 import nl.huis.smarthome.core.NlFormat
 import nl.huis.smarthome.core.UnitLink
+import nl.huis.smarthome.core.WeekSchedule
 import nl.huis.smarthome.core.Zone
+import nl.huis.smarthome.core.ZoneSchedule
 import nl.huis.smarthome.data.HomeState
 import nl.huis.smarthome.ui.CommandUi
 import nl.huis.smarthome.ui.MainViewModel
@@ -66,6 +72,7 @@ import nl.huis.smarthome.ui.components.CommandStatusText
 import nl.huis.smarthome.ui.components.ConnectionBanner
 import nl.huis.smarthome.ui.components.HuisCard
 import nl.huis.smarthome.ui.components.InfoBox
+import nl.huis.smarthome.ui.components.Pill
 import nl.huis.smarthome.ui.components.QualityLabel
 import nl.huis.smarthome.ui.components.ReadOnlyNote
 import nl.huis.smarthome.ui.components.SectionTitle
@@ -81,6 +88,8 @@ import nl.huis.smarthome.ui.components.qualityText
 import nl.huis.smarthome.ui.components.targetSpoken
 import nl.huis.smarthome.ui.theme.Huis
 import nl.huis.smarthome.ui.theme.noFontScale
+import java.time.LocalDateTime
+import java.time.ZoneId
 
 @Composable
 fun ClimateScreen(
@@ -142,12 +151,20 @@ fun ClimateScreen(
         val unit = ZoneUi.unitState(zone)
         val controls = ZoneUi.controls(zone, state)
 
+        // Reloaded when the zone, its next change (a saved schedule changes it) or the connection changes.
+        LaunchedEffect(zone.id, zone.nextChange, zone.profileId, state.online) {
+            if (state.online) vm.loadSchedule(zone.id)
+        }
+        val schedule = state.schedules[zone.id]
+        val timezone = state.overview?.home?.timezone
+
         if (unit == UnitState.NOT_LINKED) {
             HuisCard(radius = 20) {
                 if (ZoneUi.hasSensor(zone)) RoomReading(zone, Modifier.alpha(dim))
                 UnitNotLinked(zone, canManage = state.isAdmin)
             }
             DetailsCard(zone, showFan = false, showMode = false)
+            WeekScheduleCard(schedule, timezone, state.online, state.isAdmin)
             return@Column
         }
 
@@ -174,6 +191,7 @@ fun ClimateScreen(
         }
 
         DetailsCard(zone, showFan = !controls.visible || !zone.capabilities.fan, showMode = !controls.visible)
+        WeekScheduleCard(schedule, timezone, state.online, state.isAdmin)
 
         if (controls.visible) {
             if (controls.showResume) {
@@ -391,6 +409,85 @@ private fun DetailsCard(zone: Zone, showFan: Boolean, showMode: Boolean) {
         if (showFan) zone.fan?.let { InfoRow(stringResource(R.string.fan), fanLabel(it)) }
         zone.humidity.value?.let {
             InfoRow(stringResource(R.string.humidity), NlFormat.percent(it), quality = { QualityLabel(zone.humidity.quality) })
+        }
+    }
+}
+
+/**
+ * The zone's week schedule, read-only (verbeterlijst 12): days with the same blocks together
+ * ("ma–vr"), the block in force marked "nu". Editing happens in the web app (Klimaat).
+ */
+@Composable
+private fun WeekScheduleCard(schedule: ZoneSchedule?, timezone: String?, online: Boolean, isAdmin: Boolean) {
+    HuisCard(radius = 20) {
+        SectionTitle(stringResource(R.string.schedule_title))
+        when {
+            schedule == null -> Text(
+                stringResource(if (online) R.string.schedule_loading else R.string.schedule_offline),
+                color = Huis.colors.muted,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            schedule.blocks.isEmpty() -> InfoBox(stringResource(R.string.schedule_empty), warn = true)
+            else -> {
+                schedule.profile?.let {
+                    Text(stringResource(R.string.schedule_profile, it), color = Huis.colors.muted, style = MaterialTheme.typography.bodyMedium)
+                }
+                val zoneId = remember(timezone) { runCatching { ZoneId.of(timezone ?: "Europe/Amsterdam") }.getOrDefault(ZoneId.of("Europe/Amsterdam")) }
+                val active = WeekSchedule.active(schedule.blocks, LocalDateTime.now(zoneId))
+                WeekSchedule.groups(schedule.blocks).forEach { group ->
+                    ScheduleDayGroup(group, active?.takeIf { it.day in group.days }?.entry)
+                }
+            }
+        }
+        Text(
+            stringResource(if (isAdmin) R.string.schedule_edit_hint else R.string.schedule_edit_hint_other),
+            color = Huis.colors.muted,
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+@Composable
+private fun ScheduleDayGroup(group: DayGroup, active: DayEntry?) {
+    val spokenDays = WeekSchedule.daysLabel(group.days, long = true)
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            WeekSchedule.daysLabel(group.days),
+            style = MaterialTheme.typography.titleSmall,
+            color = Huis.colors.ink,
+            modifier = Modifier.semantics { contentDescription = spokenDays },
+        )
+        if (group.entries.isEmpty()) {
+            Text(stringResource(R.string.schedule_no_blocks), color = Huis.colors.muted, style = MaterialTheme.typography.bodyMedium)
+        }
+        val nowText = stringResource(R.string.schedule_now_spoken)
+        group.entries.forEach { e ->
+            val isActive = e == active
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 32.dp)
+                    .semantics(mergeDescendants = true) { if (isActive) stateDescription = nowText },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    e.start,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = Huis.colors.ink,
+                )
+                Text(
+                    listOf(
+                        NlFormat.temperature(e.targetC),
+                        e.mode?.let { modeLabel(it) } ?: stringResource(R.string.schedule_keep_mode),
+                        e.label.takeIf { it.isNotBlank() },
+                    ).filterNotNull().joinToString(" · "),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Huis.colors.ink,
+                    modifier = Modifier.weight(1f),
+                )
+                if (isActive) Pill(stringResource(R.string.schedule_now), Huis.colors.coolContainer, Huis.colors.onCoolContainer)
+            }
         }
     }
 }

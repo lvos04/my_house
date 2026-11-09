@@ -26,6 +26,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import nl.huis.smarthome.R
+import nl.huis.smarthome.data.CoreTexts
 import nl.huis.smarthome.data.HomeState
 import nl.huis.smarthome.ui.components.HuisCard
 import nl.huis.smarthome.ui.components.NeutralNote
@@ -56,8 +57,8 @@ fun UnpairedScreen(state: HomeState, onRepair: () -> Unit) {
             modifier = Modifier.semantics { heading() },
         )
         HuisCard(radius = 20) {
-            // The reason comes from the app's data layer (revoked, expired, unknown after a restore …).
-            reason?.let { Text(it.message, style = MaterialTheme.typography.bodyLarge, color = Huis.colors.ink) }
+            // Why (revoked, expired, unknown after a restore …), in the text from strings.xml.
+            reason?.let { Text(stringResource(CoreTexts.of(it)), style = MaterialTheme.typography.bodyLarge, color = Huis.colors.ink) }
             (state.overview?.home?.name ?: state.pairing?.homeName)?.let {
                 Text(stringResource(R.string.unpaired_home, it), style = MaterialTheme.typography.bodyMedium, color = Huis.colors.muted)
             }

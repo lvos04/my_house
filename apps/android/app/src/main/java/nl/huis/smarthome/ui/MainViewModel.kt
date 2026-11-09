@@ -13,6 +13,7 @@ import nl.huis.smarthome.core.LightGroup
 import nl.huis.smarthome.core.PairParse
 import nl.huis.smarthome.core.PairingCodec
 import nl.huis.smarthome.core.Zone
+import nl.huis.smarthome.data.CoreTexts
 import nl.huis.smarthome.data.UnpairResult
 import nl.huis.smarthome.huisApp
 import nl.huis.smarthome.work.AlertWorker
@@ -58,6 +59,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun override2h(zone: Zone) = overrideFor(zone, ZoneUi.DEFAULT_OVERRIDE_MINUTES)
     fun resume(zone: Zone) = repo.resume(zone)
 
+    /** Week schedule of a zone (read-only here; edited in the web app). */
+    fun loadSchedule(zoneId: String) {
+        viewModelScope.launch { repo.loadSchedule(zoneId) }
+    }
+
     // ---- Lights and alerts ----
 
     fun toggle(group: LightGroup) = repo.toggleGroup(group)
@@ -97,7 +103,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         when (val r = PairingCodec.parse(text)) {
             is PairParse.Invalid -> {
                 qrGate.reject(text)
-                _pair.value = PairUi(error = r.reason)
+                _pair.value = PairUi(error = refusal(r))
             }
             // The QR code names the server id: the address is checked before the code is sent.
             is PairParse.Ok -> doPair(r, qrText = text)
@@ -107,10 +113,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun pairManually(address: String, code: String) {
         if (_pair.value.busy) return
         when (val r = PairingCodec.manual(address, code)) {
-            is PairParse.Invalid -> _pair.value = PairUi(error = r.reason)
+            is PairParse.Invalid -> _pair.value = PairUi(error = refusal(r))
             is PairParse.Ok -> doPair(r, qrText = null)
         }
     }
+
+    /** Why a code or address was refused, in the text from strings.xml. */
+    private fun refusal(r: PairParse.Invalid): String = getApplication<Application>().getString(CoreTexts.of(r))
 
     /** "Opnieuw scannen", or switching between scanning and manual entry. */
     fun clearPairError() {

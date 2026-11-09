@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { RestoreCompare, RestoreJob, RestoreVerify } from '../api/types';
-import { RestoreSection } from '../pages/system/Restore';
+import { droppedLines, RestoreSection } from '../pages/system/Restore';
 import { PendingRestoreNotice, RESTORE_KEY } from '../pages/system/restoreState';
 import { FakeXhr, mockApi, Providers } from './helpers';
 
@@ -122,6 +122,33 @@ describe('restore / verhuisassistent (item 43)', () => {
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/system/safe-mode/release'))).toBe(true));
     expect(localStorage.getItem(RESTORE_KEY)).toBeNull();
   }, 15000);
+
+  it('names what was dropped: the columns per table and the records the update removed (item 34)', async () => {
+    localStorage.setItem(RESTORE_KEY, JSON.stringify({ job_id: 'job1', mode: 'same_home', started_at: Date.now() }));
+    const done = job('done');
+    done.report = {
+      ...done.report!,
+      mode: 'same_home',
+      dropped: { tables: { old_table: 2 }, columns: { homes: ['legacy_flag', 'old_note'], zones: ['x'] }, rows_removed_by_migration: { tariffs: 1, readings: 1250 } },
+    };
+    mockApi((_m, url) => (url.endsWith('/system/restore/jobs/job1') ? { body: done } : undefined));
+    render(<Providers><RestoreSection safeMode={false} /></Providers>);
+    expect(await screen.findByText(/Herstel klaar/)).toBeInTheDocument();
+    const items = screen.getAllByRole('listitem').map((li) => li.textContent);
+    expect(items).toEqual([
+      'tabel old_table: 2 records (bestaat niet in deze versie)',
+      'homes: kolommen legacy_flag, old_note (bestaan niet in deze versie)',
+      'zones: kolom x (bestaat niet in deze versie)',
+      'tariffs: 1 record opgeruimd door de database-update',
+      'readings: 1.250 records opgeruimd door de database-update',
+    ]);
+    expect(screen.getByText('Niet (volledig) overgenomen')).toBeInTheDocument();
+  });
+
+  it('shows no dropped list when nothing was dropped', () => {
+    expect(droppedLines({ tables: {}, columns: {}, rows_removed_by_migration: {} })).toEqual([]);
+    expect(droppedLines(undefined)).toEqual([]);
+  });
 
   it('a wrong passphrase shows the Dutch refusal and stays on step 1', async () => {
     vi.stubGlobal('XMLHttpRequest', FakeXhr);

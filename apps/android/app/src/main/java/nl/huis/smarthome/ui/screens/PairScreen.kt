@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.CameraState
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
@@ -69,6 +70,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LiveData
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
@@ -77,6 +79,7 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import nl.huis.smarthome.R
 import nl.huis.smarthome.data.UnpairResult
+import nl.huis.smarthome.ui.CameraIssue
 import nl.huis.smarthome.ui.CameraPolicy
 import nl.huis.smarthome.ui.MainViewModel
 import nl.huis.smarthome.ui.UiPrefs
@@ -107,7 +110,7 @@ fun PairScreen(vm: MainViewModel, storeWasReset: Boolean = false) {
     val context = LocalContext.current
     val prefs = remember { UiPrefs(context) }
     var manual by rememberSaveable { mutableStateOf(false) }
-    var cameraFailed by rememberSaveable { mutableStateOf(false) }
+    var cameraIssue by rememberSaveable { mutableStateOf<CameraIssue?>(null) }
     val hasCameraHardware = remember { context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) }
 
     fun cameraGranted() = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -179,10 +182,12 @@ fun PairScreen(vm: MainViewModel, storeWasReset: Boolean = false) {
             ScannerPanel(
                 hasCamera = hasCamera,
                 cameraBlocked = cameraBlocked,
-                cameraUnavailable = cameraFailed || !hasCameraHardware,
+                cameraIssue = if (hasCameraHardware) cameraIssue else CameraIssue.UNAVAILABLE,
+                canRetryCamera = CameraPolicy.canRetry(cameraIssue, hasCameraHardware),
                 busy = pair.busy,
                 onRequestCamera = requestCamera,
-                onCameraError = { cameraFailed = true },
+                onCameraError = { cameraIssue = it },
+                onRetryCamera = { cameraIssue = null },
                 onManual = switchMode,
                 onScanned = vm::onQrScanned,
             )
@@ -262,10 +267,12 @@ private fun RouteLine(label: String, color: Color, text: String) {
 private fun ScannerPanel(
     hasCamera: Boolean,
     cameraBlocked: Boolean,
-    cameraUnavailable: Boolean,
+    cameraIssue: CameraIssue?,
+    canRetryCamera: Boolean,
     busy: Boolean,
     onRequestCamera: () -> Unit,
-    onCameraError: () -> Unit,
+    onCameraError: (CameraIssue) -> Unit,
+    onRetryCamera: () -> Unit,
     onManual: () -> Unit,
     onScanned: (String) -> Unit,
 ) {
@@ -279,10 +286,19 @@ private fun ScannerPanel(
         contentAlignment = Alignment.Center,
     ) {
         when {
-            cameraUnavailable -> CameraMessage(
-                text = stringResource(R.string.pair_camera_error),
+            cameraIssue != null -> CameraMessage(
+                text = stringResource(
+                    when (cameraIssue) {
+                        CameraIssue.IN_USE -> R.string.pair_camera_in_use
+                        CameraIssue.DISABLED -> R.string.pair_camera_disabled
+                        CameraIssue.UNAVAILABLE -> R.string.pair_camera_error
+                    },
+                ),
                 button = stringResource(R.string.pair_manual_short),
                 onClick = onManual,
+                secondary = if (canRetryCamera) stringResource(R.string.pair_camera_retry) else null,
+                onSecondary = if (canRetryCamera) onRetryCamera else null,
+                announce = true,
             )
             !hasCamera -> CameraMessage(
                 text = stringResource(if (cameraBlocked) R.string.pair_camera_blocked else R.string.pair_camera_needed),
@@ -334,13 +350,20 @@ private fun CameraMessage(
     onClick: () -> Unit,
     secondary: String? = null,
     onSecondary: (() -> Unit)? = null,
+    /** Read out by TalkBack when it appears (a camera error replaces the picture). */
+    announce: Boolean = false,
 ) {
     Column(
         Modifier.padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(text, color = PairMuted, style = MaterialTheme.typography.bodyMedium)
+        Text(
+            text,
+            color = PairMuted,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = if (announce) Modifier.semantics { liveRegion = LiveRegionMode.Polite } else Modifier,
+        )
         Button(
             onClick = onClick,
             modifier = Modifier.heightIn(min = 48.dp),
@@ -410,11 +433,13 @@ private fun ManualEntry(busy: Boolean, onSubmit: (String, String) -> Unit) {
 }
 
 /**
- * CameraX preview + ML Kit QR analysis bound to the current lifecycle. Any failure to start the
- * camera (no camera, in use, driver error) calls [onError] instead of leaving a black box.
+ * CameraX preview + ML Kit QR analysis bound to the current lifecycle. A camera that cannot be
+ * started calls [onError] instead of leaving a black box: binding can throw (no camera), but a
+ * camera that is in use by another app, disabled, or failing in its driver only says so through
+ * its state afterwards, so that state is observed as well.
  */
 @Composable
-private fun QrCamera(modifier: Modifier, onResult: (String) -> Unit, onError: () -> Unit) {
+private fun QrCamera(modifier: Modifier, onResult: (String) -> Unit, onError: (CameraIssue) -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val currentOnResult by rememberUpdatedState(onResult)
@@ -424,10 +449,12 @@ private fun QrCamera(modifier: Modifier, onResult: (String) -> Unit, onError: ()
         BarcodeScanning.getClient(BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build())
     }
     val providerFuture = remember { runCatching { ProcessCameraProvider.getInstance(context) }.getOrNull() }
+    // The bound camera's state, so the observer can be removed when this leaves the screen.
+    val bound = remember { BoundCamera() }
 
     if (providerFuture == null) {
         DisposableEffect(Unit) {
-            currentOnError()
+            currentOnError(CameraIssue.UNAVAILABLE)
             onDispose { }
         }
         return
@@ -438,6 +465,7 @@ private fun QrCamera(modifier: Modifier, onResult: (String) -> Unit, onError: ()
         factory = { ctx ->
             val view = PreviewView(ctx).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
             providerFuture.addListener({
+                if (bound.disposed) return@addListener
                 try {
                     val provider = providerFuture.get()
                     val preview = Preview.Builder().build().also { it.setSurfaceProvider(view.surfaceProvider) }
@@ -446,9 +474,30 @@ private fun QrCamera(modifier: Modifier, onResult: (String) -> Unit, onError: ()
                         .build()
                         .also { it.setAnalyzer(executor) { proxy -> analyze(proxy, scanner) { value -> currentOnResult(value) } } }
                     provider.unbindAll()
-                    provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                    val camera = provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                    val state = camera.cameraInfo.cameraState
+                    bound.state = state
+                    state.observe(lifecycleOwner) { s ->
+                        val error = s.error ?: return@observe
+                        if (error.type == CameraState.ErrorType.CRITICAL) {
+                            // Disabled, a fatal driver error, stream setup failed: CameraX gives up.
+                            currentOnError(CameraPolicy.issueFor(error.code))
+                        } else {
+                            // CameraX retries a recoverable error itself ("in use" can be brief).
+                            // If the camera has still not opened a moment later while the screen is
+                            // visible (it may wait in PENDING_OPEN without an error by then), say why
+                            // instead of leaving a black picture.
+                            view.postDelayed({
+                                val latest = state.value
+                                val visible = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+                                if (!bound.disposed && visible && latest != null && latest.type != CameraState.Type.OPEN) {
+                                    currentOnError(CameraPolicy.issueFor(latest.error?.code ?: error.code))
+                                }
+                            }, RECOVERABLE_GRACE_MS)
+                        }
+                    }
                 } catch (e: Exception) {
-                    currentOnError()
+                    currentOnError(CameraIssue.UNAVAILABLE)
                 }
             }, ContextCompat.getMainExecutor(ctx))
             view
@@ -457,11 +506,23 @@ private fun QrCamera(modifier: Modifier, onResult: (String) -> Unit, onError: ()
 
     DisposableEffect(Unit) {
         onDispose {
-            runCatching { providerFuture.get().unbindAll() }
+            bound.disposed = true
+            bound.state?.removeObservers(lifecycleOwner)
+            bound.state = null
+            if (providerFuture.isDone) runCatching { providerFuture.get().unbindAll() }
             scanner.close()
             executor.shutdown()
         }
     }
+}
+
+/** How long a recoverable camera error ("in use") may keep the camera closed before the scanner says so. */
+private const val RECOVERABLE_GRACE_MS = 2_000L
+
+/** What QrCamera bound, kept across recompositions. */
+private class BoundCamera {
+    var state: LiveData<CameraState>? = null
+    var disposed = false
 }
 
 @OptIn(ExperimentalGetImage::class)

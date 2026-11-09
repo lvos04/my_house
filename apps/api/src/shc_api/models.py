@@ -84,9 +84,9 @@ class ApiClient(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     last_used_at: Mapped[datetime | None]
     revoked_at: Mapped[datetime | None]
-    # admin | control | viewer. New pairings default to "control"; phones paired before
-    # migration 0002 were full admins and kept that (server default "admin").
-    role: Mapped[str] = mapped_column(String(16), default="control", server_default="admin")
+    # admin | control | viewer. New pairings default to "control". Phones paired before migration
+    # 0002 were full admins; migration 0004 limits those that never got an expiry date to "control".
+    role: Mapped[str] = mapped_column(String(16), default="control", server_default="control")
     expires_at: Mapped[datetime | None]
     refreshed_at: Mapped[datetime | None]
 

@@ -1,13 +1,13 @@
 import '../climate/climate.css';
-import { useState, type FormEvent } from 'react';
+import { useId, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { qk } from '../api/keys';
-import type { AdaptiveModel, AdaptiveStatus, Experiment, ExperimentResult, Profile, Zone } from '../api/types';
+import type { AdaptiveModel, AdaptiveStatus, Experiment, ExperimentResult, Profile, Zone, ZoneRestored } from '../api/types';
 import { useHome } from '../state';
 import { ActionButton, Empty, ErrorNote, Loading } from '../components/bits';
 import { dateTime } from '../format';
-import { EXPERIMENT_STATUS_LABEL, t } from '../i18n';
+import { EXPERIMENT_STATUS_LABEL, ZONE_RESTORED_TEXT, t } from '../i18n';
 import { FormError, useClimateCan } from '../climate/common';
 import { OutdoorSensorCard } from '../climate/OutdoorSensor';
 
@@ -284,23 +284,103 @@ function NewExperiment({ homeId, zones, profiles }: { homeId: string; zones: Zon
 
 const STATUS_PILL: Record<string, string> = { defined: 'neutral', running: 'ok', paused: 'warn', finished: 'info', stopped: 'neutral' };
 
+/** Stopping or deleting an auto-apply experiment that still runs: by default the zone gets back the
+ * profile and schedule it had before the experiment (restore); or it keeps what it has now. */
+function LetGoChoice({ action, name, pending, onConfirm, onCancel }: {
+  action: 'stop' | 'delete';
+  name: string;
+  pending: boolean;
+  onConfirm: (restore: boolean) => void;
+  onCancel: () => void;
+}) {
+  const [restore, setRestore] = useState(true);
+  const id = useId();
+  const title = `Experiment ${name} ${action === 'stop' ? 'stoppen' : 'verwijderen'}`;
+  return (
+    <div className="note info stack" role="group" aria-labelledby={`${id}-h`}>
+      <strong id={`${id}-h`}>{title}</strong>
+      {action === 'delete' && <span className="small">De resultaten zijn daarna weg.</span>}
+      <fieldset className="choice">
+        <legend>Wat moet de zone daarna doen?</legend>
+        <label className={`choice-card${restore ? ' selected' : ''}`}>
+          <input type="radio" name={`${id}-zone`} checked={restore} onChange={() => setRestore(true)} />
+          <span>
+            <strong>Terugzetten</strong>
+            <span className="small muted">Het profiel en schema van vóór het experiment komen terug.</span>
+          </span>
+        </label>
+        <label className={`choice-card${!restore ? ' selected' : ''}`}>
+          <input type="radio" name={`${id}-zone`} checked={!restore} onChange={() => setRestore(false)} />
+          <span>
+            <strong>Houden</strong>
+            <span className="small muted">De zone houdt het profiel en schema dat hij nu heeft (die van het experiment).</span>
+          </span>
+        </label>
+      </fieldset>
+      <span className="small muted">Kreeg de zone intussen met de hand een ander profiel, dan blijft dat in beide gevallen staan.</span>
+      <div className="c-actions">
+        <ActionButton className={`btn ${action === 'delete' ? 'danger' : 'primary'}`} disabled={pending} onClick={() => onConfirm(restore)}>{title}</ActionButton>
+        <button type="button" className="btn" onClick={onCancel}>Annuleren</button>
+      </div>
+    </div>
+  );
+}
+
 function ExperimentCard({ e, zones, profiles, homeId }: { e: Experiment; zones: Zone[]; profiles: Profile[]; homeId: string }) {
   const qc = useQueryClient();
   const { admin } = useClimateCan();
   const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState<'stop' | 'delete' | null>(null);
+  const [outcome, setOutcome] = useState<ZoneRestored | null>(null);
   const done = () => {
     qc.invalidateQueries({ queryKey: qk.experiments(homeId) });
     qc.invalidateQueries({ queryKey: qk.experiment(e.id) });
   };
+  /** Stop/delete may have put the zone's old profile and schedule back (item 45). */
+  const zoneChanged = () => {
+    done();
+    qc.invalidateQueries({ queryKey: qk.profiles(homeId) });
+    qc.invalidateQueries({ queryKey: qk.zones(homeId) });
+    qc.invalidateQueries({ queryKey: qk.overview(homeId) });
+    if (e.zone_id) {
+      qc.invalidateQueries({ queryKey: qk.zone(e.zone_id) });
+      qc.invalidateQueries({ queryKey: qk.schedule(e.zone_id) });
+      qc.invalidateQueries({ queryKey: qk.zoneLog(e.zone_id) });
+    }
+  };
   const pause = useMutation({ mutationFn: () => api.pauseExperiment(e.id), onSuccess: done });
   const resume = useMutation({ mutationFn: () => api.resumeExperiment(e.id), onSuccess: done });
-  const stop = useMutation({ mutationFn: () => api.stopExperiment(e.id), onSuccess: done });
-  const remove = useMutation({ mutationFn: () => api.deleteExperiment(e.id), onSuccess: done });
+  const stop = useMutation({
+    mutationFn: (restore: boolean) => api.stopExperiment(e.id, { restore }),
+    onSuccess: (r) => {
+      setConfirming(null);
+      setOutcome(r?.zone_restored ?? null);
+      zoneChanged();
+    },
+  });
+  const remove = useMutation({
+    mutationFn: (restore: boolean) => api.deleteExperiment(e.id, { restore }),
+    onSuccess: () => {
+      setConfirming(null);
+      zoneChanged();
+    },
+  });
   const err = pause.error ?? resume.error ?? stop.error ?? remove.error;
   const zone = zones.find((z) => z.id === e.zone_id);
   const profileName = (id?: string | null) => (id ? profiles.find((p) => p.id === id)?.name ?? 'onbekend profiel' : null);
   const active = e.status === 'defined' || e.status === 'running' || e.status === 'paused';
   const current = e.current_variant !== null && e.current_variant !== undefined ? e.variants[e.current_variant] : null;
+  // Only an auto-apply experiment that still runs can have its profile on the zone; a finished one
+  // already gave the zone back (the worker restores at the end), one that only measures never touched it.
+  const choice = e.auto_apply && active;
+  const askStop = () => {
+    if (choice) return setConfirming(confirming === 'stop' ? null : 'stop');
+    if (window.confirm(`Experiment ${e.name} stoppen? Dit experiment meet alleen; de zone verandert niet.`)) stop.mutate(true);
+  };
+  const askDelete = () => {
+    if (choice) return setConfirming(confirming === 'delete' ? null : 'delete');
+    if (window.confirm(`Experiment ${e.name} verwijderen? De resultaten zijn daarna weg.`)) remove.mutate(true);
+  };
 
   return (
     <article className="card" aria-labelledby={`exp-${e.id}`}>
@@ -320,6 +400,7 @@ function ExperimentCard({ e, zones, profiles, homeId }: { e: Experiment; zones: 
           Gepauzeerd{e.paused_reason ? `: ${e.paused_reason}` : '.'} {admin ? 'Hervat het experiment zodra de zone weer het schema volgt.' : ''}
         </div>
       )}
+      {outcome && <div className="note info" role="status">Experiment gestopt. {t(ZONE_RESTORED_TEXT, outcome)}</div>}
       <ul className="c-list">
         {e.variants.map((v, i) => (
           <li key={i}>
@@ -337,16 +418,26 @@ function ExperimentCard({ e, zones, profiles, homeId }: { e: Experiment; zones: 
           <ActionButton className="btn primary" disabled={resume.isPending} onClick={() => resume.mutate()}>Hervatten</ActionButton>
         )}
         {admin && active && (
-          <ActionButton className="btn" disabled={stop.isPending} onClick={() => window.confirm(`Experiment ${e.name} stoppen? De zone houdt het profiel en schema dat hij nu heeft.`) && stop.mutate()}>
+          <ActionButton className="btn" disabled={stop.isPending} aria-expanded={choice ? confirming === 'stop' : undefined} onClick={askStop}>
             Stoppen
           </ActionButton>
         )}
         {admin && (
-          <ActionButton className="btn danger" disabled={remove.isPending} onClick={() => window.confirm(`Experiment ${e.name} verwijderen? De resultaten zijn daarna weg.`) && remove.mutate()}>
+          <ActionButton className="btn danger" disabled={remove.isPending} aria-expanded={choice ? confirming === 'delete' : undefined} onClick={askDelete}>
             Verwijderen
           </ActionButton>
         )}
       </div>
+      {admin && choice && confirming && (
+        <LetGoChoice
+          key={confirming}
+          action={confirming}
+          name={e.name}
+          pending={confirming === 'stop' ? stop.isPending : remove.isPending}
+          onConfirm={(restore) => (confirming === 'stop' ? stop.mutate(restore) : remove.mutate(restore))}
+          onCancel={() => setConfirming(null)}
+        />
+      )}
       <FormError error={err} />
       {open && <ExperimentResultLoader id={e.id} />}
     </article>

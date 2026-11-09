@@ -30,6 +30,7 @@ dropped.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import contextlib
 import datetime as dt
@@ -77,12 +78,17 @@ INSERT_BATCH = 1_000
 SPOOL_BYTES = 8 << 20
 Z2M_MAX_FILE = 50_000_000
 MIN_PASSPHRASE = 12
+# Encrypted database dump (verbeterlijst 32): pg_dump --format=custom inside the same encryption as
+# a .shcbak file, marked "content": "pg_dump" in the header. BackupRecord.kind "db_dump".
+DUMP_CONTENT = "pg_dump"
+DUMP_KIND = "db_dump"
+PGDMP_MAGIC = b"PGDMP"
 
 # Credentials: dropped from a redacted backup.
 SECRET_COLUMNS = {("integrations", "credentials_enc"), ("sessions", "csrf_token")}
 # Also replaced in a redacted backup: password hashes and phone-token hashes (verbeterlijst, kleine punten).
 REDACTED_PASSWORD = "!geredigeerd"  # noqa: S105 - not a password; can never verify
-SECRET_SETTING_KEYS = {"backup_passphrase_enc"}
+SECRET_SETTING_KEYS = {"backup_passphrase_enc", "notify_url_enc"}
 SKIP_TABLES = {"sessions", "pairing_codes", "processed_events"}  # short-lived, never exported
 
 
@@ -178,7 +184,7 @@ def _nonce(prefix: bytes, counter: int, last: bool) -> bytes:
 class EncryptingWriter:
     """File-like sink: buffers plaintext and writes authenticated chunks to `raw`."""
 
-    def __init__(self, raw, passphrase: str, created_at: str, chunk_size: int = CHUNK_SIZE):
+    def __init__(self, raw, passphrase: str, created_at: str, chunk_size: int = CHUNK_SIZE, content: str | None = None):
         _check_passphrase(passphrase)
         salt = os.urandom(16)
         self._prefix = os.urandom(7)
@@ -193,6 +199,8 @@ class EncryptingWriter:
             "chunk_size": chunk_size,
             "created_at": created_at,
         }
+        if content:
+            header["content"] = content  # e.g. DUMP_CONTENT; absent = a full export (tar.gz)
         header_raw = json.dumps(header, separators=(",", ":")).encode() + b"\n"
         self._aad = MAGIC + header_raw
         self._aead = AESGCM(_key(passphrase, salt))
@@ -304,6 +312,11 @@ def open_plaintext(path: Path, passphrase: str) -> tuple[int, io.IOBase]:
             return 1, io.BytesIO(decrypt(blob, passphrase))
         if magic == MAGIC:
             reader = DecryptingReader(f, passphrase)
+            if reader.header.get("content") == DUMP_CONTENT:
+                raise BackupError(
+                    "Dit bestand is een database-dump (pg_dump), geen volledige export. Zet hem terug met "
+                    "'shc-api decrypt-dump' en pg_restore (zie docs/onderhoud.md), of kies een volledige export."
+                )
             buffered = io.BufferedReader(reader, buffer_size=CHUNK_SIZE)
             return 2, _Closing(buffered, f)
         raise BackupError("Geen geldig back-upbestand (onbekend formaat).")
@@ -405,14 +418,27 @@ class Verified:
 SUMMARY_TABLES = {"homes", "devices", "integrations"}
 
 
+def _secret_setting_row(line: bytes) -> dict | None:
+    """The settings row on ``line`` when it is one of the SecretBox-encrypted settings, else None."""
+    if b"_enc" not in line:  # cheap pre-filter: every settings row is read, only these few are parsed
+        return None
+    try:
+        row = json.loads(line)
+    except ValueError:
+        return None
+    return row if isinstance(row, dict) and row.get("key") in SECRET_SETTING_KEYS else None
+
+
 def verify_file(path: Path, passphrase: str, collect: bool = True) -> Verified:
     """Pass 1: decrypt and check every member against the manifest without keeping data in memory.
-    With `collect`, small tables (homes, devices, integrations) are summarised for the restore wizard."""
+    With `collect`, small tables (homes, devices, integrations) are summarised for the restore wizard,
+    and the encrypted settings (backup passphrase, push address) are kept for the key check."""
     _check_passphrase(passphrase)
     seen: dict[str, dict] = {}
     manifest = None
     meta = None
     rows_by_table: dict[str, list[dict]] = {t: [] for t in SUMMARY_TABLES}
+    secret_settings: list[dict] = []
     fmt_info: dict = {}
     for name, f in iter_members(path, passphrase, fmt_info):
         if name == "manifest.json":
@@ -427,12 +453,15 @@ def verify_file(path: Path, passphrase: str, collect: bool = True) -> Verified:
         lines = 0
         table = _table_of(name)
         keep = collect and table in SUMMARY_TABLES
+        keep_secrets = collect and table == "settings"
         for line in _lines(h):
             if line:
                 lines += 1
                 if keep:
                     with contextlib.suppress(ValueError):
                         rows_by_table[table].append(json.loads(line))
+                elif keep_secrets and (row := _secret_setting_row(line)) is not None:
+                    secret_settings.append(row)
         seen[name] = {"sha256": h.sha.hexdigest(), "size": h.size, "lines": lines}
     if manifest is None:
         raise BackupError("manifest.json ontbreekt.")
@@ -451,7 +480,81 @@ def verify_file(path: Path, passphrase: str, collect: bool = True) -> Verified:
         n = sum(seen[f]["lines"] for f in info["files"])
         if n != info["rows"]:
             raise BackupError(f"Aantal records klopt niet voor {t}.")
-    return Verified(manifest, fmt_info.get("format_version", 0), _summary(rows_by_table) if collect else {})
+    summary = _summary(rows_by_table) if collect else {}
+    if collect:
+        summary["_secret_settings"] = secret_settings
+    return Verified(manifest, fmt_info.get("format_version", 0), summary)
+
+
+# What an encrypted setting is, what stops when it does not decrypt, and what to set again (Dutch).
+SECRET_SETTING_LABELS = {
+    "backup_passphrase_enc": "wachtwoordzin voor automatische back-ups",
+    "notify_url_enc": "push-adres voor meldingen buiten de app",
+}
+_SECRET_SETTING_EFFECTS = {  # (article, what stops, what to set again)
+    "backup_passphrase_enc": ("de", "stoppen de automatische back-ups", "de wachtwoordzin"),
+    "notify_url_enc": ("het", "komen er geen pushberichten meer", "het push-adres"),
+}
+
+
+def decrypt_check(rows: list[dict], key: str | None = None, settings: list[dict] | None = None) -> dict:
+    """Which integration credentials and encrypted settings in a backup decrypt with this server's
+    master key (or ``key``).
+
+    ``rows`` are the raw integration rows of ``Verified.summary["_integration_rows"]``, ``settings``
+    the rows of ``Verified.summary["_secret_settings"]`` (backup passphrase, push address). A failure
+    means the backup was made with another SHC_SECRET_KEY (new NAS, key rotation): after a restore the
+    worker cannot use those devices, and automatic backups and push messages stop, until
+    ``shc-api rekey --old-key-file`` (or re-pairing and setting the passphrase/address again).
+    Returns ``{"ok": n, "failed": ["name (provider)", ...], "total": n, "settings": {key: "ok"|"failed"},
+    "settings_failed": [key, ...]}``; ``ok``/``failed``/``total`` count device keys only."""
+    from .security import SecretBox
+
+    box = SecretBox(key or get_settings().resolved_secret_key())
+    ok, failed = 0, []
+    for r in rows:
+        enc = r.get("credentials_enc")
+        if not enc:
+            continue
+        try:
+            box.decrypt(base64.b64decode(enc["$b64"]) if isinstance(enc, dict) else enc)
+            ok += 1
+        except Exception:
+            failed.append(f"{r.get('name')} ({r.get('provider')})")
+    checked: dict[str, str] = {}
+    for r in settings or []:
+        k = r.get("key")
+        raw = (r.get("value") or {}).get("v") if isinstance(r.get("value"), dict) else None
+        if k not in SECRET_SETTING_KEYS or not raw:
+            continue
+        try:
+            box.decrypt(base64.b64decode(raw, validate=True))
+            checked[k] = "ok"
+        except Exception:
+            checked[k] = "failed"
+    return {
+        "ok": ok,
+        "failed": failed,
+        "total": ok + len(failed),
+        "settings": checked,
+        "settings_failed": sorted(k for k, v in checked.items() if v == "failed"),
+    }
+
+
+def key_check_warning(check: dict) -> str | None:
+    """Dutch restore warning for encrypted settings that do not fit this server's master key."""
+    bad = [k for k in check.get("settings_failed") or [] if k in SECRET_SETTING_LABELS]
+    if not bad:
+        return None
+    what = " en ".join(f"{_SECRET_SETTING_EFFECTS[k][0]} {SECRET_SETTING_LABELS[k]}" for k in bad)
+    effects = " en ".join(_SECRET_SETTING_EFFECTS[k][1] for k in bad)
+    again = " en ".join(_SECRET_SETTING_EFFECTS[k][2] for k in bad)
+    fits = "past" if len(bad) == 1 else "passen"
+    return (
+        f"{what[0].upper()}{what[1:]} in deze back-up {fits} niet bij de hoofdsleutel van deze "
+        f"server. Na het terugzetten {effects}, tot je de oude sleutel omzet met 'shc-api rekey --old-key-file' "
+        f"of {again} opnieuw instelt bij Systeem."
+    )
 
 
 def _json_member(f, name: str) -> dict:
@@ -615,9 +718,30 @@ def _add_bytes(tar: tarfile.TarFile, name: str, data: bytes) -> None:
     tar.addfile(ti, io.BytesIO(data))
 
 
-def _add_z2m(tar: tarfile.TarFile, z2m_dir: Path | None, files: dict) -> dict:
-    """Add the Zigbee2MQTT data dir; report clearly whether it was readable (verbeterlijst 33)."""
-    report = {"mounted": False, "included": False, "files": 0, "unreadable": [], "detail": ""}
+# Zigbee2MQTT's secrets file (``!secret.yaml mqtt_password`` in configuration.yaml): holds the MQTT
+# password in plain text. A redacted backup keeps its keys but never its values.
+Z2M_SECRET_FILES = {"secret.yaml", "secret.yml"}
+
+
+def redact_z2m_secrets(raw: bytes) -> bytes:
+    """Every top-level key of a Zigbee2MQTT secrets file with an empty value; nothing else is kept
+    (no values, comments or nested lines), so no secret can slip through a YAML form we did not
+    expect. Zigbee2MQTT still finds each key after a restore; fill in the passwords again."""
+    keys: list[str] = []
+    for line in raw.decode("utf-8", "replace").splitlines():
+        if not line or line[0] in " \t#-" or ":" not in line:
+            continue
+        key = line.split(":", 1)[0].strip()
+        if key and key not in keys:
+            keys.append(key)
+    head = "# Geredigeerde back-up: de waarden zijn weggelaten. Vul ze opnieuw in (mqtt_password: zie secrets/).\n"
+    return (head + "".join(f'{k}: ""\n' for k in keys)).encode()
+
+
+def _add_z2m(tar: tarfile.TarFile, z2m_dir: Path | None, files: dict, redact: bool = False) -> dict:
+    """Add the Zigbee2MQTT data dir; report clearly whether it was readable (verbeterlijst 33).
+    With ``redact`` (a backup without secrets) secret.yaml goes in without its values."""
+    report = {"mounted": False, "included": False, "files": 0, "unreadable": [], "redacted": [], "detail": ""}
     if z2m_dir is None or not z2m_dir.exists():
         report["detail"] = "Geen Zigbee2MQTT-map gekoppeld."
         return report
@@ -638,6 +762,14 @@ def _add_z2m(tar: tarfile.TarFile, z2m_dir: Path | None, files: dict) -> dict:
                 try:
                     st = p.stat()
                     if not p.is_file() or st.st_size >= Z2M_MAX_FILE:
+                        continue
+                    if redact and rel.as_posix() in Z2M_SECRET_FILES:
+                        data = redact_z2m_secrets(p.read_bytes())
+                        name = f"zigbee2mqtt/{rel.as_posix()}"
+                        _add_bytes(tar, name, data)
+                        files[name] = {"sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
+                        report["files"] += 1
+                        report["redacted"].append(rel.as_posix())
                         continue
                     with open(p, "rb") as fh:
                         h = _Hashing(fh)
@@ -665,6 +797,11 @@ def _add_z2m(tar: tarfile.TarFile, z2m_dir: Path | None, files: dict) -> dict:
         report["detail"] = "Zigbee2MQTT-map is leeg."
     else:
         report["detail"] = f"{report['files']} bestanden van Zigbee2MQTT opgenomen."
+        if report["redacted"]:
+            report["detail"] += (
+                f" {', '.join(report['redacted'])} zonder wachtwoorden (geredigeerde back-up): vul na een herstel "
+                "mqtt_password weer in (de waarde staat in secrets/mqtt_z2m_password)."
+            )
     return report
 
 
@@ -728,7 +865,7 @@ async def write_backup(
                     for p in pw.parts:
                         files[p.name] = {"sha256": p.sha256, "size": p.size, "rows": p.rows}
                     tables[table.name] = {"rows": pw.rows, "files": [p.name for p in pw.parts]}
-            z2m = _add_z2m(tar, z2m_dir, files)
+            z2m = _add_z2m(tar, z2m_dir, files, redact=not include_secrets)
             manifest = {
                 **meta,
                 "redacted": not include_secrets,
@@ -820,6 +957,158 @@ async def run_backup(
                 "format_version": FORMAT_VERSION,
             }
             await z2m_alert(db, manifest["zigbee2mqtt"])
+            await db.commit()
+            return record_dict(rec)
+    finally:
+        await engine.dispose()
+
+
+# --- encrypted database dump (verbeterlijst 32) ---------------------------------------------------
+
+
+def dump_filename(auto: bool) -> str:
+    stamp = f"{dt.datetime.now(dt.UTC):%Y%m%d-%H%M%S}-{os.urandom(2).hex()}"
+    return f"shc-{'auto-' if auto else ''}dump-{stamp}.shcdump"
+
+
+def _pg_dump_sync(url: str, target: Path, passphrase: str, created_at: str) -> dict:
+    """Stream ``pg_dump --format=custom`` through the backup encryption into ``target``."""
+    import shutil
+    import subprocess  # noqa: S404 - fixed executable, no shell
+
+    from .cli import _libpq
+
+    exe = shutil.which("pg_dump")
+    if not exe:
+        raise BackupError("pg_dump niet gevonden: database-dump niet mogelijk.")
+    dsn, pw = _libpq(url)
+    env = dict(os.environ)
+    if pw:
+        env["PGPASSWORD"] = pw
+    with open(target, "wb") as raw:
+        enc = EncryptingWriter(raw, passphrase, created_at, content=DUMP_CONTENT)
+        proc = subprocess.Popen(  # noqa: S603 - fixed executable, no shell
+            [exe, "--format=custom", "--no-owner", "--no-privileges", f"--dbname={dsn}"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
+        assert proc.stdout is not None
+        plain = 0
+        while block := proc.stdout.read(CHUNK_SIZE):
+            enc.write(block)
+            plain += len(block)
+        err = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
+        code = proc.wait()
+        if code != 0:
+            raise BackupError(f"pg_dump mislukt: {err.strip()[:300] or code}")
+        enc.finish()
+        raw.flush()
+        os.fsync(raw.fileno())
+    return {"file_sha256": enc.sha256.hexdigest(), "file_size": enc.size, "plain_bytes": plain}
+
+
+def verify_dump(path: Path, passphrase: str) -> int:
+    """Decrypt a dump completely (every chunk is authenticated) and check it is a pg_dump archive.
+    Returns the plaintext size; raises BackupError."""
+    with open(path, "rb") as f:
+        reader = DecryptingReader(f, passphrase)
+        if reader.header.get("content") != DUMP_CONTENT:
+            raise BackupError("Dit bestand is geen database-dump.")
+        stream = io.BufferedReader(reader, buffer_size=CHUNK_SIZE)
+        head = stream.read(len(PGDMP_MAGIC))
+        if head != PGDMP_MAGIC:
+            raise BackupError("Database-dump beschadigd (geen pg_dump-archief).")
+        n = len(head)
+        while block := stream.read(CHUNK_SIZE):
+            n += len(block)
+    return n
+
+
+def decrypt_dump(path: Path, passphrase: str, out: Path) -> int:
+    """Write the plain pg_dump archive of an encrypted dump to ``out`` (for pg_restore)."""
+    _check_passphrase(passphrase)
+    tmp = out.with_name(f".{out.name}.tmp")
+    try:
+        with open(path, "rb") as f, open(tmp, "wb") as dst:
+            reader = DecryptingReader(f, passphrase)
+            if reader.header.get("content") != DUMP_CONTENT:
+                raise BackupError("Dit bestand is geen database-dump; gebruik 'shc-api restore' voor een export.")
+            stream = io.BufferedReader(reader, buffer_size=CHUNK_SIZE)
+            n = 0
+            while block := stream.read(CHUNK_SIZE):
+                dst.write(block)
+                n += len(block)
+        os.chmod(tmp, 0o600)
+        tmp.replace(out)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return n
+
+
+async def run_db_dump(
+    passphrase: str,
+    *,
+    auto: bool = True,
+    url: str | None = None,
+    backup_dir: Path | None = None,
+) -> dict:
+    """Make an encrypted database dump + its ``backups`` row (kind "db_dump"). Lighter than a full
+    export (no Zigbee2MQTT files, restored with pg_restore instead of the app). Verified after writing."""
+    from .models import BackupRecord
+
+    _check_passphrase(passphrase)
+    s = get_settings()
+    db_url = url or s.database_url
+    backup_dir = backup_dir or s.backup_dir
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    engine = create_async_engine(db_url, poolclass=NullPool)
+    name = dump_filename(auto)
+    path = backup_dir / name
+    tmp = backup_dir / f".{name}.tmp"
+    created_at = dt.datetime.now(dt.UTC).isoformat()
+    try:
+        async with AsyncSession(engine, expire_on_commit=False) as db:
+            rev = await schema_revision(db)
+            rec = BackupRecord(
+                kind=DUMP_KIND,
+                filename=name,
+                status="running",
+                auto=auto,
+                app_version=VERSION,
+                schema_revision=rev,
+                detail={"content": DUMP_CONTENT, "secrets_included": True},
+            )
+            db.add(rec)
+            await db.commit()
+            rid = rec.id
+        try:
+            info = await asyncio.to_thread(_pg_dump_sync, db_url, tmp, passphrase, created_at)
+            await asyncio.to_thread(verify_dump, tmp, passphrase)
+            tmp.replace(path)
+        except BaseException as exc:
+            tmp.unlink(missing_ok=True)
+            msg = (
+                str(exc) if isinstance(exc, BackupError) else f"Database-dump mislukt: {exc.__class__.__name__}: {exc}"
+            )
+            async with AsyncSession(engine, expire_on_commit=False) as db:
+                rec = await db.get(BackupRecord, rid)
+                rec.status = "failed"
+                rec.detail = {**(rec.detail or {}), "error": msg[:500]}
+                await db.commit()
+            raise BackupError(msg) from exc
+        async with AsyncSession(engine, expire_on_commit=False) as db:
+            rec = await db.get(BackupRecord, rid)
+            rec.status = "ok"
+            rec.size_bytes = info["file_size"]
+            rec.sha256 = info["file_sha256"]
+            rec.detail = {
+                "content": DUMP_CONTENT,
+                "secrets_included": True,
+                "plain_bytes": info["plain_bytes"],
+                "restore": "shc-api decrypt-dump <bestand> --out <dump>; daarna pg_restore --clean --if-exists",
+            }
             await db.commit()
             return record_dict(rec)
     finally:
@@ -1279,8 +1568,18 @@ async def restore_file(
     return report
 
 
-def extract_z2m(path: Path, passphrase: str, target: Path) -> int:
-    """Write the Zigbee2MQTT files from a (verified) backup into `target`; returns the file count."""
+def z2m_kept_secrets(manifest: dict | None, target: Path) -> list[str]:
+    """Secret files a redacted backup carries without values, that `target` already has: restoring
+    keeps those (with the real passwords) instead of overwriting them with blanks."""
+    redacted = ((manifest or {}).get("zigbee2mqtt") or {}).get("redacted") or []
+    return [r for r in redacted if (target / r).is_file()]
+
+
+def extract_z2m(path: Path, passphrase: str, target: Path, manifest: dict | None = None) -> int:
+    """Write the Zigbee2MQTT files from a (verified) backup into `target`; returns the file count.
+    With the backup's ``manifest``: a secret file that a redacted backup has without values is not
+    written over an existing one (``z2m_kept_secrets``), so Zigbee2MQTT keeps its MQTT password."""
+    keep = set(z2m_kept_secrets(manifest, target))
     n = 0
     for name, f in iter_members(path, passphrase):
         if not name.startswith("zigbee2mqtt/"):
@@ -1288,6 +1587,8 @@ def extract_z2m(path: Path, passphrase: str, target: Path) -> int:
         p = target / name.removeprefix("zigbee2mqtt/")
         if ".." in p.relative_to(target).parts:
             raise BackupError(f"Onveilig pad in archief: {name}")
+        if p.relative_to(target).as_posix() in keep:
+            continue
         p.parent.mkdir(parents=True, exist_ok=True)
         with open(p, "wb") as out:
             while block := f.read(1 << 20):

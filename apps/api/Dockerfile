@@ -5,9 +5,31 @@ FROM python:3.12.16-slim-trixie AS build
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 RUN python -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
+# Every third-party package comes from the hashed lock apps/api/requirements.txt (verbeterlijst 41):
+# exact versions, each file checked against its sha256, wheels only (nothing is compiled or fetched
+# outside the lock). After changing a dependency, regenerate it as described in requirements.in (the
+# pip check below fails the build when the lock no longer satisfies a package). Lines that are a
+# path ("." and "../../integrations", which a Dependabot recompile adds because it drops
+# --no-emit-package) are the two local packages, installed from source below; they are skipped here.
+COPY apps/api/requirements.txt /tmp/requirements.txt
+RUN grep -vE '^[./]' /tmp/requirements.txt > /tmp/locked.txt \
+    && pip install --require-hashes --only-binary=:all: -r /tmp/locked.txt
+# The build backend of the two local packages is pinned with hashes too, in a separate venv that
+# stays out of the image (no unverified setuptools download through pip's build isolation).
+COPY <<'EOF' /tmp/build-requirements.txt
+setuptools==84.2.1 \
+    --hash=sha256:3ff8b3b5492a0aa66960f4419365a86b84e013070d4313e4d4a6894f5d64d6bc \
+    --hash=sha256:ca140b45d5325a9478f880e351484f62fef15f336462e449ca0c03c873d589c2
+EOF
+RUN python -m venv /opt/build \
+    && /opt/build/bin/pip install --require-hashes --only-binary=:all: -r /tmp/build-requirements.txt
 COPY integrations /src/integrations
 COPY apps/api /src/api
-RUN pip install /src/integrations /src/api
+# The two local packages without dependencies (those all came from the lock above), then check
+# that the lock satisfies every requirement of both packages.
+RUN /opt/build/bin/pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/wheels /src/integrations /src/api \
+    && pip install --no-deps --no-index /tmp/wheels/*.whl \
+    && pip check
 
 # Only the PGDG apt signing key is taken from here, so pg_dump below comes from the same
 # repository and major version as the database (contract C11: the pre-migration dump must

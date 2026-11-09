@@ -6,7 +6,7 @@ import { useCan, useUser } from '../user';
 import { useLogout } from '../components/useLogout';
 import { USER_ROLE_LABEL } from '../i18n';
 import { StatusSection, VersionCard } from './system/Status';
-import { AddressSettings, Homes, SafeModeCard } from './system/Settings';
+import { AddressSettings, Homes, NotifySettings, SafeModeCard } from './system/Settings';
 import { BackupsSection } from './system/Backups';
 import { RestoreSection } from './system/Restore';
 
@@ -51,6 +51,7 @@ export function SystemPage() {
         <>
           <AddressSettings />
           <BackupsSection />
+          <NotifySettings />
           <RestoreSection safeMode={safeMode} />
           <Homes />
         </>

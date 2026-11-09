@@ -124,6 +124,27 @@ describe('periods in the home time zone (item 39)', () => {
     expect(screen.getByTestId('energy-title')).toHaveTextContent('12–18 okt');
     await waitFor(() => expect(calls.some((c) => c.url.endsWith('period=week&date=2026-10-12'))).toBe(true));
   });
+
+  it('is a real tab set: the selected period tab controls the panel with that period’s figures', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: NOW });
+    mockApi(route());
+    render(<Providers><EnergyPage /></Providers>);
+    const user = userEvent.setup();
+    const month = await screen.findByRole('tab', { name: 'Maand' });
+    const panel = await screen.findByRole('tabpanel', { name: 'Maand' });
+    expect(month).toHaveAttribute('aria-controls', panel.id);
+    expect(panel).toHaveAttribute('tabindex', '0');
+    expect(await within(panel).findByRole('heading', { name: 'Verbruik per dag' })).toBeInTheDocument();
+    // live power is not per period: outside the panel
+    expect(await screen.findByTestId('live-power')).toBeInTheDocument();
+    expect(within(panel).queryByTestId('live-power')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: 'Dag' }));
+    const dayPanel = screen.getByRole('tabpanel', { name: 'Dag' });
+    expect(screen.getByRole('tab', { name: 'Dag' })).toHaveAttribute('aria-controls', dayPanel.id);
+    expect(screen.getByRole('tab', { name: 'Maand' })).not.toHaveAttribute('aria-controls');
+    expect(await within(dayPanel).findByRole('heading', { name: 'Verbruik per uur' })).toBeInTheDocument();
+  });
 });
 
 describe('energy page', () => {

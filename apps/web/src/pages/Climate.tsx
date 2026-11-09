@@ -4,13 +4,13 @@ import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { qk } from '../api/keys';
-import type { ScheduleBlock, Zone, ZoneHistory } from '../api/types';
+import type { Alert, ScheduleBlock, Zone, ZoneHistory } from '../api/types';
 import { useHome } from '../state';
 import { ActionButton, Empty, ErrorNote, Loading } from '../components/bits';
-import { Tabs, tabId } from '../components/Tabs';
+import { TabPanel, Tabs } from '../components/Tabs';
 import { ZoneControlPanel } from '../components/zone';
 import { ENERGY_PRIORITY_LABEL, t as label } from '../i18n';
-import { temp, time } from '../format';
+import { dateTime, temp, time } from '../format';
 import { FormError, SafeLink, storeZone, useClimateCan } from '../climate/common';
 import { ScheduleEditor } from '../climate/ScheduleEditor';
 import { PolicyForm } from '../climate/PolicyForm';
@@ -131,9 +131,25 @@ function signed(v: number): string {
   return `${v > 0 ? '+' : '−'}${Math.abs(v).toLocaleString('nl-NL', { maximumFractionDigits: 2 })}°`;
 }
 
-function TodayCard({ zone, tz }: { zone: Zone; tz?: string }) {
+/** Title the worker gives a zone's watchdog alert (worker/climate_loop._watchdog, key "watchdog:{zone_id}"). */
+export const watchdogAlertTitle = (zoneName: string) => `${zoneName}: temperatuur reageert niet`;
+
+/**
+ * The open watchdog alert of a zone, if any (item 45). Only that alert means the room really does not
+ * respond: zone.watchdog_since is just the start of the current watchdog window, which is set at every
+ * normal heat-up or cool-down and moves on every window, so it is no reason for a warning by itself.
+ */
+export function watchdogAlert(alerts: readonly Alert[] | null | undefined, zone: Pick<Zone, 'name'>): Alert | undefined {
+  const title = watchdogAlertTitle(zone.name);
+  return Array.isArray(alerts) ? alerts.find((a) => a.source === 'climate' && a.title === title) : undefined;
+}
+
+function TodayCard({ zone, tz, homeId }: { zone: Zone; tz?: string; homeId: string }) {
   const p = zone.policy;
   const nc = zone.next_change;
+  // Open alerts of the home; ws.ts adds and removes them live (alert.created / alert.resolved).
+  const alerts = useQuery({ queryKey: qk.alerts(homeId), queryFn: () => api.alerts(homeId), refetchInterval: 120_000 });
+  const watchdog = watchdogAlert(alerts.data, zone);
   return (
     <section aria-labelledby={`sch-h-${zone.id}`} className="card" style={{ gap: 16 }}>
       <div className="section-head">
@@ -145,8 +161,10 @@ function TodayCard({ zone, tz }: { zone: Zone; tz?: string }) {
         )}
       </div>
       <ScheduleBar zoneId={zone.id} tz={tz} />
-      {zone.watchdog_since && (
-        <div className="note warn">Waakhond: de temperatuur reageert niet sinds {time(zone.watchdog_since, tz)}. Controleer of ramen of deuren openstaan en of de airco echt draait.</div>
+      {watchdog && (
+        <div className="note warn" data-testid="watchdog-note">
+          <strong>Waakhond: {zone.name} reageert niet op de airco</strong> (gemeld {dateTime(watchdog.created_at, tz)}). {watchdog.detail}
+        </div>
       )}
       <dl className="facts">
         <div><dt>Comfortband</dt><dd>± {p.band_c.toLocaleString('nl-NL')}°</dd></div>
@@ -160,14 +178,14 @@ function TodayCard({ zone, tz }: { zone: Zone; tz?: string }) {
   );
 }
 
-function ControlTab({ zone, tz, onLink }: { zone: Zone; tz?: string; onLink?: () => void }) {
+function ControlTab({ zone, tz, homeId, onLink }: { zone: Zone; tz?: string; homeId: string; onLink?: () => void }) {
   const history = useQuery({ queryKey: qk.history(zone.id), queryFn: () => api.zoneHistory(zone.id, 24), refetchInterval: 300_000 });
   const log = useQuery({ queryKey: qk.zoneLog(zone.id), queryFn: () => api.zoneLog(zone.id, 20), refetchInterval: 120_000 });
   return (
     <div className="stack" style={{ gap: 16 }}>
       <div className="c-grid">
         <ZoneControlPanel zone={zone} tz={tz} onLink={onLink} />
-        <TodayCard zone={zone} tz={tz} />
+        <TodayCard zone={zone} tz={tz} homeId={homeId} />
       </div>
       <section aria-labelledby={`gesch-h-${zone.id}`} className="card">
         <div className="section-head">
@@ -254,7 +272,7 @@ function ZoneDetail({ zone, zones, tz, homeId, section, onSection }: { zone: Zon
         key === 'schema' ? <ScheduleTab zone={zone} tz={tz} homeId={homeId} />
         : key === 'profielen' ? <ProfilesPanel homeId={homeId} zone={zone} zones={zones} tz={tz} />
         : key === 'instellingen' ? <ZoneSettings zone={zone} homeId={homeId} />
-        : <ControlTab zone={zone} tz={tz} onLink={admin ? () => onSection('instellingen') : undefined} />
+        : <ControlTab zone={zone} tz={tz} homeId={homeId} onLink={admin ? () => onSection('instellingen') : undefined} />
       }
     </Tabs>
   );
@@ -272,6 +290,7 @@ export function ClimatePage() {
   const zone = list.find((z) => z.id === params.get('zone')) ?? list[0];
   const section = (params.get('tab') as Section | null) ?? 'bediening';
   const go = (zoneId: string, tab: Section) => setParams({ zone: zoneId, tab }, { replace: true });
+  const detail = zone && <ZoneDetail key={zone.id} zone={zone} zones={list} tz={tz} homeId={homeId} section={section} onSection={(s) => go(zone.id, s)} />;
 
   return (
     <>
@@ -281,13 +300,16 @@ export function ClimatePage() {
           <h1>{zone?.name ?? 'Klimaat'}</h1>
         </div>
         {list.length > 1 && zone && (
-          <Tabs label="Zone" items={list.map((z) => ({ key: z.id, label: z.name }))} value={zone.id} onChange={(id) => go(id, section)} idBase="zones" />
+          <Tabs label="Zone" items={list.map((z) => ({ key: z.id, label: z.name }))} value={zone.id} onChange={(id) => go(id, section)} idBase="zones" hasPanel />
         )}
       </header>
       {zone ? (
-        <div role={list.length > 1 ? 'tabpanel' : undefined} aria-labelledby={list.length > 1 ? tabId('zones', zone.id) : undefined}>
-          <ZoneDetail key={zone.id} zone={zone} zones={list} tz={tz} homeId={homeId} section={section} onSection={(s) => go(zone.id, s)} />
-        </div>
+        list.length > 1 ? (
+          // The zone tabs' panel; it starts with the zone's own tablist, so the panel itself is no tab stop.
+          <TabPanel idBase="zones" value={zone.id} focusable={false}>{detail}</TabPanel>
+        ) : (
+          <div>{detail}</div>
+        )
       ) : (
         <Empty>
           Nog geen klimaatzones. Koppel eerst de airco-units via de <SafeLink to="/installatie">installatiewizard</SafeLink> of <SafeLink to="/apparaten">Apparaten</SafeLink>.

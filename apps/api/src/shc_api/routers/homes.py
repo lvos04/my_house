@@ -109,6 +109,7 @@ async def ack(alert_id: uuid.UUID, db: DB, p: Control) -> dict:
     if not a:
         raise not_found("Melding")
     a.acknowledged_at = datetime.now(UTC)
+    await audit(db, p.actor, "alert_acknowledged", a.title, alert=str(a.id), key=a.key)
     await db.commit()
     from ..store import alert_view
 

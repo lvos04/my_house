@@ -129,6 +129,16 @@ async def backup_check(db: AsyncSession, now: datetime | None = None) -> dict:
             select(BackupRecord).where(BackupRecord.status == "ok").order_by(BackupRecord.created_at.desc()).limit(1)
         )
     ).scalar_one_or_none()
+    last_full = last
+    if last is not None and last.kind == bk.DUMP_KIND:  # a database dump has no Zigbee2MQTT data
+        last_full = (
+            await db.execute(
+                select(BackupRecord)
+                .where(BackupRecord.status == "ok", BackupRecord.kind != bk.DUMP_KIND)
+                .order_by(BackupRecord.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
     state_row = await get_setting(db, "backup_state", {}) or {}
     failures = int(state_row.get("failures", 0) or 0) if isinstance(state_row, dict) else 0
     last_error = (state_row.get("last_error") if failures else None) or None
@@ -155,8 +165,9 @@ async def backup_check(db: AsyncSession, now: datetime | None = None) -> dict:
         detail = " · ".join(filter(None, ["Nog geen back-up gemaakt", failed_text]))
         return {**out, "state": "error" if failures else "warn", "detail": detail}
     age_h = (now - last.created_at).total_seconds() / 3600
-    z2m = (last.detail or {}).get("zigbee2mqtt_included")
-    parts = [f"Laatste back-up {_human_age(age_h * 3600)} geleden ({last.created_at:%d-%m %H:%M} UTC)"]
+    z2m = (last_full.detail or {}).get("zigbee2mqtt_included") if last_full is not None else None
+    kind = " (database-dump)" if last.kind == bk.DUMP_KIND else ""
+    parts = [f"Laatste back-up{kind} {_human_age(age_h * 3600)} geleden ({last.created_at:%d-%m %H:%M} UTC)"]
     if last.app_version or last.schema_revision:
         parts.append(f"app {last.app_version or '?'}, schema {last.schema_revision or '?'}")
     if z2m is not None or zigbee_used:

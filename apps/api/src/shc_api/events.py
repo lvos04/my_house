@@ -35,6 +35,25 @@ CLOSE_REVOKED = 4403
 RECHECK_INTERVAL_S = 60.0
 log = logging.getLogger(__name__)
 
+# The one shared list of realtime message types the server sends over the WebSocket, as
+# ``{"type": ..., "home_id": ..., "data": ...}`` (verbeterlijst 36). docs/api.md describes the same
+# list; tests/test_message_types.py checks that every type here is really published somewhere,
+# that nothing is published that is not listed here, and that the documentation names no others.
+MESSAGE_TYPES: dict[str, str] = {
+    "zone.updated": "Zone: after a change, a new decision or a confirmed command",
+    "lights.updated": "LightGroup: after a new state of a light or group",
+    "energy.live": "LivePower: after a newer power reading (at most every 5 s per home)",
+    "alert.created": "Alert: a new open alert",
+    "alert.resolved": "{id}: an alert was resolved (remove it from the list)",
+    "status.updated": "Overview.status: an integration, the worker, the backups, maintenance or safe mode changed",
+    "command.updated": "{id, status, detail}: outcome of a command (confirmed, failed, denied ...)",
+    "command.queued": "{id}: a command waits for the worker (also wakes the worker)",
+    "integration.changed": "{id}: an integration was added, changed or removed (also wakes the worker)",
+    "refresh": "{reason}: the message was too large to send; fetch everything again",
+}
+# Handled by every API process itself, never forwarded to clients.
+INTERNAL_TYPES: dict[str, str] = {AUTH_REVOKED: "close the WebSockets of revoked sessions/tokens"}
+
 
 def _default(o: Any) -> Any:
     if isinstance(o, uuid.UUID):

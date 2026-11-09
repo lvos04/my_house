@@ -34,6 +34,7 @@ export const qk = {
   settings: ['settings'] as const,
   backups: ['backups'] as const,
   backupSettings: ['backupSettings'] as const,
+  notify: ['notify'] as const,
   retention: ['retention'] as const,
   users: ['users'] as const,
   audit: ['audit'] as const,

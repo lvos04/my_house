@@ -28,6 +28,12 @@ data class Pairing(
     /** Last known rights from /auth/me or the WebSocket hello; null = not asked yet. */
     val canControl: Boolean? = null,
     val isAdmin: Boolean? = null,
+    /**
+     * This phone's id on the server (`client.id` from the redeem answer or `GET /clients/self`).
+     * Sent with every identity check so only the real server can answer the challenge
+     * (verbeterlijst 17); null for pairings from before it was stored.
+     */
+    val clientId: String? = null,
 )
 
 /**
@@ -69,6 +75,7 @@ class SecureStore private constructor(
             tokenExpiresAt = kv.get(K_EXPIRES),
             canControl = kv.get(K_CAN_CONTROL)?.toBooleanStrictOrNull(),
             isAdmin = kv.get(K_IS_ADMIN)?.toBooleanStrictOrNull(),
+            clientId = kv.get(K_CLIENT_ID),
         )
     }
 
@@ -92,6 +99,7 @@ class SecureStore private constructor(
                     K_EXPIRES to p.tokenExpiresAt,
                     K_CAN_CONTROL to p.canControl?.toString(),
                     K_IS_ADMIN to p.isAdmin?.toString(),
+                    K_CLIENT_ID to p.clientId,
                     K_UNPAIRED to null,
                 ),
                 sync = true,
@@ -109,6 +117,8 @@ class SecureStore private constructor(
     fun updateAddresses(lanUrl: String?, remoteUrl: String?) = write(mapOf(K_LAN to lanUrl, K_REMOTE to remoteUrl))
 
     fun updateServerId(serverId: String) = write(mapOf(K_SERVER_ID to serverId))
+
+    fun updateClientId(clientId: String) = write(mapOf(K_CLIENT_ID to clientId))
 
     fun updateAccess(canControl: Boolean?, isAdmin: Boolean?, clientRole: String?, userRole: String?) = write(
         buildMap {
@@ -223,6 +233,7 @@ class SecureStore private constructor(
         private const val K_EXPIRES = "token_expires_at"
         private const val K_CAN_CONTROL = "can_control"
         private const val K_IS_ADMIN = "is_admin"
+        private const val K_CLIENT_ID = "client_id"
         private const val K_UNPAIRED = "unpaired_reason"
         private const val K_CF_ID = "cf_access_client_id"
         private const val K_CF_SECRET = "cf_access_client_secret"

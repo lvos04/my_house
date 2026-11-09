@@ -1,5 +1,109 @@
 # Verbeterlijst smart-home-app
 
+## Status (na verbeterronde)
+
+Stand na twee verbeterrondes, gecontroleerd in de code zelf (niet op basis van verslagen). De
+documentatiepunten die bij die controle nog openstonden (API-contract, onderhoudshandleiding,
+installatie, buiten huis, testlog, Android-README), zijn in deze ronde bijgewerkt. Wat daarna nog open
+staat, staat onder de tabel.
+
+- **opgelost**: gedaan en gecontroleerd in de code.
+- **grotendeels opgelost**: het hoofdprobleem is weg, er staat nog een klein punt open (zie *Nog open*).
+- **niet in deze omgeving te doen**: controleren met echte hardware, een echte telefoon, een echte
+  TrueNAS of GitHub-geheimen. Dat kan alleen de eigenaar; het telt niet als open punt in de code.
+- **buiten scope**: punt 2.
+
+| Punt | Status | Toelichting |
+|---|---|---|
+| 1 | opgelost | Zonder woning toont elke pagina het formulier *Woning aanmaken*; daarna de installatiewizard. |
+| 2 | buiten scope (punt 2) | Niet behandeld in deze ronde. |
+| 3 | opgelost | De inlogcookie krijgt *Secure* alleen als het verzoek via https binnenkwam; thuis via http blijft inloggen werken. |
+| 4 | opgelost | Origin-controle met poort (en X-Forwarded-Host); live-updates werken thuis en via de tunnel. |
+| 5 | opgelost | Back-up in een apart proces, gestreamd met vlak geheugen; de worker blijft draaien. Restpunt, zie *Nog open*. |
+| 6 | opgelost · rest niet in deze omgeving te doen | APK ondertekend met de eigen sleutel uit de GitHub-geheimen van de eigenaar, nooit in de repository. Sleutel aanmaken en op een toestel over de oude heen installeren doet de eigenaar. |
+| 7 | opgelost | Lege optionele tariefvelden mogen; komma als decimaalteken ook. |
+| 8 | opgelost · rest niet in deze omgeving te doen | Nieuwe Zigbee-sensoren krijgen soort en naam na het interview en verschijnen in de app. Echte Aqara-sensoren koppelen kan hier niet. |
+| 9 | opgelost · rest niet in deze omgeving te doen | Binden probeert eerst v1 (AES-ECB) en dan v2 (AES-GCM). Een echte nieuwere Gree-module testen kan hier niet. |
+| 10 | opgelost | Een afstandsbediening-override loopt af en gaat terug naar schema. |
+| 11 | opgelost | Een mislukt commando wordt opnieuw geprobeerd en geeft een melding; de regelstand van de zone verandert niet. |
+| 12 | opgelost | Weekschema-editor; een blok zonder modus zet een uitgeschakelde unit nooit aan. `mode` en `profile_id`/`profile` staan nu in docs/api.md. |
+| 13 | opgelost | Alleen temperatuur of ventilator wijzigen bij een uitgeschakelde unit wordt geweigerd (*Kies eerst een modus*). |
+| 14 | opgelost | De worker controleert beleid en buitenunit opnieuw vlak voor het verzenden, onder een slot per buitenunit. |
+| 15 | opgelost · rest niet in deze omgeving te doen | Stand van de stekker en *Switch lock* zichtbaar, met melding. Gedrag van een echte Energy Socket controleren kan hier niet. |
+| 16 | opgelost | Blokkade per gebruikersnaam, limiet per IP-adres, inlogrem in nginx en een grens op de grootte van verzoeken. |
+| 17 | opgelost · rest niet in deze omgeving te doen | Serverherkenning met controlevraag (HMAC); http alleen naar het thuisnetwerk. De `:app`-build en een test op een echte telefoon kunnen hier niet. |
+| 18 | grotendeels opgelost | Telefoonrollen, verval na 180 dagen, gebruikersbeheer en logboek; beheer alleen via de web-sessie. API-contract en handleidingen bijgewerkt. Restpunt, zie *Nog open*. |
+| 19 | opgelost | Uurtotalen, instelbare bewaartermijnen en een gestreamde export. Restpunten, zie *Nog open*. |
+| 20 | opgelost | Een stap boven het maximale vermogen van de rol telt niet mee; een reset pas na bevestiging door volgende standen. |
+| 21 | opgelost · rest niet in deze omgeving te doen | Duur op UTC-tijdstippen, zomertijddagen met 23/25 uur. Restpunt, zie *Nog open*. Of een echte P1 tijden zonder tijdzone stuurt, kan hier niet gecontroleerd worden. |
+| 22 | grotendeels opgelost | Een sleutel die niet past, stopt alleen die koppeling (*Sleutel past niet*); `shc-api rekey`; melding als de worker niet reageert. Handleiding bijgewerkt. Restpunt (Android), zie *Nog open*. |
+| 23 | opgelost | De web-app toont *verzonden* tot de uitlezing het commando bevestigt. |
+| 24 | opgelost | Opnieuw koppelen werkt de bestaande koppeling bij; een nieuw adres wordt gecontroleerd; archiveren zet de koppelingen uit. |
+| 25 | opgelost · rest niet in deze omgeving te doen | Hue-knoppen koppelen aan licht- en klimaatacties, met conflicten en simuleren. Testen met een echte bridge en dimmer kan hier niet. |
+| 26 | opgelost · rest niet in deze omgeving te doen | Leestime-out, waakhond en keepalive op de eventstream. Een echte bridge loskoppelen kan hier niet. |
+| 27 | opgelost · rest niet in deze omgeving te doen | Lampen aan/totaal, actieve scène en bereikbaarheid kloppen; bridge-fouten tellen als mislukt. Echte bridge-fouten kunnen hier niet. |
+| 28 | opgelost · rest niet in deze omgeving te doen | Gedempte status per koppeling, waakhond in de worker, klokcontrole en push-bericht buiten de app (ntfy). Restpunt, zie *Nog open*. Echte USB-, NTP- en ntfy-situaties kunnen hier niet. |
+| 29 | opgelost · rest niet in deze omgeving te doen | Units melden wat ze kunnen; een mislukte koppeling bewaart een diagnose. Echte Gree-units kunnen hier niet. |
+| 30 | opgelost | Bijsturing met de externe sensor werkt binnen de grenzen van de zone. |
+| 31 | opgelost | Een zone zonder airco toont een neutrale uitleg in plaats van een rode fout. |
+| 32 | opgelost | Automatische back-ups in de app (wachtwoordzin, uur, aantal, wat maken), inhalen, back-off en opruimen; optioneel dagelijkse dump. Handleiding (ook: alleen `backups/` repliceren) bijgewerkt. |
+| 33 | opgelost | Zigbee2MQTT-map leesbaar voor de app en gemeld in het overzicht. Restpunt, zie *Nog open*. |
+| 34 | opgelost | Versiecontrole bij herstel, automatische dump vóór elke migratie en `shc-api restore-drill`. Handleiding bijgewerkt. |
+| 35 | opgelost | Tarief per dag, T1/T2 met gemeten verdeling, dekking van de kosten zichtbaar. |
+| 36 | opgelost | Alle tien berichttypen worden verstuurd en staan nu in docs/api.md; rolnaam `grid` overal gelijk. |
+| 37 | opgelost · rest niet in deze omgeving te doen | Meldingen op de achtergrond ook via de tunnel; routekeuze thuis/onderweg bij elke netwerkwissel. Testen op een echte telefoon kan hier niet. |
+| 38 | opgelost · rest niet in deze omgeving te doen | Handleiding voor één https-adres (split-horizon) en een verlopen Access-sessie. Echte Cloudflare en DNS kunnen hier niet. |
+| 39 | opgelost | Vorige/volgende periode en *Overig* goed zichtbaar. |
+| 40 | opgelost | Thermostaatknoppen minstens 48 px en binnen de kaart (ook op 320 px); uitloggen via *Meer*. |
+| 41 | opgelost · rest niet in deze omgeving te doen | Lock-bestand met hashes, Dependabot, wekelijkse audit, cosign, release wacht op alle tests. Gradle-verificatiebestand, echte GitHub-runs en de volledige image-build kunnen hier niet. |
+| 42 | opgelost · rest niet in deze omgeving te doen | Worker-databasetests, storingstests, contracttests en Playwright (ook tegen de images); testlog bijgewerkt. De compose-browsertest met echte images draait alleen in CI; USB eruit en andere hardware kunnen hier niet. |
+| 43 | opgelost | Installatiewizard, herstellen en verhuizen in de app, accountpagina; handleidingen nu in lijn met de app. |
+| 44 | opgelost · rest niet in deze omgeving te doen | Certificaat gecontroleerd tijdens de TLS-handshake, vóór het versturen van een geheim. Een echte aanval nadoen kan hier niet. |
+| 45 | grotendeels opgelost | Comfortprofielen, waakhond en experimenten die zelf profielen wisselen; API-contract bijgewerkt. Restpunt, zie *Nog open*. |
+| Kleine punten: Geheimen leesbaar | opgelost · rest niet in deze omgeving te doen | Eigen eigenaar en 0400/0440 per geheim, map 0700, controle op ACL's. Gedrag met het TrueNAS-preset *Apps* kan hier niet. |
+| Kleine punten: Eén netwerk | opgelost | Netwerken edge/app/data, `cap_drop: ALL`, Zigbee2MQTT als gewone gebruiker. |
+| Kleine punten: Te ruime rechten | opgelost | Adrescontrole bij koppelen, smallere MQTT-ACL, API-documentatie alleen voor beheerders. |
+| Kleine punten: Verbruik aan de rand van een dag | opgelost | Standen vóór en na de periode worden meegenomen. |
+| Kleine punten: "Overig huis" en live-vermogen | opgelost | Ontbrekende tussenmeters maken *Overig* geschat in plaats van stil weg te vallen. |
+| Kleine punten: Gas | opgelost | Gas getoond, met kosten. |
+| Kleine punten: Gree-uitlezing | opgelost | TemSen 0 = geen sensor, TemRec niet als +0,5 °C, vaste lamel niet als swing. |
+| Kleine punten: Hue-scènes | opgelost | Minder databasevragen; hernoemde en verwijderde onderdelen worden bijgewerkt of gearchiveerd. |
+| Kleine punten: Rolkeuze op Apparaten | opgelost | Bevestigen bij verplaatsen, alleen passende apparaattypen, loskoppelen kan. |
+| Kleine punten: Web "laatst bekend" | opgelost | Laatst bekende gegevens blijven bewaard na het sluiten van het tabblad. |
+| Kleine punten: Toegankelijkheid web | opgelost | Helderheidsschuif, contrast, tabs voor schermlezers en Nederlandse woorden. |
+| Kleine punten: Android-meldingen | opgelost | Uitleg bij toestemming, knop naar instellingen, gemiste en opgeloste meldingen goed afgehandeld. |
+| Kleine punten: Android-widget | opgelost | Achtergrondtaak ververst de widget; oude gegevens gedimd met leeftijd. |
+| Kleine punten: Android-sleutelopslag | opgelost | Beschadigde opslag geeft geen crash meer maar *opnieuw koppelen*. |
+| Kleine punten: Toegankelijkheid Android | grotendeels opgelost · rest niet in deze omgeving te doen | TalkBack-meldingen, schakelaarrollen en teksten uit strings.xml (codes via `CoreTexts`); README bijgewerkt. Restpunt, zie *Nog open*. TalkBack en grote letters op een toestel kunnen hier niet. |
+| Kleine punten: Android QR-scanner en Energie-tab | opgelost · rest niet in deze omgeving te doen | Toestemming opnieuw vragen, geen herhaalde ongeldige code, duidelijke camerafout, Energie-tab ververst. Een echte camera kan hier niet. |
+| Kleine punten: Aanpassingslog vol ruis | opgelost | Alleen een regel bij een andere beslissing, plus opruimen en een index. |
+
+### Nog open
+
+Kleine punten in de code, gevonden bij de eindcontrole:
+
+- **5 (backend):** de back-uptaak schrijft `backup_state.running_since`, maar leest het niet terug. Wordt de worker gestopt terwijl een back-up loopt, dan telt dat niet als mislukte poging en blijft de regel in de lijst op *bezig* staan (de lijst toont hem na 8 uur als mislukt).
+- **18 (web):** de actie `legacy_phone_limited` uit database-update 0004 heeft geen Nederlands label in het logboek en staat niet in het filter *Soort*.
+- **19 (backend):** geen Excel-export (.xlsx; optioneel, CSV opent in Excel). Temperatuur, vochtigheid en doeltemperatuur worden niet automatisch opgeruimd (staat nu in de documentatie).
+- **21 (backend):** de tijdzone van de woning wordt niet aan de HomeWizard-adapter doorgegeven; die rekent altijd met Europe/Amsterdam.
+- **22 (Android):** het startscherm toont de leeftijd van de laatste back-up en de hartslag alleen als er iets mis is, niet als korte statusregel in het gewone overzicht.
+- **28 (infra):** `SHC_NTP_SERVER` wordt niet doorgegeven in `infra/compose/compose.yaml`; een eigen NTP-server (b.v. de router) kan alleen door de YAML aan te passen.
+- **33 (infra):** de rooktest in CI controleert nog niet dat `zigbee2mqtt_included` waar is.
+- **36 (optioneel):** de test controleert alleen dat docs/api.md geen onbekende berichttypen noemt, niet andersom.
+- **45 (backend/web):** de API geeft de `key` van een melding niet terug, dus de waakhondwaarschuwing op de pagina Klimaat zoekt de melding op titel; na het hernoemen van een zone verdwijnt de waarschuwing tot de melding opnieuw komt.
+- **Toegankelijkheid Android:** relatieve tijd (`NlFormat.relative`), de versheid in de widget (`Freshness.ageLabel`) en de dagen van het weekschema (`WeekSchedule.daysLabel`) staan nog als Nederlandse tekst in `:core` in plaats van in strings.xml.
+
+### Niet in deze omgeving te doen
+
+Echte hardware (Hue Bridge en dimmers, Gree-units, HomeWizard P1/Energy Socket/kWh-meter, Zigbee-dongle
+en -sensoren, USB eruit en terug), een echte telefoon (camera, TalkBack, grote letters, achtergrond via de
+tunnel, installeren over een oudere APK), een echte TrueNAS (ACL-presets, herstart van een gestopte
+container), uitgaand NTP en ntfy, Cloudflare Access en DNS, en GitHub (release-sleutel als geheim,
+echte runs van release/edge/audit, cosign, Dependabot, het Gradle-verificatiebestand en de volledige
+image-build). Zie ook [testlog.md](testlog.md#nog-niet-getest).
+
+---
+
 De code is bekeken vanuit acht invalshoeken: klimaatregeling, beveiliging, energiedata, koppelingen, web, Android, beheer en het implementatieplan. Dubbele bevindingen zijn samengevoegd.
 
 Deze lijst heeft **45 genummerde punten** plus een lijst kleine punten. De drie grootste thema's zijn:

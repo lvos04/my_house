@@ -6,8 +6,8 @@ Native Android-app (Kotlin + Jetpack Compose) voor Smart Home Control. De app pr
 
 | Onderdeel | Functie |
 |---|---|
-| **Start** | Klimaatzones met +/− (één eindwaarde, verzonden 0,8 s na de laatste tik), verlichtingsgroepen aan/uit, huidig verbruik, meldingenbadge |
-| **Klimaat** | Doeltemperatuur, modus (geblokkeerde modi met uitleg, bv. gedeelde buitenunit), schema-info, 2 uur handmatig, "Terug naar schema" (ook als de airco uit staat) |
+| **Start** | Klimaatzones met +/− (één eindwaarde, verzonden 0,8 s na de laatste tik), verlichtingsgroepen aan/uit, huidig verbruik, meldingenbadge. Bovenaan een blok **"Let op"** als de achtergronddienst geen hartslag geeft, de veilige modus aan staat, de laatste back-up te oud is of er onderhoud loopt (zelfde regels als het overzicht in de web-app) |
+| **Klimaat** | Doeltemperatuur, modus (geblokkeerde modi met uitleg, bv. gedeelde buitenunit), volgende wijziging, het **weekschema** (alleen lezen: dagen met dezelfde blokken samen, het blok dat nu geldt gemarkeerd; aanpassen in de web-app onder Klimaat), 2 uur handmatig, "Terug naar schema" (ook als de airco uit staat) |
 | **Energie** | Verbruik per uur en per meter, met kwaliteitslabel (gemeten / afgeleid / geschat / ontbreekt) |
 | **Meer** | Meldingen, verbinding, adressen, Cloudflare Access, ontkoppelen |
 | **Widget** | Temperatuur van twee zones en het huidige vermogen, met de leeftijd van de gegevens. Ouder dan 30 minuten: gedimd en "Verouderd". De achtergrondtaak ververst de widget ook als de app dicht is. |
@@ -39,7 +39,9 @@ Bij elke release staat op GitHub een ondertekende APK: `huis-v<versie>.apk`, met
 
   Zonder deze variabelen maakt `assembleRelease` een niet-ondertekende APK (`app-release-unsigned.apk`). Er staat nooit een sleutel in de repository.
 
-**Eenmalig opnieuw installeren.** Versie 0.1.0 was met een tijdelijke sleutel ondertekend. Android weigert een update met een andere sleutel: verwijder de oude app, installeer de nieuwe, koppel opnieuw en trek in de web-app de oude koppeling in.
+**Eenmalig opnieuw installeren.** Versie 0.1.0 was met een tijdelijke sleutel ondertekend. Android weigert een update met een andere sleutel: verwijder de oude app, installeer de nieuwe, koppel opnieuw en trek in de web-app (**Account › Telefoons**) de oude koppeling in.
+
+Bij elke release draaien eerst de unit-tests van `core` en `app` (ook als er nog geen release-sleutel is); de APK wordt alleen gebouwd en ondertekend als die slagen.
 
 ### Testversie (debug)
 
@@ -55,7 +57,7 @@ cd apps/android
 ## Koppelen
 
 1. Stel in de web-app eerst het thuisadres in (**Systeem › Adressen**, bv. `http://192.168.1.20:8088`) en eventueel het adres van je tunnel (`https://…`).
-2. Open de web-app als beheerder → **Systeem › Telefoon koppelen**, kies de rol en maak een QR-code. Die is 10 minuten geldig en werkt maar één keer.
+2. Open de web-app als beheerder → **Account › Telefoons**, kies de rol en maak een QR-code. Die is 10 minuten geldig en werkt maar één keer.
 3. Open de app, sta de camera toe en scan de code.
 4. Lukt scannen niet? Kies **Adres handmatig invoeren**, vul het adres van je server en de koppelcode in. Een adres in je thuisnetwerk mag `http` zijn; elk ander adres moet met `https://` beginnen.
 
@@ -64,6 +66,11 @@ Elke telefoon krijgt een eigen sleutel (token). Die staat versleuteld op de tele
 ### Herkent de app je server?
 
 De QR-code bevat de **server-id** van je installatie. Voordat de app de koppelcode of later zijn sleutel naar een adres stuurt, vraagt hij dat adres zonder sleutel wie het is (`GET /api/v1/pairing/identity`). Antwoordt er een ander apparaat — bijvoorbeeld op een vreemd wifi-netwerk met hetzelfde IP-adres — dan gaat er niets heen en toont de app **"Dit is niet jouw server"**. Hij probeert dan het externe adres.
+
+De server-id is niet geheim: iedereen die de QR-code zag of het adres vraagt, kent hem. Daarom stelt een gekoppelde telefoon bij elke controle ook een **controlevraag**: hij stuurt een nieuw willekeurig getal (`nonce`) en zijn eigen telefoon-id (`client_id`) mee. Alleen jouw server kent de (gehashte) sleutel van deze telefoon en kan het juiste antwoord (`proof`, HMAC-SHA256) geven; de sleutel zelf gaat daarbij niet over de lijn. Op het **thuisadres** (vaak `http`) stuurt de app zijn sleutel alleen na een goed antwoord. Via de **tunnel** (`https`, het certificaat bewijst al wie er antwoordt) is een kloppende server-id genoeg als de server geen antwoord geeft, maar nooit een fout antwoord.
+
+- Een telefoon die gekoppeld is met een oudere app-versie kent zijn telefoon-id nog niet. Hij gebruikt dan eerst de tunnel, haalt daar zijn id op en gebruikt daarna ook weer het thuisadres. Zonder tunnel vraagt de app om opnieuw te koppelen.
+- Werk de **server eerst bij** en daarna de app: een oude server geeft geen antwoord op de controlevraag, en dan gebruikt de app het thuisadres niet ("Dit is niet jouw server"); de tunnel blijft werken.
 
 Verder:
 
@@ -84,7 +91,7 @@ De app kiest bij het openen, na elke netwerkwissel (wifi ↔ mobiel) en na een m
 
 ### Ontkoppelen en "niet meer gekoppeld"
 
-- **Meer › Ontkoppelen** trekt de sleutel eerst op de server in en wist daarna alles op de telefoon. Is de server niet bereikbaar, dan wist de app alleen zijn eigen gegevens; trek de sleutel dan in via de web-app (**Systeem › Telefoon koppelen**).
+- **Meer › Ontkoppelen** trekt de sleutel eerst op de server in en wist daarna alles op de telefoon. Is de server niet bereikbaar, dan wist de app alleen zijn eigen gegevens; trek de sleutel dan in via de web-app (**Account › Telefoons**).
 - Trekt een beheerder de sleutel in, is hij verlopen, of kent de server de telefoon niet meer (bijvoorbeeld na een herstel), dan toont de app **"Deze telefoon is niet meer gekoppeld"** in plaats van "Geen verbinding", en stuurt hij de oude sleutel nergens meer heen. Koppel opnieuw met een QR-code.
 - Is de versleutelde opslag op de telefoon beschadigd (zeldzaam, bv. na een systeemupdate), dan crasht de app niet: hij wist de opslag en vraagt om opnieuw te koppelen.
 
@@ -124,7 +131,25 @@ Belangrijke klassen voor wie de schermen bouwt:
 - `data/HomeRepository` — één bron van waarheid voor UI, widget en achtergrondtaak. `state` (`HomeState`) bevat o.a. `connection` (verbonden, offline, opstarten, *niet jouw server*, *niet meer gekoppeld*), `unpaired` (reden), `readOnly`, `commands` (status per zone of lampgroep) en `drafts`.
 - `core/Network.kt` — adresregels, serverherkenning, routekeuze, foutindeling.
 - `core/Commands.kt` — commando-volging en debounce.
+- `core/Schedule.kt` — weekschema: dagen groeperen, het blok dat nu geldt.
+
+Teksten die de gebruiker ziet staan in `app/src/main/res/values/strings.xml`. `core` kent geen Android-resources en geeft daarom codes terug, die `app/src/main/java/nl/huis/smarthome/data/CoreTexts.kt` omzet naar een tekst uit `strings.xml`:
+
+| Code in `core` | Waarvoor |
+|---|---|
+| `AddressProblem` | Adresregels (thuisadres, extern adres) |
+| `ConnectionChange` | Eenmalige verbindingsmeldingen (verbinding weg, server start op, niet jouw server, weer verbonden) |
+| `PairError` | Geweigerde QR-code of handmatige invoer |
+| `UnpairReason` | Waarom de telefoon niet meer gekoppeld is |
+| `ApiProblem` | Fouten die de app zelf beschrijft: Cloudflare Access, tunnel onbereikbaar, doorverwijzing, wifi-inlogpagina, onbekend adres, onversleuteld geweigerd, kale HTTP-statuscodes |
+| `CommandLabel` | De statusregel onder een zone of lampgroep (*Verzonden · wacht op bevestiging…*, *Bevestigd*, *Mislukt*, *Geweigerd* …) |
+
+De `when`-blokken in `CoreTexts` zijn volledig: een nieuwe code in `core` compileert pas als er een tekst bij staat, en de test `CoreTextsTest` controleert dat elke code een eigen tekst heeft die overeenkomt met strings.xml. Elke code houdt een Nederlandse terugvaltekst (`dutch`) voor de JVM-tests. Meldingen van de server zelf (de reden na *Mislukt:* of *Geweigerd:*) toont de app zoals de server ze stuurt.
+
+Nog alleen in het Nederlands in `core`: de opmaak van relatieve tijd (`NlFormat.relative`: "zojuist", "3 min geleden" …), de versheid in de widget (`Freshness.ageLabel`: "Bijgewerkt …") en de dagen van het weekschema (`WeekSchedule.daysLabel`: "elke dag", "ma–vr", "za en zo").
 
 De `core`-tests draaien op elke JVM (`./gradlew :core:test`). Kan de Android SDK niet worden geïnstalleerd, dan kun je `core` testen met een los Gradle-project dat `core/` als project insluit en alleen Maven Central gebruikt.
+
+**Bouwen en afhankelijkheden.** De Gradle-wrapper controleert de download met een vaste SHA-256 (`distributionSha256Sum` in `gradle/wrapper/gradle-wrapper.properties`, van https://gradle.org/release-checksums/). Pas je `distributionUrl` aan, werk dan ook de checksum bij; de wrapper-updates van Dependabot doen dat zelf. Een verificatiebestand voor alle Gradle-afhankelijkheden (`gradle/verification-metadata.xml`) is er nog niet: dat moet gemaakt worden waar Google Maven bereikbaar is (CI of een ontwikkelmachine) met `./gradlew --write-verification-metadata sha256 help :app:assembleRelease :core:test`, en daarna in git.
 
 Ontwerp: de Android-artboards in het ontwerp-canvas (Start, Klimaat, Energie, Koppelen). Kleuren staan in `app/src/main/java/nl/huis/smarthome/ui/theme/Theme.kt`, met een donkere variant. De app gebruikt het systeemlettertype in plaats van Space Grotesk/Inter, zodat er geen lettertypebestanden of Google Play-diensten nodig zijn.

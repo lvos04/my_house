@@ -30,7 +30,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import climate as cl
 from . import events
-from .models import ClimateZone, ComfortProfile, CommandRecord, Device, Home, ScheduleBlock, ZoneLog
+from .models import (
+    ClimateZone,
+    ComfortProfile,
+    CommandRecord,
+    Device,
+    Experiment,
+    Home,
+    ScheduleBlock,
+    ZoneLog,
+)
 from .policy import DeviceFacts, PolicyDenied, check_command
 from .store import audit, get_setting, raise_alert, resolve_alert, roles_of
 from .views.common import caps_of, effective_mode, observed_baseline, other_zone_modes
@@ -345,6 +354,113 @@ async def apply_profile(
     zone.desired_target_c = profile.target_c
     db.add(ZoneLog(zone_id=zone.id, kind="config", message=f"{log_name or actor}: profiel '{profile.name}' toegepast"))
     await audit(db, actor, "profile_applied", str(zone.id), profile=str(profile.id), name=profile.name)
+
+
+# Policy keys a profile overwrites (apply_profile); a snapshot keeps their earlier values.
+PROFILE_POLICY_KEYS = ("band_c", "energy_priority")
+
+
+async def zone_snapshot(db: AsyncSession, zone: ClimateZone) -> dict:
+    """What apply_profile is about to replace, so it can be put back later (experiments, item 45):
+    profile, schedule blocks, band/energy priority and the desired mode/target. JSON-safe."""
+    blocks = (
+        await db.execute(select(ScheduleBlock).where(ScheduleBlock.zone_id == zone.id).order_by(ScheduleBlock.start))
+    ).scalars()
+    policy = zone.policy or {}
+    return {
+        "profile_id": str(zone.profile_id) if zone.profile_id else None,
+        "profile": zone.profile,
+        "policy": {k: policy[k] for k in PROFILE_POLICY_KEYS if k in policy},
+        "desired_mode": zone.desired_mode,
+        "desired_target_c": zone.desired_target_c,
+        "schedule": [
+            {"days": list(b.days or []), "start": b.start, "target_c": b.target_c, "mode": b.mode, "label": b.label}
+            for b in blocks
+        ],
+    }
+
+
+async def restore_zone_snapshot(
+    db: AsyncSession, zone: ClimateZone, snap: dict, actor: str, log_name: str | None = None
+) -> None:
+    """Put back what :func:`zone_snapshot` saved: schedule, profile, band/energy priority and the
+    desired mode/target. Like apply_profile, a running manual override stays. Does not commit."""
+    await db.execute(delete(ScheduleBlock).where(ScheduleBlock.zone_id == zone.id))
+    for b in snap.get("schedule") or []:
+        db.add(
+            ScheduleBlock(
+                zone_id=zone.id,
+                days=list(b.get("days") or []),
+                start=b["start"],
+                target_c=float(b["target_c"]),
+                mode=b.get("mode"),
+                label=b.get("label") or "",
+            )
+        )
+    pid = snap.get("profile_id")
+    profile = await db.get(ComfortProfile, uuid.UUID(pid)) if pid else None
+    zone.profile_id = profile.id if profile is not None else None
+    zone.profile = snap.get("profile")
+    policy = {k: v for k, v in (zone.policy or {}).items() if k not in PROFILE_POLICY_KEYS}
+    zone.policy = {**policy, **(snap.get("policy") or {})}
+    if snap.get("desired_mode"):
+        zone.desired_mode = snap["desired_mode"]
+    zone.desired_target_c = snap.get("desired_target_c")
+    name = snap.get("profile") or "zonder profiel"
+    db.add(
+        ZoneLog(
+            zone_id=zone.id,
+            kind="config",
+            message=f"{log_name or actor}: profiel en schema van vóór het experiment teruggezet ({name})",
+        )
+    )
+    await audit(db, actor, "profile_restored", str(zone.id), profile=pid, name=snap.get("profile"))
+
+
+# Experiment.result keys for auto-apply experiments: the zone as it was before the first variant,
+# and the profile the experiment put on the zone last (None while nothing of it is active).
+EXPERIMENT_BEFORE = "zone_before"
+EXPERIMENT_APPLIED = "applied_profile_id"
+
+
+async def experiment_apply_variant(
+    db: AsyncSession, e: Experiment, zone: ClimateZone, profile: ComfortProfile, actor: str
+) -> None:
+    """Put a variant's profile on the zone (caller holds the outdoor-group lock and refreshed the
+    zone). Before the first variant the zone is saved, so it can be put back afterwards."""
+    res = dict(e.result or {})
+    if not res.get(EXPERIMENT_BEFORE):
+        res[EXPERIMENT_BEFORE] = await zone_snapshot(db, zone)
+    await apply_profile(db, zone, profile, actor, log_name=f"Experiment '{e.name}'")
+    res[EXPERIMENT_APPLIED] = str(profile.id)
+    e.result = res
+
+
+async def experiment_restore_zone(db: AsyncSession, e: Experiment, zone: ClimateZone, actor: str) -> str:
+    """Switch the experiment's profile off again (verbeterlijst 45): the zone gets back the profile
+    and schedule it had before the first variant. Takes the outdoor-group lock; does not commit.
+
+    Returns "restored", "none" (no variant profile is active) or "changed" (someone put another
+    profile on the zone meanwhile: that choice stays, only the experiment lets go)."""
+    res = dict(e.result or {})
+    snap, applied = res.get(EXPERIMENT_BEFORE), res.get(EXPERIMENT_APPLIED)
+    if not snap or not applied:
+        return "none"
+    res[EXPERIMENT_APPLIED] = None
+    e.result = res
+    await lock_outdoor_group(db, zone)
+    await db.refresh(zone)
+    if str(zone.profile_id) != applied:
+        db.add(
+            ZoneLog(
+                zone_id=zone.id,
+                kind="config",
+                message=f"Experiment '{e.name}': profiel niet teruggezet, de zone kreeg intussen een ander profiel",
+            )
+        )
+        return "changed"
+    await restore_zone_snapshot(db, zone, snap, actor, log_name=f"Experiment '{e.name}'")
+    return "restored"
 
 
 async def zones_using_profile(db: AsyncSession, profile_id: uuid.UUID) -> list[ClimateZone]:

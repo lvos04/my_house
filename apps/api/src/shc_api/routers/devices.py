@@ -992,6 +992,11 @@ def validate_host(v: str) -> str:
             )
         if not ip.is_private:
             raise ValueError("Alleen apparaten in het lokale netwerk zijn toegestaan.")
+        if any(ip in net for net in get_settings().stack_networks()):
+            raise ValueError(
+                "Dit adres hoort bij de app zelf (database, MQTT, web), niet bij een apparaat. Gebruik het "
+                "IP-adres van het apparaat in je thuisnetwerk, bijvoorbeeld 192.168.1.50."
+            )
         return str(ip)
     name = v.lower().rstrip(".")
     if not _NAME_RE.match(name):
@@ -1075,6 +1080,15 @@ class PairIn(BaseModel):
     @classmethod
     def _host(cls, v: str) -> str:
         return validate_host(v)
+
+    @field_validator("options")
+    @classmethod
+    def _options(cls, v: dict[str, Any]) -> dict[str, Any]:
+        # The adapter config is {"host": host, **options}: an address in the options would skip the
+        # check above (stack subnets, loopback, public addresses).
+        if "host" in v:
+            raise ValueError("Geef het adres op in het veld 'host', niet in de opties.")
+        return v
 
 
 def _identity_from_diagnostics(provider: str, diag: dict) -> str | None:
@@ -1182,6 +1196,37 @@ async def _record_pair_failure(
     return {"integration_id": str(integ.id), "device_id": str(device_id) if device_id else None, "diagnostics": diag}
 
 
+# Credential/config keys in which adapters keep the paired device's own identity (Hue: bridge_id).
+IDENTITY_KEYS = ("bridge_id", "serial", "mac", "identity")
+
+
+def _ident_norm(v: Any) -> str:
+    return re.sub(r"[^0-9a-z]", "", str(v).lower())
+
+
+def legacy_same_device(integ: Integration, identity: str, host: str, box: SecretBox) -> bool:
+    """Is this integration without a stored identity (paired before migration 0002) the device that
+    is being paired now? Yes when its credentials or config name the same identity (Hue keeps the
+    bridge id in its credentials); when they name none, when it used the same address."""
+    try:
+        creds = box.decrypt(integ.credentials_enc) if integ.credentials_enc else {}
+    except Exception:
+        creds = {}  # other master key: cannot tell from the credentials
+    cfg = integ.config or {}
+    want = _ident_norm(identity)
+    named = False
+    for src in (creds, cfg):
+        for k in IDENTITY_KEYS:
+            v = src.get(k) if isinstance(src, dict) else None
+            if v:
+                if _ident_norm(v) == want:
+                    return True
+                named = True
+    if named:
+        return False  # it knows its own device, and that is another one
+    return bool(host) and str(cfg.get("host") or "").strip().lower() == host.strip().lower()
+
+
 @router.post("/integrations/{provider}/pair")
 async def pair(provider: str, body: PairIn, db: DB, p: Admin):
     """Pair a device. Pairing the same physical device again (same identity: serial, MAC, bridge id)
@@ -1252,6 +1297,18 @@ async def pair(provider: str, body: PairIn, db: DB, p: Admin):
             legacy = await db.get(Integration, iid)
             if legacy is not None and legacy.provider == provider and legacy.home_id == home.id:
                 same.append(legacy)
+    # Integrations from before stable identities (identity NULL), e.g. an older Hue integration that
+    # still holds the lights and buttons while a newer one holds the bridge device (item 24).
+    unidentified = (
+        await db.execute(
+            select(Integration)
+            .where(Integration.home_id == home.id, Integration.provider == provider, Integration.identity.is_(None))
+            .order_by(Integration.enabled.desc(), Integration.created_at)
+        )
+    ).scalars()
+    for legacy in unidentified:
+        if all(i.id != legacy.id for i in same) and legacy_same_device(legacy, identity, body.host, box):
+            same.append(legacy)
     keep = same[0] if same else None
     others = same[1:]
     for o in others:
@@ -1522,6 +1579,7 @@ async def zigbee_permit_join(body: PermitJoin, db: DB, p: Admin):
     if bridge is None:
         raise api_error(409, "not_configured", "Zigbee is nog niet ingesteld.")
     cmd = await queue_command(db, body.home_id, bridge, "permit_join", {"seconds": body.seconds}, "user", p.actor)
+    await audit(db, p.actor, "zigbee_permit_join", bridge.name, home=str(body.home_id), seconds=body.seconds)
     await db.commit()
     until = datetime.now(UTC).timestamp() + body.seconds
     return JSONResponse(

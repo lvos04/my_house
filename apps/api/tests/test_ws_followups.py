@@ -615,7 +615,7 @@ async def test_migration_0003_upgrade_and_downgrade():
         assert "ix_zone_log_zone_id" in idx and "ix_zone_log_at" not in idx
 
         await asyncio.to_thread(command.upgrade, bk.alembic_config(url), "head")
-        assert (await sql(url, "SELECT version_num FROM alembic_version"))[0][0] == bk.head_revision() == "0003"
+        assert (await sql(url, "SELECT version_num FROM alembic_version"))[0][0] == bk.head_revision() == "0004"
         assert dict(await sql(url, "SELECT id, role FROM pairing_codes"))[open_admin] == "admin"
 
 

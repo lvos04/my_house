@@ -6,17 +6,20 @@
 .c-grid > * { min-width: 0; }
 .c-grid.narrow { grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); }
 
-/* Thermostat */
-.c-control { display: flex; flex-direction: column; gap: 18px; }
-.c-dial-row { display: flex; align-items: center; justify-content: center; gap: clamp(10px, 4vw, 28px); flex-wrap: nowrap; }
+/* Thermostat. The dial takes the room the −/+ buttons leave in the card (item 40), so neither sticks
+   out of the card at any width (320 px phones, a two-column grid on a laptop): the buttons keep their
+   size (≥ 48 px), the dial shrinks from 200 px, and the number scales with the dial. The card and the
+   dial are size containers for that; without container queries the vw values below still apply. */
+.c-control { display: flex; flex-direction: column; gap: 18px; container-type: inline-size; }
+.c-dial-row { display: flex; align-items: center; justify-content: center; flex-wrap: nowrap; gap: clamp(8px, 3vw, 28px); gap: clamp(8px, 4cqi, 28px); }
 .c-dial {
-  width: min(200px, 50vw); height: min(200px, 50vw); border-radius: 50%;
+  flex: 0 1 200px; min-width: 0; aspect-ratio: 1 / 1; border-radius: 50%; container-type: inline-size;
   border: clamp(6px, 2.5vw, 10px) solid var(--border);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; flex-shrink: 0; text-align: center;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center;
 }
 .c-dial.heat { border-color: var(--heat-soft); }
 .c-dial.cool { border-color: var(--cool-soft); }
-.c-dial .big-num { font-size: clamp(34px, 11vw, 52px); }
+.c-dial .big-num { font-size: clamp(30px, 11vw, 52px); font-size: clamp(26px, 29cqi, 52px); white-space: nowrap; }
 .c-dial .draft, .c-setpoint-val .draft { color: var(--text-2); font-style: italic; }
 .sp-btn {
   width: 56px; height: 56px; min-width: 48px; min-height: 48px; border-radius: 50%; flex-shrink: 0;
@@ -24,6 +27,9 @@
   font-size: 26px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
 }
 .sp-btn.sm { width: 48px; height: 48px; font-size: 22px; }
+/* A narrow card (phones up to ~375 px): 48 px buttons leave the dial more room. */
+@media (max-width: 379px) { .c-dial-row .sp-btn { width: 48px; height: 48px; font-size: 22px; } }
+@container (max-width: 300px) { .c-dial-row .sp-btn { width: 48px; height: 48px; font-size: 22px; } }
 .sp-btn:hover:not(:disabled) { background: var(--surface-2); }
 .sp-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .sp-btn:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }

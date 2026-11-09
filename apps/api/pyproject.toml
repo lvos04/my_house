@@ -1,10 +1,10 @@
 [project]
 name = "shc-api"
-# Package metadata only. The app version at runtime comes from the repository's VERSION file
-# (shc_api.config.VERSION, contract C9: /app/VERSION in the image), the single source of truth.
-# Kept static on purpose: a dynamic version would need a setup hook that reads ../../VERSION,
-# which is outside this package and missing from an sdist build.
-version = "0.1.0"
+# Placeholder, never bumped (verbeterlijst 41): the app version comes only from the repository's
+# VERSION file (shc_api.config.VERSION, contract C9: /app/VERSION in the image). A dynamic version
+# would need a setup hook that reads ../../VERSION, which is outside this package and missing from
+# an sdist build; nothing reads the package metadata version.
+version = "0.0.0"
 description = "Smart Home Control API, worker en klimaat/energie-engine"
 requires-python = ">=3.12"
 # Floors are the first releases without known vulnerabilities (pip-audit gate in CI, item 41).

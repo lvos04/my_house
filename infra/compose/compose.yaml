@@ -41,6 +41,10 @@ x-app-env: &app-env
   # so logging in at home over http://NAS:8088 keeps working with a tunnel configured.
   SHC_COOKIE_SECURE: ${SHC_COOKIE_SECURE:-auto}
   SHC_FORWARDED_ALLOW_IPS: ${SHC_NET_PREFIX:-172.30}.251.2
+  # Optional push address outside the app (ntfy topic URL or another webhook) for "worker stopped"
+  # and "backups stopped" (verbeterlijst 28). Only a fallback: an address set in the app (Systeem)
+  # wins and is stored encrypted, which is why render_truenas.py leaves this empty.
+  SHC_NOTIFY_URL: "${SHC_NOTIFY_URL:-}"
   TZ: ${TZ:-Europe/Amsterdam}
 
 # api and worker run the same image as uid 10001 (owner of app/ and backups/).

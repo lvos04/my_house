@@ -1,7 +1,10 @@
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { AuditEntry, UserFull } from '../api/types';
+import { AUDIT_ACTION_LABEL } from '../i18n';
 import { AccountPage } from '../pages/Account';
 import { UsersPanel } from '../pages/account/Users';
 import { PairPhone, PhoneList } from '../pages/account/Phones';
@@ -118,6 +121,11 @@ describe('phones', () => {
     expect(screen.getByRole('radio', { name: /Bedienen/ })).toBeChecked();
     const user = userEvent.setup();
     await user.click(screen.getByRole('radio', { name: /Beheren/ }));
+    // An admin phone never manages users, phones or backups (the server answers 403 web_session_required).
+    expect(screen.getByRole('radio', { name: /Beheren/ }).closest('label')).toHaveTextContent(
+      /Gebruikers, telefoons, back-ups, adressen en pushmeldingen alleen in de web-app\. Vraagt je wachtwoord\./,
+    );
+    expect(screen.queryByText(/Alles, ook gebruikers/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'QR-code maken' })).toBeDisabled();
     await user.type(screen.getByLabelText(/Je eigen wachtwoord/), 'mijn-wachtwoord');
     await user.click(screen.getByRole('button', { name: 'QR-code maken' }));
@@ -173,6 +181,44 @@ describe('audit log', () => {
     expect(await screen.findByText('t150')).toBeInTheDocument();
     expect(calls.map((c) => c.url)).toContain(`/api/v1/audit?limit=${AUDIT_PAGE}&before=151`);
     expect(screen.getByText('Einde van het logboek.')).toBeInTheDocument();
+  });
+
+  it('names newer actions in Dutch and can filter on them (item 18)', async () => {
+    const rows: AuditEntry[] = [
+      { id: 3, at: '2026-11-08T10:02:00Z', actor: 'admin', action: 'zigbee_permit_join', target: 'Zigbee-coördinator', detail: { seconds: 120 } },
+      { id: 2, at: '2026-11-08T10:01:00Z', actor: 'admin', action: 'notify_url_updated', target: 'https://ntfy.sh/…', detail: { cleared: false } },
+      { id: 1, at: '2026-11-08T10:00:00Z', actor: 'experiment', action: 'profile_restored', target: 'z1', detail: { name: 'Winter' } },
+    ];
+    const calls = mockApi((_m, url) => {
+      if (!url.includes('/audit')) return undefined;
+      const action = new URL(url, 'http://x').searchParams.get('action');
+      return { body: action ? rows.filter((r) => r.action === action) : rows };
+    });
+    render(<Providers><AuditPanel /></Providers>);
+    expect(await screen.findByText('Zigbee: nieuwe apparaten toegelaten')).toBeInTheDocument();
+    expect(screen.getByText('Push-adres gewijzigd')).toBeInTheDocument();
+    expect(screen.getByText('Profiel en schema teruggezet (na experiment)')).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText('Soort'), 'Lichtcommando');
+    await user.click(screen.getByRole('button', { name: 'Filteren' }));
+    await waitFor(() => expect(calls.map((c) => c.url)).toContain(`/api/v1/audit?limit=${AUDIT_PAGE}&action=light_command`));
+  });
+
+  // Every action the API writes with audit(db, actor, "<action>", ...) needs a Dutch label, otherwise the
+  // Logboek shows the raw code and the "Soort" filter cannot select it. Skipped when the API source is
+  // not next to this app (e.g. a build with only apps/web).
+  const apiSrc = join(__dirname, '../../../api/src/shc_api');
+  it.skipIf(!existsSync(apiSrc))('has a label for every audit action the API writes', () => {
+    const files = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? (e.name === '__pycache__' ? [] : files(join(dir, e.name))) : e.name.endsWith('.py') ? [join(dir, e.name)] : [],
+      );
+    const actions = new Set<string>(['request']);
+    for (const f of files(apiSrc)) {
+      for (const m of readFileSync(f, 'utf8').matchAll(/\baudit\(\s*db\s*,\s*[^,()]+,\s*"([a-z_]+)"/g)) actions.add(m[1]);
+    }
+    expect(actions.size).toBeGreaterThan(40); // the pattern still finds the calls
+    expect([...actions].filter((a) => !(a in AUDIT_ACTION_LABEL)).sort()).toEqual([]);
   });
 });
 

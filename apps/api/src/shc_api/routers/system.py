@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import contextlib
 import json
 import logging
@@ -21,9 +20,9 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, text, update
 
 from .. import backup as bk
-from .. import events, views
+from .. import events, notify, views
 from ..config import VERSION, get_settings
-from ..deps import DB, Admin, Auth
+from ..deps import DB, Admin, Auth, WebAdmin
 from ..errors import api_error, not_found
 from ..models import BackupRecord, Device, DeviceBinding, Home, Integration, LogicalRole
 from ..security import lan_url_problem, normalize_server_url, remote_url_problem
@@ -31,12 +30,15 @@ from ..store import audit, get_setting, set_secret_setting, set_setting
 from ..views.status import publish_status
 from ..worker.aggregates import RETENTION_KEY, RETENTION_MAX_DAYS, RETENTION_MIN, load_retention, retention_defaults
 from ..worker.backup_job import (
+    auto_kind,
     backup_due,
+    last_auto_times,
     load_backup_settings,
     next_due,
     retry_after,
     run_backup_process,
 )
+from ..worker.backup_job import latest as latest_time
 
 router = APIRouter(tags=["system"])
 log = logging.getLogger(__name__)
@@ -104,7 +106,7 @@ async def get_settings_(db: DB, p: Auth) -> dict:
 
 
 @router.put("/system/settings")
-async def put_settings(body: Addresses, db: DB, p: Admin) -> dict:
+async def put_settings(body: Addresses, db: DB, p: WebAdmin) -> dict:
     await set_setting(db, "lan_url", body.lan_url)
     await set_setting(db, "remote_url", body.remote_url)
     await audit(db, p.actor, "settings_updated", None, lan_url=body.lan_url, remote_url=body.remote_url)
@@ -136,7 +138,7 @@ def backup_view(b: BackupRecord) -> dict:
 
 
 @router.get("/system/backups")
-async def backups(db: DB, p: Admin) -> list[dict]:
+async def backups(db: DB, p: WebAdmin) -> list[dict]:
     rows = (await db.execute(select(BackupRecord).order_by(BackupRecord.created_at.desc()).limit(100))).scalars()
     return [backup_view(b) for b in rows]
 
@@ -156,13 +158,15 @@ async def _manual_backup(rec_id: uuid.UUID, passphrase: str, include_secrets: bo
         result = await run_backup_process(args, stdin=(passphrase + "\n").encode())
     except Exception as exc:
         result = {"status": "failed", "error": f"Back-upproces kon niet starten: {exc}"}
-    if result.get("status") != "ok":
-        async with sessionmaker()() as db:
+    async with sessionmaker()() as db:
+        if result.get("status") != "ok":
             rec = await db.get(BackupRecord, rec_id)
             if rec is not None and rec.status == "running":
                 rec.status = "failed"
                 rec.detail = {**(rec.detail or {}), "error": str(result.get("error"))[:500]}
-                await db.commit()
+                await db.flush()
+        await publish_status(db)  # the overview's "Back-up" row (item 36)
+        await db.commit()
     return result
 
 
@@ -174,7 +178,7 @@ def _spawn(coro) -> asyncio.Task:
 
 
 @router.post("/system/backups")
-async def create_backup(body: BackupIn, db: DB, p: Admin):
+async def create_backup(body: BackupIn, db: DB, p: WebAdmin):
     """Runs `shc-api backup` in a separate process (flat memory, API stays responsive). Answers 200
     with the finished backup, or 202 with status "running" when it takes longer; poll GET /system/backups."""
     rec = BackupRecord(kind="export", filename="(bezig)", status="running", auto=False, app_version=VERSION, detail={})
@@ -201,7 +205,7 @@ def _dumps(o) -> str:
 
 
 @router.get("/system/backups/{backup_id}/download")
-async def download(backup_id: uuid.UUID, db: DB, p: Admin):
+async def download(backup_id: uuid.UUID, db: DB, p: WebAdmin):
     b = await db.get(BackupRecord, backup_id)
     if not b or b.status != "ok":
         raise not_found("Back-up")
@@ -223,6 +227,8 @@ class BackupSettingsIn(BaseModel):
     hour: int | None = None
     keep: int | None = None
     enabled: bool | None = None
+    # "daily_full" (default) or "dump_daily_full_weekly": daily encrypted database dump, weekly full export.
+    schedule: Literal["daily_full", "dump_daily_full_weekly"] | None = None
 
     @field_validator("passphrase")
     @classmethod
@@ -253,13 +259,21 @@ class BackupSettingsIn(BaseModel):
 async def backup_settings_view(db) -> dict:
     cfg = await load_backup_settings(db)
     state = await get_setting(db, "backup_state", {}) or {}
-    last = await get_setting(db, "last_auto_backup")
-    last_auto = datetime.fromisoformat(last) if last else None
+    last_full, last_dump = await last_auto_times(db)
+    last_auto = latest_time(last_full, last_dump)
     now = datetime.now(UTC)
     tz = ZoneInfo(cfg["timezone"])
     latest = (
         await db.execute(
             select(BackupRecord).where(BackupRecord.status == "ok").order_by(BackupRecord.created_at.desc()).limit(1)
+        )
+    ).scalar_one_or_none()
+    latest_full = (
+        await db.execute(
+            select(BackupRecord)
+            .where(BackupRecord.status == "ok", BackupRecord.kind != bk.DUMP_KIND)
+            .order_by(BackupRecord.created_at.desc())
+            .limit(1)
         )
     ).scalar_one_or_none()
     ra = retry_after(state)
@@ -272,31 +286,34 @@ async def backup_settings_view(db) -> dict:
         "hour": cfg["hour"],
         "keep": cfg["keep"],
         "timezone": cfg["timezone"],
-        "last_auto_backup": last_auto,
+        "schedule": cfg["schedule"],
+        "next_kind": auto_kind(now, cfg["schedule"], last_full),
+        "last_auto_backup": last_full,
+        "last_auto_dump": last_dump,
         "next_due_at": next_due(now, cfg["hour"], tz, last_auto, state) if cfg["enabled"] else None,
         "due_now": cfg["enabled"] and backup_due(now, cfg["hour"], tz, last_auto, state),
         "last_error": state.get("last_error") if state.get("failures") else None,
         "failures": int(state.get("failures", 0) or 0),
         "retry_after": ra if ra and ra > now else None,
         "last_backup": backup_view(latest) if latest else None,
-        "zigbee2mqtt_in_last_backup": ((latest.detail or {}).get("zigbee2mqtt_included") if latest else None),
+        "zigbee2mqtt_in_last_backup": ((latest_full.detail or {}).get("zigbee2mqtt_included") if latest_full else None),
     }
 
 
 @router.get("/system/backup-settings")
-async def get_backup_settings(db: DB, p: Admin) -> dict:
+async def get_backup_settings(db: DB, p: WebAdmin) -> dict:
     return await backup_settings_view(db)
 
 
 @router.put("/system/backup-settings")
-async def put_backup_settings(body: BackupSettingsIn, db: DB, p: Admin) -> dict:
+async def put_backup_settings(body: BackupSettingsIn, db: DB, p: WebAdmin) -> dict:
     stored = dict(await get_setting(db, "backup_settings", {}) or {})
-    for k in ("hour", "keep", "enabled"):
+    for k in ("hour", "keep", "enabled", "schedule"):
         v = getattr(body, k)
         if v is not None:
             stored[k] = v
     await set_setting(db, "backup_settings", stored)
-    changed = {k: stored.get(k) for k in ("hour", "keep", "enabled")}
+    changed = {k: stored.get(k) for k in ("hour", "keep", "enabled", "schedule")}
     if body.passphrase:
         await set_secret_setting(db, "backup_passphrase_enc", body.passphrase)
         changed["passphrase"] = "gewijzigd"  # noqa: S105 - audit label, not a password
@@ -306,6 +323,71 @@ async def put_backup_settings(body: BackupSettingsIn, db: DB, p: Admin) -> dict:
     await audit(db, p.actor, "backup_settings_updated", None, **changed)
     await db.commit()
     return await backup_settings_view(db)
+
+
+# --- push outside the app (verbeterlijst 28) ----------------------------------------------------
+
+
+class NotifyIn(BaseModel):
+    """``url``: ntfy topic URL (or another webhook) for "worker stopped" / "backups stopped"; null or
+    empty removes the address set in the app (then SHC_NOTIFY_URL applies, if set)."""
+
+    url: str | None = Field(default=None, max_length=500)
+
+    @field_validator("url")
+    @classmethod
+    def _url(cls, v: str | None) -> str | None:
+        if v is None or not v.strip():
+            return None
+        if problem := notify.url_problem(v):
+            raise ValueError(problem)
+        return v.strip()
+
+
+async def notify_view(db) -> dict:
+    url, source = await notify.configured_url(db)
+    return {
+        "configured": url is not None,
+        "source": source,
+        "url_hint": notify.url_hint(url),
+        # The address set in the app does not decrypt with this server's master key (restore on a new
+        # NAS, key change): it is not used; set it again (verbeterlijst 22).
+        "error": await notify.stored_url_error(db),
+        "events": [
+            "De achtergronddienst reageert niet meer (en weer wel)",
+            "Automatische back-ups mislukken of de laatste is te oud (en weer in orde)",
+        ],
+    }
+
+
+@router.get("/system/notify")
+async def get_notify(db: DB, p: WebAdmin) -> dict:
+    return await notify_view(db)
+
+
+@router.put("/system/notify")
+async def put_notify(body: NotifyIn, db: DB, p: WebAdmin) -> dict:
+    await set_secret_setting(db, notify.SETTING_KEY, body.url)
+    await audit(db, p.actor, "notify_url_updated", notify.url_hint(body.url), cleared=body.url is None)
+    await db.commit()
+    return await notify_view(db)
+
+
+@router.post("/system/notify/test")
+async def test_notify(db: DB, p: WebAdmin) -> dict:
+    """Send a test message to the configured address; ``{ok, error}``."""
+    url, _source = await notify.configured_url(db)
+    if not url:
+        raise api_error(409, "not_configured", "Stel eerst een push-adres in.")
+    await db.commit()
+    error = await notify.send(
+        url,
+        "Smart Home: testbericht",
+        "Dit adres krijgt een bericht als de achtergronddienst of de back-ups stilvallen.",
+        priority="default",
+        tags="bell",
+    )
+    return {"ok": error is None, "error": error}
 
 
 # --- retention (verbeterlijst 19) ---------------------------------------------------------------
@@ -507,22 +589,10 @@ async def _stream_upload(request: Request, dest: Path, max_bytes: int) -> dict[s
     return fields
 
 
-def _decrypt_check(rows: list[dict]) -> dict:
-    """Which integration credentials in the backup can be decrypted with this server's key."""
-    from ..security import SecretBox
-
-    box = SecretBox(get_settings().resolved_secret_key())
-    ok, failed = 0, []
-    for r in rows:
-        enc = r.get("credentials_enc")
-        if not enc:
-            continue
-        try:
-            box.decrypt(base64.b64decode(enc["$b64"]) if isinstance(enc, dict) else enc)
-            ok += 1
-        except Exception:
-            failed.append(f"{r.get('name')} ({r.get('provider')})")
-    return {"ok": ok, "failed": failed, "total": ok + len(failed)}
+def _decrypt_check(summary: dict) -> dict:
+    """Which integration credentials and encrypted settings (backup passphrase, push address) in the
+    backup can be decrypted with this server's key."""
+    return bk.decrypt_check(summary.get("_integration_rows", []), settings=summary.get("_secret_settings", []))
 
 
 def verify_summary(upload_id: str, path: Path, v: bk.Verified, filename: str | None) -> dict:
@@ -548,12 +618,14 @@ def verify_summary(upload_id: str, path: Path, v: bk.Verified, filename: str | N
         warnings.append(
             "Geen (volledige) Zigbee2MQTT-gegevens: Zigbee-sensoren moeten mogelijk opnieuw gekoppeld worden."
         )
-    creds = _decrypt_check(v.summary.get("_integration_rows", []))
+    creds = _decrypt_check(v.summary)
     if creds["failed"]:
         warnings.append(
             f"{len(creds['failed'])} apparaatsleutel(s) passen niet bij de hoofdsleutel van deze server. "
             "Zet de oude sleutel terug en gebruik 'shc-api rekey --old-key-file', of koppel die apparaten opnieuw."
         )
+    if settings_warning := bk.key_check_warning(creds):
+        warnings.append(settings_warning)
     return {
         "upload_id": upload_id,
         "filename": filename,
@@ -586,7 +658,7 @@ def _verify(path: Path, passphrase: str) -> bk.Verified:
 
 
 @router.post("/system/restore/verify")
-async def restore_verify(request: Request, db: DB, p: Admin) -> dict:
+async def restore_verify(request: Request, db: DB, p: WebAdmin) -> dict:
     """Upload a backup (multipart: `file` + `passphrase`, streamed to disk), decrypt and verify it.
     Nothing is changed. Returns versions, counts, homes and devices, and an `upload_id` for apply."""
     s = get_settings()
@@ -627,7 +699,7 @@ def _remove_upload(path: Path) -> None:
 
 
 @router.delete("/system/restore/uploads/{upload_id}", status_code=204)
-async def restore_discard(upload_id: str, p: Admin) -> Response:
+async def restore_discard(upload_id: str, p: WebAdmin) -> Response:
     _remove_upload(_upload_path(upload_id))
     return Response(status_code=204)
 
@@ -673,7 +745,7 @@ async def _run_restore_job(job: dict, path: Path, passphrase: str, mode: str, ma
 
 
 @router.post("/system/restore/apply", status_code=202)
-async def restore_apply(body: ApplyIn, db: DB, p: Admin) -> dict:
+async def restore_apply(body: ApplyIn, db: DB, p: WebAdmin) -> dict:
     """Start restoring a verified upload: maintenance mode on (the worker pauses), everything replaced
     in one transaction, safe mode on afterwards. Answers 202 with a job id; poll
     GET /system/restore/jobs/{job_id}. After success, log in again (sessions are not in backups)."""
@@ -743,7 +815,7 @@ async def restore_job(job_id: str) -> dict:
 
 
 @router.get("/system/restore/compare")
-async def restore_compare(db: DB, p: Admin, home_id: uuid.UUID | None = None) -> dict:
+async def restore_compare(db: DB, p: WebAdmin, home_id: uuid.UUID | None = None) -> dict:
     """Per device and per function: compatible / partial / unavailable, comparing the restored devices
     (snapshot taken at restore) with what the worker has seen since (identity, online, capabilities)."""
     snap = await get_setting(db, "restore_snapshot") or {}

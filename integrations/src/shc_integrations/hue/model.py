@@ -379,7 +379,9 @@ class HueModel:
         events: list[Event] = list(self.inventory(at))
         events += [self.light_update(r["id"], at) for r in self.of_type("light")]
         events += [self.group_update(r["id"], at) for r in self.of_type("grouped_light")]
-        events += [self.button_device_update(d, at) for d in self.button_devices()]
+        # Only devices the bridge still has: a state update for a deleted device (whose button services
+        # linger in a partial list) would bring back what the inventory just reported as removed.
+        events += [self.button_device_update(d, at) for d in self.button_devices() if d in self.resources]
         return events
 
     def _button_event(self, res: dict[str, Any], at: datetime, event_id_prefix: str | None) -> ButtonEvent | None:

@@ -170,12 +170,16 @@ async def _backup(args) -> int:
     if args.auto:
         from .worker.backup_job import run_auto_backup
 
-        result = await run_auto_backup()
+        dump = bool(getattr(args, "dump", False))
+        result = await (run_auto_backup(dump=True) if dump else run_auto_backup())
         print(json.dumps(result, default=str) if args.json else f"Automatische back-up: {result.get('filename')}")
         return 0 if result.get("status") == "ok" else 1
     rid = uuid.UUID(args.record_id) if args.record_id else None
     try:
-        rec = await bk.run_backup(_passphrase(args), not args.redact_secrets, record_id=rid)
+        if getattr(args, "dump", False):
+            rec = await bk.run_db_dump(_passphrase(args), auto=False)
+        else:
+            rec = await bk.run_backup(_passphrase(args), not args.redact_secrets, record_id=rid)
     except bk.BackupError as e:
         if args.json:
             print(json.dumps({"status": "failed", "error": str(e)}))
@@ -188,6 +192,23 @@ async def _backup(args) -> int:
         print(f"Back-up gemaakt: {rec['filename']} ({rec['size_bytes']} bytes, sha256 {rec['sha256']})")
         if not rec.get("zigbee2mqtt_included"):
             print(f"  Zigbee2MQTT: {rec['detail'].get('zigbee2mqtt', {}).get('detail', 'niet opgenomen')}")
+    return 0
+
+
+async def _decrypt_dump(args) -> int:
+    from . import backup as bk
+
+    out = Path(args.out)
+    try:
+        n = await asyncio.to_thread(bk.decrypt_dump, Path(args.file), _passphrase(args), out)
+    except bk.BackupError as e:
+        print(f"MISLUKT: {e}", file=sys.stderr)
+        return 2
+    print(f"Database-dump ontsleuteld: {out} ({n} bytes, pg_dump custom format).")
+    print(
+        "Terugzetten (worker gestopt of onderhoudsmodus aan): pg_restore --clean --if-exists --no-owner "
+        f"--dbname=<database-url> {out}  -- verwijder het bestand daarna, het is niet versleuteld."
+    )
     return 0
 
 
@@ -219,6 +240,37 @@ def _print_manifest(v) -> None:
         print("  Zigbee-sensoren moeten mogelijk opnieuw gekoppeld worden.")
     if m.get("redacted") or not m.get("secrets_included", True):
         print("  Geredigeerde back-up: apparaatsleutels en wachtwoorden ontbreken (daarna reset-password nodig).")
+    _print_key_check(v)
+
+
+def _print_key_check(v) -> dict | None:
+    """Verbeterlijst 22: do the device keys in the backup decrypt with this server's master key?
+    Same check as the web upload (POST /system/restore/verify) and restore-drill."""
+    from . import backup as bk
+
+    try:
+        c = bk.decrypt_check(v.summary.get("_integration_rows", []), settings=v.summary.get("_secret_settings", []))
+    except RuntimeError as e:  # no SHC_SECRET_KEY(_FILE) in this shell
+        print(f"  Apparaatsleutels niet gecontroleerd: {e}")
+        return None
+    if not c["total"]:
+        print("  Apparaatsleutels: geen (geredigeerde back-up of niets gekoppeld).")
+    else:
+        print(f"  Apparaatsleutels: {c['ok']}/{c['total']} te ontsleutelen met de hoofdsleutel van deze server.")
+    for n in c["failed"]:
+        print(f"    NIET te ontsleutelen: {n}")
+    for k, state in c.get("settings", {}).items():
+        label = bk.SECRET_SETTING_LABELS.get(k, k)
+        print(f"  Versleutelde instelling {label}: {'te ontsleutelen' if state == 'ok' else 'NIET te ontsleutelen'}.")
+    if c["failed"]:
+        print(
+            "  Deze back-up is gemaakt met een andere hoofdsleutel (SHC_SECRET_KEY). Zet na het herstel de oude "
+            "sleutel om met: shc-api rekey --old-key-file <bestand met de oude sleutel>, of koppel die apparaten "
+            "opnieuw. Anders kan de worker die apparaten niet gebruiken."
+        )
+    if warning := bk.key_check_warning(c):
+        print(f"  {warning}")
+    return c
 
 
 async def worker_running(url: str | None = None) -> tuple[bool, bool]:
@@ -355,8 +407,14 @@ async def _restore(args, dry_run: bool) -> int:
         print(f"MISLUKT (er is niets gewijzigd): {e}", file=sys.stderr)
         return 2
     if args.z2m_dir and v.manifest.get("zigbee2mqtt_included"):
-        n = bk.extract_z2m(path, pw, Path(args.z2m_dir))
+        kept = bk.z2m_kept_secrets(v.manifest, Path(args.z2m_dir))
+        n = bk.extract_z2m(path, pw, Path(args.z2m_dir), v.manifest)
         print(f"Zigbee2MQTT: {n} bestanden teruggezet in {args.z2m_dir}.")
+        if kept:
+            print(
+                f"Zigbee2MQTT: {', '.join(kept)} behouden; deze back-up bevat geen wachtwoorden "
+                "(gemaakt zonder geheimen)."
+            )
     await publish_status_now()  # maintenance off, safe mode on
     print_report(report.as_dict())
     print("Veilige modus staat AAN: bevestig de apparaten in de app.")
@@ -478,6 +536,11 @@ async def _restore_drill(args) -> int:
             print(f"  NIET te ontsleutelen: {n} (andere hoofdsleutel? gebruik shc-api rekey --old-key-file)")
     else:
         print("Apparaatsleutels: geen (geredigeerde back-up of niets gekoppeld).")
+    for key, state in (r.get("settings") or {}).items():
+        label = bk.SECRET_SETTING_LABELS.get(key, key)
+        print(f"Versleutelde instelling {label}: {'te ontsleutelen' if state == 'ok' else 'NIET te ontsleutelen'}.")
+    if warning := bk.key_check_warning({"settings_failed": [k for k, s in r.get("settings", {}).items() if s != "ok"]}):
+        print(warning)
     print_report(r["report"])
     print("RESULTAAT: " + ("geslaagd" if r["ok"] else "NIET geslaagd"))
     return 0 if r["ok"] else 1
@@ -644,6 +707,16 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--auto", action="store_true", help="automatische back-up met de instellingen uit de app")
     b.add_argument("--record-id")
     b.add_argument("--json", action="store_true")
+    b.add_argument(
+        "--dump",
+        action="store_true",
+        help="versleutelde database-dump (pg_dump) in plaats van de volledige export (zonder Zigbee2MQTT)",
+    )
+    dd = sub.add_parser("decrypt-dump", help="ontsleutel een database-dump (.shcdump) voor pg_restore")
+    dd.add_argument("file")
+    dd.add_argument("--out", required=True, help="pad voor het pg_dump-archief (custom format)")
+    dd.add_argument("--passphrase-file")
+    dd.add_argument("--passphrase-stdin", action="store_true")
     for name in ("restore", "verify-backup"):
         r = sub.add_parser(name)
         r.add_argument("file")
@@ -709,6 +782,7 @@ def main(argv: list[str] | None = None) -> None:
         "rekey": _rekey,
         "reset-password": _reset_password,
         "maintenance": _maintenance,
+        "decrypt-dump": _decrypt_dump,
     }
     code = asyncio.run(handlers[args.cmd](args))
     if code:

@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '../../api/client';
+import { api, ApiError } from '../../api/client';
 import { qk } from '../../api/keys';
-import type { SystemSettings } from '../../api/types';
+import type { NotifySettings as NotifyView, SystemSettings } from '../../api/types';
 import { ActionButton, ErrorNote, Loading } from '../../components/bits';
 import { HomeForm } from '../../components/NoHome';
 import { useHome } from '../../state';
@@ -49,6 +49,132 @@ export function AddressSettings({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) 
       )}
       {save.isSuccess && !form && <span className="small muted" role="status">Opgeslagen.</span>}
       {(q.error || save.error) && <ErrorNote error={q.error ?? save.error} />}
+    </section>
+  );
+}
+
+function isNotify(x: unknown): x is NotifyView {
+  return typeof x === 'object' && x !== null && !Array.isArray(x) && 'configured' in x;
+}
+
+/** The reason the server gave for an unusable push address (422), without the "url: " field prefix. */
+export function notifyProblem(err: unknown): string | null {
+  if (!(err instanceof ApiError) || err.status !== 422) return null;
+  const first = (err.detail.errors as unknown[] | undefined)?.[0] as { msg?: unknown; type?: unknown } | undefined;
+  if (first?.type === 'string_too_long') return 'Het adres is te lang (maximaal 500 tekens).';
+  const msg = typeof first?.msg === 'string' ? first.msg : err.message;
+  return msg.replace(/^Value error, /, '').replace(/^url: /, '') || 'Dit adres kan niet gebruikt worden.';
+}
+
+/** Push message outside the app (e.g. ntfy) when the worker or the backups stop (verbeterlijst 28).
+ * Web session only; the address is a secret, so only its server is shown after saving (id="meldingen"). */
+export function NotifySettings() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: qk.notify, queryFn: api.notify });
+  const n = isNotify(q.data) ? q.data : null;
+  const [url, setUrl] = useState('');
+  const test = useMutation({ mutationFn: api.testNotify });
+  const save = useMutation({
+    mutationFn: (u: string | null) => api.putNotify(u),
+    onSuccess: (v) => {
+      qc.setQueryData<NotifyView>(qk.notify, v);
+      setUrl('');
+      test.reset(); // an old test result was for the previous address
+    },
+  });
+  const problem = notifyProblem(save.error);
+  const events = n?.events?.length
+    ? n.events
+    : ['De achtergronddienst reageert niet meer (en weer wel)', 'Automatische back-ups mislukken of de laatste is te oud (en weer in orde)'];
+  return (
+    <section aria-labelledby="notify-h" className="card" id="meldingen">
+      <h2 id="notify-h">Meldingen buiten de app</h2>
+      <p className="small muted break" style={{ margin: 0 }}>
+        Stopt de achtergronddienst, dan kan de app zelf niets meer melden. Daarom kan de server ook een pushbericht sturen naar een adres
+        van jou, bijvoorbeeld een <strong>ntfy</strong>-onderwerp (https://ntfy.sh/<em>geheim-onderwerp</em>, of je eigen ntfy-server in het
+        thuisnetwerk) of een andere webhook. Kies een lang, onraadbaar onderwerp: wie het adres kent, kan meelezen. Je krijgt één bericht
+        als er iets misgaat en één als het weer in orde is.
+      </p>
+      {q.isLoading ? (
+        <Loading />
+      ) : n ? (
+        <>
+          <dl className="facts">
+            <div>
+              <dt>Status</dt>
+              <dd>
+                {n.configured
+                  ? n.source === 'env' ? 'Aan (ingesteld op de server, SHC_NOTIFY_URL)' : 'Aan (ingesteld in de app)'
+                  : n.error ? 'Uit (opgeslagen adres onbruikbaar)' : 'Uit (geen adres)'}
+              </dd>
+            </div>
+            <div><dt>Adres</dt><dd className="break">{n.url_hint ?? '–'}</dd></div>
+          </dl>
+          {n.error && (
+            // The address saved in the app does not decrypt with this server's master key (restore on a
+            // new NAS, key change): the server ignores it until it is entered again (verbeterlijst 22/28).
+            <div id="notify-stored-error" className="note warn">
+              <strong>Opgeslagen push-adres onbruikbaar.</strong> {n.error}
+            </div>
+          )}
+          <div className="small">
+            Een bericht bij:
+            <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{events.map((ev) => <li key={ev}>{ev}</li>)}</ul>
+          </div>
+          <form className="form-grid" aria-label="Push-adres instellen" onSubmit={(e) => { e.preventDefault(); if (url.trim()) save.mutate(url.trim()); }}>
+            <label className="field">
+              {n.source === 'app' ? 'Nieuw push-adres' : 'Push-adres'}
+              <input
+                type="url"
+                inputMode="url"
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={500}
+                placeholder="https://ntfy.sh/geheim-onderwerp"
+                value={url}
+                onChange={(e) => {
+                  setUrl(e.target.value);
+                  if (save.isError) save.reset(); // the refusal was for the previous text
+                }}
+                aria-invalid={problem ? true : undefined}
+                aria-describedby={[problem && 'notify-problem', n.error && 'notify-stored-error'].filter(Boolean).join(' ') || undefined}
+              />
+            </label>
+            <ActionButton type="submit" className="btn primary" disabled={save.isPending || !url.trim()}>Opslaan</ActionButton>
+          </form>
+          <div className="row">
+            <ActionButton className="btn" disabled={!n.configured || test.isPending} onClick={() => test.mutate()}>
+              {test.isPending ? 'Versturen…' : 'Testbericht sturen'}
+            </ActionButton>
+            {(n.source === 'app' || n.error) && (
+              <ActionButton
+                className="btn danger"
+                disabled={save.isPending}
+                onClick={() => { if (window.confirm('Push-adres verwijderen? Er worden dan geen berichten buiten de app meer verstuurd (behalve naar een adres dat op de server is ingesteld).')) save.mutate(null); }}
+              >
+                Adres verwijderen
+              </ActionButton>
+            )}
+          </div>
+          {n.source === 'env' && (
+            <p className="small muted" style={{ margin: 0 }}>Een adres dat je hier opslaat, gaat vóór het adres van de server.</p>
+          )}
+        </>
+      ) : null}
+      {problem ? (
+        <div id="notify-problem" className="note error" role="alert">{problem}</div>
+      ) : (
+        (q.error || save.error) && <ErrorNote error={q.error ?? save.error} />
+      )}
+      {save.isSuccess && !url && <span className="small muted" role="status">{save.variables === null ? 'Adres verwijderd.' : 'Opgeslagen.'}</span>}
+      {test.data && (
+        test.data.ok ? (
+          <div className="note info" role="status">Testbericht verstuurd. Kijk of het is aangekomen.</div>
+        ) : (
+          <div className="note error" role="alert">Testbericht niet verstuurd: {test.data.error ?? 'onbekende fout'}</div>
+        )
+      )}
+      {test.error && <ErrorNote error={test.error} />}
     </section>
   );
 }

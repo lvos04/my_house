@@ -487,6 +487,7 @@ class Worker(IngestMixin, CommandsMixin, ClimateMixin, HealthMixin, BackupMixin,
             text = f"Koppeling kon niet starten: {error_text(exc)}"
             await self.report(integ.id, "load", "error", "load_failed", text)
             return False
+        await self._seed_inventory(integ, adapter)
         self.adapters[integ.id] = adapter
         self.fingerprints[integ.id] = fp
         st = self.status.get(integ.id)
@@ -505,6 +506,25 @@ class Worker(IngestMixin, CommandsMixin, ClimateMixin, HealthMixin, BackupMixin,
         self.integ_tasks[integ.id] = tasks  # keeps a reference: asyncio holds tasks only weakly
         log.info("Koppeling geladen: %s (%s)", integ.name, integ.provider)
         return True
+
+    async def _seed_inventory(self, integ: Integration, adapter) -> None:
+        """Tell an adapter that reports deletions after a full reload (Hue) which of its devices the
+        app already has, so deletions made while the worker was down are noticed too."""
+        seed = getattr(adapter, "seed_inventory", None)
+        if seed is None:
+            return
+        try:
+            async with sessionmaker()() as db:
+                rows = (
+                    await db.execute(
+                        select(Device.stable_identity, Device.kind, Device.name).where(
+                            Device.integration_id == integ.id, Device.lifecycle == "active"
+                        )
+                    )
+                ).all()
+            seed({r.stable_identity: (r.kind, r.name) for r in rows})
+        except Exception as exc:  # only a missed clean-up: never block loading the integration
+            log.warning("Apparatenlijst van %s niet doorgegeven: %s", integ.name, exc)
 
     async def stop_integration(self, integ_id: uuid.UUID, reason: str, *, forget: bool = False) -> None:
         """Cancel the poll/subscribe tasks of one integration and close its adapter."""

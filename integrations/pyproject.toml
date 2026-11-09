@@ -4,7 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "shc-integrations"
-version = "0.1.0"
+# Placeholder, never bumped: the app version lives only in the repository's VERSION file.
+version = "0.0.0"
 description = "Local device adapters (Hue, HomeWizard, Gree, Zigbee2MQTT) for Smart Home Control"
 requires-python = ">=3.12"
 # Floors are the first releases without known vulnerabilities (pip-audit gate in CI, item 41).

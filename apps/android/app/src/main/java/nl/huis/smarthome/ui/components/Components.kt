@@ -45,9 +45,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import nl.huis.smarthome.R
+import nl.huis.smarthome.core.ApiProblem
 import nl.huis.smarthome.core.NlFormat
 import nl.huis.smarthome.core.Quality
 import nl.huis.smarthome.core.RouteKind
+import nl.huis.smarthome.data.CoreTexts
 import nl.huis.smarthome.data.HomeState
 import nl.huis.smarthome.ui.BannerKind
 import nl.huis.smarthome.ui.CommandLine
@@ -201,11 +203,11 @@ fun ConnectionBanner(state: HomeState, onRetry: () -> Unit, modifier: Modifier =
         BannerKind.OFFLINE -> BannerRow(
             icon = Icons.Outlined.CloudOff,
             title = when {
-                banner.detail != null -> banner.detail
+                banner.problem != null -> apiProblemText(banner.problem)
                 state.overview == null -> stringResource(R.string.offline_no_data)
                 else -> stringResource(R.string.offline_banner, since)
             },
-            body = if (banner.detail != null) lastKnown else null,
+            body = if (banner.problem != null) lastKnown else null,
             bg = Huis.colors.warnContainer,
             fg = Huis.colors.onWarnContainer,
             onRetry = onRetry,
@@ -231,6 +233,11 @@ fun ConnectionBanner(state: HomeState, onRetry: () -> Unit, modifier: Modifier =
         )
     }
 }
+
+/** strings.xml text for a failure the client reported as a code; [status] fills in "Serverfout (…)". */
+@Composable
+fun apiProblemText(problem: ApiProblem, status: Int = 0): String =
+    if (problem.withStatus) stringResource(CoreTexts.of(problem), status) else stringResource(CoreTexts.of(problem))
 
 /** Kept for older call sites. */
 @Composable
@@ -291,7 +298,10 @@ fun CommandStatusText(line: CommandLine?, modifier: Modifier = Modifier) {
     if (line == null) return
     val text = when (line) {
         CommandLine.Sending -> stringResource(R.string.command_sending)
-        is CommandLine.Tracked -> line.text
+        is CommandLine.Tracked -> {
+            val label = stringResource(CoreTexts.of(line.label))
+            if (line.reason == null) label else stringResource(R.string.command_with_reason, label, line.reason)
+        }
         is CommandLine.Elsewhere -> stringResource(if (line.sent) R.string.command_elsewhere_sent else R.string.command_elsewhere)
     }
     val tone = (line as? CommandLine.Tracked)?.tone ?: Tone.MUTED

@@ -438,8 +438,12 @@ export const api = {
   pauseExperiment: (id: string) => post<T.Experiment>(`/experiments/${id}/pause`),
   /** 409 while the zone is manual/off. */
   resumeExperiment: (id: string) => post<T.Experiment>(`/experiments/${id}/resume`),
-  stopExperiment: (id: string) => post<T.Experiment>(`/experiments/${id}/stop`),
-  deleteExperiment: (id: string) => del<void>(`/experiments/${id}`),
+  /** Stop for good. By default (restore) an auto-apply experiment gives the zone back the profile and
+   * schedule it had before; `restore: false` keeps the variant's profile. `zone_restored` says what happened. */
+  stopExperiment: (id: string, opts: { restore?: boolean } = {}) =>
+    post<T.ExperimentStopped>(`/experiments/${id}/stop${opts.restore === false ? '?restore=false' : ''}`),
+  /** Same choice as stopExperiment for the zone; the experiment and its results are removed. */
+  deleteExperiment: (id: string, opts: { restore?: boolean } = {}) => del<void>(`/experiments/${id}${opts.restore === false ? '?restore=false' : ''}`),
 
   /* lights & buttons */
   lights: (homeId: string) => get<T.Lights>(`/homes/${homeId}/lights`),
@@ -516,6 +520,12 @@ export const api = {
   backupDownloadUrl: (id: string) => `${API_BASE}/system/backups/${id}/download`,
   backupSettings: () => get<T.BackupSettings>('/system/backup-settings'),
   putBackupSettings: (b: T.BackupSettingsIn) => put<T.BackupSettings>('/system/backup-settings', b),
+  /** Push outside the app (web session only). */
+  notify: () => get<T.NotifySettings>('/system/notify'),
+  /** 422 validation_error with a Dutch reason for an unusable address; null removes the address set in the app. */
+  putNotify: (url: string | null) => put<T.NotifySettings>('/system/notify', { url } satisfies T.NotifyIn),
+  /** Sends a test message: {ok, error}. 409 not_configured when no address is set. */
+  testNotify: () => post<T.NotifyTestResult>('/system/notify/test'),
   retention: () => get<T.RetentionSettings>('/system/retention'),
   /** 422 with a Dutch message when below the minimum or above the maximum. */
   putRetention: (r: T.RetentionIn) => put<T.RetentionSettings>('/system/retention', r),

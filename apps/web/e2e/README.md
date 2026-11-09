@@ -27,14 +27,14 @@ Rapporten en traces komen in `e2e/.output/` (niet in git). In CI draait de job `
 |---|---|
 | `01-onboarding` | beheerder aanmaken, woning aanmaken (geen doodlopend scherm), thuisadres, eerste stappen installatiewizard |
 | `02-climate` | airco koppelen, weekschema met sjabloon en dag kopiëren, opslaan, volgende wijziging; uitzetten → bediening uit, "Terug naar schema" |
-| `03-energy` | tarief met lege optionele velden, vorige/volgende dag, export (CSV en JSON) |
+| `03-energy` | tarief met lege optionele velden, vorige/volgende dag (periodetabs met tabpaneel), export (CSV en JSON) |
 | `04-buttons` | Hue-knop met bridge-regel en twee koppelingen op één druk: conflict, simuleren, koppeling verwijderen |
 | `05-meter-roles` | P1-meter rol geven, rol verplaatsen met bevestiging, loskoppelen |
-| `06-backup` | automatische back-up instellen, nu back-up maken, downloaden, controleren via upload |
-| `07-notifications` | melding verschijnt live (WebSocket), "Gezien", verdwijnt na oplossen |
+| `06-backup` | automatische back-up instellen (ook dagelijks dump + wekelijks volledig), nu back-up maken, downloaden, controleren via upload; push-adres voor meldingen buiten de app weigeren, instellen, testen en verwijderen |
+| `07-notifications` | melding verschijnt live (WebSocket), "Gezien", verdwijnt na oplossen; waakhondwaarschuwing bij de zone alleen zolang de waakhondmelding open is |
 | `08-offline` | API stoppen → banner na de drempel, bediening uit, laatste gegevens zichtbaar; herstart → herstelt vanzelf |
 | `09-viewer` | kijk-account ziet nergens bediening of beheer; de server weigert een commando |
-| `10-mobile` | 360 px: knoppen minstens 44 × 44 px, geen zijwaartse scroll, uitloggen via "Meer" |
+| `10-mobile` | 360 en 320 px: knoppen minstens 44 × 44 px, thermostaat (−/+ en draaiknop) en kaarten blijven binnen hun kaart/de pagina, geen zijwaartse scroll, uitloggen via "Meer" |
 
 `01-onboarding` draait als eerste (project `onboarding`); de andere tests bouwen voort op die
 beheerder en woning en draaien na elkaar (één stack, en `08-offline` stopt de API).

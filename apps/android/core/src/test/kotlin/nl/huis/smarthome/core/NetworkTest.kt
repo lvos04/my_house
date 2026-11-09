@@ -14,6 +14,7 @@ class NetworkTest {
     private val other = "00000000-1111-2222-3333-444444444444"
     private val lan = "http://192.168.1.20:8088"
     private val remote = "https://huis.voorbeeld.nl"
+    private val client = "0b7e5a3c-9d21-4f6e-8a10-5c2d3e4f5a6b"
 
     @Test
     fun privateHosts() {
@@ -41,6 +42,22 @@ class NetworkTest {
     }
 
     @Test
+    fun addressProblemsAreCodesTheAppTranslates() {
+        // The app maps these to strings.xml; the string functions keep the same Dutch text.
+        assertEquals(AddressProblem.LAN_INVALID, ServerUrls.lanIssue("geen adres"))
+        assertTrue(ServerUrls.lanIssue("ftp://192.168.1.20") != null)
+        assertEquals(AddressProblem.LAN_NOT_HOME, ServerUrls.lanIssue("http://huis.voorbeeld.nl"))
+        assertNull(ServerUrls.lanIssue("http://192.168.1.20:8088"))
+        assertEquals(AddressProblem.REMOTE_INVALID, ServerUrls.remoteIssue("geen adres"))
+        assertEquals(AddressProblem.REMOTE_NOT_HTTPS, ServerUrls.remoteIssue("http://huis.voorbeeld.nl"))
+        assertEquals(AddressProblem.REMOTE_IS_HOME, ServerUrls.remoteIssue("https://192.168.1.20"))
+        assertEquals(AddressProblem.REMOTE_IS_HOME, ServerUrls.remoteIssue("https://localhost"))
+        assertNull(ServerUrls.remoteIssue("https://huis.voorbeeld.nl"))
+        assertEquals(AddressProblem.LAN_NOT_HOME.dutch, ServerUrls.lanProblem("http://huis.voorbeeld.nl"))
+        assertEquals(AddressProblem.REMOTE_NOT_HTTPS.dutch, ServerUrls.remoteProblem("http://huis.voorbeeld.nl"))
+    }
+
+    @Test
     fun identityRule() {
         assertEquals(IdentityVerdict.MATCH, ServerIdentityCheck.verify(sid, sid.uppercase()))
         assertEquals(IdentityVerdict.MISMATCH, ServerIdentityCheck.verify(sid, other))
@@ -50,9 +67,101 @@ class NetworkTest {
     }
 
     @Test
+    fun routeRuleNeedsTheChallengeAtHome() {
+        // Home address: only a valid proof counts; the server id alone is public.
+        assertEquals(IdentityVerdict.MATCH, ServerIdentityCheck.verifyRoute(sid, sid, ProofState.VALID, RouteKind.LAN))
+        assertEquals(IdentityVerdict.UNPROVEN, ServerIdentityCheck.verifyRoute(sid, sid, ProofState.MISSING, RouteKind.LAN))
+        assertEquals(IdentityVerdict.NO_CHALLENGE, ServerIdentityCheck.verifyRoute(sid, sid, ProofState.NOT_ASKED, RouteKind.LAN))
+        assertEquals(IdentityVerdict.MISMATCH, ServerIdentityCheck.verifyRoute(sid, sid, ProofState.INVALID, RouteKind.LAN))
+        // A valid-looking proof never rescues another server id.
+        assertEquals(IdentityVerdict.MISMATCH, ServerIdentityCheck.verifyRoute(sid, other, ProofState.VALID, RouteKind.LAN))
+        // Tunnel (https): a matching id is enough without a proof, but never with a wrong one.
+        assertEquals(IdentityVerdict.MATCH, ServerIdentityCheck.verifyRoute(sid, sid, ProofState.MISSING, RouteKind.REMOTE))
+        assertEquals(IdentityVerdict.MATCH, ServerIdentityCheck.verifyRoute(sid, sid, ProofState.NOT_ASKED, RouteKind.REMOTE))
+        assertEquals(IdentityVerdict.MISMATCH, ServerIdentityCheck.verifyRoute(sid, sid, ProofState.INVALID, RouteKind.REMOTE))
+        assertEquals(IdentityVerdict.UNKNOWN_EXPECTED, ServerIdentityCheck.verifyRoute(null, sid, ProofState.NOT_ASKED, RouteKind.REMOTE))
+    }
+
+    @Test
+    fun proofMatchesTheServerAlgorithm() {
+        // Same vector as hmac.new(sha256(token).hexdigest().encode(), "shc-identity-v1\n{sid}\n{nonce}") in Python.
+        val nonce = "AbCdEfGhIjKlMnOpQrStUv_-0123456789"
+        assertEquals(
+            "9bf181ff48257b7d9eef741707d2e2d3d1da7b87ccaede618c80198e437a3162",
+            IdentityProof.expected("shc_test_token_123", sid, nonce),
+        )
+        val ch = IdentityChallenge.of(nonce, client)
+        assertEquals("nonce=$nonce&client_id=$client", ch.query)
+        val good = IdentityProof.expected("shc_test_token_123", sid, nonce)
+        assertEquals(ProofState.VALID, IdentityProof.check(ch, "shc_test_token_123", ServerIdentity(sid, proof = good, proofAlg = IdentityProof.ALG)))
+        assertEquals(ProofState.VALID, IdentityProof.check(ch, "shc_test_token_123", ServerIdentity(sid, proof = good.uppercase())))
+        // Another token (another phone, or an impostor guessing) gives another proof.
+        assertEquals(ProofState.INVALID, IdentityProof.check(ch, "shc_other", ServerIdentity(sid, proof = good)))
+        // A proof for another nonce (a replayed answer) does not count.
+        val replay = IdentityProof.expected("shc_test_token_123", sid, "an_old_nonce_0123456789")
+        assertEquals(ProofState.INVALID, IdentityProof.check(ch, "shc_test_token_123", ServerIdentity(sid, proof = replay)))
+        assertEquals(ProofState.MISSING, IdentityProof.check(ch, "shc_test_token_123", ServerIdentity(sid)))
+        assertEquals(ProofState.MISSING, IdentityProof.check(ch, "shc_test_token_123", ServerIdentity(sid, proof = good, proofAlg = "hmac-sha512-v9")))
+        assertEquals(ProofState.NOT_ASKED, IdentityProof.check(null, "shc_test_token_123", ServerIdentity(sid, proof = good)))
+        assertEquals(ProofState.NOT_ASKED, IdentityProof.check(ch, null, ServerIdentity(sid, proof = good)))
+    }
+
+    @Test
+    fun challengesAreFreshAndUrlSafe() {
+        assertNull(IdentityChallenge.create(null))
+        assertNull(IdentityChallenge.create(""))
+        assertNull(IdentityChallenge.create("c1&x=1"))
+        val a = IdentityChallenge.create(client.uppercase())!!
+        val b = IdentityChallenge.create(client)!!
+        assertEquals(client, a.clientId)
+        assertTrue(a.nonce, Regex("^[A-Za-z0-9_-]{43}$").matches(a.nonce))
+        assertTrue(a.nonce != b.nonce)
+    }
+
+    @Test
+    fun homeAddressWithoutProofNeverGetsTheToken() = runTest {
+        // Something on the home address knows the (public) server id but not the proof: use the tunnel.
+        val viaTunnel = RouteSelector.select(lan, remote, sid) { _, k ->
+            if (k == RouteKind.LAN) Probe.Answered(sid, ProofState.MISSING) else Probe.Answered(sid, ProofState.MISSING)
+        }
+        assertEquals(RouteKind.REMOTE, viaTunnel.route?.kind)
+
+        // No tunnel: no route, reported as "Dit is niet jouw server".
+        val stuck = RouteSelector.select(lan, null, sid) { _, _ -> Probe.Answered(sid, ProofState.MISSING) }
+        assertNull(stuck.route)
+        assertTrue(stuck.wrongServer)
+        val wrongProof = RouteSelector.select(lan, remote, sid) { _, k ->
+            if (k == RouteKind.LAN) Probe.Answered(sid, ProofState.INVALID) else Probe.Unreachable
+        }
+        assertNull(wrongProof.route)
+        assertTrue(wrongProof.wrongServer)
+    }
+
+    @Test
+    fun pairingWithoutClientIdUsesTheTunnelUntilItLearnsIt() = runTest {
+        val probed = mutableListOf<RouteKind>()
+        val choice = RouteSelector.select(lan, remote, sid) { _, k -> probed += k; Probe.Answered(sid, ProofState.NOT_ASKED) }
+        assertEquals(RouteKind.REMOTE, choice.route?.kind)
+        assertEquals(listOf(RouteKind.LAN, RouteKind.REMOTE), probed)
+
+        // Tunnel down for a moment: offline, not "pair again".
+        val waiting = RouteSelector.select(lan, remote, sid) { _, k ->
+            if (k == RouteKind.LAN) Probe.Answered(sid, ProofState.NOT_ASKED) else Probe.Unreachable
+        }
+        assertNull(waiting.route)
+        assertFalse(waiting.unverifiable)
+        assertFalse(waiting.wrongServer)
+
+        // Home address only: it can never learn the client id, so the phone must pair again.
+        val lanOnly = RouteSelector.select(lan, null, sid) { _, _ -> Probe.Answered(sid, ProofState.NOT_ASKED) }
+        assertNull(lanOnly.route)
+        assertTrue(lanOnly.unverifiable)
+    }
+
+    @Test
     fun picksLanFirstThenRemoteWithIdentity() = runTest {
         val probed = mutableListOf<RouteKind>()
-        val viaLan = RouteSelector.select(lan, remote, sid) { _, k -> probed += k; Probe.Answered(sid) }
+        val viaLan = RouteSelector.select(lan, remote, sid) { _, k -> probed += k; Probe.Answered(sid, ProofState.VALID) }
         assertEquals(Route(RouteKind.LAN, lan, sid), viaLan.route)
         assertEquals(listOf(RouteKind.LAN), probed)
 
@@ -107,10 +216,22 @@ class NetworkTest {
 
     @Test
     fun cloudflareAccessBlockIsReported() = runTest {
-        val choice = RouteSelector.select(null, remote, sid) { _, _ -> Probe.Blocked("Cloudflare Access laat de app niet door.") }
+        val choice = RouteSelector.select(null, remote, sid) { _, _ -> Probe.Blocked(ApiProblem.CF_ACCESS_LOGIN) }
         assertNull(choice.route)
-        assertEquals("Cloudflare Access laat de app niet door.", choice.blockedReason)
+        // A code for the app's strings.xml text; the Dutch text stays available for JVM callers.
+        assertEquals(ApiProblem.CF_ACCESS_LOGIN, choice.blocked)
+        assertEquals(ApiProblem.CF_ACCESS_LOGIN.dutch, choice.blockedReason)
+        assertEquals(ApiProblem.CF_ACCESS_LOGIN.dutch, NoRouteException(choice).message)
         assertFalse(choice.wrongServer)
+    }
+
+    @Test
+    fun blockedProbesCarryTheProblemCode() {
+        val login = ApiClient.parseError(302, "", "https://team.cloudflareaccess.com/cdn-cgi/access/login")
+        assertEquals(Probe.Blocked(ApiProblem.CF_ACCESS_LOGIN), Probe.fromFailure(login))
+        val forbidden = ApiClient.parseError(403, "<html>Forbidden</html>")
+        assertEquals(Probe.Blocked(ApiProblem.CF_FORBIDDEN), Probe.fromFailure(forbidden))
+        assertEquals(ApiProblem.CF_FORBIDDEN.dutch, (Probe.fromFailure(forbidden) as Probe.Blocked).reason)
     }
 
     @Test
@@ -129,7 +250,7 @@ class NetworkTest {
         var probes = 0
         val rm = RouteManager({ RouteManager.RouteTarget(lan, remote, sid) }) { _, k ->
             probes++
-            if (k == RouteKind.LAN && !lanUp) Probe.Unreachable else Probe.Answered(sid)
+            if (k == RouteKind.LAN && !lanUp) Probe.Unreachable else Probe.Answered(sid, ProofState.VALID)
         }
         assertEquals(RouteKind.LAN, rm.choose().route?.kind)
         assertEquals(RouteKind.LAN, rm.choose().route?.kind)
@@ -169,7 +290,7 @@ class NetworkTest {
         lateinit var rm: RouteManager
         rm = RouteManager({ RouteManager.RouteTarget(lan, null, sid) }) { _, _ ->
             rm.forget() // network changed while we were asking
-            Probe.Answered(sid)
+            Probe.Answered(sid, ProofState.VALID)
         }
         assertEquals(RouteKind.LAN, rm.choose().route?.kind) // used once
         assertNull(rm.route) // but not kept
@@ -258,6 +379,22 @@ class NetworkTest {
         assertEquals(ConnectionStatus.STARTING, ConnectionStatus.from(FailureKind.STARTING))
         assertNull(ConnectionStatus.from(FailureKind.APP_ERROR))
         assertNull(ConnectionText.banner(ConnectionStatus.ONLINE))
+    }
+
+    @Test
+    fun connectionChangesAreCodesTheAppTranslates() {
+        assertEquals(ConnectionChange.LOST, ConnectionText.change(ConnectionStatus.ONLINE, ConnectionStatus.OFFLINE))
+        assertEquals(ConnectionChange.RESTARTING, ConnectionText.change(ConnectionStatus.ONLINE, ConnectionStatus.STARTING))
+        assertEquals(ConnectionChange.WRONG_SERVER, ConnectionText.change(ConnectionStatus.CONNECTING, ConnectionStatus.WRONG_SERVER))
+        assertEquals(ConnectionChange.RESTORED, ConnectionText.change(ConnectionStatus.STARTING, ConnectionStatus.ONLINE))
+        assertNull(ConnectionText.change(ConnectionStatus.ONLINE, ConnectionStatus.ONLINE))
+        assertNull(ConnectionText.change(ConnectionStatus.CONNECTING, ConnectionStatus.ONLINE))
+        assertNull(ConnectionText.change(ConnectionStatus.ONLINE, ConnectionStatus.UNPAIRED))
+        ConnectionStatus.entries.forEach { old ->
+            ConnectionStatus.entries.forEach { new ->
+                assertEquals(ConnectionText.change(old, new)?.dutch, ConnectionText.transition(old, new))
+            }
+        }
     }
 
     @Test

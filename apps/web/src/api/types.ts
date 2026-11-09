@@ -517,6 +517,14 @@ export interface Experiment {
   paused_reason: string | null;
   created_at?: Ts;
 }
+/** What stopping or deleting an auto-apply experiment did to its zone: "restored" (profile and schedule
+ * from before the experiment are back), "kept" (restore=false: the variant's profile stays), "changed"
+ * (someone put another profile on the zone meanwhile; that stays) or "none" (no variant profile active). */
+export type ZoneRestored = 'restored' | 'kept' | 'changed' | 'none';
+/** POST /experiments/{id}/stop. */
+export interface ExperimentStopped extends Experiment {
+  zone_restored: ZoneRestored;
+}
 export interface ExperimentIn {
   name: string;
   zone_id: Uuid;
@@ -1059,10 +1067,13 @@ export interface AddressesIn {
   remote_url: string | null;
 }
 export type BackupStatus = 'running' | 'ok' | 'failed';
+/** "export": full export (.shcbak, restorable in the app, with Zigbee2MQTT data). "db_dump": encrypted
+ * pg_dump of the database only (.shcdump), restored on the command line (shc-api decrypt-dump + pg_restore). */
+export type BackupKind = 'export' | 'db_dump';
 export interface Backup {
   id: Uuid;
   created_at: Ts;
-  kind: string;
+  kind: BackupKind | (string & {});
   /** true = made by the automatic schedule (only these are pruned). */
   auto: boolean;
   filename: string | null;
@@ -1082,6 +1093,9 @@ export interface BackupIn {
   passphrase: string; // ≥ 12
   include_secrets: boolean;
 }
+/** "daily_full": every day a full export (default). "dump_daily_full_weekly": every day an encrypted
+ * database dump, and once a week (at least every 7 days) the full export. */
+export type BackupSchedule = 'daily_full' | 'dump_daily_full_weekly';
 /** GET/PUT /system/backup-settings (admin). The passphrase is never returned. */
 export interface BackupSettings {
   enabled: boolean;
@@ -1092,7 +1106,13 @@ export interface BackupSettings {
   hour: number;
   keep: number;
   timezone: string;
+  schedule: BackupSchedule;
+  /** What the next automatic backup will be: a full export or a database dump. */
+  next_kind: 'full' | 'dump';
+  /** Last automatic full export. */
   last_auto_backup: Ts | null;
+  /** Last automatic database dump (only with schedule dump_daily_full_weekly). */
+  last_auto_dump: Ts | null;
   next_due_at: Ts | null;
   due_now: boolean;
   last_error: string | null;
@@ -1105,8 +1125,32 @@ export interface BackupSettingsIn {
   passphrase?: string;
   clear_passphrase?: boolean;
   hour?: number; // 0..23, home time zone
-  keep?: number; // 1..365
+  keep?: number; // 1..365, per kind (exports and dumps are pruned separately)
   enabled?: boolean;
+  schedule?: BackupSchedule;
+}
+/** GET/PUT /system/notify (web admin): push message outside the app (e.g. ntfy) when the worker or the
+ * backups stop. The address itself is a secret and never returned, only scheme and host. */
+export interface NotifySettings {
+  configured: boolean;
+  /** "app" = set on this page (stored encrypted), "env" = SHC_NOTIFY_URL on the server, null = not set. */
+  source: 'app' | 'env' | null;
+  /** e.g. "https://ntfy.sh/…". */
+  url_hint: string | null;
+  /** Dutch explanation when the address stored in the app cannot be decrypted with this server's
+   * master key (restore on a new NAS, key change): it is not used and must be set again; else null. */
+  error?: string | null;
+  /** What triggers a message (Dutch). */
+  events?: string[];
+}
+/** null (or empty) removes the address set in the app; then SHC_NOTIFY_URL applies, if set. */
+export interface NotifyIn {
+  url: string | null;
+}
+/** POST /system/notify/test. */
+export interface NotifyTestResult {
+  ok: boolean;
+  error: string | null;
 }
 export type RetentionField = 'power_days' | 'counter_days' | 'log_days';
 /** GET/PUT /system/retention (admin): days raw data is kept. Hourly energy/gas totals are kept forever. */
@@ -1167,7 +1211,9 @@ export interface RestoreReport {
   migrated: boolean;
   counts: Record<string, number>;
   total_records: number;
-  dropped: { tables: Record<string, number>; columns: Record<string, unknown>; rows_removed_by_migration: Record<string, number> };
+  /** What could not be taken over: records per table that no longer exists, column names per table, and
+   * records per table that the database update (migration) removed. */
+  dropped: { tables: Record<string, number>; columns: Record<string, string[]>; rows_removed_by_migration: Record<string, number> };
   mode: RestoreMode;
   new_home_id: Uuid | null;
   archived_homes: Uuid[];

@@ -56,11 +56,15 @@ async def group_command(group_id: uuid.UUID, body: GroupCommand, db: DB, p: Cont
             if not scene or scene.kind != "scene" or scene.home_id != g.home_id:
                 raise not_found("Scène")
             cmd = await queue_command(db, g.home_id, scene, "recall_scene", {}, "user", p.actor)
+            await audit(
+                db, p.actor, "light_command", g.name, device=str(g.id), command="recall_scene", scene=scene.name
+            )
         else:
             params = {k: v for k, v in {"on": body.on, "brightness": body.brightness}.items() if v is not None}
             if not params:
                 raise api_error(422, "validation_error", "Geen wijziging opgegeven.")
             cmd = await queue_command(db, g.home_id, g, "set_group", params, "user", p.actor)
+            await audit(db, p.actor, "light_command", g.name, device=str(g.id), command="set_group", **params)
     except PolicyDenied as e:
         raise api_error(409, "policy_denied", e.message) from e
     await db.commit()

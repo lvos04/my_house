@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type UploadProgress } from '../../api/client';
 import { qk } from '../../api/keys';
-import type { CompareStatus, RestoreCompare, RestoreJob, RestoreMode, RestoreVerify } from '../../api/types';
+import type { CompareStatus, RestoreCompare, RestoreJob, RestoreMode, RestoreReport, RestoreVerify } from '../../api/types';
 import { ActionButton, ErrorNote, Loading, ProgressBar, yesNo } from '../../components/bits';
 import { ago, bytes, dateTime } from '../../format';
 import { COMPARE_STATUS_LABEL, KIND_LABEL, PROVIDER_LABEL, RESTORE_MODE_LABEL, SCHEMA_RELATION_LABEL, t } from '../../i18n';
@@ -161,11 +161,28 @@ function ChooseStep({ v, passphrase, onStarted, onCancel }: { v: RestoreVerify; 
 
 /* ---------- step 3: running / done ---------- */
 
+/** What a restore could not (fully) take over, one line per table, as the CLI prints it (item 34):
+ * tables this version no longer has, columns per table, and records the database update cleaned up. */
+export function droppedLines(dropped: RestoreReport['dropped'] | null | undefined): string[] {
+  const records = (n: number) => `${n.toLocaleString('nl-NL')} ${n === 1 ? 'record' : 'records'}`;
+  const lines: string[] = [];
+  for (const [table, n] of Object.entries(dropped?.tables ?? {})) {
+    lines.push(`tabel ${table}: ${records(n)} (bestaat niet in deze versie)`);
+  }
+  for (const [table, cols] of Object.entries(dropped?.columns ?? {})) {
+    const names = Array.isArray(cols) ? cols.map(String) : [];
+    lines.push(`${table}: ${names.length === 1 ? 'kolom' : 'kolommen'} ${names.join(', ') || '?'} (${names.length === 1 ? 'bestaat' : 'bestaan'} niet in deze versie)`);
+  }
+  for (const [table, n] of Object.entries(dropped?.rows_removed_by_migration ?? {})) {
+    lines.push(`${table}: ${records(n)} opgeruimd door de database-update`);
+  }
+  return lines;
+}
+
 function ReportSummary({ job }: { job: RestoreJob }) {
   const r = job.report;
   if (!r) return null;
-  const droppedTables = Object.keys(r.dropped?.tables ?? {});
-  const droppedCols = Object.keys(r.dropped?.columns ?? {});
+  const lost = droppedLines(r.dropped);
   return (
     <dl className="facts">
       <div><dt>Records teruggezet</dt><dd>{r.total_records.toLocaleString('nl-NL')}</dd></div>
@@ -173,8 +190,15 @@ function ReportSummary({ job }: { job: RestoreJob }) {
       <div><dt>Keuze</dt><dd>{t(RESTORE_MODE_LABEL, r.mode)}</dd></div>
       <div><dt>Zigbee2MQTT-gegevens</dt><dd>{yesNo(r.zigbee2mqtt_included)}</dd></div>
       {r.archived_homes.length > 0 && <div><dt>Gearchiveerde woningen</dt><dd>{r.archived_homes.length}</dd></div>}
-      {(droppedTables.length > 0 || droppedCols.length > 0) && (
-        <div><dt>Weggevallen bij bijwerken</dt><dd>{[...droppedTables, ...droppedCols].join(', ')}</dd></div>
+      {lost.length > 0 && (
+        <div style={{ gridColumn: '1 / -1' }}>
+          <dt>Niet (volledig) overgenomen</dt>
+          <dd>
+            <ul className="plain-list" style={{ display: 'flex', flexDirection: 'column', gap: 4, fontWeight: 500 }}>
+              {lost.map((l) => <li key={l}>{l}</li>)}
+            </ul>
+          </dd>
+        </div>
       )}
     </dl>
   );

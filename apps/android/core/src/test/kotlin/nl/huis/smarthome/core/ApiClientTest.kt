@@ -77,6 +77,7 @@ class ApiClientTest {
             fail("expected exception")
         } catch (e: ApiException) {
             assertEquals("unverified_route", e.code)
+            assertEquals(ApiProblem.UNVERIFIED_ROUTE, e.problem)
         }
         assertEquals(0, server.requestCount)
     }
@@ -89,6 +90,7 @@ class ApiClientTest {
             fail("expected exception")
         } catch (e: ApiException) {
             assertEquals("cleartext_refused", e.code)
+            assertEquals(ApiProblem.CLEARTEXT_REFUSED, e.problem)
         }
     }
 
@@ -108,6 +110,28 @@ class ApiClientTest {
         val r2 = server.takeRequest()
         assertNull(r2.getHeader("Authorization"))
         assertEquals("id.access", r2.getHeader("CF-Access-Client-Id"))
+    }
+
+    @Test
+    fun identityChallengeSendsNonceAndClientIdButNoToken() = runTest {
+        val ch = IdentityChallenge.of("AbCdEfGhIjKlMnOpQrStUv_-0123456789", "0b7e5a3c-9d21-4f6e-8a10-5c2d3e4f5a6b")
+        val proof = IdentityProof.expected("shc_abc", SID, ch.nonce)
+        server.enqueue(MockResponse().setBody("""{"server_id":"$SID","name":"Thuis","proof":"$proof","proof_alg":"hmac-sha256-v1"}"""))
+        val id = api.identity(base, RouteKind.LAN, challenge = ch)
+        assertEquals(ProofState.VALID, IdentityProof.check(ch, creds.token, id))
+        val req = server.takeRequest()
+        assertEquals("/api/v1/pairing/identity?nonce=${ch.nonce}&client_id=${ch.clientId}", req.path)
+        assertNull(req.getHeader("Authorization"))
+    }
+
+    @Test
+    fun scheduleIsReadWithTheToken() = runTest {
+        server.enqueue(MockResponse().setBody("""{"blocks":[{"days":[0,1,2,3,4],"start":"07:00","target_c":21.0,"mode":"heat","label":"Ochtend"}],"profile_id":null,"profile":null}"""))
+        val s = api.schedule(lan, "z1")
+        assertEquals("07:00", s.blocks.single().start)
+        val req = server.takeRequest()
+        assertEquals("/api/v1/zones/z1/schedule", req.path)
+        assertEquals("Bearer shc_abc", req.getHeader("Authorization"))
     }
 
     @Test
@@ -151,6 +175,7 @@ class ApiClientTest {
             fail("expected exception")
         } catch (e: ApiException) {
             assertEquals("not_api", e.code)
+            assertEquals(ApiProblem.NOT_API, e.problem)
             assertTrue(e.routeProblem)
             assertEquals(FailureKind.SERVER_DOWN, Failures.classify(e))
         }
@@ -164,6 +189,7 @@ class ApiClientTest {
             fail("expected exception")
         } catch (e: ApiException) {
             assertEquals("cf_access_login", e.code)
+            assertEquals(ApiProblem.CF_ACCESS_LOGIN, e.problem)
             assertTrue(e.routeProblem)
             assertTrue(Probe.fromFailure(e) is Probe.Blocked)
         }
@@ -203,7 +229,45 @@ class ApiClientTest {
             assertEquals(409, e.status)
             assertEquals("policy_denied", e.code)
             assertEquals("Koelen kan niet terwijl een andere unit verwarmt.", e.message)
+            // The server's own text: no client code, the app shows the message as is.
+            assertNull(e.problem)
         }
+    }
+
+    @Test
+    fun clientTextsAreReportedAsCodes() {
+        // Texts the client builds itself carry a code for the app's strings.xml (verbeterlijst,
+        // kleine punten "Toegankelijkheid Android"); [message] keeps the same Dutch text.
+        val cases = listOf(
+            ApiClient.parseError(530, "<html>error code: 1033</html>") to ApiProblem.TUNNEL_UNAVAILABLE,
+            ApiClient.parseError(502, "<html>Bad gateway</html>") to ApiProblem.SERVER_UNAVAILABLE,
+            ApiClient.parseError(302, "", "https://team.cloudflareaccess.com/cdn-cgi/access/login") to ApiProblem.CF_ACCESS_LOGIN,
+            ApiClient.parseError(302, "", "http://wifi.login/portal") to ApiProblem.REDIRECT,
+            ApiClient.parseError(403, "<html>Forbidden</html>") to ApiProblem.CF_FORBIDDEN,
+            ApiClient.parseError(401, "") to ApiProblem.REPAIR_NEEDED,
+            ApiClient.parseError(404, "") to ApiProblem.NOT_FOUND,
+            ApiClient.parseError(409, "") to ApiProblem.CONFLICT,
+            ApiClient.parseError(413, "") to ApiProblem.TOO_LARGE,
+            ApiClient.parseError(429, "") to ApiProblem.TOO_MANY_REQUESTS,
+            ApiClient.parseError(418, "") to ApiProblem.SERVER_ERROR,
+        )
+        for ((e, problem) in cases) {
+            assertEquals(problem, e.problem)
+            assertEquals(problem.dutch(e.status), e.message)
+            assertFalse(e.fromApi)
+        }
+        assertEquals("Serverfout (418).", ApiClient.parseError(418, "").message)
+        // The API's own error without a usable message: the client's text, still from the API.
+        val empty = ApiClient.parseError(403, """{"detail":{"code":"forbidden","message":""}}""")
+        assertEquals(ApiProblem.NO_RIGHTS, empty.problem)
+        assertEquals("forbidden", empty.code)
+        assertTrue(empty.fromApi)
+        assertEquals(ApiProblem.CONFLICT, ApiClient.parseError(409, """{"detail":""}""").problem)
+        // With a message from the server there is no code.
+        assertNull(ApiClient.parseError(404, """{"detail":"Zone niet gevonden."}""").problem)
+        assertNull(ApiClient.parseError(409, """{"detail":{"code":"mode_required","message":"Kies eerst een modus."}}""").problem)
+        // Every code has a distinct text.
+        assertEquals(ApiProblem.entries.size, ApiProblem.entries.map { it.dutch }.toSet().size)
     }
 
     @Test

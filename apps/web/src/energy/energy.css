@@ -9,6 +9,9 @@
 .en-date input { min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--input-border); background: var(--surface); }
 .en-date input:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
 .en-relative { margin-left: 8px; }
+/* The chosen period's figures (tab panel of the period switch); same spacing as the page itself. */
+.en-panel { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+.en-panel:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; border-radius: 8px; }
 
 /* Meter cards */
 .en-meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: 12px; }

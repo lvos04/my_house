@@ -1,0 +1,13 @@
+# Runtime dependencies of shc-api and shc-integrations, locked with hashes in requirements.txt
+# (verbeterlijst 41). The two packages themselves are installed from source with --no-deps.
+# The paths are relative to this directory (apps/api), where uv and Dependabot compile the lock.
+#
+# Regenerate after changing a dependency in apps/api/pyproject.toml or integrations/pyproject.toml
+# (run from apps/api; Dependabot runs the same command from the header of requirements.txt):
+#   uv pip compile requirements.in --universal --python-version 3.12 --generate-hashes \
+#     --no-emit-package shc-api --no-emit-package shc-integrations -o requirements.txt
+# Install (Docker image, CI; from the repository root):
+#   pip install --require-hashes -r apps/api/requirements.txt
+#   pip install --no-deps ./integrations ./apps/api
+.
+../../integrations

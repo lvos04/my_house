@@ -50,13 +50,28 @@ def _box():
     return SecretBox(get_settings().resolved_secret_key())
 
 
+class SecretSettingError(ValueError):
+    """An encrypted setting cannot be read with the current master key (or is damaged)."""
+
+
 async def get_secret_setting(db: AsyncSession, key: str, default: Any = None) -> Any:
-    """Read a setting stored encrypted with the master key (SecretBox). Raises ValueError when the
-    stored value cannot be decrypted with the current key (e.g. after a key change without rekey)."""
+    """Read a setting stored encrypted with the master key (SecretBox). Raises ValueError
+    (``SecretSettingError``) when the stored value cannot be decrypted with the current key, e.g. after
+    a restore on a new NAS or a key change without ``shc-api rekey``, or when it is damaged.
+
+    AES-GCM reports a wrong key as ``cryptography.exceptions.InvalidTag``, which is no ValueError;
+    every caller handles ValueError only, so all decrypt failures are turned into one here."""
     raw = await get_setting(db, key)
     if not raw:
         return default
-    return _box().decrypt(base64.b64decode(raw)).get("v", default)
+    box = _box()  # a missing master key stays a configuration error (RuntimeError)
+    try:
+        data = box.decrypt(base64.b64decode(raw, validate=True))
+    except Exception as exc:  # InvalidTag (other key), binascii/JSON errors, unknown format
+        raise SecretSettingError(f"Instelling {key} is niet te ontsleutelen met de huidige hoofdsleutel") from exc
+    if not isinstance(data, dict):
+        raise SecretSettingError(f"Instelling {key} heeft een onbekend formaat")
+    return data.get("v", default)
 
 
 async def set_secret_setting(db: AsyncSession, key: str, value: Any) -> None:
@@ -68,7 +83,7 @@ async def set_secret_setting(db: AsyncSession, key: str, value: Any) -> None:
 
 
 # Settings whose value is SecretBox-encrypted (re-encrypted by `shc-api rekey`).
-SECRET_SETTINGS = ("backup_passphrase_enc",)
+SECRET_SETTINGS = ("backup_passphrase_enc", "notify_url_enc")
 
 
 async def audit(db: AsyncSession, actor: str, action: str, target: str | None = None, **detail: Any) -> None:

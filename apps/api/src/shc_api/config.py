@@ -87,6 +87,13 @@ class Settings(BaseSettings):
     # Extra device addresses pairing accepts although they are not on the home network (comma-separated
     # host names or IPs, e.g. for a test setup). Empty: only private IPs and LAN names.
     pairing_allowed_hosts: str = ""
+    # First two octets of the stack's own Docker networks (compose.yaml: edge .250.0/29, app .251.0/28,
+    # data .252.0/27). Unset: taken from SHC_FORWARDED_ALLOW_IPS (<prefix>.251.2), else 172.30.
+    net_prefix: str | None = None
+
+    # Optional push address outside the app (ntfy topic URL or another webhook) for "worker stopped"
+    # and "backups stopped"; the value set in the app (Systeem) wins. Verbeterlijst 28.
+    notify_url: str | None = None
 
     log_level: str = "INFO"
 
@@ -112,6 +119,24 @@ class Settings(BaseSettings):
 
     def pairing_allowed_host_set(self) -> set[str]:
         return {h.strip().lower() for h in self.pairing_allowed_hosts.split(",") if h.strip()}
+
+    def stack_networks(self) -> list:
+        """The stack's own Docker subnets (database, MQTT, nginx, tunnel live there): never a device."""
+        import ipaddress
+        import re
+
+        prefix = (self.net_prefix or "").strip()
+        if not re.fullmatch(r"\d{1,3}\.\d{1,3}", prefix):
+            first = self.forwarded_allow_ips.split(",")[0].strip()
+            m = re.fullmatch(r"(\d{1,3}\.\d{1,3})\.251\.2", first)
+            prefix = m.group(1) if m else "172.30"
+        nets = []
+        for suffix in ("250.0/29", "251.0/28", "252.0/27"):
+            try:
+                nets.append(ipaddress.ip_network(f"{prefix}.{suffix}"))
+            except ValueError:
+                continue
+        return nets
 
     def model_post_init(self, _ctx) -> None:
         if self.database_password_file and self.database_password_file.exists():

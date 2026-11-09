@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { Backup, BackupSettings, RetentionSettings, SystemStatus } from '../api/types';
+import type { Backup, BackupSettings, NotifySettings, RetentionSettings, SystemStatus } from '../api/types';
 import { SystemPage } from '../pages/System';
 import { InstallPage, INSTALL_KEY } from '../pages/Install';
 import { HelpPage } from '../pages/Help';
@@ -28,6 +28,7 @@ const status: SystemStatus = {
 };
 const settings: BackupSettings = {
   enabled: false, wanted: false, passphrase_set: false, passphrase_source: null, passphrase_error: null, hour: 3, keep: 14, timezone: 'Europe/Amsterdam',
+  schedule: 'daily_full', next_kind: 'full', last_auto_dump: null,
   last_auto_backup: null, next_due_at: null, due_now: false, last_error: null, failures: 0, retry_after: null, last_backup: null, zigbee2mqtt_in_last_backup: null,
 };
 const backup = (over: Partial<Backup>): Backup => ({
@@ -96,11 +97,178 @@ describe('Systeem (items 22/28/32/34)', () => {
     await waitFor(() => expect(calls.find((c) => c.method === 'PUT' && c.url.endsWith('/system/retention'))?.body).toEqual({ power_days: 60 }));
   });
 
+  it('offers a daily database dump with a weekly full export, and marks dumps in the list (item 32)', async () => {
+    const dumpSettings: BackupSettings = {
+      ...settings, enabled: true, passphrase_set: true, passphrase_source: 'app', schedule: 'dump_daily_full_weekly', next_kind: 'dump',
+      last_auto_backup: '2026-11-05T03:00:00Z', last_auto_dump: '2026-11-08T03:00:00Z', next_due_at: '2026-11-09T03:00:00Z',
+    };
+    let current: BackupSettings = { ...settings, enabled: true, passphrase_set: true, passphrase_source: 'app', last_auto_backup: '2026-11-08T03:00:00Z' };
+    const calls = mockApi((m, url, body) => {
+      if (url.endsWith('/system/backup-settings') && m === 'GET') return { body: current };
+      if (url.endsWith('/system/backup-settings') && m === 'PUT') {
+        current = (body as { schedule?: string }).schedule === 'dump_daily_full_weekly' ? dumpSettings : current;
+        return { body: current };
+      }
+      if (url.endsWith('/system/backups'))
+        return {
+          body: [
+            backup({ id: 'd1', kind: 'db_dump', filename: 'shc-auto-dump-20261108.shcdump', secrets_included: true, zigbee2mqtt_included: null }),
+            backup({ id: 'e1', filename: 'shc-auto-20261105.shcbak' }),
+          ],
+        };
+      return systemRoutes(m, url, body);
+    });
+    render(<Providers route="/systeem"><SystemPage /></Providers>);
+    const user = userEvent.setup();
+    const form = await screen.findByRole('form', { name: 'Instellingen automatische back-ups' });
+    expect(screen.getByText('Elke dag een volledige export', { selector: 'dd' })).toBeInTheDocument();
+    expect(screen.queryByText('Laatste automatische dump')).not.toBeInTheDocument();
+
+    await user.selectOptions(within(form).getByLabelText('Wat maken'), 'dump_daily_full_weekly');
+    expect(within(form).getByLabelText('Aantal bewaren (per soort)')).toHaveValue(14);
+    await user.click(within(form).getByRole('button', { name: 'Opslaan' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'PUT' && c.url.endsWith('/backup-settings'))?.body).toEqual({ schedule: 'dump_daily_full_weekly' }));
+
+    const facts = (term: string) => screen.getByText(term, { selector: 'dt' }).nextElementSibling;
+    await waitFor(() => expect(facts('Wat')).toHaveTextContent('Elke dag een database-dump, elke week een volledige export'));
+    expect(facts('Volgende')).toHaveTextContent(/· database-dump$/);
+    expect(facts('Laatste automatische export')).not.toHaveTextContent('nog geen');
+    expect(facts('Laatste automatische dump')).not.toHaveTextContent('nog geen');
+    expect(facts('Bewaard')).toHaveTextContent('14 automatische exports en 14 dumps');
+    expect(facts('Zigbee in laatste export')).toBeInTheDocument();
+
+    // the list tells a database dump apart from a full export
+    const dump = (await screen.findByText('shc-auto-dump-20261108.shcdump')).closest('tr')!;
+    expect(within(dump).getByText('Database-dump')).toBeInTheDocument();
+    expect(within(dump).getByText('alleen de database')).toBeInTheDocument();
+    expect(within(dump).getByRole('link', { name: /^Database-dump van .+ downloaden$/ })).toHaveAttribute('href', '/api/v1/system/backups/d1/download');
+    const full = screen.getByText('shc-auto-20261105.shcbak').closest('tr')!;
+    expect(within(full).getByText('Volledige export')).toBeInTheDocument();
+    expect(within(full).getByText(/Zigbee ja/)).toBeInTheDocument();
+    expect(within(full).getByRole('link', { name: /^Back-up van .+ downloaden$/ })).toBeInTheDocument();
+  });
+
+  it('sets, tests and removes the push address for messages outside the app (item 28)', async () => {
+    let notify: NotifySettings = { configured: false, source: null, url_hint: null, events: ['De achtergronddienst reageert niet meer (en weer wel)'] };
+    let testAnswer: { ok: boolean; error: string | null } = { ok: false, error: 'Het push-adres antwoordde met HTTP 403.' };
+    const calls = mockApi((m, url, body) => {
+      if (url.endsWith('/system/notify') && m === 'GET') return { body: notify };
+      if (url.endsWith('/system/notify') && m === 'PUT') {
+        const u = (body as { url: string | null }).url;
+        if (u?.includes('@')) {
+          const msg = 'Zet geen gebruikersnaam of wachtwoord in het adres; gebruik een geheim onderwerp (topic).';
+          return { status: 422, body: { detail: { code: 'validation_error', message: `url: ${msg}`, errors: [{ loc: ['body', 'url'], msg: `Value error, ${msg}`, type: 'value_error' }] } } };
+        }
+        notify = u ? { ...notify, configured: true, source: 'app', url_hint: 'https://ntfy.sh/…' } : { ...notify, configured: false, source: null, url_hint: null };
+        return { body: notify };
+      }
+      if (url.endsWith('/system/notify/test')) return { body: testAnswer };
+      return systemRoutes(m, url, body);
+    });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<Providers route="/systeem"><SystemPage /></Providers>);
+    const user = userEvent.setup();
+    const card = await screen.findByRole('region', { name: 'Meldingen buiten de app' });
+    await within(card).findByText('Uit (geen adres)');
+    expect(within(card).getByText('De achtergronddienst reageert niet meer (en weer wel)')).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Testbericht sturen' })).toBeDisabled();
+
+    // an address the server refuses: its Dutch reason, without the field name
+    const input = within(card).getByLabelText('Push-adres');
+    await user.type(input, 'https://ik:wachtwoord@ntfy.sh/huis');
+    await user.click(within(card).getByRole('button', { name: 'Opslaan' }));
+    expect(await within(card).findByRole('alert')).toHaveTextContent(/^Zet geen gebruikersnaam of wachtwoord in het adres; gebruik een geheim onderwerp \(topic\)\.$/);
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+
+    await user.clear(input);
+    await user.type(input, 'https://ntfy.sh/mijn-geheime-onderwerp-123');
+    await user.click(within(card).getByRole('button', { name: 'Opslaan' }));
+    await within(card).findByText('Aan (ingesteld in de app)');
+    expect(calls.filter((c) => c.method === 'PUT' && c.url.endsWith('/system/notify')).map((c) => c.body)).toEqual([
+      { url: 'https://ik:wachtwoord@ntfy.sh/huis' },
+      { url: 'https://ntfy.sh/mijn-geheime-onderwerp-123' },
+    ]);
+    expect(within(card).getByText('https://ntfy.sh/…')).toBeInTheDocument();
+    expect(within(card).queryByRole('alert')).not.toBeInTheDocument();
+    expect(within(card).getByLabelText('Nieuw push-adres')).toHaveValue('');
+
+    // test message: the receiver's error, then success
+    await user.click(within(card).getByRole('button', { name: 'Testbericht sturen' }));
+    expect(await within(card).findByRole('alert')).toHaveTextContent('Testbericht niet verstuurd: Het push-adres antwoordde met HTTP 403.');
+    testAnswer = { ok: true, error: null };
+    await user.click(within(card).getByRole('button', { name: 'Testbericht sturen' }));
+    expect(await within(card).findByText('Testbericht verstuurd. Kijk of het is aangekomen.')).toBeInTheDocument();
+    expect(calls.filter((c) => c.method === 'POST' && c.url.endsWith('/system/notify/test'))).toHaveLength(2);
+
+    // remove: back to "off"
+    await user.click(within(card).getByRole('button', { name: 'Adres verwijderen' }));
+    await within(card).findByText('Uit (geen adres)');
+    expect(calls.filter((c) => c.method === 'PUT' && c.url.endsWith('/system/notify')).at(-1)?.body).toEqual({ url: null });
+    expect(within(card).getByText('Adres verwijderd.')).toBeInTheDocument();
+  });
+
+  it('shows a push address set on the server (SHC_NOTIFY_URL) without a remove button', async () => {
+    mockApi((m, url, body) => {
+      if (url.endsWith('/system/notify')) return { body: { configured: true, source: 'env', url_hint: 'http://ntfy.lan:8080/…', events: [] } };
+      return systemRoutes(m, url, body);
+    });
+    render(<Providers route="/systeem"><SystemPage /></Providers>);
+    const card = await screen.findByRole('region', { name: 'Meldingen buiten de app' });
+    await within(card).findByText('Aan (ingesteld op de server, SHC_NOTIFY_URL)');
+    expect(within(card).getByText('http://ntfy.lan:8080/…')).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Testbericht sturen' })).toBeEnabled();
+    expect(within(card).queryByRole('button', { name: 'Adres verwijderen' })).not.toBeInTheDocument();
+  });
+
+  it('says when the saved push address does not fit this server\'s key and asks to set it again (items 22, 28)', async () => {
+    const keyError =
+      'Het push-adres dat in de app is ingesteld, past niet bij de hoofdsleutel van deze server (herstel op een nieuwe NAS of sleutelwissel) en wordt niet gebruikt. Stel het opnieuw in.';
+    let notify: NotifySettings = { configured: false, source: null, url_hint: null, error: keyError, events: [] };
+    const calls = mockApi((m, url, body) => {
+      if (url.endsWith('/system/notify') && m === 'GET') return { body: notify };
+      if (url.endsWith('/system/notify') && m === 'PUT') {
+        notify = { ...notify, configured: true, source: 'app', url_hint: 'https://ntfy.sh/…', error: null };
+        return { body: notify };
+      }
+      return systemRoutes(m, url, body);
+    });
+    render(<Providers route="/systeem"><SystemPage /></Providers>);
+    const user = userEvent.setup();
+    const card = await screen.findByRole('region', { name: 'Meldingen buiten de app' });
+    await within(card).findByText('Uit (opgeslagen adres onbruikbaar)');
+    const note = within(card).getByText('Opgeslagen push-adres onbruikbaar.').closest('.note')!;
+    expect(note).toHaveTextContent(keyError);
+    const input = within(card).getByLabelText('Push-adres');
+    expect(input).toHaveAccessibleDescription(/Stel het opnieuw in\.$/);
+    // the unusable value can also just be removed
+    expect(within(card).getByRole('button', { name: 'Adres verwijderen' })).toBeEnabled();
+
+    await user.type(input, 'https://ntfy.sh/nieuw-geheim-onderwerp');
+    await user.click(within(card).getByRole('button', { name: 'Opslaan' }));
+    await within(card).findByText('Aan (ingesteld in de app)');
+    expect(calls.filter((c) => c.method === 'PUT').map((c) => c.body)).toEqual([{ url: 'https://ntfy.sh/nieuw-geheim-onderwerp' }]);
+    expect(within(card).queryByText('Opgeslagen push-adres onbruikbaar.')).not.toBeInTheDocument();
+  });
+
+  it('shows an unusable saved address next to the server address (SHC_NOTIFY_URL)', async () => {
+    mockApi((m, url, body) => {
+      if (url.endsWith('/system/notify'))
+        return { body: { configured: true, source: 'env', url_hint: 'http://ntfy.lan:8080/…', error: 'Het push-adres dat in de app is ingesteld, past niet bij de hoofdsleutel van deze server. Stel het opnieuw in.', events: [] } };
+      return systemRoutes(m, url, body);
+    });
+    render(<Providers route="/systeem"><SystemPage /></Providers>);
+    const card = await screen.findByRole('region', { name: 'Meldingen buiten de app' });
+    await within(card).findByText('Aan (ingesteld op de server, SHC_NOTIFY_URL)');
+    expect(within(card).getByText('Opgeslagen push-adres onbruikbaar.')).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Adres verwijderen' })).toBeInTheDocument();
+  });
+
   it('viewers see status and logout, not the admin sections', async () => {
     mockApi(systemRoutes);
     render(<Providers user={viewer}><SystemPage /></Providers>);
     expect(await screen.findByTestId('check-worker')).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Adressen' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Meldingen buiten de app' })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: /Herstellen en verhuizen/ })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Uitloggen' })).toBeInTheDocument();
   });

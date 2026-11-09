@@ -2,10 +2,10 @@ import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { qk } from '../../api/keys';
-import type { Backup, BackupSettings, BackupSettingsIn, RetentionField, RetentionIn, RetentionSettings } from '../../api/types';
+import type { Backup, BackupSchedule, BackupSettings, BackupSettingsIn, RetentionField, RetentionIn, RetentionSettings } from '../../api/types';
 import { ActionButton, Empty, ErrorNote, Loading, yesNo } from '../../components/bits';
 import { ago, bytes, dateTime, until } from '../../format';
-import { BACKUP_STATUS_LABEL, t } from '../../i18n';
+import { BACKUP_KIND_LABEL, BACKUP_SCHEDULE_LABEL, BACKUP_STATUS_LABEL, t } from '../../i18n';
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 const hh = (h: number) => `${String(h).padStart(2, '0')}:00`;
@@ -14,12 +14,17 @@ function isSettings(x: unknown): x is BackupSettings {
   return typeof x === 'object' && x !== null && !Array.isArray(x) && 'hour' in x;
 }
 
-/** Automatic backups: on/off, passphrase (stored encrypted), hour and how many to keep (verbeterlijst 32). */
+const SCHEDULES: BackupSchedule[] = ['daily_full', 'dump_daily_full_weekly'];
+/** A row of the backup list is an encrypted database dump (.shcdump), not a full export. */
+const isDump = (b: Pick<Backup, 'kind'>) => b.kind === 'db_dump';
+
+/** Automatic backups: on/off, passphrase (stored encrypted), hour, what is made (every day a full export,
+ * or every day a database dump and weekly the full export) and how many to keep (verbeterlijst 32). */
 export function BackupSettingsForm() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: qk.backupSettings, queryFn: api.backupSettings });
   const s = isSettings(q.data) ? q.data : null;
-  const [draft, setDraft] = useState<{ enabled?: boolean; hour?: number; keep?: string }>({});
+  const [draft, setDraft] = useState<{ enabled?: boolean; hour?: number; keep?: string; schedule?: BackupSchedule }>({});
   const [pass, setPass] = useState('');
   const [pass2, setPass2] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
@@ -40,6 +45,9 @@ export function BackupSettingsForm() {
   const enabled = draft.enabled ?? s.enabled;
   const hour = draft.hour ?? s.hour;
   const keep = draft.keep ?? String(s.keep);
+  const savedSchedule: BackupSchedule = s.schedule ?? 'daily_full';
+  const schedule = draft.schedule ?? savedSchedule;
+  const dumps = savedSchedule === 'dump_daily_full_weekly';
   const submit = (e: FormEvent) => {
     e.preventDefault();
     setLocalError(null);
@@ -55,20 +63,26 @@ export function BackupSettingsForm() {
     if (enabled !== s.enabled) body.enabled = enabled;
     if (hour !== s.hour) body.hour = hour;
     if (k !== s.keep) body.keep = k;
+    if (schedule !== savedSchedule) body.schedule = schedule;
     save.mutate(body);
   };
-  const dirty = Boolean(pass) || draft.enabled !== undefined || draft.hour !== undefined || draft.keep !== undefined;
+  const dirty = Boolean(pass) || draft.enabled !== undefined || draft.hour !== undefined || draft.keep !== undefined || draft.schedule !== undefined;
+  const nextKind = s.next_kind === 'dump' ? 'database-dump' : 'volledige export';
 
   return (
     <div className="stack" aria-labelledby="bkset-h">
       <h3 id="bkset-h">Automatische back-ups</h3>
       <dl className="facts">
         <div><dt>Status</dt><dd>{s.enabled ? `Aan, dagelijks rond ${hh(s.hour)} (${s.timezone})` : 'Uit'}</dd></div>
-        <div><dt>Volgende</dt><dd>{s.next_due_at ? `${dateTime(s.next_due_at)} (${until(s.next_due_at)})` : '–'}</dd></div>
-        <div><dt>Laatste automatische</dt><dd>{s.last_auto_backup ? `${dateTime(s.last_auto_backup)} (${ago(s.last_auto_backup)})` : 'nog geen'}</dd></div>
+        <div><dt>Wat</dt><dd>{t(BACKUP_SCHEDULE_LABEL, savedSchedule)}</dd></div>
+        <div><dt>Volgende</dt><dd>{s.next_due_at ? `${dateTime(s.next_due_at)} (${until(s.next_due_at)})${dumps ? ` · ${nextKind}` : ''}` : '–'}</dd></div>
+        <div><dt>{dumps ? 'Laatste automatische export' : 'Laatste automatische'}</dt><dd>{s.last_auto_backup ? `${dateTime(s.last_auto_backup)} (${ago(s.last_auto_backup)})` : 'nog geen'}</dd></div>
+        {(dumps || s.last_auto_dump) && (
+          <div><dt>Laatste automatische dump</dt><dd>{s.last_auto_dump ? `${dateTime(s.last_auto_dump)} (${ago(s.last_auto_dump)})` : 'nog geen'}</dd></div>
+        )}
         <div><dt>Wachtwoordzin</dt><dd>{s.passphrase_set ? (s.passphrase_source === 'file' ? 'ingesteld (bestand op de NAS)' : 'ingesteld in de app') : 'niet ingesteld'}</dd></div>
-        <div><dt>Zigbee in laatste back-up</dt><dd>{yesNo(s.zigbee2mqtt_in_last_backup)}</dd></div>
-        <div><dt>Bewaard</dt><dd>{s.keep} automatische</dd></div>
+        <div><dt>{dumps ? 'Zigbee in laatste export' : 'Zigbee in laatste back-up'}</dt><dd>{yesNo(s.zigbee2mqtt_in_last_backup)}</dd></div>
+        <div><dt>Bewaard</dt><dd>{dumps ? `${s.keep} automatische exports en ${s.keep} dumps` : `${s.keep} automatische`}</dd></div>
       </dl>
       {s.passphrase_error && <div className="note error" role="alert">{s.passphrase_error}</div>}
       {s.failures > 0 && (
@@ -88,7 +102,14 @@ export function BackupSettingsForm() {
           </select>
         </label>
         <label className="field">
-          Aantal bewaren
+          Wat maken
+          {/* width 100%: a long option must not make the form wider than a phone screen */}
+          <select style={{ width: '100%' }} value={schedule} onChange={(e) => setDraft({ ...draft, schedule: e.target.value as BackupSchedule })} aria-describedby="bk-schedule-help">
+            {SCHEDULES.map((v) => <option key={v} value={v}>{t(BACKUP_SCHEDULE_LABEL, v)}</option>)}
+          </select>
+        </label>
+        <label className="field">
+          {schedule === 'dump_daily_full_weekly' ? 'Aantal bewaren (per soort)' : 'Aantal bewaren'}
           <input type="number" inputMode="numeric" min={1} max={365} value={keep} onChange={(e) => setDraft({ ...draft, keep: e.target.value })} />
         </label>
         <label className="field">
@@ -103,6 +124,12 @@ export function BackupSettingsForm() {
         )}
         <ActionButton type="submit" className="btn primary" disabled={save.isPending || !dirty}>{save.isPending ? 'Bezig…' : 'Opslaan'}</ActionButton>
       </form>
+      <p id="bk-schedule-help" className="small muted" style={{ margin: 0 }}>
+        Een <strong>volledige export</strong> (.shcbak) bevat alles, ook de Zigbee2MQTT-gegevens, en zet je terug bij <a href="#herstel">Herstellen en verhuizen</a>.
+        Een <strong>database-dump</strong> (.shcdump) is sneller en kleiner, maar bevat alleen de database; die zet je terug op de NAS via de
+        opdrachtregel (<code>shc-api decrypt-dump</code> en daarna <code>pg_restore</code>), niet in de app. Met dagelijks een dump komt er minstens
+        elke 7 dagen ook een volledige export. Exports en dumps worden apart opgeruimd.
+      </p>
       <p className="small muted" style={{ margin: 0 }}>
         De wachtwoordzin wordt versleuteld op de server bewaard en nooit getoond. Bewaar hem ook zelf (bijvoorbeeld in een wachtwoordmanager):
         zonder wachtwoordzin kan niemand een back-up terugzetten. Alleen automatische back-ups worden opgeruimd; handmatige blijven staan.
@@ -186,17 +213,26 @@ export function BackupList() {
               {list.map((b) => (
                 <tr key={b.id}>
                   <td data-label="Moment">{dateTime(b.created_at)}<div className="small muted break">{b.filename}</div></td>
-                  <td data-label="Soort"><span className={`pill ${b.auto ? 'neutral' : 'cool'}`}>{b.auto ? 'Automatisch' : 'Handmatig'}</span></td>
+                  <td data-label="Soort">
+                    <span className={`pill ${b.auto ? 'neutral' : 'cool'}`}>{b.auto ? 'Automatisch' : 'Handmatig'}</span>
+                    <div className={`small${isDump(b) ? '' : ' muted'}`} style={isDump(b) ? { fontWeight: 600 } : undefined}>{t(BACKUP_KIND_LABEL, b.kind, b.kind)}</div>
+                  </td>
                   <td data-label="Status">
                     <span className={`state-line ${b.status === 'ok' ? 'ok' : b.status === 'failed' ? 'error' : 'warn'}`}>{t(BACKUP_STATUS_LABEL, b.status)}</span>
                     {b.error && <div className="small muted">{b.error}</div>}
                   </td>
                   <td data-label="Versie" className="small">app {b.app_version ?? '?'}<br />schema {b.schema_revision ?? '?'}</td>
-                  <td data-label="Inhoud" className="small">geheimen {yesNo(b.secrets_included)}<br />Zigbee {yesNo(b.zigbee2mqtt_included)}</td>
+                  <td data-label="Inhoud" className="small">
+                    {isDump(b) ? (
+                      <>alleen de database<br /><span className="muted">terugzetten via de opdrachtregel</span></>
+                    ) : (
+                      <>geheimen {yesNo(b.secrets_included)}<br />Zigbee {yesNo(b.zigbee2mqtt_included)}</>
+                    )}
+                  </td>
                   <td data-label="Grootte">{bytes(b.size_bytes)}</td>
                   <td>
                     {b.downloadable ? (
-                      <a className="btn small" href={api.backupDownloadUrl(b.id)} download aria-label={`Back-up van ${dateTime(b.created_at)} downloaden`}>Downloaden</a>
+                      <a className="btn small" href={api.backupDownloadUrl(b.id)} download aria-label={`${isDump(b) ? 'Database-dump' : 'Back-up'} van ${dateTime(b.created_at)} downloaden`}>Downloaden</a>
                     ) : (
                       <span className="small muted">niet beschikbaar</span>
                     )}

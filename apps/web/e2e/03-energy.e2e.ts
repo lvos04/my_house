@@ -48,6 +48,10 @@ test('energie: tarief zonder optionele velden, vorige en volgende dag, export', 
   await expect(title).not.toHaveText(todayTitle ?? '');
   await expect(nav.getByLabel('Datum')).toHaveValue(day(-1));
   await expect(page.getByRole('region', { name: 'Verbruik per uur' })).toBeVisible();
+  // The period tabs are a tab set with a panel: the chosen period's figures, controlled by its tab.
+  const panel = page.getByRole('tabpanel', { name: 'Dag' });
+  await expect(panel.getByRole('region', { name: 'Verbruik per uur' })).toBeVisible();
+  await expect(nav.getByRole('tab', { name: 'Dag' })).toHaveAttribute('aria-controls', (await panel.getAttribute('id')) ?? 'ontbreekt');
 
   // The export follows the period shown.
   const exportCard = page.getByRole('region', { name: 'Exporteren' });

@@ -96,4 +96,29 @@ class PairingTest {
         assertTrue(PairingCodec.manual("", "ABCD-1234") is PairParse.Invalid)
         assertTrue(PairingCodec.manual("192.168.1.20", "x") is PairParse.Invalid)
     }
+
+    @Test
+    fun refusalsAreCodesTheAppTranslates() {
+        fun qr(json: String) = PairingCodec.parse(json) as PairParse.Invalid
+        assertEquals(PairError.NOT_OURS, qr("https://example.com").error)
+        assertEquals(PairError.NOT_OURS, qr("""{"v":1,"type":"wifi","code":"X"}""").error)
+        assertEquals(PairError.NEWER_VERSION, qr("""{"v":2,"type":"shc-pair","code":"ABCD-1234","lan":"http://a"}""").error)
+        assertEquals(PairError.CODE_MISSING, qr("""{"v":1,"type":"shc-pair","code":"x","lan":"http://10.0.0.5"}""").error)
+        assertEquals(PairError.QR_NO_ADDRESS, qr("""{"v":1,"type":"shc-pair","code":"ABCD-1234"}""").error)
+        assertEquals(PairError.QR_LAN_INVALID, qr("""{"v":1,"type":"shc-pair","code":"ABCD-1234","lan":"ftp://x"}""").error)
+        assertEquals(PairError.QR_REMOTE_INVALID, qr("""{"v":1,"type":"shc-pair","code":"ABCD-1234","remote":"ftp://x"}""").error)
+        val lanOnline = qr("""{"v":1,"type":"shc-pair","code":"ABCD-1234","lan":"http://huis.voorbeeld.nl"}""")
+        assertEquals(PairError.ADDRESS_RULE, lanOnline.error)
+        assertEquals(AddressProblem.LAN_NOT_HOME, lanOnline.address)
+        assertEquals(AddressProblem.LAN_NOT_HOME.dutch, lanOnline.reason)
+        assertEquals(AddressProblem.REMOTE_NOT_HTTPS, qr("""{"v":1,"type":"shc-pair","code":"ABCD-1234","remote":"http://huis.voorbeeld.nl"}""").address)
+        assertEquals(PairError.NOT_OURS, qr("""{"v":1,"type":"shc-pair","code":"ABCD-1234","lan":"http://10.0.0.5:8088","server_id":"<script>"}""").error)
+
+        fun manual(address: String, code: String) = PairingCodec.manual(address, code) as PairParse.Invalid
+        assertEquals(PairError.ADDRESS_INVALID, manual("", "ABCD-1234").error)
+        assertEquals(PairError.CODE_INVALID, manual("192.168.1.20", "x").error)
+        assertEquals(PairError.NEEDS_HTTPS, manual("huis.voorbeeld.nl", "ABCD-1234").error)
+        assertNull(manual("huis.voorbeeld.nl", "ABCD-1234").address)
+        assertEquals(PairError.NEEDS_HTTPS.dutch, manual("huis.voorbeeld.nl", "ABCD-1234").reason)
+    }
 }

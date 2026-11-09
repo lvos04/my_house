@@ -123,7 +123,10 @@ async def test_pairing_roles(admin, home, app, lan):
         assert (await phone.post(f"/api/v1/zones/{zid}/resume", headers=hv)).status_code == 403
         assert (await phone.post(f"/api/v1/zones/{zid}/resume", headers=hc)).status_code == 200
         assert (await phone.get("/api/v1/users", headers=hc)).status_code == 403
-        assert (await phone.get("/api/v1/users", headers=ha)).status_code == 200
+        # Even an admin phone cannot manage users, pairing or backups (web session only).
+        r = await phone.get("/api/v1/users", headers=ha)
+        assert r.status_code == 403 and r.json()["detail"]["code"] == "web_session_required"
+        assert (await phone.get("/api/v1/homes", headers=ha)).status_code == 200
         me = (await phone.get("/api/v1/auth/me", headers=hv)).json()
         assert me["via"] == "token" and me["client_role"] == "viewer" and me["can_control"] is False
     clients = (await admin.get("/clients")).json()

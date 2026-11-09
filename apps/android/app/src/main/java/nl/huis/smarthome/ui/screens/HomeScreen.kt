@@ -49,6 +49,9 @@ import nl.huis.smarthome.core.NlFormat
 import nl.huis.smarthome.core.Quality
 import nl.huis.smarthome.core.Zone
 import nl.huis.smarthome.data.HomeState
+import nl.huis.smarthome.ui.Attention
+import nl.huis.smarthome.ui.AttentionLevel
+import nl.huis.smarthome.ui.AttentionUi
 import nl.huis.smarthome.ui.BannerKind
 import nl.huis.smarthome.ui.CommandLine
 import nl.huis.smarthome.ui.CommandUi
@@ -66,6 +69,7 @@ import nl.huis.smarthome.ui.components.NotificationPromptCard
 import nl.huis.smarthome.ui.components.QualityLabel
 import nl.huis.smarthome.ui.components.ReadOnlyNote
 import nl.huis.smarthome.ui.components.RouteChip
+import nl.huis.smarthome.ui.components.StatusDot
 import nl.huis.smarthome.ui.components.SetpointControl
 import nl.huis.smarthome.ui.components.TargetReadout
 import nl.huis.smarthome.ui.components.UnitNotLinked
@@ -127,6 +131,10 @@ fun HomeScreen(
             item(key = "banner") { ConnectionBanner(state, vm::retry) }
         }
         if (state.readOnly) item(key = "readonly") { ReadOnlyNote(state) }
+        val attention = AttentionUi.of(overview?.status.orEmpty())
+        if (attention.level != AttentionLevel.NONE) {
+            item(key = "attention") { AttentionCard(attention, isAdmin = state.isAdmin) }
+        }
         if (notif != null && notif.prompt != NotifPrompt.NONE) {
             item(key = "notif") {
                 NotificationPromptCard(notif.prompt, notif.waiting, notif.onAllow, notif.onLater, notif.onSettings)
@@ -174,6 +182,57 @@ fun HomeScreen(
         }
 
         overview?.powerNow?.let { power -> item(key = "power") { PowerCard(power, Modifier.alpha(dim)) } }
+    }
+}
+
+/**
+ * Worker heartbeat, safe mode, last backup and maintenance (verbeterlijst 22): without this the
+ * start screen stayed calm while the worker was down and nothing was measured or regulated.
+ */
+@Composable
+private fun AttentionCard(attention: Attention, isAdmin: Boolean) {
+    val serious = attention.level == AttentionLevel.ERROR
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = Huis.colors.warnContainer,
+        border = BorderStroke(1.dp, if (serious) Huis.colors.error else Huis.colors.warn),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                stringResource(if (serious) R.string.attention_title_error else R.string.attention_title_warn),
+                style = MaterialTheme.typography.titleSmall,
+                color = Huis.colors.onWarnContainer,
+                modifier = Modifier.semantics { heading() },
+            )
+            attention.items.forEach { item ->
+                val stateText = stringResource(if (item.state == "error") R.string.attention_state_error else R.string.attention_state_warn)
+                Row(
+                    Modifier.fillMaxWidth().semantics(mergeDescendants = true) { stateDescription = stateText },
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Box(Modifier.padding(top = 6.dp)) {
+                        StatusDot(if (item.state == "error") Huis.colors.error else Huis.colors.warn, size = 10)
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            item.label.ifBlank { item.key },
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = Huis.colors.onWarnContainer,
+                        )
+                        item.detail?.takeIf { it.isNotBlank() }?.let {
+                            Text(it, style = MaterialTheme.typography.bodySmall, color = Huis.colors.onWarnContainer)
+                        }
+                    }
+                }
+            }
+            Text(
+                stringResource(if (isAdmin) R.string.attention_more_admin else R.string.attention_more),
+                style = MaterialTheme.typography.bodySmall,
+                color = Huis.colors.onWarnContainer,
+            )
+        }
     }
 }
 

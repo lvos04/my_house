@@ -137,6 +137,25 @@ async def require_admin(p: Auth) -> Principal:
 Admin = Annotated[Principal, Depends(require_admin)]
 
 
+async def require_web_admin(p: Admin) -> Principal:
+    """Admin on a web session only (verbeterlijst 18): users, pairing and backups/restore.
+
+    A phone token never reaches these, not even one paired with role admin: whoever holds a stolen
+    phone must not be able to create a new admin or pairing code, or download a backup, before the
+    owner revokes the phone. A web session needed the password to start (and expires)."""
+    if p.via != "cookie":
+        raise api_error(
+            403,
+            "web_session_required",
+            "Dit kan alleen in de web-app, nadat je met je wachtwoord bent ingelogd. Een gekoppelde "
+            "telefoon mag geen gebruikers, koppelingen of back-ups beheren.",
+        )
+    return p
+
+
+WebAdmin = Annotated[Principal, Depends(require_web_admin)]
+
+
 async def require_control(p: Auth) -> Principal:
     if not p.can_control:
         raise api_error(403, "forbidden", "Alleen-lezen toegang.")

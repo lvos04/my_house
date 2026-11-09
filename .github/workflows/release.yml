@@ -2,8 +2,11 @@ name: Release
 
 # Runs after a merge to main that changes VERSION (or by hand). Order:
 #   prepare → the complete CI (ci.yml: tests, audits, image scan, compose smoke test with a backup)
-#   → versioned images (provenance + SBOM) and the signed Android APK → GitHub release v<VERSION>.
-# Nothing is published unless every CI job passed. Does nothing if that release already exists.
+#             and, alongside it, the Android unit tests plus the signed APK (apk job)
+#   → versioned images (provenance + SBOM, signed with cosign) → GitHub release v<VERSION>.
+# Nothing is pushed or published unless every CI job and the Android unit tests passed, so a
+# failing test never leaves version/latest images behind without a release. Does nothing if that
+# release already exists.
 on:
   push:
     branches: [main]
@@ -54,17 +57,27 @@ jobs:
       contents: read
 
   images:
-    needs: [prepare, ci]
+    # apk too: the images (and "latest") are only pushed once the Android tests and APK build passed.
+    needs: [prepare, ci, apk]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
+      # Keyless signing: cosign trades GitHub's OIDC token for a short-lived Sigstore certificate
+      # that names this workflow; no signing key exists anywhere.
+      id-token: write
+    outputs:
+      prefix: ${{ steps.p.outputs.prefix }}
+      api_digest: ${{ steps.api.outputs.digest }}
+      web_digest: ${{ steps.web.outputs.digest }}
+      identity: ${{ steps.sign.outputs.identity }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
@@ -72,7 +85,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: p
         run: echo "prefix=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - id: api
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: apps/api/Dockerfile
@@ -87,7 +101,8 @@ jobs:
           tags: |
             ${{ steps.p.outputs.prefix }}-api:${{ needs.prepare.outputs.version }}
             ${{ steps.p.outputs.prefix }}-api:latest
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - id: web
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: apps/web
           platforms: linux/amd64,linux/arm64
@@ -101,9 +116,35 @@ jobs:
           tags: |
             ${{ steps.p.outputs.prefix }}-web:${{ needs.prepare.outputs.version }}
             ${{ steps.p.outputs.prefix }}-web:latest
+      # Signed by digest (exactly what was pushed; a tag can move): the multi-arch index that the
+      # tags point to. Verified right away with the identity users check against.
+      - name: Sign the images (cosign, keyless)
+        id: sign
+        env:
+          API_IMAGE: ${{ steps.p.outputs.prefix }}-api@${{ steps.api.outputs.digest }}
+          WEB_IMAGE: ${{ steps.p.outputs.prefix }}-web@${{ steps.web.outputs.digest }}
+        run: |
+          set -euo pipefail
+          identity="$GITHUB_SERVER_URL/$GITHUB_WORKFLOW_REF"
+          for ref in "$API_IMAGE" "$WEB_IMAGE"; do
+            cosign sign --yes "$ref"
+            cosign verify "$ref" --certificate-identity "$identity" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+          done
+          echo "identity=$identity" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Ondertekende images"
+            echo "- \`$API_IMAGE\`"
+            echo "- \`$WEB_IMAGE\`"
+            echo "Identiteit: \`$identity\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
+  # Android unit tests (always, verbeterlijst 41) and the signed APK (when the release key is set).
+  # Runs next to the CI: it only uploads a workflow artifact, nothing is published before "images"
+  # and "publish", which wait for both.
   apk:
-    needs: [prepare, ci]
+    needs: prepare
+    if: needs.prepare.outputs.exists == 'false'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -119,6 +160,27 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+      # With or without a release key: a release whose app tests fail is not published at all.
+      - name: Unit tests
+        run: ./gradlew --no-daemon :core:test :app:testDebugUnitTest
+      - name: Test reports
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-test-reports
+          path: |
+            apps/android/core/build/reports/tests/
+            apps/android/app/build/reports/tests/
+          retention-days: 14
+          if-no-files-found: ignore
       # The APK is only published when it is signed with the owner's own release key (repository
       # secrets). No key is ever stored in the repository. Without the secrets the release still
       # publishes the server images and says how to add the key (docs/installatie-truenas.md).
@@ -136,25 +198,14 @@ jobs:
             echo "::warning title=Geen release-sleutel::De secrets ANDROID_KEYSTORE_B64/ANDROID_KEYSTORE_PASSWORD/ANDROID_KEY_ALIAS/ANDROID_KEY_PASSWORD ontbreken. Deze release bevat geen APK. Zie docs/installatie-truenas.md › Android-app: eigen release-sleutel."
             echo "signed=false" >> "$GITHUB_OUTPUT"
           fi
-      - if: steps.key.outputs.signed == 'true'
-        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
-        with:
-          distribution: temurin
-          java-version: "17"
-      - if: steps.key.outputs.signed == 'true'
-        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
-        with:
-          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
-      - if: steps.key.outputs.signed == 'true'
-        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
       # Contract C10: Gradle signs assembleRelease with the SHC_SIGNING_* variables.
-      - name: Unit tests and release build
+      - name: Release build
         if: steps.key.outputs.signed == 'true'
         env:
           SHC_SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           SHC_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           SHC_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew --no-daemon :core:test :app:testDebugUnitTest :app:assembleRelease
+        run: ./gradlew --no-daemon :app:assembleRelease
       - name: Sign if Gradle did not, then verify the signature
         if: steps.key.outputs.signed == 'true'
         env:
@@ -223,8 +274,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           V: ${{ needs.prepare.outputs.version }}
           SIGNED: ${{ needs.apk.outputs.signed }}
+          PREFIX: ${{ needs.images.outputs.prefix }}
+          API_DIGEST: ${{ needs.images.outputs.api_digest }}
+          WEB_DIGEST: ${{ needs.images.outputs.web_digest }}
+          IDENTITY: ${{ needs.images.outputs.identity }}
         run: |
           cp docs/release-notes.md "$RUNNER_TEMP/notes.md"
+          # Image digests and how to check the cosign signature (the backticks are Markdown).
+          # shellcheck disable=SC2016
+          {
+            printf '\n## Images\n\n'
+            printf -- '- `%s-api:%s` (`%s`)\n' "$PREFIX" "$V" "$API_DIGEST"
+            printf -- '- `%s-web:%s` (`%s`)\n' "$PREFIX" "$V" "$WEB_DIGEST"
+            printf '\nOndertekend met cosign (keyless, vanuit deze workflow). Controleren:\n\n'
+            printf '```sh\ncosign verify %s-api:%s \\\n  --certificate-identity %s \\\n  --certificate-oidc-issuer https://token.actions.githubusercontent.com\n```\n' \
+              "$PREFIX" "$V" "$IDENTITY"
+          } >> "$RUNNER_TEMP/notes.md"
           files=()
           if [ "$SIGNED" = "true" ]; then
             files=("huis-v$V.apk" "huis-v$V.apk.sha256" "huis-v$V.apk.certificate-sha256")

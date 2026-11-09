@@ -52,6 +52,25 @@ enum class CommandStatus {
 
 enum class CommandTarget { ZONE, LIGHT_GROUP }
 
+/**
+ * The status line under a zone or light group for a command from this phone. The app shows its
+ * strings.xml text for it (data/CoreTexts.kt), followed by the server's reason when there is one;
+ * [dutch] is the same text for JVM callers and tests.
+ */
+enum class CommandLabel(val dutch: String) {
+    QUEUED("Verzonden · wacht op bevestiging…"),
+    RETRYING("Lukte niet, opnieuw proberen…"),
+
+    /** A light command: the bridge has no readback worth waiting for. */
+    SENT("Verzonden"),
+    SENT_UNCONFIRMED("Verzonden, nog niet bevestigd"),
+    CONFIRMED("Bevestigd"),
+    FAILED("Mislukt"),
+    DENIED("Geweigerd"),
+    CANCELLED("Vervangen door een nieuwere opdracht"),
+    TIMEOUT("Geen bevestiging ontvangen. Controleer de stand."),
+}
+
 data class TrackedCommand(
     val id: String,
     /** Zone id or light-group id. */
@@ -68,18 +87,26 @@ data class TrackedCommand(
 ) {
     val inFlight: Boolean get() = !status.final
 
-    /** Short Dutch status line for the UI. */
-    val label: String
+    /** Which status line the UI shows (its text comes from the app's strings.xml). */
+    val labelCode: CommandLabel
         get() = when (status) {
-            CommandStatus.QUEUED -> "Verzonden · wacht op bevestiging…"
-            CommandStatus.RETRYING -> "Lukte niet, opnieuw proberen…"
-            CommandStatus.SENT -> if (target == CommandTarget.LIGHT_GROUP) "Verzonden" else "Verzonden, nog niet bevestigd"
-            CommandStatus.CONFIRMED -> "Bevestigd"
-            CommandStatus.FAILED -> "Mislukt" + (detail?.takeIf { it.isNotBlank() }?.let { ": $it" } ?: "")
-            CommandStatus.DENIED -> "Geweigerd" + (detail?.takeIf { it.isNotBlank() }?.let { ": $it" } ?: "")
-            CommandStatus.CANCELLED -> "Vervangen door een nieuwere opdracht"
-            CommandStatus.TIMEOUT -> "Geen bevestiging ontvangen. Controleer de stand."
+            CommandStatus.QUEUED -> CommandLabel.QUEUED
+            CommandStatus.RETRYING -> CommandLabel.RETRYING
+            CommandStatus.SENT -> if (target == CommandTarget.LIGHT_GROUP) CommandLabel.SENT else CommandLabel.SENT_UNCONFIRMED
+            CommandStatus.CONFIRMED -> CommandLabel.CONFIRMED
+            CommandStatus.FAILED -> CommandLabel.FAILED
+            CommandStatus.DENIED -> CommandLabel.DENIED
+            CommandStatus.CANCELLED -> CommandLabel.CANCELLED
+            CommandStatus.TIMEOUT -> CommandLabel.TIMEOUT
         }
+
+    /** The server's reason after "Mislukt" or "Geweigerd" (already user-facing text from the server). */
+    val reason: String?
+        get() = detail?.takeIf { it.isNotBlank() && (status == CommandStatus.FAILED || status == CommandStatus.DENIED) }
+
+    /** Short Dutch status line, for JVM callers and tests: [labelCode] plus [reason]. */
+    val label: String
+        get() = labelCode.dutch + (reason?.let { ": $it" } ?: "")
 }
 
 class CommandTracker(

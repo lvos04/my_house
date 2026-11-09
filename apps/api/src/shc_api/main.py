@@ -28,6 +28,7 @@ from .routers import (
     ws,
     zones,
 )
+from .watch import watch
 
 API_PREFIX = "/api/v1"
 # Restore uploads may be large (contract C6); everything else is small JSON.
@@ -40,7 +41,9 @@ async def lifespan(app: FastAPI):
     logging.basicConfig(level=get_settings().log_level)
     get_settings().resolved_secret_key()  # fail fast with a clear message
     await hub.start()
+    watch.start()  # worker heartbeat / backups: alert, status.updated, optional push (28, 36)
     yield
+    await watch.stop()
     await hub.stop()
     await dispose()
 

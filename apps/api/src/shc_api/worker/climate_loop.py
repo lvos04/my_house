@@ -6,9 +6,10 @@ Zones whose unit already runs go first, so a running room keeps its mode and a r
 wants to start in a conflicting mode waits.
 
 Besides deciding, each round: confirms or times out unconfirmed commands, runs the
-watchdog (room does not move toward its target), applies experiment profiles, and prunes
-old zone-log lines. The zone log only gets a line when the decision changes
-(``ClimateZone.last_decision``), not every minute.
+watchdog (room does not move toward its target), and switches experiment profiles on and off
+(the zone gets its own profile back between variants and afterwards). The zone log only gets
+a line when the decision changes (``ClimateZone.last_decision``), not every minute. Old zone-log
+lines are deleted by the retention round (worker/aggregates.py).
 """
 
 from __future__ import annotations
@@ -19,19 +20,19 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from .. import climate as cl
 from .. import events
 from ..commanding import (
-    apply_profile,
+    experiment_apply_variant,
+    experiment_restore_zone,
     lock_outdoor_group,
     publish_zone,
     queue_engine_command,
     zone_command_confirmed,
     zone_command_failed,
 )
-from ..config import get_settings
 from ..db import sessionmaker
 from ..models import (
     ClimateZone,
@@ -52,7 +53,6 @@ log = logging.getLogger("shc.worker")
 SENT_TIMEOUT = timedelta(minutes=2)  # a sent-but-unconfirmed command must show up in a readback within this
 PENDING_STALE = timedelta(minutes=10)  # bookkeeping safety net for a command that never finished
 SETTLE_MAX = timedelta(minutes=10)
-ZONE_LOG_CLEANUP_EVERY = timedelta(hours=1)
 FINAL_STATUSES = ("confirmed", "failed", "denied", "cancelled")
 
 
@@ -87,7 +87,8 @@ class ClimateMixin:
                 if key in self._climate_errors:
                     await self._report_group_error(home_id, key, None)
         await self._experiments_round(now, home_ids)
-        await self._cleanup_zone_log(now)
+        # Old zone-log lines are deleted by the retention round (worker/aggregates.py), with the
+        # period set in the app ("Logboek klimaatregeling"), not here.
 
     @property
     def _climate_errors(self) -> set[str]:
@@ -263,17 +264,28 @@ class ClimateMixin:
         return in_flight, settling
 
     async def _watchdog(self, db, z: ClimateZone, home: Home, d: cl.Decision, us, sensor, pol: dict, now) -> None:
-        """Alert when the room does not move toward its target while the unit runs (plan §5 'watchdog')."""
+        """Alert when the room does not move toward its target while the unit runs (plan §5 'watchdog').
+
+        The room temperature comes from the zone's own sensor or, for a zone without one, from the unit's
+        own room sensor (the same temperature the zone view shows): the engine does not correct the setpoint
+        then, but a unit that does not really heat or cool is still noticed (verbeterlijst 45)."""
         key = f"watchdog:{z.id}"
         if d.reason in ("pending", "checking_change", "unit_offline"):
             return  # transient: keep the window running
         minutes = int(pol.get("watchdog_minutes") or 0)
         mode = us.mode if us.mode in cl.CORRECTED_MODES else None
         target = d.target_base_c if d.control in ("schedule", "oem_fallback") else us.target_c
-        temp = sensor.value if sensor else None
+        source = z.sensor_device_id or z.unit_device_id
+        if z.sensor_device_id:
+            temp, valid = (sensor.value if sensor else None), d.sensor_valid
+        else:
+            own = await latest_reading(db, z.unit_device_id, "temperature") if minutes > 0 else None
+            room = cl.SensorValue(own.value if own else None, own.observed_at if own else None)
+            temp, valid = room.value, cl.sensor_status(room, now, pol)[0]
         if (
             minutes <= 0
-            or not d.sensor_valid
+            or source is None
+            or not valid
             or mode is None
             or d.mode not in (None, mode)
             or not cl.watchdog_needed(mode, target, temp, cl.effective_band(pol))
@@ -291,7 +303,7 @@ class ClimateMixin:
             await db.execute(
                 select(SensorReading)
                 .where(
-                    SensorReading.device_id == z.sensor_device_id,
+                    SensorReading.device_id == source,
                     SensorReading.metric == "temperature",
                     SensorReading.observed_at <= z.watchdog_since,
                     SensorReading.value.is_not(None),
@@ -306,15 +318,16 @@ class ClimateMixin:
         progress = cl.watchdog_progress(mode, start.value, temp)
         if progress < float(pol.get("watchdog_min_progress_c") or 0.3):
             verb = "verwarmt" if mode in cl.HEATING_MODES else "koelt"
+            measured = "" if z.sensor_device_id else " (gemeten door de airco zelf)"
             await raise_alert(
                 db,
                 home.id,
                 key,
                 "warn",
                 f"{z.name}: temperatuur reageert niet",
-                f"De airco {verb} al {minutes} minuten, maar de temperatuur ging van {start.value:.1f} naar "
-                f"{temp:.1f} °C (doel {target:.1f} °C). Controleer ramen en deuren, het filter en of de airco "
-                "echt draait.",
+                f"De airco {verb} al {minutes} minuten, maar de temperatuur{measured} ging van {start.value:.1f} "
+                f"naar {temp:.1f} °C (doel {target:.1f} °C). Controleer ramen en deuren, het filter en of de "
+                "airco echt draait.",
                 "climate",
             )
             db.add(ZoneLog(zone_id=z.id, kind="warn", message="Waakhond: de kamer reageert niet op de airco."))
@@ -343,22 +356,52 @@ class ClimateMixin:
     # --- experiments ----------------------------------------------------------------
 
     async def _experiments_round(self, now: datetime, home_ids: set[uuid.UUID] | None = None) -> None:
-        """Apply the active variant's profile of auto-apply experiments; pause on override or missing data."""
+        """Apply the active variant's profile of auto-apply experiments; pause on override or missing data.
+        Paused ones are watched too: their variant profile goes off when its time is over, and they are
+        finished after the last variant (item 45), so a pause never leaves a profile on for good."""
         async with sessionmaker()() as db:
             q = select(Experiment).where(
                 Experiment.auto_apply.is_(True),
-                Experiment.status.in_(("defined", "running")),
-                Experiment.paused_reason.is_(None),
+                Experiment.status.in_(("defined", "running", "paused")),
             )
             if home_ids:
                 q = q.where(Experiment.home_id.in_(home_ids))
             for e in (await db.execute(q)).scalars().all():
                 try:
                     async with db.begin_nested():
-                        await self._experiment_step(db, e, now)
+                        if e.status == "paused" or e.paused_reason is not None:
+                            await self._paused_experiment_step(db, e, now)
+                        else:
+                            await self._experiment_step(db, e, now)
                 except Exception:
                     log.exception("Experiment %s kon niet worden bijgewerkt", e.id)
             await db.commit()
+
+    async def _paused_experiment_step(self, db, e: Experiment, now: datetime) -> None:
+        """A paused experiment (by the worker or a user) applies nothing new, but lets go of its variant
+        profile once that variant's time is over, and finishes after the last variant."""
+        variants = e.variants or []
+        if not variants:
+            return
+        spans = [(datetime.fromisoformat(v["start"]), datetime.fromisoformat(v["end"])) for v in variants]
+        zone_id = e.zone_id or (uuid.UUID(variants[0]["zone_id"]) if variants[0].get("zone_id") else None)
+        zone = await db.get(ClimateZone, zone_id) if zone_id else None
+        home = await db.get(Home, e.home_id)
+        if now >= max(end for _, end in spans):
+            e.status, e.current_variant = "finished", None
+            if zone is not None:
+                db.add(ZoneLog(zone_id=zone.id, kind="config", message=f"Experiment '{e.name}' afgerond (gepauzeerd)."))
+                await self._experiment_let_go(db, e, zone, home)
+            await resolve_alert(db, f"experiment:{e.id}")
+            return
+        cv = e.current_variant
+        if zone is None or cv is None:
+            return
+        if not (0 <= cv < len(spans) and spans[cv][0] <= now < spans[cv][1]):
+            # The paused variant's time is over: its profile goes off; resuming applies the variant
+            # that is due then (or nothing between variants).
+            e.current_variant = None
+            await self._experiment_let_go(db, e, zone, home)
 
     async def _experiment_step(self, db, e: Experiment, now: datetime) -> None:
         variants = e.variants or []
@@ -370,15 +413,20 @@ class ClimateMixin:
         if zone is None:
             e.status, e.paused_reason = "paused", "De zone van dit experiment bestaat niet meer."
             return
+        home = await db.get(Home, e.home_id)
         if now >= max(end for _, end in spans):
             e.status, e.current_variant = "finished", None
             db.add(ZoneLog(zone_id=zone.id, kind="config", message=f"Experiment '{e.name}' afgerond."))
+            await self._experiment_let_go(db, e, zone, home)
             await resolve_alert(db, f"experiment:{e.id}")
             return
         idx = next((i for i, (s, end) in enumerate(spans) if s <= now < end), None)
         if idx is None:
-            return  # before the first variant or between variants
-        home = await db.get(Home, e.home_id)
+            # Before the first variant, or between two: no variant profile stays on (item 45).
+            if e.current_variant is not None:
+                e.current_variant = None
+                await self._experiment_let_go(db, e, zone, home)
+            return
         reason = None
         if zone.control in ("manual", "off"):
             reason = "De zone werd handmatig bediend; experiment gepauzeerd."
@@ -410,24 +458,19 @@ class ClimateMixin:
             if profile is not None:
                 await lock_outdoor_group(db, zone)
                 await db.refresh(zone)
-                await apply_profile(db, zone, profile, "experiment", log_name=f"Experiment '{e.name}'")
+                await experiment_apply_variant(db, e, zone, profile, "experiment")
                 if home is not None:
+                    await db.flush()
                     await publish_zone(db, zone, home)
             e.current_variant = idx
             e.status = "running"
             db.add(ZoneLog(zone_id=zone.id, kind="config", message=f"Experiment '{e.name}': variant '{v['label']}'"))
 
-    # --- housekeeping -----------------------------------------------------------------
-
-    async def _cleanup_zone_log(self, now: datetime) -> None:
-        last = getattr(self, "_zone_log_cleaned_at", None)
-        if last is not None and now - last < ZONE_LOG_CLEANUP_EVERY:
-            return
-        cutoff = now - timedelta(days=get_settings().retention_log_days)
-        async with sessionmaker()() as db:
-            await db.execute(delete(ZoneLog).where(ZoneLog.at < cutoff))
-            await db.commit()
-        self._zone_log_cleaned_at = now
+    async def _experiment_let_go(self, db, e: Experiment, zone: ClimateZone, home: Home | None) -> None:
+        """Switch the variant profile off: the zone gets its own profile and schedule back."""
+        if await experiment_restore_zone(db, e, zone, "experiment") == "restored" and home is not None:
+            await db.flush()
+            await publish_zone(db, zone, home)
 
     @staticmethod
     def _describe(d: cl.Decision) -> str:

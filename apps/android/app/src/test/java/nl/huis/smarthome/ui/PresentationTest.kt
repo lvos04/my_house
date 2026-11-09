@@ -1,14 +1,17 @@
 package nl.huis.smarthome.ui
 
+import androidx.camera.core.CameraState
+import nl.huis.smarthome.core.ApiProblem
+import nl.huis.smarthome.core.CommandLabel
 import nl.huis.smarthome.core.CommandStatus
 import nl.huis.smarthome.core.CommandTarget
 import nl.huis.smarthome.core.ConnectionStatus
-import nl.huis.smarthome.core.ConnectionText
 import nl.huis.smarthome.core.LightGroup
 import nl.huis.smarthome.core.Measurement
 import nl.huis.smarthome.core.Override
 import nl.huis.smarthome.core.PendingCommandRef
 import nl.huis.smarthome.core.Quality
+import nl.huis.smarthome.core.StatusItem
 import nl.huis.smarthome.core.TrackedCommand
 import nl.huis.smarthome.core.Zone
 import nl.huis.smarthome.core.ZoneCapabilities
@@ -178,7 +181,9 @@ class PresentationTest {
         val inFlight = online.copy(drafts = mapOf("z1" to 22.0), commands = mapOf("z1" to tracked(CommandStatus.QUEUED)))
         val l1 = CommandUi.line(inFlight, zone()) as CommandLine.Tracked
         assertEquals(Tone.MUTED, l1.tone)
-        assertTrue(l1.text.startsWith("Verzonden"))
+        // A code: the composable shows the strings.xml text ("Verzonden · wacht op bevestiging…").
+        assertEquals(CommandLabel.QUEUED, l1.label)
+        assertNull(l1.reason)
 
         val ok = online.copy(commands = mapOf("z1" to tracked(CommandStatus.CONFIRMED)))
         assertEquals(Tone.OK, (CommandUi.line(ok, zone()) as CommandLine.Tracked).tone)
@@ -186,7 +191,7 @@ class PresentationTest {
         val denied = online.copy(commands = mapOf("z1" to tracked(CommandStatus.DENIED, detail = "buitenunit koelt al")))
         val l3 = CommandUi.line(denied, zone()) as CommandLine.Tracked
         assertEquals(Tone.WARN, l3.tone)
-        assertEquals("Geweigerd: buitenunit koelt al", l3.text)
+        assertEquals(CommandLine.Tracked(CommandLabel.DENIED, "buitenunit koelt al", Tone.WARN), l3)
 
         assertEquals(Tone.WARN, CommandUi.tone(CommandStatus.TIMEOUT))
         assertEquals(Tone.MUTED, CommandUi.tone(CommandStatus.RETRYING))
@@ -206,10 +211,13 @@ class PresentationTest {
     @Test
     fun bannerFollowsConnectionStatus() {
         assertEquals(BannerKind.NONE, ConnectionUi.banner(online).kind)
-        val offline = online.copy(online = false, connection = ConnectionStatus.OFFLINE, connectionDetail = ConnectionText.banner(ConnectionStatus.OFFLINE))
+        val offline = online.copy(online = false, connection = ConnectionStatus.OFFLINE)
         assertEquals(Banner(BannerKind.OFFLINE, null), ConnectionUi.banner(offline))
-        val cf = offline.copy(connectionDetail = "Cloudflare Access laat de app niet door.")
-        assertEquals(Banner(BannerKind.OFFLINE, "Cloudflare Access laat de app niet door."), ConnectionUi.banner(cf))
+        // Cloudflare Access refused the tunnel: a code, shown with its strings.xml text.
+        val cf = offline.copy(connectionProblem = ApiProblem.CF_ACCESS_LOGIN)
+        assertEquals(Banner(BannerKind.OFFLINE, ApiProblem.CF_ACCESS_LOGIN), ConnectionUi.banner(cf))
+        // Only an offline banner carries it.
+        assertEquals(Banner(BannerKind.STARTING), ConnectionUi.banner(cf.copy(connection = ConnectionStatus.STARTING)))
         assertEquals(BannerKind.STARTING, ConnectionUi.banner(offline.copy(connection = ConnectionStatus.STARTING)).kind)
         assertEquals(BannerKind.WRONG_SERVER, ConnectionUi.banner(offline.copy(connection = ConnectionStatus.WRONG_SERVER)).kind)
         assertEquals(BannerKind.CONNECTING, ConnectionUi.banner(HomeState(pairing = pairing)).kind)
@@ -280,5 +288,46 @@ class PresentationTest {
             LightGroup("w", "Woonkamer"),
         )
         assertEquals(listOf("k", "w", "all"), LightsUi.visible(groups).map { it.id })
+    }
+
+    @Test
+    fun attentionBlockShowsWorkerSafeModeBackupAndMaintenance() {
+        val worker = StatusItem("worker", "Achtergronddienst", "error", "Geen hartslag")
+        val safe = StatusItem("safe_mode", "Veilige modus", "warn", "Geen apparaatcommando's")
+        val backupOk = StatusItem("backup", "Back-up", "ok", "Laatste back-up 3 uur geleden")
+        val backupOld = StatusItem("backup", "Back-up", "warn", "Laatste back-up 9 dagen geleden")
+        val integration = StatusItem("integration:1:mqtt", "Zigbee", "error", "Niet verbonden")
+        val unknown = StatusItem("maintenance", "Onderhoud", "unknown")
+
+        // Same selection as attentionItems() on the web overview; errors first.
+        val a = AttentionUi.of(listOf(safe, worker, backupOk, integration, unknown))
+        assertEquals(listOf("worker", "safe_mode"), a.items.map { it.key })
+        assertEquals(AttentionLevel.ERROR, a.level)
+
+        val warn = AttentionUi.of(listOf(backupOld, StatusItem("worker", "Achtergronddienst", "ok")))
+        assertEquals(listOf("backup"), warn.items.map { it.key })
+        assertEquals(AttentionLevel.WARN, warn.level)
+
+        assertEquals(AttentionLevel.NONE, AttentionUi.of(listOf(backupOk, integration)).level)
+        assertEquals(AttentionLevel.NONE, AttentionUi.of(emptyList()).level)
+    }
+
+    @Test
+    fun cameraErrorOffersRetryOnlyWithACamera() {
+        assertTrue(CameraPolicy.canRetry(CameraIssue.IN_USE, hasHardware = true))
+        assertTrue(CameraPolicy.canRetry(CameraIssue.DISABLED, hasHardware = true))
+        assertFalse(CameraPolicy.canRetry(CameraIssue.UNAVAILABLE, hasHardware = false))
+        assertFalse(CameraPolicy.canRetry(null, hasHardware = true))
+    }
+
+    @Test
+    fun cameraStateErrorsBecomeAMessageNotABlackPicture() {
+        assertEquals(CameraIssue.IN_USE, CameraPolicy.issueFor(CameraState.ERROR_CAMERA_IN_USE))
+        assertEquals(CameraIssue.IN_USE, CameraPolicy.issueFor(CameraState.ERROR_MAX_CAMERAS_IN_USE))
+        assertEquals(CameraIssue.DISABLED, CameraPolicy.issueFor(CameraState.ERROR_CAMERA_DISABLED))
+        assertEquals(CameraIssue.UNAVAILABLE, CameraPolicy.issueFor(CameraState.ERROR_CAMERA_FATAL_ERROR))
+        assertEquals(CameraIssue.UNAVAILABLE, CameraPolicy.issueFor(CameraState.ERROR_STREAM_CONFIG))
+        assertEquals(CameraIssue.UNAVAILABLE, CameraPolicy.issueFor(CameraState.ERROR_DO_NOT_DISTURB_MODE_ENABLED))
+        assertEquals(CameraIssue.UNAVAILABLE, CameraPolicy.issueFor(CameraState.ERROR_OTHER_RECOVERABLE_ERROR))
     }
 }

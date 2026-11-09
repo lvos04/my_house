@@ -10,6 +10,10 @@
 - A failed attempt is recorded (Setting "backup_state") and retried with back-off (1 h, 2 h, ... max
   6 h), never immediately; it raises an alert, which is resolved by the next successful backup.
 - Only automatic backups are pruned, file and row together; manual backups are never removed.
+- Schedule "dump_daily_full_weekly" (optional, item 32): on most days an encrypted database dump
+  (pg_dump, ``shc-api backup --auto --dump``, quick and small) and once a week the full export with
+  the Zigbee2MQTT data. The default "daily_full" makes the full export every day. Dumps and exports
+  are pruned separately, each keeping the newest ``keep``.
 """
 
 from __future__ import annotations
@@ -28,11 +32,15 @@ from ..config import Settings, get_settings
 from ..db import sessionmaker
 from ..models import BackupRecord, Home
 from ..store import get_secret_setting, get_setting, raise_alert, resolve_alert, set_setting
+from ..views.status import publish_status
 
 log = logging.getLogger("shc.worker")  # same logger as core.log
 
 ALERT_KEY = "backup_failed"
 CATCH_UP_AFTER = timedelta(hours=23)
+SCHEDULES = ("daily_full", "dump_daily_full_weekly")
+FULL_EVERY = timedelta(days=7)
+FULL_SLACK = timedelta(hours=12)  # a weekly export at 03:00 may start a little before 7 x 24 h
 MAX_BACKOFF = timedelta(hours=6)
 BACKUP_TIMEOUT_S = 6 * 3600
 STALE_RUNNING = timedelta(hours=8)
@@ -103,8 +111,32 @@ async def load_backup_settings(db, settings: Settings | None = None) -> dict:
         "passphrase_error": key_error,
         "hour": int(stored.get("hour", s.backup_hour_local)),
         "keep": int(stored.get("keep", s.backup_keep)),
+        "schedule": stored.get("schedule") if stored.get("schedule") in SCHEDULES else "daily_full",
         "timezone": await home_timezone(db),
     }
+
+
+def _ts(v) -> datetime | None:
+    return datetime.fromisoformat(v) if v else None
+
+
+async def last_auto_times(db) -> tuple[datetime | None, datetime | None]:
+    """(last automatic full export, last automatic database dump)."""
+    return _ts(await get_setting(db, "last_auto_backup")), _ts(await get_setting(db, "last_auto_dump"))
+
+
+def latest(*times: datetime | None) -> datetime | None:
+    present = [t for t in times if t is not None]
+    return max(present) if present else None
+
+
+def auto_kind(now: datetime, schedule: str, last_full: datetime | None) -> str:
+    """What the next automatic backup is: "full" (export with Zigbee2MQTT data) or "dump"."""
+    if schedule != "dump_daily_full_weekly":
+        return "full"
+    if last_full is None or now - last_full >= FULL_EVERY - FULL_SLACK:
+        return "full"
+    return "dump"
 
 
 # --- schedule -----------------------------------------------------------------------------------
@@ -163,8 +195,9 @@ def next_due(now: datetime, hour: int, tz: ZoneInfo, last_auto: datetime | None,
 # --- the backup itself (runs in the `shc-api backup --auto` process) ---------------------------------
 
 
-async def run_auto_backup() -> dict:
-    """Make an automatic backup and prune old automatic ones. Returns a result dict for the worker."""
+async def run_auto_backup(dump: bool = False) -> dict:
+    """Make an automatic backup (``dump``: an encrypted database dump instead of the full export) and
+    prune old automatic ones of the same kind. Returns a result dict for the worker."""
     from .. import backup as bk
 
     s = get_settings()
@@ -177,18 +210,19 @@ async def run_auto_backup() -> dict:
     if not pw:
         return {"status": "failed", "error": "Geen wachtwoordzin voor automatische back-ups ingesteld."}
     try:
-        rec = await bk.run_backup(pw, True, auto=True)
+        rec = await (bk.run_db_dump(pw, auto=True) if dump else bk.run_backup(pw, True, auto=True))
     except bk.BackupError as e:
         return {"status": "failed", "error": str(e)}
-    pruned = await prune_auto_backups(cfg["keep"], s)
+    pruned = await prune_auto_backups(cfg["keep"], s, kind=bk.DUMP_KIND if dump else "export")
     async with sessionmaker()() as db:
-        await set_setting(db, "last_auto_backup", datetime.now(UTC).isoformat())
+        await set_setting(db, "last_auto_dump" if dump else "last_auto_backup", datetime.now(UTC).isoformat())
         await db.commit()
     return {**rec, "pruned": pruned}
 
 
-async def prune_auto_backups(keep: int, settings: Settings | None = None) -> list[str]:
-    """Delete automatic backups beyond the newest `keep` (file and row). Manual backups stay."""
+async def prune_auto_backups(keep: int, settings: Settings | None = None, kind: str = "export") -> list[str]:
+    """Delete automatic backups of ``kind`` ("export" or "db_dump") beyond the newest `keep` (file and
+    row). Manual backups stay."""
     s = settings or get_settings()
     keep = max(1, keep)
     removed = []
@@ -197,7 +231,7 @@ async def prune_auto_backups(keep: int, settings: Settings | None = None) -> lis
             (
                 await db.execute(
                     select(BackupRecord)
-                    .where(BackupRecord.auto.is_(True), BackupRecord.status == "ok")
+                    .where(BackupRecord.auto.is_(True), BackupRecord.status == "ok", BackupRecord.kind == kind)
                     .order_by(BackupRecord.created_at.desc())
                 )
             )
@@ -279,9 +313,11 @@ class BackupMixin:
             return
         now = datetime.now(UTC)
         async with sessionmaker()() as db:
+            # Never raises on a passphrase that does not decrypt (restore on a new NAS, key change):
+            # that is reported as passphrase_error, so this loop keeps running (verbeterlijst 22/32).
             cfg = await load_backup_settings(db, self.settings)
             if not cfg["enabled"]:
-                if cfg["passphrase_error"]:
+                if cfg["passphrase_error"] and cfg["wanted"]:
                     await raise_alert(
                         db,
                         await primary_home_id(db),
@@ -294,19 +330,23 @@ class BackupMixin:
                     await db.commit()
                 return
             state = await get_setting(db, "backup_state", {}) or {}
-            last = await get_setting(db, "last_auto_backup")
-        last_auto = datetime.fromisoformat(last) if last else None
-        if not backup_due(now, cfg["hour"], ZoneInfo(cfg["timezone"]), last_auto, state):
+            if not int(state.get("failures", 0) or 0) and await resolve_alert(db, ALERT_KEY):
+                # No failed attempt pending, so an open alert can only be the passphrase that did not
+                # fit the master key: it was set again in the app.
+                await db.commit()
+            last_full, last_dump = await last_auto_times(db)
+        if not backup_due(now, cfg["hour"], ZoneInfo(cfg["timezone"]), latest(last_full, last_dump), state):
             return
+        kind = auto_kind(now, cfg["schedule"], last_full)
         async with sessionmaker()() as db:
-            await set_setting(db, "backup_state", {**state, "running_since": now.isoformat()})
+            await set_setting(db, "backup_state", {**state, "running_since": now.isoformat(), "running_kind": kind})
             await db.commit()
-        self._backup_task = asyncio.create_task(self._auto_backup_watch(state))
+        self._backup_task = asyncio.create_task(self._auto_backup_watch(state, kind))
 
-    async def _auto_backup_watch(self, state: dict) -> dict:
+    async def _auto_backup_watch(self, state: dict, kind: str = "full") -> dict:
         started = datetime.now(UTC)
         try:
-            result = await run_backup_process(["--auto"])
+            result = await run_backup_process(["--auto", *(["--dump"] if kind == "dump" else [])])
         except Exception as exc:  # spawning failed
             result = {"status": "failed", "error": f"Back-upproces kon niet starten: {exc}"}
         await self.record_auto_result(result, state, started)
@@ -344,4 +384,7 @@ class BackupMixin:
                 )
                 log.warning("Automatische back-up mislukt (%d): %s", failures, err)
             await set_setting(db, "backup_state", new_state)
+            await db.flush()
+            # The "Back-up" row of the overview changed: open screens show it at once (item 36).
+            await publish_status(db)
             await db.commit()

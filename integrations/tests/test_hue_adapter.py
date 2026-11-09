@@ -216,3 +216,73 @@ def test_default_factory_uses_tcp_keepalive(monkeypatch):
     import socket
 
     assert (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1) in opts and seen["base"] == BASE
+
+
+@respx.mock
+async def test_eventstream_logs_one_line_per_state_change(plain_factory, caplog):
+    """Item 28: an unreachable bridge is logged once when the stream drops and once when it is back,
+    not on every reconnect attempt (the backoff tops out at 60 s: ~60 lines an hour otherwise)."""
+    mock_inventory()
+
+    async def one_press(msg_id):
+        yield sse(msg_id, f"evt-{msg_id}", [PRESS])
+
+    async def drop_after_press():
+        yield sse("1:0", "evt-a", [PRESS])
+        raise httpx.ReadError("connection reset by peer")
+
+    down = [httpx.ConnectError("Connection refused") for _ in range(8)]
+    stream = respx.get(f"{BASE}/eventstream/clip/v2")
+    stream.side_effect = [
+        httpx.Response(200, content=drop_after_press()),
+        *down,
+        httpx.Response(200, content=one_press("2:0")),
+    ]
+    a = make(plain_factory)
+    caplog.set_level("DEBUG", logger=hue_adapter_mod.__name__)
+    presses = 0
+    agen = a.subscribe()
+    async with asyncio.timeout(5):
+        async for ev in agen:
+            if isinstance(ev, ButtonEvent):
+                presses += 1
+                if presses == 2:
+                    break
+    await agen.aclose()
+
+    info = [r.getMessage() for r in caplog.records if r.levelname == "INFO" and "eventstream" in r.getMessage()]
+    assert info == [
+        f"Hue eventstream verbonden met {HOST}",
+        "Hue eventstream verbroken (connection reset by peer); opnieuw verbinden met backoff",
+        f"Hue eventstream weer verbonden met {HOST}",
+    ]
+    debug = [r for r in caplog.records if r.levelname == "DEBUG" and "nog steeds verbroken" in r.getMessage()]
+    assert len(debug) == len(down)  # every further failed attempt only at debug level
+    assert stream.call_count == len(down) + 2
+
+
+class _Stop(Exception):
+    pass
+
+
+@respx.mock
+async def test_eventstream_unreachable_from_the_start_logs_once(plain_factory, caplog):
+    mock_inventory()
+    stream = respx.get(f"{BASE}/eventstream/clip/v2")
+    stream.side_effect = httpx.ConnectError("No route to host")
+    waits: list[float] = []
+
+    async def sleep(s):
+        waits.append(s)
+        if len(waits) >= 20:
+            raise _Stop
+
+    a = HueAdapter({"host": HOST}, dict(CREDS), http_factory=plain_factory, sleep=sleep)
+    caplog.set_level("INFO", logger=hue_adapter_mod.__name__)
+    with pytest.raises(_Stop):
+        async for _ev in a.subscribe():
+            pass
+    lines = [r.getMessage() for r in caplog.records if "eventstream" in r.getMessage()]
+    assert lines == ["Hue eventstream niet verbonden (No route to host); opnieuw verbinden met backoff"]
+    assert stream.call_count == 20 and max(waits) <= 60.0  # backoff, capped at 60 s
+    assert a.stream_error == "No route to host"

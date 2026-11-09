@@ -367,9 +367,14 @@ data class RedeemResponse(
 @Serializable
 data class TokenRefresh(val token: String, @SerialName("expires_at") val expiresAt: String? = null)
 
-/** `GET /pairing/identity` (no login). */
+/** `GET /pairing/identity` (no login); [proof] only when a nonce and client id were sent. */
 @Serializable
-data class ServerIdentity(@SerialName("server_id") val serverId: String? = null, val name: String? = null)
+data class ServerIdentity(
+    @SerialName("server_id") val serverId: String? = null,
+    val name: String? = null,
+    val proof: String? = null,
+    @SerialName("proof_alg") val proofAlg: String? = null,
+)
 
 /** `GET /system/settings`. */
 @Serializable

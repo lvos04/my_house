@@ -14,7 +14,7 @@ from .. import adaptive as ad
 from .. import climate as cl
 from .. import energy as en
 from .. import views
-from ..commanding import profile_blocks
+from ..commanding import EXPERIMENT_APPLIED, experiment_restore_zone, profile_blocks, publish_zone
 from ..deps import DB, Admin, Auth, get_home
 from ..errors import api_error, not_found
 from ..models import (
@@ -163,6 +163,7 @@ async def adaptive_disable(zone_id: uuid.UUID, db: DB, p: Admin) -> dict:
     z.adaptive_enabled = False
     await db.execute(update(AdaptiveModelVersion).where(AdaptiveModelVersion.zone_id == zone_id).values(active=False))
     db.add(ZoneLog(zone_id=zone_id, kind="adaptive", message=f"{p.user.username}: adaptief uitgezet"))
+    await audit(db, p.actor, "adaptive_disable", str(zone_id))
     await db.commit()
     return await adaptive_status(zone_id, db, p)
 
@@ -291,20 +292,42 @@ async def resume_experiment(exp_id: uuid.UUID, db: DB, p: Admin) -> dict:
     return experiment_view(e)
 
 
+async def _let_go(db, e: Experiment, p, restore: bool) -> str:
+    """Switch an auto-apply experiment's variant profile off (item 45). With ``restore`` the zone gets
+    back the profile and schedule it had before the experiment; without, it keeps what it has now."""
+    z = await db.get(ClimateZone, e.zone_id) if e.zone_id else None
+    if z is None:
+        return "none"
+    if not restore:
+        if (e.result or {}).get(EXPERIMENT_APPLIED):
+            e.result = {**(e.result or {}), EXPERIMENT_APPLIED: None}
+            return "kept"
+        return "none"
+    outcome = await experiment_restore_zone(db, e, z, p.actor)
+    if outcome == "restored":
+        await db.flush()
+        await publish_zone(db, z, await get_home(db, z.home_id))
+    return outcome
+
+
 @router.post("/experiments/{exp_id}/stop")
-async def stop_experiment(exp_id: uuid.UUID, db: DB, p: Admin) -> dict:
-    """Stop for good. The zone keeps the profile and schedule it has now."""
+async def stop_experiment(exp_id: uuid.UUID, db: DB, p: Admin, restore: bool = True) -> dict:
+    """Stop for good. With auto-apply the zone gets back the profile and schedule it had before the
+    experiment (``restore=false``: it keeps the variant's profile it has now). A profile that was put
+    on the zone by hand meanwhile stays. ``zone_restored`` says what happened."""
     e = await _experiment(db, exp_id)
     e.status, e.current_variant = "stopped", None
+    outcome = await _let_go(db, e, p, restore)
     await resolve_alert(db, f"experiment:{e.id}")
-    await audit(db, p.actor, "experiment_stopped", str(e.id))
+    await audit(db, p.actor, "experiment_stopped", str(e.id), zone=outcome)
     await db.commit()
-    return experiment_view(e)
+    return {**experiment_view(e), "zone_restored": outcome}
 
 
 @router.delete("/experiments/{exp_id}", status_code=204)
-async def delete_experiment(exp_id: uuid.UUID, db: DB, p: Admin) -> Response:
+async def delete_experiment(exp_id: uuid.UUID, db: DB, p: Admin, restore: bool = True) -> Response:
     e = await _experiment(db, exp_id)
+    await _let_go(db, e, p, restore)
     await resolve_alert(db, f"experiment:{e.id}")
     await db.delete(e)
     await audit(db, p.actor, "experiment_deleted", str(exp_id))

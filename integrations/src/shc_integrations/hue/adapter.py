@@ -49,6 +49,9 @@ from .model import RESOURCE_TYPES, HueModel, is_hue_id, light_basic_state
 
 log = logging.getLogger(__name__)
 
+# Kinds the inventory reports (and so the only ones a full reload can report as removed).
+INVENTORY_KINDS = frozenset({"light", "light_group", "scene", "button"})
+
 DEVICETYPE = "smart_home_control#server"
 EVENTSTREAM_READ_TIMEOUT_S = 100.0
 __all__ = ["RESOURCE_TYPES", "HueAdapter", "events_from_containers", "normalize_event", "parse_sse"]
@@ -224,6 +227,13 @@ class HueAdapter(Adapter):
         self.stream_error: str | None = None
         self.connections = 0
         self.v1_rules_available: bool | None = None
+        # Last connection state written to the log (None: nothing yet). One line per change, not one
+        # per reconnect attempt: an unreachable bridge would otherwise log ~60 lines an hour (item 28).
+        self._announced_connected: bool | None = None
+        self._reload_failing = False
+        # Inventory after the last full reload (identity -> (kind, name)): what is missing from the next
+        # one was deleted on the bridge while the stream was down and is reported as removed.
+        self._known: dict[str, tuple[str, str | None]] = {}
 
     # -- helpers ---------------------------------------------------------
     @property
@@ -426,9 +436,35 @@ class HueAdapter(Adapter):
         self.last_reload_at = datetime.now(UTC)
         return self._resources
 
+    def seed_inventory(self, known: dict[str, tuple[str, str | None]]) -> None:
+        """What the app already knows of this bridge (identity -> (kind, name)), set by the worker at
+        start, so the first full reload after a restart also reports what was deleted meanwhile.
+        Ignored once a reload has happened: the adapter's own inventory is newer."""
+        if not self._known:
+            self._known = {rid: (kind, name) for rid, (kind, name) in known.items() if kind in INVENTORY_KINDS}
+
     async def full_reload_events(self) -> list[Event]:
+        """Inventory and state after a full load, preceded by ``DeviceInfo(removed=True)`` for every
+        light, group, scene or button that was there at the previous reload but is gone now (deleted
+        on the bridge while the eventstream was disconnected)."""
         await self.load_resources()
-        return self.model.snapshot(datetime.now(UTC))
+        at = datetime.now(UTC)
+        events = self.model.snapshot(at)
+        current = {e.device_identity: (e.kind, e.name) for e in events if isinstance(e, DeviceInfo)}
+        if not current and self._known:
+            # A bridge that suddenly reports nothing at all is far more likely confused (or reset)
+            # than emptied on purpose: archive nothing, keep the previous inventory.
+            log.warning("Hue: volledige lijst is leeg; niets als verwijderd gemarkeerd")
+            return events
+        removed: list[Event] = [
+            DeviceInfo(rid, kind, name, at, removed=True)
+            for rid, (kind, name) in self._known.items()
+            if rid not in current
+        ]
+        if removed:
+            log.info("Hue: %d apparaat/apparaten niet meer op de bridge", len(removed))
+        self._known = current
+        return [*removed, *events]
 
     def resources(self, rtype: str | None = None) -> list[dict[str, Any]]:
         return [r for r in self._resources.values() if rtype is None or r.get("type") == rtype]
@@ -514,11 +550,19 @@ class HueAdapter(Adapter):
                     self.connected_since, self.disconnected_since = datetime.now(UTC), None
                     self.connections += 1
                     delays = backoff_delays(1.0, 60.0)
+                    self._announce(True)
                     try:
-                        for ev in await self.full_reload_events():
-                            yield ev
+                        reloaded = await self.full_reload_events()
                     except (AdapterError, httpx.HTTPError) as exc:
-                        log.info("Hue: volledig herladen na verbinden mislukt (%s)", exc)
+                        if not self._reload_failing:
+                            log.info("Hue: volledig herladen na verbinden mislukt (%s)", exc)
+                        self._reload_failing = True
+                    else:
+                        if self._reload_failing:
+                            log.info("Hue: volledig herladen lukt weer")
+                        self._reload_failing = False
+                        for ev in reloaded:
+                            yield ev
                     async for msg_id, containers in self._sse_messages(resp):
                         last_id = msg_id or last_id
                         self.last_event_at = datetime.now(UTC)
@@ -533,13 +577,27 @@ class HueAdapter(Adapter):
                 log.debug("Hue eventstream stil (%s); opnieuw verbinden", exc)
             except (httpx.HTTPError, AdapterError) as exc:
                 self.stream_error = str(exc) or type(exc).__name__
-                log.info("Hue eventstream verbroken (%s); opnieuw verbinden", self.stream_error)
+                self._announce(False, self.stream_error)
             finally:
                 if self.stream_connected or self.disconnected_since is None:
                     self.disconnected_since = datetime.now(UTC)
                 self.stream_connected = False
                 await self._close_stream_client()
             await self._sleep(1.0 if quiet else next(delays))
+
+    def _announce(self, connected: bool, error: str | None = None) -> None:
+        """Log the eventstream state once per change (connected <-> disconnected); every further
+        failed attempt only at debug level, the details are in health()/diagnostics()."""
+        if connected:
+            if self._announced_connected is not True:
+                again = " weer" if self._announced_connected is False else ""
+                log.info("Hue eventstream%s verbonden met %s", again, self.host)
+        elif self._announced_connected is not False:
+            what = "verbroken" if self._announced_connected else "niet verbonden"
+            log.info("Hue eventstream %s (%s); opnieuw verbinden met backoff", what, error)
+        else:
+            log.debug("Hue eventstream nog steeds verbroken (%s)", error)
+        self._announced_connected = connected
 
     async def execute(self, command: Command) -> CommandResult:
         p = command.params

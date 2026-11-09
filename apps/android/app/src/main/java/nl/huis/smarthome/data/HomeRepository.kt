@@ -19,11 +19,13 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import nl.huis.smarthome.R
 import nl.huis.smarthome.core.Addresses
 import nl.huis.smarthome.core.AddressSync
 import nl.huis.smarthome.core.Alert
 import nl.huis.smarthome.core.ApiClient
 import nl.huis.smarthome.core.ApiException
+import nl.huis.smarthome.core.ApiProblem
 import nl.huis.smarthome.core.CommandTarget
 import nl.huis.smarthome.core.CommandTracker
 import nl.huis.smarthome.core.ConnectionStatus
@@ -34,6 +36,8 @@ import nl.huis.smarthome.core.FailureKind
 import nl.huis.smarthome.core.Failures
 import nl.huis.smarthome.core.GroupCommand
 import nl.huis.smarthome.core.HostRules
+import nl.huis.smarthome.core.IdentityChallenge
+import nl.huis.smarthome.core.IdentityProof
 import nl.huis.smarthome.core.IdentityVerdict
 import nl.huis.smarthome.core.LightGroup
 import nl.huis.smarthome.core.NoRouteException
@@ -58,6 +62,7 @@ import nl.huis.smarthome.core.UnpairReason
 import nl.huis.smarthome.core.UrlTools
 import nl.huis.smarthome.core.Zone
 import nl.huis.smarthome.core.ZoneCommand
+import nl.huis.smarthome.core.ZoneSchedule
 import nl.huis.smarthome.widget.HomeWidget
 import nl.huis.smarthome.work.AlertNotifier
 import nl.huis.smarthome.work.AlertWorker
@@ -77,8 +82,11 @@ data class HomeState(
     val online: Boolean = false,
     /** What the connection banner should say (offline, starting, wrong server, unpaired …). */
     val connection: ConnectionStatus = ConnectionStatus.CONNECTING,
-    /** Dutch explanation for the banner, null when online. */
-    val connectionDetail: String? = null,
+    /**
+     * A specific reason for being offline (Cloudflare Access refused the tunnel), shown in the
+     * banner with its strings.xml text; null when the standard text for [connection] says enough.
+     */
+    val connectionProblem: ApiProblem? = null,
     val realtime: RealtimeState = RealtimeState.DISCONNECTED,
     val loading: Boolean = false,
     /** Setpoint shown per zone while the user adjusts it and until the command is final. */
@@ -94,6 +102,8 @@ data class HomeState(
     val storeWasReset: Boolean = false,
     /** Alerts waiting for notification permission (shown as soon as it is granted). */
     val notificationsWaiting: Int = 0,
+    /** Week schedule per zone id, loaded when the zone is opened (verbeterlijst 12). */
+    val schedules: Map<String, ZoneSchedule> = emptyMap(),
 ) {
     val paired: Boolean get() = pairing != null
 
@@ -221,7 +231,7 @@ class HomeRepository(private val context: Context, val store: SecureStore) {
             unpaired = store.unpairedReason(),
             storeWasReset = store.wasReset,
             notificationsWaiting = AlertWorker.waitingCount(context),
-        ).let { s -> if (s.unpaired != null) s.copy(connection = ConnectionStatus.UNPAIRED, connectionDetail = s.unpaired.message) else s }
+        ).let { s -> if (s.unpaired != null) s.copy(connection = ConnectionStatus.UNPAIRED) else s }
     }
 
     // ------------------------------------------------------------------
@@ -308,12 +318,20 @@ class HomeRepository(private val context: Context, val store: SecureStore) {
     /** The route in use, or a freshly picked one; null when no address answers as the paired server. */
     suspend fun ensureRoute(): Route? = if (_state.value.unpaired != null) null else routes.choose().route
 
-    private suspend fun probe(base: String, kind: RouteKind): Probe = try {
-        Probe.Answered(api.identity(base, kind, if (kind == RouteKind.LAN) lanProbe else remoteProbe).serverId)
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        Probe.fromFailure(e)
+    /**
+     * Asks [base] who it is, with a fresh challenge when this phone knows its client id: only the
+     * real server can prove it knows this phone's token (verbeterlijst 17). The token is not sent.
+     */
+    private suspend fun probe(base: String, kind: RouteKind, withChallenge: Boolean = true): Probe {
+        val challenge = if (withChallenge) IdentityChallenge.create(_state.value.pairing?.clientId) else null
+        return try {
+            val answer = api.identity(base, kind, if (kind == RouteKind.LAN) lanProbe else remoteProbe, challenge)
+            Probe.Answered(answer.serverId, IdentityProof.check(challenge, store.credentials().token, answer))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Probe.fromFailure(e)
+        }
     }
 
     private fun onRouteChoice(choice: RouteChoice) {
@@ -326,7 +344,7 @@ class HomeRepository(private val context: Context, val store: SecureStore) {
             choice.route != null -> _state.update { it.copy(route = choice.route) }
             choice.unverifiable -> markUnpaired(UnpairReason.UPGRADE)
             choice.wrongServer -> setConnection(ConnectionStatus.WRONG_SERVER)
-            choice.blockedReason != null -> setConnection(ConnectionStatus.OFFLINE, choice.blockedReason)
+            choice.blocked != null -> setConnection(ConnectionStatus.OFFLINE, choice.blocked)
         }
     }
 
@@ -347,7 +365,7 @@ class HomeRepository(private val context: Context, val store: SecureStore) {
             }
             if (homeId == null) {
                 setConnection(ConnectionStatus.ONLINE)
-                _messages.tryEmit("Er is nog geen woning ingesteld. Doe dit in de web-app.")
+                _messages.tryEmit(text(R.string.msg_no_home))
                 return false
             }
             val overview = routed { api.overview(it, homeId) }
@@ -404,12 +422,15 @@ class HomeRepository(private val context: Context, val store: SecureStore) {
         } catch (e: Exception) {
             if (unpairedBy(e)) return
         }
-        // Token lifetime.
+        // Token lifetime, and the client id for the identity challenge (pairings from before it
+        // was stored learn it here, over the tunnel: the home address needs the challenge).
         try {
-            if (_state.value.pairing?.tokenExpiresAt == null) {
+            val p = _state.value.pairing
+            if (p != null && (p.tokenExpiresAt == null || p.clientId == null)) {
                 val self = routed { api.clientSelf(it) }
                 store.updateExpiry(self.expiresAt)
                 if (self.role != null) store.updateAccess(null, null, self.role, null)
+                if (IdentityChallenge.create(self.id) != null) store.updateClientId(self.id.trim().lowercase())
                 reloadPairing()
             }
             refreshTokenIfDue()
@@ -443,6 +464,19 @@ class HomeRepository(private val context: Context, val store: SecureStore) {
             throw e
         } catch (e: Exception) {
             onFailure(e)
+        }
+    }
+
+    /** The zone's week schedule for the Klimaat screen; a failure keeps the last one shown. */
+    suspend fun loadSchedule(zoneId: String) {
+        if (_state.value.unpaired != null) return
+        try {
+            val schedule = routed { api.schedule(it, zoneId) }
+            _state.update { it.copy(schedules = it.schedules + (zoneId to schedule)) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            onFailure(e, quiet = true)
         }
     }
 
@@ -529,11 +563,11 @@ class HomeRepository(private val context: Context, val store: SecureStore) {
                 // A request that left with the old token right before the refresh: not a revocation.
                 if (!(reason == UnpairReason.UNKNOWN_TOKEN && justRotated)) markUnpaired(reason)
             }
-            FailureKind.FORBIDDEN, FailureKind.APP_ERROR -> if (!quiet) _messages.tryEmit(e.message ?: "Er ging iets mis.")
+            FailureKind.FORBIDDEN, FailureKind.APP_ERROR -> if (!quiet) _messages.tryEmit(errorText(e))
             FailureKind.WRONG_SERVER -> setConnection(ConnectionStatus.WRONG_SERVER)
             FailureKind.NO_ROUTE -> {
                 if (_state.value.unpaired == null) {
-                    setConnection(ConnectionStatus.OFFLINE, (e as? NoRouteException)?.choice?.blockedReason)
+                    setConnection(ConnectionStatus.OFFLINE, (e as? NoRouteException)?.choice?.blocked)
                 }
             }
             FailureKind.NETWORK, FailureKind.SERVER_DOWN, FailureKind.STARTING -> {
@@ -549,17 +583,17 @@ class HomeRepository(private val context: Context, val store: SecureStore) {
         return true
     }
 
-    private fun setConnection(status: ConnectionStatus, detail: String? = null) {
+    private fun setConnection(status: ConnectionStatus, problem: ApiProblem? = null) {
         val old = _state.value.connection
         _state.update {
             it.copy(
                 connection = status,
-                connectionDetail = detail ?: ConnectionText.banner(status),
+                connectionProblem = problem,
                 online = status == ConnectionStatus.ONLINE,
                 route = if (status == ConnectionStatus.ONLINE) routes.route ?: it.route else routes.route,
             )
         }
-        ConnectionText.transition(old, status)?.let { _messages.tryEmit(it) }
+        ConnectionText.change(old, status)?.let { _messages.tryEmit(text(CoreTexts.of(it))) }
     }
 
     private fun markUnpaired(reason: UnpairReason) {
@@ -576,7 +610,7 @@ class HomeRepository(private val context: Context, val store: SecureStore) {
                 online = false,
                 route = null,
                 connection = ConnectionStatus.UNPAIRED,
-                connectionDetail = reason.message,
+                connectionProblem = null,
                 drafts = emptyMap(),
                 pending = emptySet(),
             )
@@ -595,7 +629,7 @@ class HomeRepository(private val context: Context, val store: SecureStore) {
     private fun canOperate(): Boolean {
         val s = _state.value
         if (s.readOnly) {
-            _messages.tryEmit("Deze telefoon kan alleen meekijken.")
+            _messages.tryEmit(text(R.string.read_only))
             return false
         }
         return s.controlsEnabled
@@ -673,9 +707,9 @@ class HomeRepository(private val context: Context, val store: SecureStore) {
     }
 
     private fun notAdjustable(zone: Zone): String = when {
-        !zone.unitLinked -> "Er is nog geen airco gekoppeld aan ${zone.name}."
-        zone.unitLink == UnitLink.OFFLINE -> "De airco van ${zone.name} is niet bereikbaar."
-        else -> "Kies eerst een modus: de airco van ${zone.name} staat uit."
+        !zone.unitLinked -> text(R.string.msg_zone_no_unit, zone.name)
+        zone.unitLink == UnitLink.OFFLINE -> text(R.string.msg_zone_unit_offline, zone.name)
+        else -> text(R.string.msg_zone_choose_mode, zone.name)
     }
 
     private suspend fun sendZoneCommand(zoneId: String, command: ZoneCommand) {
@@ -743,7 +777,7 @@ class HomeRepository(private val context: Context, val store: SecureStore) {
 
     private fun reportSendFailure(e: Exception) {
         val kind = Failures.classify(e)
-        if (kind.offline) _messages.tryEmit("Niet verzonden: geen verbinding met je huis.")
+        if (kind.offline) _messages.tryEmit(text(R.string.msg_not_sent_offline))
         onFailure(e)
     }
 
@@ -752,7 +786,8 @@ class HomeRepository(private val context: Context, val store: SecureStore) {
         if (!c.status.failed) return
         val o = _state.value.overview
         val name = o?.zones?.firstOrNull { it.id == c.targetId }?.name ?: o?.lights?.firstOrNull { it.id == c.targetId }?.name
-        _messages.tryEmit(listOfNotNull(name, c.label).joinToString(": "))
+        val line = CoreTexts.command(context, c)
+        _messages.tryEmit(name?.let { text(R.string.command_for_target, it, line) } ?: line)
     }
 
     private fun syncCommands() {
@@ -781,28 +816,29 @@ class HomeRepository(private val context: Context, val store: SecureStore) {
      * Returns a Dutch error message, or null on success.
      */
     suspend fun pair(lanUrl: String?, remoteUrl: String?, code: String, serverId: String? = null, role: String? = null): String? {
-        var lan = lanUrl?.let { UrlTools.normalizeBaseUrl(it) ?: return "Dit adres klopt niet." }
-        var remote = remoteUrl?.let { UrlTools.normalizeBaseUrl(it) ?: return "Dit adres klopt niet." }
+        var lan = lanUrl?.let { UrlTools.normalizeBaseUrl(it) ?: return text(R.string.pair_invalid_address) }
+        var remote = remoteUrl?.let { UrlTools.normalizeBaseUrl(it) ?: return text(R.string.pair_invalid_address) }
         // An https address on the home network is a home address, whatever field it came in.
         if (lan == null && remote != null && UrlTools.host(remote)?.let(HostRules::isPrivateHost) == true) {
             lan = remote
             remote = null
         }
-        lan?.let { ServerUrls.lanProblem(it) }?.let { return it }
-        remote?.let { ServerUrls.remoteProblem(it) }?.let { return it }
-        if (lan == null && remote == null) return "Vul het adres van je server in."
-        val expected = serverId?.let { ServerIdentityCheck.normalize(it) ?: return "Dit is geen koppelcode van je Huis-app." }
+        lan?.let { ServerUrls.lanIssue(it) }?.let { return text(CoreTexts.of(it)) }
+        remote?.let { ServerUrls.remoteIssue(it) }?.let { return text(CoreTexts.of(it)) }
+        if (lan == null && remote == null) return text(R.string.pair_address_missing)
+        val expected = serverId?.let { ServerIdentityCheck.normalize(it) ?: return text(R.string.pair_not_our_code) }
 
         val deviceName = listOfNotNull(Build.MANUFACTURER, Build.MODEL).joinToString(" ").ifBlank { "Android" }
         val candidates = listOfNotNull(lan?.let { it to RouteKind.LAN }, remote?.let { it to RouteKind.REMOTE })
-        var lastError = "De server is niet bereikbaar op dit adres."
+        var lastError = text(R.string.pair_unreachable)
         var wrongServer = false
         for ((base, kind) in candidates) {
             if (expected != null) {
-                when (val p = probe(base, kind)) {
+                // No token yet: only the server id from the QR code can be compared here.
+                when (val p = probe(base, kind, withChallenge = false)) {
                     Probe.Unreachable -> continue
                     is Probe.Blocked -> {
-                        lastError = p.reason
+                        lastError = CoreTexts.text(context, p.problem)
                         continue
                     }
                     is Probe.Answered -> if (ServerIdentityCheck.verify(expected, p.serverId) != IdentityVerdict.MATCH) {
@@ -814,12 +850,12 @@ class HomeRepository(private val context: Context, val store: SecureStore) {
             try {
                 val r = api.redeem(base, kind, code, deviceName)
                 val sid = ServerIdentityCheck.normalize(r.server.serverId)
-                    ?: return "Je server is te oud voor deze app. Werk de server bij en probeer het opnieuw."
+                    ?: return text(R.string.pair_server_too_old)
                 if (expected != null && sid != expected) {
-                    return "Dit is niet jouw server: het adres hoort bij een andere installatie."
+                    return text(R.string.pair_other_installation)
                 }
-                val serverLan = r.server.lanUrl?.let { UrlTools.normalizeBaseUrl(it) }?.takeIf { ServerUrls.lanProblem(it) == null }
-                val serverRemote = r.server.remoteUrl?.let { UrlTools.normalizeBaseUrl(it) }?.takeIf { ServerUrls.remoteProblem(it) == null }
+                val serverLan = r.server.lanUrl?.let { UrlTools.normalizeBaseUrl(it) }?.takeIf { ServerUrls.lanIssue(it) == null }
+                val serverRemote = r.server.remoteUrl?.let { UrlTools.normalizeBaseUrl(it) }?.takeIf { ServerUrls.remoteIssue(it) == null }
                 val pairing = Pairing(
                     token = r.token,
                     lanUrl = serverLan ?: lan,
@@ -831,9 +867,10 @@ class HomeRepository(private val context: Context, val store: SecureStore) {
                     serverId = sid,
                     clientRole = r.client?.role ?: role,
                     tokenExpiresAt = r.client?.expiresAt,
+                    clientId = r.client?.id?.takeIf { IdentityChallenge.create(it) != null }?.trim()?.lowercase(),
                 )
                 if (!store.savePairing(pairing)) {
-                    return "De koppeling kon niet veilig op deze telefoon worden opgeslagen. Probeer het opnieuw."
+                    return text(R.string.pair_store_failed)
                 }
                 val route = Route(kind, base, sid)
                 routes.adopt(route)
@@ -852,14 +889,14 @@ class HomeRepository(private val context: Context, val store: SecureStore) {
                 throw e
             } catch (e: ApiException) {
                 // A real answer from the server (e.g. expired code): don't try the other address.
-                if (e.fromApi) return e.message
-                lastError = e.message
+                if (e.fromApi) return errorText(e)
+                lastError = errorText(e)
             } catch (e: Exception) {
-                lastError = "De server is niet bereikbaar op dit adres."
+                lastError = text(R.string.pair_unreachable)
             }
         }
         return if (wrongServer) {
-            "Dit is niet jouw server: op dit adres antwoordt een ander apparaat. De app stuurt de koppelcode er niet heen."
+            text(R.string.pair_wrong_server)
         } else {
             lastError
         }
@@ -922,17 +959,27 @@ class HomeRepository(private val context: Context, val store: SecureStore) {
      * token only goes to an address that answers as the paired server. Returns a Dutch error or null.
      */
     fun updateAddresses(lanUrl: String?, remoteUrl: String?): String? {
-        val lan = lanUrl?.takeIf { it.isNotBlank() }?.let { UrlTools.normalizeBaseUrl(it) ?: return "Het thuisadres klopt niet." }
-        val remote = remoteUrl?.takeIf { it.isNotBlank() }?.let { UrlTools.normalizeBaseUrl(it) ?: return "Het externe adres klopt niet." }
-        lan?.let { ServerUrls.lanProblem(it) }?.let { return it }
-        remote?.let { ServerUrls.remoteProblem(it) }?.let { return it }
-        if (lan == null && remote == null) return "Vul minstens één adres in."
-        if (_state.value.pairing == null) return "Deze telefoon is niet gekoppeld."
+        val lan = lanUrl?.takeIf { it.isNotBlank() }?.let { UrlTools.normalizeBaseUrl(it) ?: return text(R.string.addresses_lan_invalid) }
+        val remote = remoteUrl?.takeIf { it.isNotBlank() }?.let { UrlTools.normalizeBaseUrl(it) ?: return text(R.string.addresses_remote_invalid) }
+        lan?.let { ServerUrls.lanIssue(it) }?.let { return text(CoreTexts.of(it)) }
+        remote?.let { ServerUrls.remoteIssue(it) }?.let { return text(CoreTexts.of(it)) }
+        if (lan == null && remote == null) return text(R.string.addresses_none)
+        if (_state.value.pairing == null) return text(R.string.addresses_not_paired)
         store.updateAddresses(lan, remote)
         reloadPairing()
         retry()
         return null
     }
+
+    /** User-visible text from strings.xml (TalkBack and translations read the same resources). */
+    private fun text(id: Int, vararg args: Any): String = if (args.isEmpty()) context.getString(id) else context.getString(id, *args)
+
+    /**
+     * A failed request for a snackbar or the pairing screen: the strings.xml text for what the
+     * client reported as a code, the server's own message, else "Er ging iets mis." (never the
+     * technical message of an unexpected exception).
+     */
+    private fun errorText(e: Throwable): String = CoreTexts.message(context, e) ?: text(R.string.msg_generic_error)
 
     /** Set by the background worker: alerts waiting for notification permission. */
     fun setNotificationsWaiting(count: Int) {

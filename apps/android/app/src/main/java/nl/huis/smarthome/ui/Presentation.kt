@@ -1,11 +1,14 @@
 package nl.huis.smarthome.ui
 
+import androidx.camera.core.CameraState
+import nl.huis.smarthome.core.ApiProblem
+import nl.huis.smarthome.core.CommandLabel
 import nl.huis.smarthome.core.CommandStatus
 import nl.huis.smarthome.core.ConnectionStatus
-import nl.huis.smarthome.core.ConnectionText
 import nl.huis.smarthome.core.LightGroup
 import nl.huis.smarthome.core.NlFormat
 import nl.huis.smarthome.core.PendingCommandRef
+import nl.huis.smarthome.core.StatusItem
 import nl.huis.smarthome.core.UnitLink
 import nl.huis.smarthome.core.Zone
 import nl.huis.smarthome.data.HomeState
@@ -124,8 +127,11 @@ sealed interface CommandLine {
     /** The value is still being collected (+/− debounce) or on its way to the server. */
     data object Sending : CommandLine
 
-    /** A command from this phone, with the server's outcome. */
-    data class Tracked(val text: String, val tone: Tone) : CommandLine
+    /**
+     * A command from this phone, with the server's outcome: [label] is shown with its strings.xml
+     * text, followed by the server's [reason] after "Mislukt" or "Geweigerd".
+     */
+    data class Tracked(val label: CommandLabel, val reason: String?, val tone: Tone) : CommandLine
 
     /** A command from another phone, the web app or the schedule that is not finished yet. */
     data class Elsewhere(val sent: Boolean) : CommandLine
@@ -146,7 +152,7 @@ object CommandUi {
         val cmd = state.command(targetId)
         val draft = state.drafts[targetId]
         if (draft != null && (cmd == null || !cmd.inFlight || cmd.requested?.targetC != draft)) return CommandLine.Sending
-        if (cmd != null) return CommandLine.Tracked(cmd.label, tone(cmd.status))
+        if (cmd != null) return CommandLine.Tracked(cmd.labelCode, cmd.reason, tone(cmd.status))
         val status = pending?.let { CommandStatus.fromWire(it.status) } ?: return null
         if (status.final) return null
         return CommandLine.Elsewhere(sent = status == CommandStatus.SENT)
@@ -165,8 +171,8 @@ enum class BannerKind { NONE, CONNECTING, OFFLINE, STARTING, WRONG_SERVER }
 
 data class Banner(
     val kind: BannerKind,
-    /** A specific reason (e.g. Cloudflare Access) when it differs from the standard text. */
-    val detail: String? = null,
+    /** A specific reason (Cloudflare Access) instead of the standard offline text; shown from strings.xml. */
+    val problem: ApiProblem? = null,
 )
 
 object ConnectionUi {
@@ -177,10 +183,7 @@ object ConnectionUi {
             ConnectionStatus.CONNECTING -> Banner(BannerKind.CONNECTING)
             ConnectionStatus.STARTING -> Banner(BannerKind.STARTING)
             ConnectionStatus.WRONG_SERVER -> Banner(BannerKind.WRONG_SERVER)
-            ConnectionStatus.OFFLINE -> Banner(
-                BannerKind.OFFLINE,
-                state.connectionDetail?.takeIf { it.isNotBlank() && it != ConnectionText.banner(ConnectionStatus.OFFLINE) },
-            )
+            ConnectionStatus.OFFLINE -> Banner(BannerKind.OFFLINE, state.connectionProblem)
         }
     }
 }
@@ -287,6 +290,64 @@ object CameraPolicy {
     /** After "niet meer vragen" the system shows nothing: "Camera toestaan" opens the app settings. */
     fun openSettings(granted: Boolean, askedBefore: Boolean, showRationale: Boolean): Boolean =
         !granted && askedBefore && !showRationale
+
+    /** "Camera opnieuw proberen" only helps when the phone has a camera at all. */
+    fun canRetry(issue: CameraIssue?, hasHardware: Boolean): Boolean = hasHardware && issue != null
+
+    /**
+     * The message for a CameraX state error code (CameraInfo.cameraState after binding): another
+     * app holds the camera, it is switched off, or anything else (driver error, stream setup).
+     */
+    fun issueFor(errorCode: Int): CameraIssue = when (errorCode) {
+        CameraState.ERROR_CAMERA_IN_USE, CameraState.ERROR_MAX_CAMERAS_IN_USE -> CameraIssue.IN_USE
+        CameraState.ERROR_CAMERA_DISABLED -> CameraIssue.DISABLED
+        else -> CameraIssue.UNAVAILABLE
+    }
+}
+
+/**
+ * Why the QR scanner shows a message instead of the camera picture. CameraX reports most of these
+ * only through the camera's state after binding (CameraState.error), not as an exception.
+ */
+enum class CameraIssue {
+    /** No camera, a driver error or another critical error. */
+    UNAVAILABLE,
+
+    /** Another app (a video call, the camera app) holds the camera. */
+    IN_USE,
+
+    /** Switched off on this phone (privacy setting or a device policy). */
+    DISABLED,
+}
+
+// ---------------------------------------------------------------------------------------------
+// System attention block on the start screen (verbeterlijst 22): worker heartbeat, safe mode,
+// last backup and maintenance, as on the web overview (attentionItems in pages/Overview.tsx).
+// ---------------------------------------------------------------------------------------------
+
+enum class AttentionLevel { NONE, WARN, ERROR }
+
+data class Attention(val items: List<StatusItem>, val level: AttentionLevel)
+
+object AttentionUi {
+    private val KEYS = setOf("worker", "safe_mode", "backup", "maintenance")
+
+    /**
+     * The status lines worth a block at the top: safe mode whenever the server reports it (it is
+     * only sent while on), the others only when not "ok" (and not "unknown"). Integrations stay on
+     * the web's Systeem page.
+     */
+    fun of(status: List<StatusItem>): Attention {
+        val items = status
+            .filter { it.key == "safe_mode" || (it.key in KEYS && it.state != "ok" && it.state != "unknown") }
+            .sortedBy { if (it.state == "error") 0 else 1 }
+        val level = when {
+            items.isEmpty() -> AttentionLevel.NONE
+            items.any { it.state == "error" } -> AttentionLevel.ERROR
+            else -> AttentionLevel.WARN
+        }
+        return Attention(items, level)
+    }
 }
 
 // ---------------------------------------------------------------------------------------------

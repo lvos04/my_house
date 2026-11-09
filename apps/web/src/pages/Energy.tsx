@@ -7,6 +7,7 @@ import type { Period } from '../api/types';
 import { useHome } from '../state';
 import { useCan } from '../user';
 import { ErrorNote, Loading, QualityBadge } from '../components/bits';
+import { TabPanel } from '../components/Tabs';
 import { kwh } from '../format';
 import { useHomeTimezone, useToday } from '../energy/hooks';
 import { periodLastDay, periodStart, periodTitle, relativeLabel } from '../energy/period';
@@ -19,6 +20,8 @@ import { TariffSection } from '../energy/Tariffs';
 import { LimitsCard } from '../energy/Limits';
 
 const PER: Record<Period, string> = { day: 'uur', week: 'dag', month: 'dag', year: 'maand' };
+/** idBase of the period tabs and their panel. */
+const PERIOD_TABS = 'energy-period';
 
 export function EnergyPage() {
   const { homeId } = useHome();
@@ -49,28 +52,31 @@ export function EnergyPage() {
           <h1 data-testid="energy-title">{periodTitle(date, period, today)}</h1>
         </div>
       </header>
-      <PeriodNav period={period} date={date} today={today} onPeriod={setPeriod} onDate={setAnchor} />
+      <PeriodNav idBase={PERIOD_TABS} period={period} date={date} today={today} onPeriod={setPeriod} onDate={setAnchor} />
       {anchor === null && <LivePowerCard homeId={homeId} tz={tz} />}
-      {s.isLoading && <Loading />}
-      {s.error && !data && <ErrorNote error={s.error} />}
-      {data && (
-        <>
-          <MeterCards s={data} />
-          <section aria-labelledby="trend-h" className="card live">
-            <div className="section-head">
-              <h2 id="trend-h" className="en-h2">Verbruik per {PER[period]}</h2>
-              <span className="small muted">Totaal {kwh(data.total_kwh)}</span>
-            </div>
-            <ChartLegend summary={data} />
-            <EnergyChart summary={data} />
-            <details>
-              <summary>Toon als tabel, met kwaliteit per {PER[period]}</summary>
-              <EnergyTable summary={data} />
-            </details>
-          </section>
-          <CostCard s={data} isAdmin={can.admin} />
-        </>
-      )}
+      {/* The figures of the chosen period: the panel of the period tabs (live power is not per period). */}
+      <TabPanel idBase={PERIOD_TABS} value={period} className="en-panel">
+        {s.isLoading && <Loading />}
+        {s.error && !data && <ErrorNote error={s.error} />}
+        {data && (
+          <>
+            <MeterCards s={data} />
+            <section aria-labelledby="trend-h" className="card live">
+              <div className="section-head">
+                <h2 id="trend-h" className="en-h2">Verbruik per {PER[period]}</h2>
+                <span className="small muted">Totaal {kwh(data.total_kwh)}</span>
+              </div>
+              <ChartLegend summary={data} />
+              <EnergyChart summary={data} />
+              <details>
+                <summary>Toon als tabel, met kwaliteit per {PER[period]}</summary>
+                <EnergyTable summary={data} />
+              </details>
+            </section>
+            <CostCard s={data} isAdmin={can.admin} />
+          </>
+        )}
+      </TabPanel>
       <div className="grid-auto">
         <section aria-labelledby="meet-h" className="card">
           <h2 id="meet-h" className="en-h2">Wat wordt gemeten</h2>

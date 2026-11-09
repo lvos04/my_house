@@ -140,6 +140,50 @@ describe('lights page (item 27)', () => {
     expect(within(screen.getByTestId('group-g1')).getByRole('alert')).toHaveTextContent('Helderheid 42%: Mislukt: Hue Bridge meldt: device has communication issues');
   });
 
+  it('sends a value set by assistive technology (a change without pointer or key), once after a pause', async () => {
+    const calls = mockApi(route());
+    render(<Providers><LightsPage /></Providers>);
+    const slider = await screen.findByLabelText('Helderheid Keuken');
+    const posts = () => calls.filter((c) => c.method === 'POST' && c.url === '/api/v1/lights/groups/g1');
+    const pause = () => new Promise((r) => setTimeout(r, 500));
+
+    // VoiceOver/TalkBack: two quick swipes raise only input + change, no pointer or key events.
+    fireEvent.focus(slider);
+    fireEvent.change(slider, { target: { value: '90' } });
+    fireEvent.change(slider, { target: { value: '80' } });
+    expect(posts()).toHaveLength(0);
+    expect(slider).toHaveAttribute('aria-valuetext', '80%');
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0].body).toEqual({ brightness: 80 });
+
+    // A held arrow key: its change events wait for the keyup, then one value.
+    fireEvent.keyDown(slider, { key: 'ArrowLeft' });
+    fireEvent.change(slider, { target: { value: '79' } });
+    fireEvent.keyDown(slider, { key: 'ArrowLeft' });
+    fireEvent.change(slider, { target: { value: '78' } });
+    await pause();
+    expect(posts()).toHaveLength(1);
+    fireEvent.keyUp(slider, { key: 'ArrowLeft' });
+    await waitFor(() => expect(posts()).toHaveLength(2));
+    expect(posts()[1].body).toEqual({ brightness: 78 });
+
+    // A drag sends on release; the change that follows the release sends nothing more.
+    fireEvent.pointerDown(slider);
+    fireEvent.change(slider, { target: { value: '70' } });
+    fireEvent.pointerUp(slider);
+    fireEvent.change(slider, { target: { value: '70' } });
+    await waitFor(() => expect(posts()).toHaveLength(3));
+    expect(posts()[2].body).toEqual({ brightness: 70 });
+    await pause();
+    expect(posts()).toHaveLength(3);
+
+    // Moving focus away sends a pending value at once, without waiting for the pause.
+    fireEvent.change(slider, { target: { value: '65' } });
+    fireEvent.blur(slider);
+    await waitFor(() => expect(posts()).toHaveLength(4), { timeout: 200 });
+    expect(posts()[3].body).toEqual({ brightness: 65 });
+  });
+
   it('turns a group that is off on when the brightness is set', async () => {
     const calls = mockApi(route());
     render(<Providers><LightsPage /></Providers>);

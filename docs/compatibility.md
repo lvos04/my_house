@@ -33,9 +33,13 @@ Pas als alle drie slagen wordt de unit gekoppeld. Mislukt het, dan geeft de kopp
 scan-antwoord, welke versleutelingen geprobeerd zijn met de uitkomst per poging, en in welke stap
 het misging. Er staat nooit een sleutel in de diagnose. Dat blok kun je kopiëren voor support.
 
-Een commando telt alleen als **bevestigd** wanneer een statusuitlezing direct erna de gevraagde
-stand laat zien. Minimaal 2 seconden tussen commando's per unit. Bij uitval blijft de originele
-afstandsbediening werken.
+Een commando telt alleen als **bevestigd** wanneer een statusuitlezing direct erna (of een latere
+uitlezing) de gevraagde stand laat zien. Minimaal 2 seconden tussen commando's per unit. Alleen de
+temperatuur of de ventilator wijzigen zet een uitgeschakelde unit niet aan. Bij uitval blijft de
+originele afstandsbediening werken.
+
+De waakhond van een zone gebruikt zonder externe sensor de binnentemperatuur van de unit zelf (als die
+recent en plausibel is). De bijsturing van het setpoint gebeurt alleen met een externe sensor.
 
 Wat de unit kan, meldt de adapter bij elke uitleesronde (`caps`): modi (uit, auto, koelen,
 drogen, ventileren, verwarmen), minimaal 16 en maximaal 30 °C, stapgrootte, en of ventilator en
@@ -68,7 +72,8 @@ uit de kolommen die hij teruggeeft.
   voor de stekker nog geen v2-API; mocht een stekker ooit via v2 gekoppeld zijn, dan leest de app de
   stand via v1 (zonder token). Lukt dat niet, dan staat de stand op ‘niet ondersteund’ in plaats van
   een gok.
-- **Tijd:** API v2 geeft lokale tijd zonder tijdzone. De app kiest de UTC-tijd die het dichtst bij
+- **Tijd:** API v2 geeft lokale tijd zonder tijdzone. De adapter rekent die om met de tijdzone
+  Europe/Amsterdam (nog niet met de tijdzone van de woning) en kiest de UTC-tijd die het dichtst bij
   het moment van uitlezen ligt (in het dubbele uur eind oktober zijn er twee mogelijkheden; eind maart
   bestaat 02:00–03:00 niet). Wijkt zelfs de beste keuze meer dan een uur af, dan geldt het moment
   van uitlezen. Een gasstand mag wel ouder zijn (uurwaarden), maar niet meer dan een uur in de
@@ -90,8 +95,14 @@ uit de kolommen die hij teruggeeft.
   (`scene.status.active`), bereikbaarheid per lamp via het bijbehorende apparaat, en de groep
   "alle lampen" heet "Alle lampen".
 - **Commando's:** geeft de bridge in zijn antwoord een foutmelding (bijvoorbeeld "device has
-  communication issues"), dan telt het commando als niet bevestigd, met die tekst erbij. Een scène
+  communication issues"), dan telt het commando als mislukt, met die tekst erbij. Een scène
   telt als bevestigd als de bridge hem daarna als actief meldt.
+- **Verwijderd op de bridge:** lampen, scènes, kamers en knoppen die in de Hue-app zijn verwijderd
+  (ook terwijl de app niet verbonden was), worden na de volgende volledige inleesronde gearchiveerd.
+  Hernoemde onderdelen krijgen hun nieuwe naam, tenzij je ze in deze app zelf een naam gaf. Komt een
+  onderdeel terug, dan wordt het weer actief.
+- **Opnieuw koppelen:** dezelfde bridge opnieuw koppelen (b.v. na een nieuw IP-adres of certificaat)
+  werkt de bestaande koppeling bij; oudere dubbele koppelingen van dezelfde bridge gaan uit.
 
 ## Zigbee
 
