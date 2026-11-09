@@ -78,9 +78,12 @@
   .thema-knoppen button { @apply min-w-0 px-1 text-sm; }
   .thema-knoppen button[aria-pressed='true'] { @apply px-1; }
 
-  /* Modusknoppen (KlimaatZone): actief = domeinstijl + check, geblokkeerd = gate (stippel + slot in de tekst). */
+  /* Modusknoppen (KlimaatZone): actief = domeinstijl + check, geblokkeerd = gate (stippel + slot in de tekst).
+     Review stap 5: kolommen minstens 8,5 rem, zodat "✓ Verwarmen" en "🔒 Ventileren" in de knop passen (op 390 px
+     stak het woord 10 px buiten de rand). Past het toch niet, dan gaat het icoon boven het woord (flex-wrap). */
+  .mode-grid { grid-template-columns: repeat(auto-fit, minmax(min(8.5rem, 100%), 1fr)); }
   .mode-btn {
-    @apply inline-flex min-h-12 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-border-strong bg-card px-2 text-base font-semibold text-foreground;
+    @apply inline-flex min-h-12 min-w-0 cursor-pointer flex-wrap content-center items-center justify-center gap-x-1.5 gap-y-0.5 rounded-lg border border-border-strong bg-card px-2 py-1 text-center text-base font-semibold text-foreground;
   }
   .mode-btn:hover:not(:disabled) { @apply bg-accent; }
   .mode-btn[aria-pressed='true'] { @apply border-2 border-foreground bg-accent font-bold; --icoon: var(--peil-icoon-check); }
@@ -165,7 +168,11 @@
     @apply flex min-h-18 cursor-pointer flex-col justify-between gap-1 rounded-lg border border-border-strong bg-card px-3.5 py-3 text-left text-foreground;
   }
   .light-tile:hover:not(:disabled) { @apply bg-accent; }
-  .light-tile .lt-name { @apply inline-flex items-center gap-1.5 text-base font-semibold; }
+  /* Review stap 5: hooguit twee tegels naast elkaar en één kolom als een tegel smaller dan 8,5 rem zou worden
+     (op 320 px stak "Woonkamer" 18 px buiten de tegel). Een lange naam breekt binnen de tegel, nooit erbuiten. */
+  .grid-2:has(> .light-tile) { grid-template-columns: repeat(auto-fit, minmax(max(8.5rem, calc(50% - 5px)), 1fr)); }
+  .light-tile { min-width: 0; }
+  .light-tile .lt-name { @apply inline-flex min-w-0 flex-wrap items-center gap-1.5 text-base font-semibold; overflow-wrap: anywhere; }
   .light-tile .lt-name > svg { @apply size-5 shrink-0; }
   .light-tile.on { @apply border-2 border-domain-light-on bg-domain-light-on-bg text-domain-light-on-ink; }
   .light-tile.on:hover:not(:disabled) { @apply bg-domain-light-on-bg; }
@@ -238,4 +245,12 @@
   .lt-warn { @apply rounded-sm border-2 border-degraded bg-degraded-bg px-2 py-1 text-degraded-ink; }
   .lt-confirm { @apply rounded-sm bg-degraded-bg text-degraded-ink; }
   .dv-relay .state-line, .dv-badges .state-line { @apply text-sm; }
+}
+
+/* Buiten een laag, zodat het na de basisregel van ontwerptaal.css (html:has([data-actiebalk]) 4,5 rem) komt.
+   Review stap 5: de opslaanbalk van het weekschema is onder 768 px 113 px hoog (twee knoppen onder elkaar) en
+   142 px met "Niet opgeslagen wijzigingen."; met 4,5 rem scroll-padding verdween de focus op de dagvinkjes van
+   "Dag kopiëren" volledig achter de balk (WCAG 2.4.11). 9 rem = 144 px dekt de hoogste stand. */
+@media (width < 48rem) {
+  html:has(.sched-save) { --actiebalk-h: 9rem; }
 }
