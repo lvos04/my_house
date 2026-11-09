@@ -29,6 +29,7 @@ from ..models import BackupRecord, Device, DeviceBinding, Home, Integration, Log
 from ..security import lan_url_problem, normalize_server_url, remote_url_problem
 from ..store import audit, get_setting, set_secret_setting, set_setting
 from ..views.status import publish_status
+from ..worker.aggregates import RETENTION_KEY, RETENTION_MAX_DAYS, RETENTION_MIN, load_retention, retention_defaults
 from ..worker.backup_job import (
     backup_due,
     load_backup_settings,
@@ -307,6 +308,72 @@ async def put_backup_settings(body: BackupSettingsIn, db: DB, p: Admin) -> dict:
     return await backup_settings_view(db)
 
 
+# --- retention (verbeterlijst 19) ---------------------------------------------------------------
+
+RETENTION_LABELS = {
+    "power_days": "Vermogen (detail)",
+    "counter_days": "Meterstanden (ruw)",
+    "log_days": "Logboek klimaatregeling",
+}
+
+
+class RetentionIn(BaseModel):
+    """Days to keep raw data. Omitted fields stay as they are; null goes back to the default."""
+
+    model_config = {"extra": "forbid"}
+
+    power_days: int | None = None
+    counter_days: int | None = None
+    log_days: int | None = None
+
+    @field_validator("power_days", "counter_days", "log_days")
+    @classmethod
+    def _range(cls, v: int | None, info) -> int | None:
+        if v is None:
+            return None
+        low = RETENTION_MIN[info.field_name]
+        if v < low:
+            raise ValueError(f"{RETENTION_LABELS[info.field_name]}: bewaar minimaal {low} dagen")
+        if v > RETENTION_MAX_DAYS:
+            raise ValueError(f"{RETENTION_LABELS[info.field_name]}: maximaal {RETENTION_MAX_DAYS} dagen")
+        return v
+
+
+async def retention_view(db) -> dict:
+    keep = await load_retention(db)
+    return {
+        "power_days": keep["power_days"],
+        "counter_days": keep["counter_days"],
+        "log_days": keep["log_days"],
+        "source": keep["source"],
+        "defaults": retention_defaults(),
+        "minimums": dict(RETENTION_MIN),
+        "maximum": RETENTION_MAX_DAYS,
+        "note": "Uurtotalen van energie en gas worden altijd bewaard. Meterstanden die nog niet in "
+        "uurtotalen zijn verwerkt, worden nooit verwijderd.",
+    }
+
+
+@router.get("/system/retention")
+async def get_retention(db: DB, p: Admin) -> dict:
+    return await retention_view(db)
+
+
+@router.put("/system/retention")
+async def put_retention(body: RetentionIn, db: DB, p: Admin) -> dict:
+    stored = dict(await get_setting(db, RETENTION_KEY, {}) or {})
+    for k in body.model_fields_set:
+        v = getattr(body, k)
+        if v is None:
+            stored.pop(k, None)
+        else:
+            stored[k] = v
+    await set_setting(db, RETENTION_KEY, stored)
+    await audit(db, p.actor, "retention_updated", None, **{k: stored.get(k) for k in body.model_fields_set})
+    await db.commit()
+    return await retention_view(db)
+
+
 # --- restore via upload (verbeterlijst 43, backend) ---------------------------------------------
 
 
@@ -554,11 +621,14 @@ async def restore_verify(request: Request, db: DB, p: Admin) -> dict:
     return summary
 
 
-@router.delete("/system/restore/uploads/{upload_id}", status_code=204)
-async def restore_discard(upload_id: str, p: Admin) -> Response:
-    path = _upload_path(upload_id)
+def _remove_upload(path: Path) -> None:
     path.unlink(missing_ok=True)
     path.with_suffix(".json").unlink(missing_ok=True)
+
+
+@router.delete("/system/restore/uploads/{upload_id}", status_code=204)
+async def restore_discard(upload_id: str, p: Admin) -> Response:
+    _remove_upload(_upload_path(upload_id))
     return Response(status_code=204)
 
 
@@ -585,8 +655,7 @@ async def _run_restore_job(job: dict, path: Path, passphrase: str, mode: str, ma
 
         report = await asyncio.to_thread(run)
         job.update(state="done", step="klaar", report=report, finished_at=datetime.now(UTC))
-        path.unlink(missing_ok=True)
-        path.with_suffix(".json").unlink(missing_ok=True)
+        await asyncio.to_thread(_remove_upload, path)
         with contextlib.suppress(Exception):  # maintenance off, safe mode on: tell open screens
             async with sessionmaker()() as db:
                 await publish_status(db)

@@ -43,6 +43,11 @@ jobs:
       - name: Build debug APK
         run: ./gradlew --no-daemon :app:assembleDebug
 
+      # Same minified (R8) release build as release.yml, but unsigned: catches missing keep rules
+      # on every change instead of only when a version is released.
+      - name: Build minified release APK (unsigned)
+        run: ./gradlew --no-daemon :app:assembleRelease
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: huis-debug-apk

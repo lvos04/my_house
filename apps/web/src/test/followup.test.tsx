@@ -3,12 +3,14 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { api, isActionRequired } from '../api/client';
 import { ConnectionProvider, HomeProvider, PendingProvider } from '../state';
 import { UserContext } from '../user';
 import { DevicesPage, PROTECTED_TEXT } from '../pages/Devices';
 import { SystemPage } from '../pages/System';
 import type { Device } from '../api/types';
+import { device } from './fixtures';
 
 type Route = (method: string, url: string, body: unknown) => { status?: number; body?: unknown } | undefined;
 
@@ -31,7 +33,9 @@ function wrap(children: ReactNode) {
       <ConnectionProvider initial={{ apiReachable: true, wsState: 'open' }}>
         <PendingProvider>
           <UserContext.Provider value={{ id: 'u1', username: 'admin', role: 'admin' }}>
-            <HomeProvider>{children}</HomeProvider>
+            <MemoryRouter>
+              <HomeProvider>{children}</HomeProvider>
+            </MemoryRouter>
           </UserContext.Provider>
         </PendingProvider>
       </ConnectionProvider>
@@ -39,10 +43,10 @@ function wrap(children: ReactNode) {
   );
 }
 
-const boiler: Device = {
-  id: 'd1', provider: 'homewizard', kind: 'energy_socket', name: 'Boiler-stekker', stable_identity: 'abc', room: null,
-  roles: ['boiler'], online: true, last_seen: null, capabilities: ['measured_power', 'relay'], protected: true, compatibility: 'untested',
-};
+const boiler: Device = device({
+  id: 'd1', provider: 'homewizard', kind: 'energy_socket', name: 'Boiler-stekker', stable_identity: 'abc',
+  roles: ['boiler'], allowed_roles: ['airco', 'boiler'], capabilities: ['measured_power', 'relay'], protected: true,
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -101,9 +105,13 @@ describe('Apparaten', () => {
     expect(pairCalls).toHaveLength(2);
     expect(pairCalls[1].body).toEqual({ home_id: 'h1', host: '192.168.1.2' });
 
-    // role binding
+    // role binding: choosing a role alone does nothing; it binds only after "Koppelen" and confirmation
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     await user.selectOptions(screen.getByLabelText('Rol van Boiler-stekker'), 'airco');
+    expect(calls.some((c) => c.url.endsWith('/devices/d1/bind'))).toBe(false);
+    await user.click(screen.getByRole('button', { name: 'Rol koppelen: Boiler-stekker' }));
     await waitFor(() => expect(calls.some((c) => c.url.endsWith('/devices/d1/bind'))).toBe(true));
+    expect(confirmSpy).toHaveBeenCalled();
   });
 });
 

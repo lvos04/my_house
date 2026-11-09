@@ -1,0 +1,100 @@
+/* Climate pages (Klimaat, Overzicht, Optimalisatie). Uses the tokens from styles.css only, so light
+   and dark follow the theme. Item 40: the dial scales, +/− stay ≥ 48 px, grids never force a width
+   wider than the screen. */
+
+.c-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 16px; }
+.c-grid > * { min-width: 0; }
+.c-grid.narrow { grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); }
+
+/* Thermostat */
+.c-control { display: flex; flex-direction: column; gap: 18px; }
+.c-dial-row { display: flex; align-items: center; justify-content: center; gap: clamp(10px, 4vw, 28px); flex-wrap: nowrap; }
+.c-dial {
+  width: min(200px, 50vw); height: min(200px, 50vw); border-radius: 50%;
+  border: clamp(6px, 2.5vw, 10px) solid var(--border);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; flex-shrink: 0; text-align: center;
+}
+.c-dial.heat { border-color: var(--heat-soft); }
+.c-dial.cool { border-color: var(--cool-soft); }
+.c-dial .big-num { font-size: clamp(34px, 11vw, 52px); }
+.c-dial .draft, .c-setpoint-val .draft { color: var(--text-2); font-style: italic; }
+.sp-btn {
+  width: 56px; height: 56px; min-width: 48px; min-height: 48px; border-radius: 50%; flex-shrink: 0;
+  border: 1px solid var(--input-border); background: var(--surface); color: var(--text);
+  font-size: 26px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
+}
+.sp-btn.sm { width: 48px; height: 48px; font-size: 22px; }
+.sp-btn:hover:not(:disabled) { background: var(--surface-2); }
+.sp-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.sp-btn:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.c-setpoint { display: flex; align-items: center; gap: 8px; }
+.c-setpoint-val { display: flex; flex-direction: column; align-items: center; min-width: 64px; }
+.c-hint { font-size: 13px; color: var(--text-2); }
+.c-status { font-size: 13px; color: var(--text-2); display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.c-status.failed, .c-status.denied { color: var(--error); font-weight: 600; }
+.c-status.timeout, .c-status.retrying { color: var(--warn); font-weight: 600; }
+.c-status.confirmed { color: var(--ok); }
+.c-choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.c-choices button { min-height: 44px; min-width: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--input-border); background: var(--surface); font-size: 14px; font-weight: 500; cursor: pointer; color: var(--text); }
+.c-choices button[aria-pressed='true'] { border: 2px solid var(--text); font-weight: 600; padding: 0 13px; }
+.c-choices button:disabled { opacity: 0.45; cursor: not-allowed; }
+.c-choices button:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+fieldset.c-fieldset { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+fieldset.c-fieldset > legend { font-size: 13px; color: var(--muted); padding: 0; margin-bottom: 8px; }
+.c-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.c-readings { display: flex; flex-wrap: wrap; gap: 16px; align-items: baseline; }
+
+/* Not linked: neutral, never red (item 31) */
+.c-unlinked { border-style: dashed; border-color: var(--border-strong); background: var(--surface); }
+
+/* Overview attention list (item 22) */
+.c-attention ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.c-attention li { display: flex; gap: 10px; align-items: flex-start; }
+.c-attention li .dot { margin-top: 7px; }
+.c-attention a { color: inherit; font-weight: 600; }
+
+/* Week schedule */
+.week-view { display: flex; flex-direction: column; gap: 6px; }
+.week-row { display: grid; grid-template-columns: 2.4em minmax(0, 1fr); gap: 8px; align-items: center; font-size: 13px; }
+.week-row.current .week-day { font-weight: 700; color: var(--text); }
+.week-day { color: var(--muted); }
+.week-bar { display: flex; height: 22px; border-radius: 6px; overflow: hidden; background: var(--surface-2); }
+.week-bar > div { min-width: 0; }
+.week-bar .warm { background: var(--heat-soft); }
+.week-bar .cold { background: var(--cool-soft); }
+.week-bar .off { background: repeating-linear-gradient(135deg, var(--sunken), var(--sunken) 4px, var(--surface-2) 4px, var(--surface-2) 8px); }
+.week-bar .carried { opacity: 0.75; }
+.week-axis { display: grid; grid-template-columns: 2.4em minmax(0, 1fr); gap: 8px; font-size: 12px; color: var(--muted); }
+.week-axis > div { display: flex; justify-content: space-between; }
+.day-tabs { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.day-tabs [role='tab'] { padding: 0 4px; min-width: 0; }
+.sched-blocks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.sched-block {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: end;
+  padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface);
+}
+.sched-block > .f-mode { grid-column: 1 / -1; }
+.sched-block .field input, .sched-block .field select { width: 100%; min-width: 0; }
+@media (min-width: 700px) {
+  .sched-block { grid-template-columns: 8.5em 6.5em minmax(11em, 1.3fr) minmax(8em, 1fr) auto; }
+  .sched-block > .f-mode { grid-column: auto; }
+}
+.sched-block.invalid { border-color: var(--error); }
+.sched-block .field input[aria-invalid='true'], .sched-block .field select[aria-invalid='true'] { border-color: var(--error); border-width: 2px; }
+.sched-block .remove { align-self: end; }
+.sched-tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 12px; }
+.sched-tools > * { min-width: 0; }
+.sched-tool { border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.sched-tool > h4 { font-size: 14px; }
+.day-checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr)); gap: 0 8px; }
+.sched-preview { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 14px; }
+.sched-save { position: sticky; bottom: 0; z-index: 2; background: var(--surface); border-top: 1px solid var(--border); padding: 12px 0 4px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+@media (max-width: 820px) {
+  .sched-save { bottom: calc(68px + env(safe-area-inset-bottom)); }
+}
+
+/* Profiles, experiments */
+.c-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.c-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.c-variant { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 12px; align-items: end; }
+.c-variant > legend { font-size: 13px; color: var(--muted); padding: 0 4px; }

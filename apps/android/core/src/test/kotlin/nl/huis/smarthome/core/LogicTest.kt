@@ -1,29 +1,15 @@
 package nl.huis.smarthome.core
 
-import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import kotlin.random.Random
 
 class LogicTest {
-    @Test
-    fun prefersLanThenRemote() = runTest {
-        val probed = mutableListOf<RouteKind>()
-        val r = RouteSelector.select("http://lan", "https://remote") { _, k -> probed += k; k == RouteKind.REMOTE }
-        assertEquals(Route(RouteKind.REMOTE, "https://remote"), r)
-        assertEquals(listOf(RouteKind.LAN, RouteKind.REMOTE), probed)
-
-        val lan = RouteSelector.select("http://lan", "https://remote") { _, _ -> true }
-        assertEquals(RouteKind.LAN, lan?.kind)
-
-        assertNull(RouteSelector.select("http://lan", null) { _, _ -> false })
-    }
-
     @Test
     fun formatsDutchNumbers() {
         assertEquals("20,6°", NlFormat.temperature(20.6))
@@ -62,26 +48,6 @@ class LogicTest {
     }
 
     @Test
-    fun pendingCommandClearsOnlyOnMatchingReadback() {
-        val p = PendingCommands()
-        val t0 = Instant.parse("2026-11-08T13:40:00Z")
-        p.sent("z1", 21.5, null, t0)
-        assertTrue(p.isPending("z1", t0.plusSeconds(1)))
-        assertFalse(p.onZoneUpdate(Zone(id = "z1", name = "W", targetC = 21.0)))
-        assertTrue(p.isPending("z1", t0.plusSeconds(2)))
-        assertTrue(p.onZoneUpdate(Zone(id = "z1", name = "W", targetC = 21.5)))
-        assertFalse(p.isPending("z1", t0.plusSeconds(3)))
-    }
-
-    @Test
-    fun pendingCommandTimesOut() {
-        val p = PendingCommands()
-        val t0 = Instant.parse("2026-11-08T13:40:00Z")
-        p.sent("z1", null, "heat", t0)
-        assertFalse(p.isPending("z1", t0.plusSeconds(31)))
-    }
-
-    @Test
     fun backoffGrowsAndCaps() {
         val b = Backoff(initialMs = 1000, maxMs = 60_000, random = Random(1))
         val delays = List(10) { b.nextDelayMs() }
@@ -100,5 +66,59 @@ class LogicTest {
             Alert("d", "error", "Gree offline"),
         )
         assertEquals(listOf("d"), AlertFilter.toNotify(alerts, setOf("a")).map { it.id })
+    }
+
+    @Test
+    fun notificationsWaitForPermissionAndDisappearWhenResolved() {
+        val open = listOf(Alert("a", "warn", "Sensor verouderd"), Alert("b", "error", "Gree offline"), Alert("c", "info", "Back-up"))
+        // No permission: nothing posted, nothing marked as notified, both kept pending.
+        val noPerm = AlertNotifications.plan(open, emptySet(), canPost = false)
+        assertTrue(noPerm.post.isEmpty())
+        assertEquals(setOf("a", "b"), noPerm.pending)
+        assertTrue(noPerm.notified.isEmpty())
+        // Permission granted later: the same alerts are shown then.
+        val later = AlertNotifications.plan(open, noPerm.notified, canPost = true)
+        assertEquals(listOf("a", "b"), later.post.map { it.id })
+        assertEquals(setOf("a", "b"), later.notified)
+        // "a" resolved, "b" acknowledged: both notifications are cancelled.
+        val after = AlertNotifications.plan(listOf(Alert("b", "error", "Gree offline", acknowledged = true)), later.notified, canPost = true)
+        assertEquals(setOf("a", "b"), after.cancel)
+        assertTrue(after.post.isEmpty())
+        assertTrue(after.notified.isEmpty())
+    }
+
+    @Test
+    fun refreshesTokenOnlyInsideTheWindow() {
+        val now = Instant.parse("2026-11-08T12:00:00Z")
+        assertFalse(TokenLifetime.shouldRefresh(null, now))
+        assertFalse(TokenLifetime.shouldRefresh(now.plus(Duration.ofDays(31)), now))
+        assertTrue(TokenLifetime.shouldRefresh(now.plus(Duration.ofDays(29)), now))
+        assertTrue(TokenLifetime.shouldRefresh(now.plus(Duration.ofDays(30)), now))
+        assertFalse(TokenLifetime.shouldRefresh(now.minusSeconds(1), now)) // already expired: re-pair
+        // A failed attempt is not repeated on every request.
+        assertFalse(TokenLifetime.shouldRefresh(now.plus(Duration.ofDays(5)), now, lastAttempt = now.minus(Duration.ofHours(1))))
+        assertTrue(TokenLifetime.shouldRefresh(now.plus(Duration.ofDays(5)), now, lastAttempt = now.minus(Duration.ofHours(7))))
+    }
+
+    @Test
+    fun controlRightsFollowUserAndPhoneRole() {
+        assertTrue(TokenLifetime.canControl("admin", "control"))
+        assertTrue(TokenLifetime.canControl("admin", "admin"))
+        assertTrue(TokenLifetime.canControl("admin", null)) // paired before phone roles
+        assertFalse(TokenLifetime.canControl("admin", "viewer"))
+        assertFalse(TokenLifetime.canControl("viewer", "control"))
+    }
+
+    @Test
+    fun widgetDataGetsStaleAfterHalfAnHour() {
+        val now = Instant.parse("2026-11-08T13:40:00Z")
+        val ams = ZoneId.of("Europe/Amsterdam")
+        assertFalse(Freshness.isStale("2026-11-08T13:20:00Z", now))
+        assertTrue(Freshness.isStale("2026-11-08T13:09:00Z", now))
+        assertTrue(Freshness.isStale(null, now))
+        assertTrue(Freshness.isStale("gisteren", now))
+        assertEquals("Bijgewerkt 3 min geleden", Freshness.ageLabel("2026-11-08T13:37:00Z", now, ams))
+        assertEquals("Bijgewerkt gisteren 14:05", Freshness.ageLabel("2026-11-07T13:05:00Z", now, ams))
+        assertEquals("Nog niet bijgewerkt", Freshness.ageLabel(null, now, ams))
     }
 }

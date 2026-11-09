@@ -1,9 +1,10 @@
 """Status checks (overview, ``status.updated``, System page) and open alerts.
 
-The overview status (``status_checks``) has the worker heartbeat, safe mode, the age of the last
-backup and every integration (verbeterlijst 22); ``system_checks`` adds database, disk, clock,
-maintenance, stuck worker loops and per-integration health details (MQTT and USB dongle apart for
-Zigbee, missed polls, eventstream connection; verbeterlijst 28).
+The overview status (``status_checks``) has the worker heartbeat, maintenance ("herstel bezig"), safe
+mode (with the last restore's report while it is on), the last backup (age, app/schema version,
+Zigbee data included, automatic-backup failures) and every integration (verbeterlijst 22);
+``system_checks`` adds database, disk, clock, the last restore, stuck worker loops and per-integration
+health details (MQTT and USB dongle apart for Zigbee, missed polls, eventstream connection; 28).
 """
 
 from __future__ import annotations
@@ -115,29 +116,122 @@ async def sync_worker_alert(db: AsyncSession, home_id: uuid.UUID) -> None:
         await resolve_alert(db, key)
 
 
+def _yes_no(v: bool | None) -> str:
+    return "ja" if v else "nee"
+
+
 async def backup_check(db: AsyncSession, now: datetime | None = None) -> dict:
+    """Age of the last good backup, its app/schema version, whether the Zigbee2MQTT data is in it,
+    and the state of the automatic backups (Setting ``backup_state``)."""
     now = now or datetime.now(UTC)
     last = (
         await db.execute(
             select(BackupRecord).where(BackupRecord.status == "ok").order_by(BackupRecord.created_at.desc()).limit(1)
         )
     ).scalar_one_or_none()
-    if last is None:
-        return {
-            "key": "backup",
-            "label": "Back-up",
-            "state": "warn",
-            "detail": "Nog geen back-up gemaakt",
-            "age_h": None,
-        }
-    age_h = (now - last.created_at).total_seconds() / 3600
-    return {
+    state_row = await get_setting(db, "backup_state", {}) or {}
+    failures = int(state_row.get("failures", 0) or 0) if isinstance(state_row, dict) else 0
+    last_error = (state_row.get("last_error") if failures else None) or None
+    zigbee_used = (
+        await db.execute(
+            select(Integration.id)
+            .join(Home, Home.id == Integration.home_id)
+            .where(Integration.provider == "zigbee", Integration.enabled.is_(True), Home.active_to.is_(None))
+            .limit(1)
+        )
+    ).first() is not None
+    out = {
         "key": "backup",
         "label": "Back-up",
-        "state": "ok" if age_h < BACKUP_WARN_H else "warn",
-        "detail": f"Laatste back-up {_human_age(age_h * 3600)} geleden ({last.created_at:%d-%m %H:%M} UTC)",
-        "age_h": round(age_h, 1),
+        "age_h": None,
+        "app_version": None,
+        "schema_revision": None,
+        "zigbee2mqtt_included": None,
+        "auto_failures": failures,
+        "auto_last_error": last_error,
     }
+    failed_text = f"Automatische back-up mislukt ({failures}x): {last_error}" if failures else ""
+    if last is None:
+        detail = " · ".join(filter(None, ["Nog geen back-up gemaakt", failed_text]))
+        return {**out, "state": "error" if failures else "warn", "detail": detail}
+    age_h = (now - last.created_at).total_seconds() / 3600
+    z2m = (last.detail or {}).get("zigbee2mqtt_included")
+    parts = [f"Laatste back-up {_human_age(age_h * 3600)} geleden ({last.created_at:%d-%m %H:%M} UTC)"]
+    if last.app_version or last.schema_revision:
+        parts.append(f"app {last.app_version or '?'}, schema {last.schema_revision or '?'}")
+    if z2m is not None or zigbee_used:
+        parts.append(f"Zigbee in laatste back-up: {_yes_no(z2m)}")
+    if failed_text:
+        parts.append(failed_text)
+    state = "ok" if age_h < BACKUP_WARN_H else "warn"
+    if zigbee_used and not z2m:
+        state = "warn"  # the Zigbee network (coordinator, pairings) would have to be rebuilt after a restore
+    if failures:
+        state = "warn" if age_h < BACKUP_WARN_H else "error"
+    return {
+        **out,
+        "state": state,
+        "detail": " · ".join(parts),
+        "age_h": round(age_h, 1),
+        "app_version": last.app_version,
+        "schema_revision": last.schema_revision,
+        "zigbee2mqtt_included": z2m,
+    }
+
+
+async def maintenance_check(db: AsyncSession) -> dict | None:
+    """Only while Setting ``maintenance`` is on (a restore is running, contract C8)."""
+    if not await get_setting(db, "maintenance", False):
+        return None
+    return {
+        "key": "maintenance",
+        "label": "Onderhoud",
+        "state": "warn",
+        "detail": "Onderhoud: herstel bezig. De achtergronddienst is gepauzeerd; meetwaarden en de "
+        "klimaatregeling lopen even niet.",
+    }
+
+
+def _restore_summary(report: dict, restored_from: dict | None) -> tuple[str, str]:
+    """(state, Dutch detail) for the last restore."""
+    parts = []
+    when = _hhmm((restored_from or {}).get("restored_at"))
+    src = restored_from or {}
+    head = "Laatste herstel" + (f" op {when}" if when else "")
+    if src.get("created_at"):
+        head += f" uit de back-up van {_hhmm(src.get('created_at')) or src.get('created_at')}"
+    parts.append(head)
+    total = report.get("total_records")
+    if total is not None:
+        parts.append(f"{total} records teruggezet (schema {report.get('schema_from')} → {report.get('schema_to')})")
+    if report.get("mode") == "new_home":
+        parts.append("als nieuwe woning; de oude woning is gearchiveerd")
+        drafts = report.get("drafts") or {}
+        copied = [z.get("name") for z in drafts.get("zones") or [] if z.get("copied_to")]
+        if drafts.get("profiles") or copied:
+            parts.append(
+                f"als concept overgenomen: {drafts.get('profiles', 0)} comfortprofiel(en)"
+                + (f", schema van {', '.join(copied)} (zone staat uit)" if copied else "")
+            )
+    dropped = report.get("dropped") or {}
+    lost = [f"tabel {t}" for t in (dropped.get("tables") or {})]
+    lost += [f"{t}: {', '.join(c)}" for t, c in (dropped.get("columns") or {}).items()]
+    lost += [f"{t}: {n} records opgeruimd" for t, n in (dropped.get("rows_removed_by_migration") or {}).items()]
+    if lost:
+        parts.append("niet (volledig) overgenomen: " + "; ".join(lost))
+    if not report.get("zigbee2mqtt_included"):
+        parts.append("Zigbee2MQTT-gegevens zaten niet in de back-up")
+    return ("warn" if lost else "ok"), " · ".join(parts)
+
+
+async def restore_check(db: AsyncSession) -> dict | None:
+    """The report of the last restore (Setting ``restore_report``), when there was one."""
+    report = await get_setting(db, "restore_report")
+    if not isinstance(report, dict):
+        return None
+    restored_from = await get_setting(db, "restored_from")
+    state, detail = _restore_summary(report, restored_from if isinstance(restored_from, dict) else None)
+    return {"key": "restore", "label": "Herstel", "state": state, "detail": detail, "report": report}
 
 
 async def safe_mode_check(db: AsyncSession) -> dict | None:
@@ -253,9 +347,15 @@ async def status_checks(db: AsyncSession, home_id: uuid.UUID | None = None) -> l
     """``Overview.status`` and the payload of ``status.updated``."""
     now = datetime.now(UTC)
     out = [await worker_check(db, now)]
+    maint = await maintenance_check(db)
+    if maint:
+        out.append(maint)
     sm = await safe_mode_check(db)
     if sm:
         out.append(sm)
+        restored = await restore_check(db)  # right after a restore: what came back, what did not
+        if restored:
+            out.append(restored)
     out.append(await backup_check(db, now))
     out += await integration_checks(db, home_id, detailed=False)
     return out
@@ -369,14 +469,11 @@ async def system_checks(db: AsyncSession) -> list[dict]:
     sm = await safe_mode_check(db)
     if sm:
         checks.append(sm)
-    if await get_setting(db, "maintenance", False):
-        checks.append(
-            {
-                "key": "maintenance",
-                "label": "Onderhoudsmodus",
-                "state": "warn",
-                "detail": "Herstel of onderhoud loopt; de achtergronddienst is gepauzeerd.",
-            }
-        )
+    maint = await maintenance_check(db)
+    if maint:
+        checks.append(maint)
+    restored = await restore_check(db)
+    if restored:
+        checks.append(restored)
     checks += await integration_checks(db, None, detailed=True)
     return checks

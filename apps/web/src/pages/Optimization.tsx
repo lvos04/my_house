@@ -1,11 +1,15 @@
+import '../climate/climate.css';
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
-import type { AdaptiveModel, AdaptiveStatus, ExperimentResult, Zone } from '../api/types';
+import { qk } from '../api/keys';
+import type { AdaptiveModel, AdaptiveStatus, Experiment, ExperimentResult, Profile, Zone } from '../api/types';
 import { useHome } from '../state';
-import { useIsAdmin } from '../user';
 import { ActionButton, Empty, ErrorNote, Loading } from '../components/bits';
 import { dateTime } from '../format';
+import { EXPERIMENT_STATUS_LABEL, t } from '../i18n';
+import { FormError, useClimateCan } from '../climate/common';
+import { OutdoorSensorCard } from '../climate/OutdoorSensor';
 
 const nl = (v: number | null | undefined, digits = 1) =>
   v === null || v === undefined ? '–' : v.toLocaleString('nl-NL', { minimumFractionDigits: digits, maximumFractionDigits: digits });
@@ -23,8 +27,8 @@ export function localInputToIso(v: string): string {
 
 function AdaptiveCard({ zone, status }: { zone: Zone; status: AdaptiveStatus }) {
   const qc = useQueryClient();
-  const isAdmin = useIsAdmin();
-  const key = ['adaptive', zone.id];
+  const { admin } = useClimateCan();
+  const key = qk.adaptive(zone.id);
   const set = (s: AdaptiveStatus) => qc.setQueryData(key, s);
   const fit = useMutation({ mutationFn: () => api.adaptiveFit(zone.id), onSuccess: () => qc.invalidateQueries({ queryKey: key }) });
   const activate = useMutation({ mutationFn: (id: string) => api.adaptiveActivate(zone.id, id), onSuccess: set });
@@ -57,17 +61,17 @@ function AdaptiveCard({ zone, status }: { zone: Zone; status: AdaptiveStatus }) 
 
       {status.models.length ? (
         <div className="table-wrap">
-          <table>
-            <thead><tr><th>Versie</th><th>R²</th><th>Reactie °C/u per °C</th><th>Bruikbaar</th><th>Status</th>{isAdmin && <th><span className="sr-only">Actie</span></th>}</tr></thead>
+          <table className="stack-mobile">
+            <thead><tr><th>Versie</th><th>R²</th><th>Reactie °C/u per °C</th><th>Bruikbaar</th><th>Status</th>{admin && <th><span className="sr-only">Actie</span></th>}</tr></thead>
             <tbody>
               {status.models.map((m) => (
                 <tr key={m.id}>
-                  <td>v{m.version}{m.created_at ? <div className="small muted">{dateTime(m.created_at)}</div> : null}</td>
-                  <td>{nl(m.params.r2, 2)}</td>
-                  <td>{nl(m.params.k_per_h, 2)}</td>
-                  <td>{m.params.usable ? 'ja' : <span className="muted">nee</span>}</td>
-                  <td>{m.active ? <strong>actief</strong> : <span className="muted">–</span>}</td>
-                  {isAdmin && (
+                  <td data-label="Versie">v{m.version}{m.created_at ? <div className="small muted">{dateTime(m.created_at)}</div> : null}</td>
+                  <td data-label="R²">{nl(m.params.r2, 2)}</td>
+                  <td data-label="Reactie °C/u per °C">{nl(m.params.k_per_h, 2)}</td>
+                  <td data-label="Bruikbaar">{m.params.usable ? 'ja' : <span className="muted">nee</span>}</td>
+                  <td data-label="Status">{m.active ? <strong>actief</strong> : <span className="muted">–</span>}</td>
+                  {admin && (
                     <td>
                       {m.params.usable && !m.active && (
                         <ActionButton className="btn" disabled={activate.isPending} onClick={() => activate.mutate(m.id)}>
@@ -84,7 +88,7 @@ function AdaptiveCard({ zone, status }: { zone: Zone; status: AdaptiveStatus }) 
       ) : (
         <Empty>Nog geen model berekend.</Empty>
       )}
-      {isAdmin && (
+      {admin && (
         <div className="row" style={{ gap: 8 }}>
           <ActionButton className="btn" disabled={fit.isPending} onClick={() => fit.mutate()}>{fit.isPending ? 'Bezig…' : 'Model berekenen'}</ActionButton>
           {status.enabled && <ActionButton className="btn danger" disabled={disable.isPending} onClick={() => disable.mutate()}>Adaptief uit</ActionButton>}
@@ -97,7 +101,7 @@ function AdaptiveCard({ zone, status }: { zone: Zone; status: AdaptiveStatus }) 
 }
 
 function ZoneAdaptive({ zone }: { zone: Zone }) {
-  const q = useQuery({ queryKey: ['adaptive', zone.id], queryFn: () => api.adaptive(zone.id), refetchInterval: 300_000 });
+  const q = useQuery({ queryKey: qk.adaptive(zone.id), queryFn: () => api.adaptive(zone.id), refetchInterval: 300_000 });
   if (q.isLoading) return <Loading />;
   if (!q.data) return <ErrorNote error={q.error} />;
   return <AdaptiveCard zone={zone} status={q.data} />;
@@ -109,6 +113,7 @@ const VERDICT_TITLE: Record<ExperimentResult['verdict'], string> = {
   onvoldoende: 'Onvoldoende gegevens',
 };
 
+/** Result of an experiment. Pure (no queries) so it can be shown anywhere. */
 export function ExperimentResultView({ r }: { r: ExperimentResult }) {
   const comparable = r.verdict === 'vergelijkbaar';
   const pct = (v: number | null) => {
@@ -116,6 +121,9 @@ export function ExperimentResultView({ r }: { r: ExperimentResult }) {
     if (comparable) return v < 0 ? `${nl(-v)}% besparing` : v > 0 ? `${nl(v)}% meer` : 'gelijk';
     return `${v > 0 ? '+' : v < 0 ? '−' : ''}${nl(Math.abs(v))}%`;
   };
+  const otherZone = r.rows.some((row) => row.other_zone_mean_target_c !== null && row.other_zone_mean_target_c !== undefined);
+  const notes = r.rows.flatMap((row) => (row.notes ?? []).map((n) => `${row.variant}: ${n}`));
+  const diffLabel = comparable ? 't.o.v. eerste' : 'Verschil t.o.v. eerste (indicatief)';
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div className={`note ${comparable ? 'info' : 'warn'}`} role="status">
@@ -128,71 +136,104 @@ export function ExperimentResultView({ r }: { r: ExperimentResult }) {
       </div>
       {r.rows.length > 0 && (
         <div className="table-wrap">
-          <table>
+          <table className="stack-mobile">
             <thead>
               <tr>
                 <th>Variant</th><th>Dagen</th><th>kWh/dag</th>
-                <th>{comparable ? 't.o.v. eerste' : 'Verschil t.o.v. eerste (indicatief)'}</th>
+                <th>{diffLabel}</th>
+                <th>Comfort (binnen de band)</th>
                 <th>Gem. afwijking °C</th><th>Starts</th><th>Buiten °C</th>
+                {otherZone && <th>Andere zone, gem. doel °C</th>}
               </tr>
             </thead>
             <tbody>
               {r.rows.map((row) => (
                 <tr key={row.variant}>
-                  <td><strong>{row.variant}</strong></td>
-                  <td>{nl(row.days)}</td>
-                  <td>{nl(row.kwh_per_day, 2)}</td>
-                  <td>{pct(row.vs_first_pct)}</td>
-                  <td>{nl(row.mean_abs_dev_c, 2)}</td>
-                  <td>{row.starts}</td>
-                  <td>{nl(row.outdoor_mean_c)}</td>
+                  <td data-label="Variant"><strong>{row.variant}</strong></td>
+                  <td data-label="Dagen">{nl(row.days)}</td>
+                  <td data-label="kWh/dag">{nl(row.kwh_per_day, 2)}</td>
+                  <td data-label={diffLabel}>{pct(row.vs_first_pct)}</td>
+                  <td data-label="Comfort (binnen de band)">{row.comfort_pct === null || row.comfort_pct === undefined ? '–' : `${nl(row.comfort_pct, 0)} % van de tijd`}</td>
+                  <td data-label="Gem. afwijking °C">{nl(row.mean_abs_dev_c, 2)}</td>
+                  <td data-label="Starts">{row.starts}</td>
+                  <td data-label="Buiten °C">{nl(row.outdoor_mean_c)}</td>
+                  {otherZone && <td data-label="Andere zone, gem. doel °C">{nl(row.other_zone_mean_target_c)}</td>}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
+      <p className="small muted" style={{ margin: 0 }}>
+        Comfort: het deel van de gemeten tijd dat de kamer binnen de comfortband rond het doel van die variant bleef.
+        {r.outdoor ? ` Buitensensor: ${r.outdoor.name}.` : ''}
+      </p>
+      {(r.confounders?.length ?? 0) > 0 && (
+        <div className="note info">
+          <strong>Hier kan de vergelijking scheef door gaan:</strong>
+          <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>{r.confounders.map((c) => <li key={c}>{c}</li>)}</ul>
+        </div>
+      )}
+      {notes.length > 0 && (
+        <ul className="small muted" style={{ margin: 0, paddingLeft: 18 }}>{notes.map((n) => <li key={n}>{n}</li>)}</ul>
+      )}
     </div>
   );
 }
 
 function ExperimentResultLoader({ id }: { id: string }) {
-  const q = useQuery({ queryKey: ['experiment', id], queryFn: () => api.experimentResult(id) });
+  const q = useQuery({ queryKey: qk.experiment(id), queryFn: () => api.experimentResult(id) });
   if (q.isLoading) return <Loading />;
   if (!q.data) return <ErrorNote error={q.error} />;
   return <ExperimentResultView r={q.data} />;
 }
 
-interface VariantDraft { label: string; start: string; end: string }
+interface VariantDraft { label: string; start: string; end: string; profileId: string }
 const PRESETS = ['Constant', 'Nachtverlaging', 'Voorverwarmen'];
 
-function NewExperiment({ homeId, zones }: { homeId: string; zones: Zone[] }) {
+/** Client checks before POST (the API answers the same in Dutch, but this is quicker). */
+export function experimentProblems(variants: VariantDraft[], autoApply: boolean): string[] {
+  const out: string[] = [];
+  const spans = variants.map((v) => ({ v, s: Date.parse(v.start), e: Date.parse(v.end) }));
+  if (spans.some((x) => !Number.isFinite(x.s) || !Number.isFinite(x.e))) out.push('Vul bij elke variant een begin en einde in.');
+  else if (spans.some((x) => x.e <= x.s)) out.push('Het einde van elke periode moet na het begin liggen.');
+  if (autoApply) {
+    if (variants.some((v) => !v.profileId)) out.push('Automatisch toepassen: kies voor elke variant een profiel.');
+    const sorted = spans.filter((x) => Number.isFinite(x.s)).sort((a, b) => a.s - b.s);
+    if (sorted.some((x, i) => i > 0 && sorted[i - 1].e > x.s)) out.push('Automatisch toepassen: de perioden mogen niet overlappen.');
+  }
+  return out;
+}
+
+function NewExperiment({ homeId, zones, profiles }: { homeId: string; zones: Zone[]; profiles: Profile[] }) {
   const qc = useQueryClient();
   const [name, setName] = useState('');
   const [zoneId, setZoneId] = useState(zones[0]?.id ?? '');
+  const [autoApply, setAutoApply] = useState(false);
   const [variants, setVariants] = useState<VariantDraft[]>([
-    { label: PRESETS[0], start: '', end: '' },
-    { label: PRESETS[1], start: '', end: '' },
+    { label: PRESETS[0], start: '', end: '', profileId: '' },
+    { label: PRESETS[1], start: '', end: '', profileId: '' },
   ]);
-  const [localError, setLocalError] = useState<string | null>(null);
+  const [problems, setProblems] = useState<string[]>([]);
   const create = useMutation({
     mutationFn: () =>
       api.createExperiment(homeId, {
         name: name.trim(),
         zone_id: zoneId,
-        variants: variants.map((v) => ({ label: v.label.trim(), start: localInputToIso(v.start), end: localInputToIso(v.end) })),
+        auto_apply: autoApply,
+        variants: variants.map((v) => ({ label: v.label.trim(), start: localInputToIso(v.start), end: localInputToIso(v.end), profile_id: v.profileId || null })),
       }),
     onSuccess: () => {
       setName('');
-      qc.invalidateQueries({ queryKey: ['experiments', homeId] });
+      qc.invalidateQueries({ queryKey: qk.experiments(homeId) });
     },
   });
   const upd = (i: number, patch: Partial<VariantDraft>) => setVariants(variants.map((v, j) => (j === i ? { ...v, ...patch } : v)));
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    setLocalError(null);
-    if (variants.some((v) => new Date(v.end) <= new Date(v.start))) return setLocalError('Het einde van elke periode moet na het begin liggen.');
-    create.mutate();
+    const p = experimentProblems(variants, autoApply);
+    setProblems(p);
+    if (!p.length) create.mutate();
   };
   return (
     <form className="card" onSubmit={submit} aria-labelledby="newexp-h">
@@ -205,30 +246,118 @@ function NewExperiment({ homeId, zones }: { homeId: string; zones: Zone[] }) {
         </label>
       </div>
       {variants.map((v, i) => (
-        <fieldset key={i} className="form-grid" style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, margin: 0 }}>
-          <legend className="small muted">Variant {i + 1}</legend>
+        <fieldset key={i} className="c-variant">
+          <legend>Variant {i + 1}</legend>
           <label className="field">Label<input required maxLength={50} value={v.label} onChange={(e) => upd(i, { label: e.target.value })} /></label>
           <label className="field">Begin<input type="datetime-local" required value={v.start} onChange={(e) => upd(i, { start: e.target.value })} /></label>
           <label className="field">Einde<input type="datetime-local" required value={v.end} onChange={(e) => upd(i, { end: e.target.value })} /></label>
+          <label className="field">Profiel
+            <select value={v.profileId} onChange={(e) => upd(i, { profileId: e.target.value })}>
+              <option value="">{autoApply ? 'Kies een profiel…' : 'Geen (alleen meten)'}</option>
+              {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </label>
           {variants.length > 2 && <button type="button" className="btn" aria-label={`Variant ${i + 1} verwijderen`} onClick={() => setVariants(variants.filter((_, j) => j !== i))}>Verwijderen</button>}
         </fieldset>
       ))}
+      <label className="check-row">
+        <input type="checkbox" checked={autoApply} onChange={(e) => setAutoApply(e.target.checked)} aria-describedby="auto-help" />
+        Profielen automatisch toepassen
+      </label>
+      <span id="auto-help" className="small muted">
+        De regeling zet in elke periode het profiel van die variant op de zone. Dan heeft elke variant een profiel nodig en mogen de perioden niet overlappen. Bedien je de zone tussendoor met de hand of zet je hem uit, dan pauzeert het experiment.
+      </span>
+      {profiles.length === 0 && <span className="small muted">Nog geen comfortprofielen; maak ze aan op Klimaat › Comfortprofielen.</span>}
       <div className="row" style={{ gap: 8 }}>
         {variants.length < 4 && (
-          <button type="button" className="btn" onClick={() => setVariants([...variants, { label: PRESETS[variants.length] ?? `Variant ${variants.length + 1}`, start: '', end: '' }])}>Variant toevoegen</button>
+          <button type="button" className="btn" onClick={() => setVariants([...variants, { label: PRESETS[variants.length] ?? `Variant ${variants.length + 1}`, start: '', end: '', profileId: '' }])}>Variant toevoegen</button>
         )}
         <ActionButton type="submit" className="btn primary" disabled={create.isPending || !zoneId}>Experiment aanmaken</ActionButton>
       </div>
-      {localError && <p className="error-text" role="alert">{localError}</p>}
-      {create.error && <ErrorNote error={create.error} />}
+      {problems.length > 0 && (
+        <div className="error-text" role="alert">{problems.length === 1 ? problems[0] : <ul className="plain-list">{problems.map((p) => <li key={p}>{p}</li>)}</ul>}</div>
+      )}
+      <FormError error={create.error} />
     </form>
   );
 }
 
+const STATUS_PILL: Record<string, string> = { defined: 'neutral', running: 'ok', paused: 'warn', finished: 'info', stopped: 'neutral' };
+
+function ExperimentCard({ e, zones, profiles, homeId }: { e: Experiment; zones: Zone[]; profiles: Profile[]; homeId: string }) {
+  const qc = useQueryClient();
+  const { admin } = useClimateCan();
+  const [open, setOpen] = useState(false);
+  const done = () => {
+    qc.invalidateQueries({ queryKey: qk.experiments(homeId) });
+    qc.invalidateQueries({ queryKey: qk.experiment(e.id) });
+  };
+  const pause = useMutation({ mutationFn: () => api.pauseExperiment(e.id), onSuccess: done });
+  const resume = useMutation({ mutationFn: () => api.resumeExperiment(e.id), onSuccess: done });
+  const stop = useMutation({ mutationFn: () => api.stopExperiment(e.id), onSuccess: done });
+  const remove = useMutation({ mutationFn: () => api.deleteExperiment(e.id), onSuccess: done });
+  const err = pause.error ?? resume.error ?? stop.error ?? remove.error;
+  const zone = zones.find((z) => z.id === e.zone_id);
+  const profileName = (id?: string | null) => (id ? profiles.find((p) => p.id === id)?.name ?? 'onbekend profiel' : null);
+  const active = e.status === 'defined' || e.status === 'running' || e.status === 'paused';
+  const current = e.current_variant !== null && e.current_variant !== undefined ? e.variants[e.current_variant] : null;
+
+  return (
+    <article className="card" aria-labelledby={`exp-${e.id}`}>
+      <div className="section-head" style={{ alignItems: 'center' }}>
+        <div>
+          <h3 id={`exp-${e.id}`}>{e.name}</h3>
+          <span className="card-sub">{zone ? `${zone.name} · ` : ''}{e.variants.map((v) => v.label).join(' vs ')}</span>
+        </div>
+        <div className="c-pills">
+          <span className={`pill ${STATUS_PILL[e.status] ?? 'neutral'}`}>{t(EXPERIMENT_STATUS_LABEL, e.status)}</span>
+          {e.auto_apply && <span className="pill info">Profielen automatisch</span>}
+        </div>
+      </div>
+      {current && e.status === 'running' && <span className="small">Nu actief: <strong>{current.label}</strong>{profileName(current.profile_id) ? ` (profiel ${profileName(current.profile_id)})` : ''}</span>}
+      {e.status === 'paused' && (
+        <div className="note warn">
+          Gepauzeerd{e.paused_reason ? `: ${e.paused_reason}` : '.'} {admin ? 'Hervat het experiment zodra de zone weer het schema volgt.' : ''}
+        </div>
+      )}
+      <ul className="c-list">
+        {e.variants.map((v, i) => (
+          <li key={i}>
+            <strong>{v.label}</strong>: {dateTime(v.start)} – {dateTime(v.end)}
+            {' · '}{profileName(v.profile_id) ? `profiel ${profileName(v.profile_id)}` : 'geen profiel'}
+          </li>
+        ))}
+      </ul>
+      <div className="c-actions">
+        <button type="button" className="btn" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? 'Resultaat verbergen' : 'Resultaat'}</button>
+        {admin && (e.status === 'running' || e.status === 'defined') && (
+          <ActionButton className="btn" disabled={pause.isPending} onClick={() => pause.mutate()}>Pauzeren</ActionButton>
+        )}
+        {admin && e.status === 'paused' && (
+          <ActionButton className="btn primary" disabled={resume.isPending} onClick={() => resume.mutate()}>Hervatten</ActionButton>
+        )}
+        {admin && active && (
+          <ActionButton className="btn" disabled={stop.isPending} onClick={() => window.confirm(`Experiment ${e.name} stoppen? De zone houdt het profiel en schema dat hij nu heeft.`) && stop.mutate()}>
+            Stoppen
+          </ActionButton>
+        )}
+        {admin && (
+          <ActionButton className="btn danger" disabled={remove.isPending} onClick={() => window.confirm(`Experiment ${e.name} verwijderen? De resultaten zijn daarna weg.`) && remove.mutate()}>
+            Verwijderen
+          </ActionButton>
+        )}
+      </div>
+      <FormError error={err} />
+      {open && <ExperimentResultLoader id={e.id} />}
+    </article>
+  );
+}
+
 function Experiments({ homeId, zones }: { homeId: string; zones: Zone[] }) {
-  const isAdmin = useIsAdmin();
-  const list = useQuery({ queryKey: ['experiments', homeId], queryFn: () => api.experiments(homeId) });
-  const [open, setOpen] = useState<string | null>(null);
+  const { admin } = useClimateCan();
+  const list = useQuery({ queryKey: qk.experiments(homeId), queryFn: () => api.experiments(homeId) });
+  const profiles = useQuery({ queryKey: qk.profiles(homeId), queryFn: () => api.profiles(homeId) });
+  const plist = Array.isArray(profiles.data) ? profiles.data : [];
   return (
     <section aria-labelledby="exp-h" className="section">
       <h2 id="exp-h">Experimenten</h2>
@@ -236,28 +365,15 @@ function Experiments({ homeId, zones }: { homeId: string; zones: Zone[] }) {
       {list.isLoading && <Loading />}
       {list.error && <ErrorNote error={list.error} />}
       {list.data?.length === 0 && <Empty>Nog geen experimenten.</Empty>}
-      {list.data?.map((e) => (
-        <article key={e.id} className="card">
-          <div className="section-head" style={{ alignItems: 'center' }}>
-            <div>
-              <h3>{e.name}</h3>
-              <span className="card-sub">{e.variants.map((v) => v.label).join(' vs ')} · {e.status}</span>
-            </div>
-            <button type="button" className="btn" aria-expanded={open === e.id} onClick={() => setOpen(open === e.id ? null : e.id)}>
-              {open === e.id ? 'Verbergen' : 'Resultaat'}
-            </button>
-          </div>
-          {open === e.id && <ExperimentResultLoader id={e.id} />}
-        </article>
-      ))}
-      {isAdmin && zones.length > 0 && <NewExperiment homeId={homeId} zones={zones} />}
+      {list.data?.map((e) => <ExperimentCard key={e.id} e={e} zones={zones} profiles={plist} homeId={homeId} />)}
+      {admin && zones.length > 0 && <NewExperiment homeId={homeId} zones={zones} profiles={plist} />}
     </section>
   );
 }
 
 export function OptimizationPage() {
   const { homeId } = useHome();
-  const zones = useQuery({ queryKey: ['zones', homeId], queryFn: () => api.zones(homeId!), enabled: !!homeId });
+  const zones = useQuery({ queryKey: qk.zones(homeId ?? ''), queryFn: () => api.zones(homeId!), enabled: !!homeId });
   if (!homeId || zones.isLoading) return <Loading />;
   if (!zones.data) return <ErrorNote error={zones.error} />;
   return (
@@ -266,10 +382,14 @@ export function OptimizationPage() {
       <section aria-labelledby="adapt-h" className="section">
         <h2 id="adapt-h">Adaptief model per zone</h2>
         {zones.data.length ? (
-          <div className="grid-auto">{zones.data.map((z) => <ZoneAdaptive key={z.id} zone={z} />)}</div>
+          <div className="c-grid">{zones.data.map((z) => <ZoneAdaptive key={z.id} zone={z} />)}</div>
         ) : (
           <Empty>Nog geen klimaatzones.</Empty>
         )}
+      </section>
+      <section aria-labelledby="buiten-h" className="section">
+        <h2 id="buiten-h">Weer meewegen</h2>
+        <OutdoorSensorCard homeId={homeId} />
       </section>
       <Experiments homeId={homeId} zones={zones.data} />
     </>

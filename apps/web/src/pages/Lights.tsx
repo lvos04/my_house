@@ -1,99 +1,98 @@
-import { useEffect, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import '../lights/lights.css';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
-import type { LightGroup, Scene } from '../api/types';
-import { useHome, usePending, useCanAct } from '../state';
-import { ActionButton, Empty, ErrorNote, Loading } from '../components/bits';
+import { qk } from '../api/keys';
+import type { HueButton, Lights, Zone } from '../api/types';
+import { useHome } from '../state';
+import { useCan } from '../user';
+import { Empty, ErrorNote, Loading } from '../components/bits';
+import { GroupCard } from '../lights/GroupCard';
+import { ButtonCard } from '../lights/ButtonEditor';
+import { buildNames } from '../lights/mapping';
 
-const MODE: Record<string, string> = { lights: 'Alleen verlichting', climate: 'Alleen airco', combined: 'Gecombineerd' };
-
-function GroupCard({ group, scenes }: { group: LightGroup; scenes: Scene[] }) {
-  const canAct = useCanAct();
-  const { pending, markSent, confirm } = usePending();
-  const key = `group:${group.id}`;
-  const [bri, setBri] = useState(group.brightness ?? 0);
-  useEffect(() => setBri(group.brightness ?? 0), [group.brightness]);
-  const m = useMutation({
-    mutationFn: (body: { on?: boolean; brightness?: number; scene_id?: string }) => api.setGroup(group.id, body),
-    onMutate: () => markSent(key, group.name),
-    onError: () => confirm(key),
-  });
-  const disabled = !canAct || !group.reachable;
+function LampList({ lights }: { lights: Lights }) {
+  const lamps = lights.lights ?? [];
+  if (!lamps.length) return null;
+  const off = lamps.filter((l) => !l.reachable);
   return (
-    <article className={`card live`} aria-labelledby={`g-${group.id}`}>
-      <div className="section-head" style={{ alignItems: 'center' }}>
-        <div>
-          <h3 id={`g-${group.id}`}>{group.name}</h3>
-          <span className="card-sub">{group.reachable ? `${group.lights_on} van ${group.lights_total} aan${group.scene ? ` · ${group.scene}` : ''}` : 'Niet bereikbaar'}</span>
-        </div>
-        <ActionButton className={`btn${group.on ? ' primary' : ''}`} aria-pressed={group.on} disabled={!group.reachable} onClick={() => m.mutate({ on: !group.on })}>
-          {group.on ? 'Aan' : 'Uit'}
-        </ActionButton>
-      </div>
-      <label className="field">
-        <span className="row" style={{ justifyContent: 'space-between' }}><span>Helderheid</span><span className="muted">{bri}%</span></span>
-        <input type="range" min={1} max={100} value={bri || 1} disabled={disabled} onChange={(e) => setBri(Number(e.target.value))} onPointerUp={() => m.mutate({ brightness: bri })} onKeyUp={() => m.mutate({ brightness: bri })} style={{ minHeight: 44 }} />
-      </label>
-      {scenes.length > 0 && (
-        <div className="row" style={{ gap: 8 }}>
-          {scenes.map((s) => (
-            <ActionButton key={s.id} className="btn" aria-pressed={group.scene === s.name} disabled={!group.reachable} onClick={() => m.mutate({ scene_id: s.id })}>{s.name}</ActionButton>
-          ))}
-        </div>
-      )}
-      {pending[key] && <span className="small muted" role="status">Verzonden · wacht op bevestiging…</span>}
-      {m.error && <ErrorNote error={m.error} />}
-    </article>
+    <details className="card lt-lamps">
+      <summary><h2 className="lt-h2" style={{ display: 'inline' }}>Lampen ({lamps.length}{off.length ? `, ${off.length} niet bereikbaar` : ''})</h2></summary>
+      <ul className="meter-list">
+        {lamps.map((l) => (
+          <li key={l.id} className={l.reachable ? undefined : 'lt-lamp-off'}>
+            <span>{l.name}{l.model ? <span className="small muted"> · {l.model}</span> : null}</span>
+            <span className="row" style={{ gap: 8 }}>
+              {!l.reachable ? (
+                <span className="pill error">Niet bereikbaar</span>
+              ) : (
+                <span className={`pill ${l.on ? 'ok' : 'neutral'}`}>{l.on ? `Aan${l.brightness !== null ? ` · ${l.brightness}%` : ''}` : 'Uit'}</span>
+              )}
+            </span>
+            {l.last_command && (l.last_command.status === 'failed' || l.last_command.status === 'denied') && (
+              <span className="small error-text" style={{ width: '100%' }}>Laatste opdracht mislukt{l.last_command.detail ? `: ${l.last_command.detail}` : ''}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
 export function LightsPage() {
   const { homeId } = useHome();
-  const lights = useQuery({ queryKey: ['lights', homeId], queryFn: () => api.lights(homeId!), enabled: !!homeId, refetchInterval: 60_000 });
-  const buttons = useQuery({ queryKey: ['buttons', homeId], queryFn: () => api.buttons(homeId!), enabled: !!homeId });
+  const can = useCan();
+  const lights = useQuery({ queryKey: qk.lights(homeId ?? ''), queryFn: () => api.lights(homeId!), enabled: !!homeId, refetchInterval: 60_000 });
+  const buttons = useQuery({ queryKey: qk.buttons(homeId ?? ''), queryFn: () => api.buttons(homeId!), enabled: !!homeId });
+  const zones = useQuery({ queryKey: qk.zones(homeId ?? ''), queryFn: () => api.zones(homeId!), enabled: !!homeId });
   if (!homeId || lights.isLoading) return <Loading />;
-  if (!lights.data) return <ErrorNote error={lights.error} />;
+  const data: Lights | null = lights.data && typeof lights.data === 'object' && !Array.isArray(lights.data) ? lights.data : null;
+  if (!data) return <ErrorNote error={lights.error ?? new Error('Verlichting kon niet worden geladen.')} />;
+  const zoneList: Zone[] = Array.isArray(zones.data) ? zones.data : [];
+  const buttonList: HueButton[] = Array.isArray(buttons.data) ? buttons.data : [];
+  const rooms = data.groups.filter((g) => !g.all_lights && !g.hidden);
+  const whole = data.groups.filter((g) => g.all_lights || g.hidden);
+  const scenesOf = (id: string) => data.scenes.filter((s) => s.group_id === id);
+  const unreachable = (data.lights ?? []).filter((l) => !l.reachable);
+  const names = buildNames(data, zoneList);
+
   return (
     <>
       <header className="page-head">
         <div><span className="eyebrow">Philips Hue</span><h1>Verlichting</h1></div>
       </header>
-      {lights.data.groups.length ? (
+      {unreachable.length > 0 && (
+        <p className="note warn" style={{ margin: 0 }}>
+          Niet bereikbaar: {unreachable.map((l) => l.name).join(', ')}. Staat de lichtschakelaar uit, of is de lamp buiten bereik van de bridge?
+        </p>
+      )}
+      {rooms.length ? (
         <div className="grid-auto">
-          {lights.data.groups.map((g) => <GroupCard key={g.id} group={g} scenes={lights.data.scenes.filter((s) => s.group_id === g.id)} />)}
+          {rooms.map((g) => <GroupCard key={g.id} group={g} scenes={scenesOf(g.id)} control={can.control} />)}
         </div>
       ) : (
         <Empty>Geen Hue-kamers gevonden. Koppel de Hue Bridge via Apparaten.</Empty>
       )}
-      <section aria-labelledby="knop-h" className="card">
-        <h2 id="knop-h">Fysieke knoppen</h2>
-        <p className="small muted" style={{ margin: 0 }}>Bestaande Hue-regels op de bridge blijven werken, ook als deze app uit staat. Een gecombineerde actie (licht én airco) moet bewust gekozen worden.</p>
-        {buttons.isLoading && <Loading />}
-        {buttons.data?.length === 0 && <Empty>Geen knoppen gevonden.</Empty>}
-        {buttons.data?.map((b) => (
-          <div key={b.id} style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-            <div className="section-head"><strong>{b.name}</strong><span className="small muted">{b.model}</span></div>
-            {b.mapping.length === 0 ? (
-              <Empty>Geen eigen koppeling: knop volgt de Hue-bridge.</Empty>
-            ) : (
-              <div className="table-wrap">
-                <table>
-                  <thead><tr><th>Gebeurtenis</th><th>Modus</th><th>Actie</th><th>Conflict</th></tr></thead>
-                  <tbody>
-                    {b.mapping.map((m) => (
-                      <tr key={m.id}>
-                        <td>{m.event}</td>
-                        <td>{MODE[m.mode] ?? m.mode}</td>
-                        <td className="small">{Object.entries(m.action).map(([k, v]) => `${k}: ${String(v)}`).join(', ')}</td>
-                        <td>{m.conflict ? <span className="error-text">{m.conflict}</span> : <span className="small muted">geen</span>}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+      {whole.length > 0 && (
+        <section aria-labelledby="whole-h" className="section">
+          <h2 id="whole-h" className="lt-h2">Hele huis</h2>
+          <div className="grid-auto">
+            {whole.map((g) => <GroupCard key={g.id} group={g} scenes={scenesOf(g.id)} control={can.control} />)}
           </div>
-        ))}
+        </section>
+      )}
+      <LampList lights={data} />
+      <section aria-labelledby="knop-h" className="section">
+        <div className="section-head">
+          <h2 id="knop-h">Knoppen</h2>
+        </div>
+        <p className="small muted" style={{ margin: 0 }}>
+          Wat de Hue Bridge zelf met een knop doet, blijft werken, ook als deze app uit staat. Hier koppel je er extra acties aan: licht, klimaat, of bewust allebei.
+          {can.admin ? ' Met ‘Simuleer’ zie je wat een druk nu zou doen, zonder iets uit te voeren.' : ''}
+        </p>
+        {buttons.isLoading && <Loading />}
+        {buttons.error && <ErrorNote error={buttons.error} />}
+        {buttons.isSuccess && buttonList.length === 0 && <Empty>Geen Hue-knoppen gevonden.</Empty>}
+        {buttonList.map((b) => <ButtonCard key={b.id} hb={b} names={names} lights={data} zones={zoneList} homeId={homeId} admin={can.admin} />)}
       </section>
     </>
   );

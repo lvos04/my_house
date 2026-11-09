@@ -13,7 +13,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select, text, update
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from ..config import get_settings
@@ -30,12 +30,11 @@ from ..security import (
     remote_url_problem,
     token_hash,
 )
-from ..store import audit, get_setting, set_setting
+from ..store import audit, get_setting
 from .auth import client_ip, password_matches, too_many, user_view
 
 router = APIRouter(tags=["pairing"])
 CODE_TTL = timedelta(minutes=10)
-ROLE_SETTING = "pairing_role:"  # + PairingCode.id -> role chosen for that code
 # Failed redeem attempts per client IP (codes are 8 characters, valid 10 minutes).
 _redeem_attempts = AttemptLimiter(10, 300, max_keys=10_000)
 
@@ -112,18 +111,11 @@ async def create_code(body: CodeRequest, request: Request, db: DB, p: Admin) -> 
             raise api_error(403, "wrong_password", "Je wachtwoord klopt niet.")
     code = new_pairing_code()
     expires = datetime.now(UTC) + CODE_TTL
-    pc = PairingCode(code_hash=token_hash(code), user_id=p.user.id, label=body.label, expires_at=expires)
+    pc = PairingCode(
+        code_hash=token_hash(code), user_id=p.user.id, label=body.label, expires_at=expires, role=body.role
+    )
     db.add(pc)
     await db.flush()
-    # Forget the role of codes that were used or expired (the table has no role column).
-    await db.execute(
-        text(
-            "DELETE FROM settings WHERE key LIKE 'pairing\\_role:%' AND substr(key, :n) NOT IN "
-            "(SELECT id::text FROM pairing_codes WHERE used_at IS NULL AND expires_at > now())"
-        ),
-        {"n": len(ROLE_SETTING) + 1},
-    )
-    await set_setting(db, ROLE_SETTING + str(pc.id), body.role)
     home = await _active_home(db)
     sid = await server_identity(db)
     await audit(db, p.actor, "pairing_code_created", body.label, role=body.role)
@@ -186,7 +178,7 @@ async def redeem(body: Redeem, request: Request, db: DB) -> dict:
             PairingCode.expires_at > now,
         )
         .values(used_at=now)
-        .returning(PairingCode.id, PairingCode.user_id)
+        .returning(PairingCode.id, PairingCode.user_id, PairingCode.role)
     )
     row = res.first()
     user = await db.get(User, row.user_id) if row else None
@@ -194,8 +186,7 @@ async def redeem(body: Redeem, request: Request, db: DB) -> dict:
         await db.rollback()
         _redeem_attempts.hit(ip)
         raise api_error(400, "invalid_code", "Code ongeldig of verlopen. Maak een nieuwe QR-code in de web-app.")
-    role = str(await get_setting(db, ROLE_SETTING + str(row.id)) or "control")
-    await db.execute(Setting.__table__.delete().where(Setting.key == ROLE_SETTING + str(row.id)))
+    role = row.role or "control"
     token = new_token()
     client = ApiClient(
         user_id=user.id, name=body.device_name, token_hash=token_hash(token), role=role, expires_at=now + CLIENT_TTL

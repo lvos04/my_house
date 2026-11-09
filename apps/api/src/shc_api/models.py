@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Float,
@@ -92,12 +93,15 @@ class ApiClient(Base):
 
 class PairingCode(Base):
     __tablename__ = "pairing_codes"
+    __table_args__ = (CheckConstraint("role IN ('admin', 'control', 'viewer')", name="ck_pairing_codes_role"),)
     id: Mapped[uuid.UUID] = pk()
     code_hash: Mapped[str] = mapped_column(String(64), unique=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     label: Mapped[str | None] = mapped_column(String(100))
     expires_at: Mapped[datetime]
     used_at: Mapped[datetime | None]
+    # Role the phone gets when it redeems this code (migration 0003).
+    role: Mapped[str] = mapped_column(String(16), default="control", server_default="control")
 
 
 class Setting(Base):
@@ -298,9 +302,10 @@ class ScheduleBlock(Base):
 
 class ZoneLog(Base):
     __tablename__ = "zone_log"
-    __table_args__ = (Index("ix_zone_log_zone_at", "zone_id", "at"),)
+    # (zone_id, at) serves every lookup by zone; "at" alone serves the retention delete (0003).
+    __table_args__ = (Index("ix_zone_log_zone_at", "zone_id", "at"), Index("ix_zone_log_at", "at"))
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    zone_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("climate_zones.id", ondelete="CASCADE"), index=True)
+    zone_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("climate_zones.id", ondelete="CASCADE"))
     at: Mapped[datetime] = mapped_column(default=utcnow)
     kind: Mapped[str] = mapped_column(String(24))
     message: Mapped[str] = mapped_column(Text)

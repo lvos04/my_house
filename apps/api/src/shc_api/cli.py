@@ -247,6 +247,25 @@ async def worker_running(url: str | None = None) -> tuple[bool, bool]:
     return fresh, maint
 
 
+async def publish_status_now(url: str | None = None) -> None:
+    """Best effort: tell open screens (status.updated) after a change made from the command line."""
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from .config import get_settings
+    from .views.status import publish_status
+
+    engine = create_async_engine(url or get_settings().database_url, poolclass=NullPool)
+    try:
+        async with AsyncSession(engine) as db:
+            await publish_status(db)
+            await db.commit()
+    except Exception as exc:  # the change itself is done; only the notification failed
+        log.warning("Status niet doorgegeven aan open schermen: %s", exc)
+    finally:
+        await engine.dispose()
+
+
 async def set_maintenance(on: bool, url: str | None = None) -> None:
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
     from sqlalchemy.pool import NullPool
@@ -279,6 +298,16 @@ def print_report(r: dict) -> None:
             print(f"  {t}: {n} records opgeruimd door de database-update")
     if r.get("new_home_id"):
         print(f"Oude woning(en) gearchiveerd; nieuwe woning aangemaakt ({r['new_home_id']}).")
+        drafts = r.get("drafts") or {}
+        copied = [z["name"] for z in drafts.get("zones", []) if z.get("copied_to")]
+        left = [z["name"] for z in drafts.get("zones", []) if not z.get("copied_to")]
+        print(
+            f"Als concept overgenomen: {drafts.get('profiles', 0)} comfortprofiel(en)"
+            + (f", schema's van {', '.join(copied)} (zone staat uit tot 'Terug naar schema')" if copied else "")
+            + "."
+        )
+        if left:
+            print(f"  Niet overgenomen (geen zone met dezelfde naam): {', '.join(left)}.")
 
 
 async def _restore(args, dry_run: bool) -> int:
@@ -309,7 +338,8 @@ async def _restore(args, dry_run: bool) -> int:
         )
         return 3
     if not args.yes:
-        if input("Alle huidige gegevens worden vervangen. Typ HERSTEL om door te gaan: ").strip() != "HERSTEL":
+        prompt = "Alle huidige gegevens worden vervangen. Typ HERSTEL om door te gaan: "
+        if (await asyncio.to_thread(input, prompt)).strip() != "HERSTEL":
             print("Afgebroken.")
             return 1
     try:
@@ -327,6 +357,7 @@ async def _restore(args, dry_run: bool) -> int:
     if args.z2m_dir and v.manifest.get("zigbee2mqtt_included"):
         n = bk.extract_z2m(path, pw, Path(args.z2m_dir))
         print(f"Zigbee2MQTT: {n} bestanden teruggezet in {args.z2m_dir}.")
+    await publish_status_now()  # maintenance off, safe mode on
     print_report(report.as_dict())
     print("Veilige modus staat AAN: bevestig de apparaten in de app.")
     return 0
@@ -521,7 +552,7 @@ async def rekey(old_key: str, *, dry_run: bool = False, url: str | None = None) 
 
 
 async def _rekey(args) -> int:
-    old_key = Path(args.old_key_file).read_text().strip()
+    old_key = (await asyncio.to_thread(Path(args.old_key_file).read_text)).strip()
     r = await rekey(old_key, dry_run=args.dry_run)
     print(f"Opnieuw versleuteld: {len(r['rekeyed'])}; al met de huidige sleutel: {len(r['already_current'])}.")
     for k, v in r["settings"].items():

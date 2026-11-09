@@ -1,0 +1,63 @@
+// Flow 8: the API goes away (process stopped). After the offline threshold (3 failed attempts or 15 s,
+// verbeterlijst 4) the banner says so, every control is disabled and the last known data stays on
+// screen. When the API is back, the app recovers by itself (WebSocket reconnect, data refetched).
+import { apiProcess, ensureLinkedZone, expect, seed, test, unique } from './helpers';
+
+test('offline: API gestopt, banner, bediening uit, laatste gegevens zichtbaar, en herstel', async ({ adminPage: page, api, homeId }) => {
+  test.setTimeout(180_000);
+  const zone = await ensureLinkedZone(api, homeId, 'Slaapkamer');
+
+  const ws = page.waitForEvent('websocket', (w) => w.url().includes('/api/v1/ws'));
+  await page.goto('/');
+  await (await ws).waitForEvent('framereceived', { predicate: (f) => String(f.payload).includes('"hello"') });
+  const card = page.getByRole('article', { name: 'Slaapkamer' });
+  await expect(card.getByRole('button', { name: 'Doeltemperatuur Slaapkamer hoger' })).toBeEnabled();
+  await page.getByRole('navigation', { name: 'Hoofdmenu', exact: true }).getByRole('link', { name: 'Klimaat' }).click();
+  await page.getByRole('tablist', { name: 'Zone' }).getByRole('tab', { name: 'Slaapkamer' }).click();
+  const control = page.getByRole('region', { name: 'Bediening' });
+  const heat = control.getByRole('group', { name: 'Modus' }).getByRole('button', { name: 'Verwarmen' });
+  await expect(heat).toBeEnabled();
+  await expect(control.getByRole('button', { name: 'Handmatig 2 uur' })).toBeEnabled();
+  await expect(page.getByRole('status').filter({ hasText: 'Geen verbinding met de server' })).toHaveCount(0);
+
+  const stoppedAt = Date.now();
+  apiProcess('stop');
+  try {
+    const banner = page.getByRole('status').filter({ hasText: 'Geen verbinding met de server' });
+    await expect(banner).toBeVisible({ timeout: 40_000 });
+    // Not at the first failed attempt: the reconnects back off (≥ 0.5 s, ≥ 1 s) before the third one.
+    expect(Date.now() - stoppedAt).toBeGreaterThanOrEqual(1_000);
+    await expect(banner).toContainText(/laatst bekend \d{2}:\d{2}\)\. Bediening is uitgeschakeld\./);
+
+    // Last known data stays; every action is disabled.
+    await expect(page.getByRole('heading', { level: 1, name: 'Slaapkamer' })).toBeVisible();
+    await expect(control.locator('.c-dial .big-num')).toHaveText(/21/);
+    await expect(heat).toBeDisabled();
+    await expect(control.getByRole('button', { name: 'Doeltemperatuur hoger' })).toBeDisabled();
+    await expect(control.getByRole('button', { name: 'Handmatig 2 uur' })).toBeDisabled();
+    await expect(page.locator('.shell')).toHaveClass(/is-offline/);
+
+    // Another page from the cache: the overview as last seen, controls off.
+    await page.getByRole('navigation', { name: 'Hoofdmenu', exact: true }).getByRole('link', { name: 'Overzicht' }).click();
+    await expect(page.getByRole('article', { name: 'Slaapkamer' })).toBeVisible();
+    await expect(page.getByRole('article', { name: 'Slaapkamer' }).getByRole('button', { name: 'Doeltemperatuur Slaapkamer hoger' })).toBeDisabled();
+    await expect(banner).toBeVisible();
+  } finally {
+    apiProcess('start');
+  }
+
+  // Back: the banner goes away by itself and the controls work again (reconnect backs off up to 30 s).
+  await expect(page.getByRole('status').filter({ hasText: 'Geen verbinding met de server' })).toHaveCount(0, { timeout: 60_000 });
+  await expect(page.locator('.shell')).not.toHaveClass(/is-offline/);
+  await expect(page.getByRole('article', { name: 'Slaapkamer' }).getByRole('button', { name: 'Doeltemperatuur Slaapkamer hoger' })).toBeEnabled();
+  const fresh = await api.zone(homeId, 'Slaapkamer');
+  expect(fresh.id).toBe(zone.id);
+
+  // Live updates work again over the new connection.
+  const key = `e2e-offline:${unique()}`;
+  seed('alert', { home_id: homeId, key, severity: 'info', title: `Na herstel ${key.slice(12)}` });
+  const alerts = page.getByRole('region', { name: 'Meldingen' });
+  await expect(alerts.getByText(`Na herstel ${key.slice(12)}`)).toBeVisible({ timeout: 10_000 });
+  seed('resolve', { key });
+  await expect(alerts.getByText(`Na herstel ${key.slice(12)}`)).toHaveCount(0, { timeout: 10_000 });
+});

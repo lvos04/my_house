@@ -199,6 +199,27 @@ class DeviceOffline(AdapterError):
     code = "device_offline"
 
 
+def network_reason(exc: BaseException) -> str:
+    """Plain Dutch reason for a network error, for messages shown to the user (the technical text
+    belongs in ``diagnostics``)."""
+    import ssl
+
+    import httpx
+
+    if isinstance(exc, httpx.TimeoutException | TimeoutError):
+        return "geen antwoord binnen de tijd"
+    if isinstance(exc, ssl.SSLError):
+        return "beveiligde verbinding mislukt"
+    if isinstance(exc, httpx.ConnectError | ConnectionRefusedError):
+        cause = exc.__cause__ or exc.__context__
+        if isinstance(cause, ssl.SSLError):
+            return "beveiligde verbinding mislukt"
+        return "geen verbinding (staat het apparaat aan en klopt het adres?)"
+    if isinstance(exc, httpx.RemoteProtocolError | httpx.ReadError | httpx.WriteError | ConnectionResetError):
+        return "de verbinding werd onverwacht verbroken"
+    return "netwerkfout"
+
+
 class Unsupported(AdapterError):
     code = "unsupported"
 

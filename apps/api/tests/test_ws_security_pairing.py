@@ -130,11 +130,18 @@ async def test_pairing_roles(admin, home, app, lan):
     by_name = {x["name"]: x for x in clients}
     assert by_name["sec-viewer"]["role"] == "viewer" and by_name["sec-admin"]["role"] == "admin"
     assert by_name["sec-control"]["user"] == "beheer" and by_name["sec-control"]["expires_at"]
-    # The role of a used code is not kept around.
+    # The role lives on the code itself (migration 0003); no settings rows any more.
     async with sessionmaker()() as db:
         left = set((await db.execute(select(Setting.key).where(Setting.key.like("pairing\\_role:%")))).scalars())
-        used = (await db.execute(select(PairingCode.id).where(PairingCode.used_at.is_not(None)))).scalars().all()
-    assert used and not {f"pairing_role:{i}" for i in used} & left
+        roles = dict(
+            (await db.execute(select(PairingCode.label, PairingCode.role).where(PairingCode.label.like("sec-%")))).all()
+        )
+    assert not left
+    assert {k: roles[k] for k in ("sec-viewer", "sec-control", "sec-admin")} == {
+        "sec-viewer": "viewer",
+        "sec-control": "control",
+        "sec-admin": "admin",
+    }
     assert (await admin.post("/pairing/codes", json={"role": "superuser"})).status_code == 422
 
 

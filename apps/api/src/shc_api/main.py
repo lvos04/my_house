@@ -169,6 +169,21 @@ class BodyLimitMiddleware:
             await _send_json(send, 413, {"detail": exc.detail})
 
 
+def route_template(scope: dict) -> str:
+    """The matched route's path template with the API prefix, e.g. ``/api/v1/users/{user_id}``.
+
+    FastAPI >= 0.16x includes routers lazily and puts the router's own route in ``scope["route"]``,
+    whose path lacks the include prefix; older versions stored the prefixed copy. Both give the same
+    result here. Without a matched route the raw path is used."""
+    path = scope.get("path", "")
+    template = getattr(scope.get("route"), "path", None)
+    if not template:
+        return path
+    if path.startswith(API_PREFIX + "/") and not template.startswith(API_PREFIX + "/"):
+        template = API_PREFIX + template
+    return template
+
+
 class AuditMiddleware:
     """One audit_log row for every successful mutating request by a logged-in user or phone:
     actor, method, route template (no ids in the template; they go in detail.params) and status.
@@ -196,8 +211,7 @@ class AuditMiddleware:
         principal = (scope.get("state") or {}).get("principal")
         if principal is None:
             return  # login, setup, redeem: audited by the endpoint itself
-        route = scope.get("route")
-        template = getattr(route, "path", None) or scope.get("path", "")
+        template = route_template(scope)
         params = {k: str(v) for k, v in (scope.get("path_params") or {}).items()}
         try:
             async with sessionmaker()() as db:
@@ -214,6 +228,10 @@ class AuditMiddleware:
             log.warning("Auditregel niet opgeslagen: %s", exc)
 
 
+# Every router, included under API_PREFIX (tests enumerate routes through this, not app.routes).
+ROUTERS = (auth, users, pairing, homes, zones, profiles, lights, energy, devices, optimization, system, ws)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Smart Home Control",
@@ -224,7 +242,7 @@ def create_app() -> FastAPI:
         openapi_url=None,
         redoc_url=None,
     )
-    for r in (auth, users, pairing, homes, zones, profiles, lights, energy, devices, optimization, system, ws):
+    for r in ROUTERS:
         app.include_router(r.router, prefix=API_PREFIX)
 
     @app.get(f"{API_PREFIX}/openapi.json", include_in_schema=False)

@@ -50,6 +50,7 @@ from ..base import (
     Reading,
     StateUpdate,
     Unsupported,
+    network_reason,
 )
 from ..resilience import CircuitBreaker, RateLimiter
 from ..tls import client_for, fetch_fingerprint
@@ -292,7 +293,10 @@ class HomeWizardAdapter(Adapter):
             try:
                 r = await self._http().request(method, path, headers=self._headers(), **kw)
             except httpx.TransportError as exc:
-                raise DeviceOffline(f"HomeWizard {self.host} niet bereikbaar: {exc}") from exc
+                raise DeviceOffline(
+                    f"HomeWizard {self.host} niet bereikbaar: {network_reason(exc)}",
+                    diagnostics={"host": self.host, "error": f"{type(exc).__name__}: {exc}"[:300]},
+                ) from exc
             if r.status_code == 401:
                 raise PairingRequired("HomeWizard weigert de token; koppel opnieuw")
             if r.status_code == 403:

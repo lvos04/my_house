@@ -7,6 +7,10 @@ The concern-specific loops live in the mixins this class is assembled from.
   completed iteration in ``loop_seen`` (contract C3).
 - ``heartbeat`` writes the ``worker_heartbeat`` / ``worker_loops`` settings and touches
   ``/tmp/shc-worker-alive`` for the container healthcheck, unless a watched loop is stuck.
+- A watchdog thread (verbeterlijst 28, "zichzelf herstarten") ends the process with exit code 1 when
+  a watched loop is stuck for more than 5 x its interval + 60 s, also when the event loop itself is
+  blocked: Docker does not restart an unhealthy container outside Swarm, but ``restart:
+  unless-stopped`` does restart one that exited.
 - Integrations are loaded one by one (verbeterlijst 22): a key that no longer decrypts marks only
   that integration ("Sleutel past niet, koppel opnieuw"); the rest keeps running. The reload loop
   stops adapters whose integration was disabled, changed or whose home was archived, and starts
@@ -23,8 +27,11 @@ import hashlib
 import json
 import logging
 import os
+import sys
+import threading
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -56,6 +63,7 @@ RELOAD_INTERVAL = 120
 # Liveness file for the container healthcheck (contract C3); stale > 180 s = unhealthy.
 ALIVE_FILE = Path(os.environ.get("SHC_WORKER_ALIVE_FILE", "/tmp/shc-worker-alive"))  # noqa: S108
 MAINTENANCE_CHECK_S = 10.0
+WATCHDOG_CHECK_S = 15.0  # how often the watchdog thread looks for stuck loops
 # Debounce for transient problems (verbeterlijst 28).
 FAIL_THRESHOLD = 3
 FAIL_WINDOW = timedelta(minutes=5)
@@ -88,11 +96,27 @@ async def patch_diagnostics(db, integ_id: uuid.UUID, patch: dict) -> None:
     await db.execute(update(Integration).where(Integration.id == integ_id).values(diagnostics=merged))
 
 
+def is_db_unavailable(exc: BaseException) -> bool:
+    """The database connection dropped or could not be made (restart, network, admin terminate).
+    The pool replaces the connection (pool_pre_ping), so the loop simply tries again."""
+    from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
+
+    if isinstance(exc, asyncpg.PostgresConnectionError | asyncpg.InterfaceError | asyncpg.CannotConnectNowError):
+        return True
+    if isinstance(exc, DBAPIError):
+        if exc.connection_invalidated or isinstance(exc, OperationalError | InterfaceError):
+            return True
+        cause = exc.orig.__cause__ if exc.orig is not None else None
+        return isinstance(cause, asyncpg.PostgresConnectionError | asyncpg.InterfaceError | OSError)
+    return False
+
+
 def is_expected_error(exc: BaseException) -> bool:
-    """Network trouble and adapter errors: logged as one line, never with a traceback."""
+    """Network trouble, adapter errors and a dropped database connection: logged as one line,
+    never with a traceback."""
     from shc_integrations.base import AdapterError
 
-    return isinstance(exc, AdapterError | httpx.HTTPError | OSError | TimeoutError)
+    return isinstance(exc, AdapterError | httpx.HTTPError | OSError | TimeoutError) or is_db_unavailable(exc)
 
 
 def error_text(exc: BaseException) -> str:
@@ -159,7 +183,11 @@ class Worker(IngestMixin, CommandsMixin, ClimateMixin, HealthMixin, BackupMixin,
     alive_file: Path = ALIVE_FILE
     push_retry_s: float = 5.0  # first wait before restarting a failed push stream (grows per failure)
 
-    def __init__(self) -> None:
+    def __init__(self, *, exit_fn: Callable[[int], object] | None = None) -> None:
+        # Ends the process when a loop is stuck (os._exit: no cleanup that could hang as well).
+        # Tests inject a recorder instead.
+        self.exit_fn: Callable[[int], object] = exit_fn or os._exit
+        self._watchdog_stop = threading.Event()
         self.settings = get_settings()
         self.box = SecretBox(self.settings.resolved_secret_key())
         self.adapters: dict[uuid.UUID, object] = {}
@@ -213,7 +241,11 @@ class Worker(IngestMixin, CommandsMixin, ClimateMixin, HealthMixin, BackupMixin,
             for name, fn, interval, wake in self.loop_specs()
         ]
         self.tasks.append(asyncio.create_task(self.listen()))
-        await asyncio.gather(*self.tasks)
+        self.start_watchdog()
+        try:
+            await asyncio.gather(*self.tasks)
+        finally:
+            self._watchdog_stop.set()
 
     async def in_maintenance(self) -> bool:
         """True while a restore runs (Setting "maintenance"). Cached; a failed read keeps the last value."""
@@ -285,13 +317,51 @@ class Worker(IngestMixin, CommandsMixin, ClimateMixin, HealthMixin, BackupMixin,
     # --- heartbeat & liveness ---------------------------------------------------------
 
     def stuck_loops(self, now: float | None = None) -> list[str]:
-        """Watched loops that did not complete an iteration within 5 x their interval + 60 s."""
+        """Watched loops that did not complete an iteration within 5 x their interval + 60 s.
+        Also called from the watchdog thread: it only reads (copies of) the two dicts."""
         now = time.monotonic() if now is None else now
         return sorted(
             name
-            for name, interval in self.loop_interval.items()
+            for name, interval in list(self.loop_interval.items())
             if now - self.loop_seen.get(name, now) > 5 * interval + 60
         )
+
+    def exit_if_stuck(self, now: float | None = None) -> list[str]:
+        """Log clearly and end the process (exit code 1) when a watched loop is stuck, so Docker's
+        ``restart: unless-stopped`` starts a fresh worker. Returns the stuck loops (empty: nothing done)."""
+        try:
+            stuck = self.stuck_loops(now)
+        except RuntimeError:  # a dict changed size while the watchdog thread copied it: next round
+            return []
+        if not stuck:
+            return []
+        now = time.monotonic() if now is None else now
+        ages = ", ".join(f"{n} ({int(now - self.loop_seen.get(n, now))} s)" for n in stuck)
+        log.critical(
+            "Lus %s staat stil (langer dan 5 x de interval + 60 s). De worker stopt met code 1 zodat "
+            "Docker hem opnieuw start.",
+            ages,
+        )
+        for h in logging.getLogger().handlers:
+            with contextlib.suppress(Exception):
+                h.flush()
+        with contextlib.suppress(Exception):
+            sys.stderr.flush()
+            sys.stdout.flush()
+        self.exit_fn(1)
+        return stuck
+
+    def start_watchdog(self, check_s: float = WATCHDOG_CHECK_S) -> threading.Thread:
+        """A thread, not a task: it also notices an event loop that is blocked as a whole."""
+
+        def watch() -> None:
+            while not self._watchdog_stop.wait(check_s):
+                if self.exit_if_stuck():
+                    return
+
+        t = threading.Thread(target=watch, name="shc-worker-watchdog", daemon=True)
+        t.start()
+        return t
 
     def loops_report(self, now_wall: datetime | None = None) -> dict:
         now_wall = now_wall or datetime.now(UTC)

@@ -7,15 +7,17 @@ name = "shc-integrations"
 version = "0.1.0"
 description = "Local device adapters (Hue, HomeWizard, Gree, Zigbee2MQTT) for Smart Home Control"
 requires-python = ">=3.12"
+# Floors are the first releases without known vulnerabilities (pip-audit gate in CI, item 41).
 dependencies = [
-  "httpx>=0.27,<0.29",
-  "cryptography>=43,<51",
-  "aiomqtt>=2.3,<3",
+  "httpx>=0.28.1,<0.29",
+  "h11>=0.16",
+  "cryptography>=50.0.2,<51",
+  "aiomqtt>=2.5.1,<3",
 ]
 
 [project.optional-dependencies]
 discovery = ["zeroconf>=0.132,<1"]
-test = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2", "respx>=0.21,<0.24", "ruff>=0.6"]
+test = ["pytest>=9.0.3,<10", "pytest-asyncio>=1.3,<2", "respx>=0.23.1,<0.24", "ruff>=0.17.4,<0.18"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

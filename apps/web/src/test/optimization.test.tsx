@@ -94,10 +94,10 @@ describe('Optimalisatie', () => {
 
   it('only says besparing when the verdict is vergelijkbaar', () => {
     const rows = [
-      { variant: 'Constant', days: 7, kwh_per_day: 4, vs_first_pct: 0, mean_abs_dev_c: 0.3, starts: 4, outdoor_mean_c: 6 },
-      { variant: 'Nacht', days: 7, kwh_per_day: 3.6, vs_first_pct: -10, mean_abs_dev_c: 0.4, starts: 6, outdoor_mean_c: 6.5 },
+      { variant: 'Constant', days: 7, kwh_per_day: 4, vs_first_pct: 0, mean_abs_dev_c: 0.3, starts: 4, outdoor_mean_c: 6, comfort_pct: null, other_zone_mean_target_c: null, notes: [] },
+      { variant: 'Nacht', days: 7, kwh_per_day: 3.6, vs_first_pct: -10, mean_abs_dev_c: 0.4, starts: 6, outdoor_mean_c: 6.5, comfort_pct: null, other_zone_mean_target_c: null, notes: [] },
     ];
-    const base: ExperimentResult = { id: 'e', name: 'x', variants: [], status: 'defined', verdict: 'indicatief', reasons: ['Geen buitentemperatuur gemeten; weersinvloed onbekend.'], rows };
+    const base: ExperimentResult = { id: 'e', name: 'x', zone_id: 'z1', variants: [], status: 'defined', auto_apply: false, current_variant: null, paused_reason: null, outdoor: null, confounders: [], verdict: 'indicatief', reasons: ['Geen buitentemperatuur gemeten; weersinvloed onbekend.'], rows };
     const { unmount } = render(<ExperimentResultView r={base} />);
     expect(screen.getByText('Indicatieve vergelijking')).toBeInTheDocument();
     expect(screen.getByText('Geen buitentemperatuur gemeten; weersinvloed onbekend.')).toBeInTheDocument();

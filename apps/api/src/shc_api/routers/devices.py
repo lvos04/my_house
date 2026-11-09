@@ -257,8 +257,7 @@ def _check_role_fit(role: LogicalRole, d: Device) -> None:
         raise api_error(
             409,
             "role_mismatch",
-            f"De rol ‘{role.label}’ past niet bij dit apparaat ({KIND_LABELS.get(d.kind, d.kind)}); "
-            f"kies een {wanted}.",
+            f"De rol ‘{role.label}’ past niet bij dit apparaat ({KIND_LABELS.get(d.kind, d.kind)}); kies een {wanted}.",
         )
 
 

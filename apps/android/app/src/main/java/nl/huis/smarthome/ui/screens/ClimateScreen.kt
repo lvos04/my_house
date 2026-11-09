@@ -6,11 +6,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -35,23 +37,50 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import nl.huis.smarthome.R
 import nl.huis.smarthome.core.NlFormat
+import nl.huis.smarthome.core.UnitLink
 import nl.huis.smarthome.core.Zone
 import nl.huis.smarthome.data.HomeState
+import nl.huis.smarthome.ui.CommandUi
 import nl.huis.smarthome.ui.MainViewModel
+import nl.huis.smarthome.ui.UnitState
+import nl.huis.smarthome.ui.ZoneControls
+import nl.huis.smarthome.ui.ZoneUi
+import nl.huis.smarthome.ui.components.CommandStatusText
+import nl.huis.smarthome.ui.components.ConnectionBanner
 import nl.huis.smarthome.ui.components.HuisCard
 import nl.huis.smarthome.ui.components.InfoBox
-import nl.huis.smarthome.ui.components.OfflineBanner
+import nl.huis.smarthome.ui.components.QualityLabel
+import nl.huis.smarthome.ui.components.ReadOnlyNote
+import nl.huis.smarthome.ui.components.SectionTitle
+import nl.huis.smarthome.ui.components.SetpointControl
+import nl.huis.smarthome.ui.components.UnitNotLinked
+import nl.huis.smarthome.ui.components.ZoneHintNote
+import nl.huis.smarthome.ui.components.ZonePillView
+import nl.huis.smarthome.ui.components.controlLabel
+import nl.huis.smarthome.ui.components.durationText
+import nl.huis.smarthome.ui.components.fanLabel
+import nl.huis.smarthome.ui.components.modeLabel
+import nl.huis.smarthome.ui.components.qualityText
+import nl.huis.smarthome.ui.components.targetSpoken
 import nl.huis.smarthome.ui.theme.Huis
+import nl.huis.smarthome.ui.theme.noFontScale
 
 @Composable
 fun ClimateScreen(
@@ -75,18 +104,31 @@ fun ClimateScreen(
             IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.back))
             }
-            Text(zone?.name ?: stringResource(R.string.nav_climate), style = MaterialTheme.typography.headlineSmall)
+            Text(
+                zone?.name ?: stringResource(R.string.nav_climate),
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.weight(1f).semantics { heading() },
+            )
+            if (zone != null) ZonePillView(zone)
         }
-        OfflineBanner(state, vm::retry)
+        ConnectionBanner(state, vm::retry)
+        ReadOnlyNote(state)
 
         if (zones.size > 1 && zone != null) {
             ScrollableTabRow(
                 selectedTabIndex = zones.indexOf(zone),
                 containerColor = Huis.colors.ground,
+                contentColor = Huis.colors.ink,
                 edgePadding = 0.dp,
             ) {
                 zones.forEach { z ->
-                    Tab(selected = z.id == zone.id, onClick = { onSelectZone(z.id) }, text = { Text(z.name) })
+                    Tab(
+                        selected = z.id == zone.id,
+                        onClick = { onSelectZone(z.id) },
+                        text = { Text(z.name) },
+                        selectedContentColor = Huis.colors.ink,
+                        unselectedContentColor = Huis.colors.muted,
+                    )
                 }
             }
         }
@@ -96,70 +138,78 @@ fun ClimateScreen(
             return@Column
         }
 
-        val enabled = state.controlsEnabled && zone.online
-        val draft = state.drafts[zone.id]
         val dim = if (state.online) 1f else 0.55f
+        val unit = ZoneUi.unitState(zone)
+        val controls = ZoneUi.controls(zone, state)
 
-        Dial(zone, draft, Modifier.align(Alignment.CenterHorizontally).alpha(dim))
-        Box(Modifier.align(Alignment.CenterHorizontally)) {
-            if (zone.mode != "off") {
-                SetpointControl(draft ?: zone.targetC, enabled, { vm.nudge(zone, it) }, zone.capabilities.stepC, big = true)
+        if (unit == UnitState.NOT_LINKED) {
+            HuisCard(radius = 20) {
+                if (ZoneUi.hasSensor(zone)) RoomReading(zone, Modifier.alpha(dim))
+                UnitNotLinked(zone, canManage = state.isAdmin)
+            }
+            DetailsCard(zone, showFan = false, showMode = false)
+            return@Column
+        }
+
+        val shown = state.shownTarget(zone)
+        Dial(zone, shown, Modifier.align(Alignment.CenterHorizontally).alpha(dim))
+        RoomReading(zone, Modifier.align(Alignment.CenterHorizontally).alpha(dim), centered = true)
+
+        if (controls.visible) {
+            Box(Modifier.align(Alignment.CenterHorizontally)) {
+                SetpointControl(shown, controls.setpointEnabled, { vm.nudge(zone, it) }, zone.capabilities.stepC, big = true)
             }
         }
-        if (zone.id in state.pending || draft != null) {
-            Text(
-                stringResource(R.string.sent_pending),
-                color = Huis.colors.muted,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            )
-        }
+        CommandStatusText(CommandUi.line(state, zone), Modifier.align(Alignment.CenterHorizontally))
+        ZoneHintNote(controls.hint)
+        zone.notice?.takeIf { unit != UnitState.OFFLINE }?.let { InfoBox(it, warn = zone.noticeIsWarning) }
 
-        ModeSelector(zone, enabled) { vm.setMode(zone, it) }
-
-        zone.blockedModes.forEach { b ->
-            InfoBox(stringResource(R.string.mode_unavailable, NlFormat.mode(b.mode), b.reason))
-        }
-        zone.notice?.let { InfoBox(it, warn = true) }
-
-        HuisCard(radius = 20) {
-            InfoRow(stringResource(R.string.control), NlFormat.control(zone.control))
-            zone.profile?.let { InfoRow(stringResource(R.string.profile), it) }
-            zone.nextChange?.let { n ->
-                InfoRow(
-                    stringResource(R.string.next_change),
-                    listOfNotNull(NlFormat.clock(n.at), n.targetC?.let { NlFormat.temperature(it) }).joinToString(" · "),
-                )
+        if (controls.visible) {
+            ModeSelector(zone, controls) { vm.setMode(zone, it) }
+            if (zone.blockedModes.isNotEmpty()) {
+                val lines = zone.blockedModes.map { b -> blockedLine(b.mode, b.reason) }
+                InfoBox(lines.joinToString("\n"))
             }
-            zone.fan?.let { InfoRow(stringResource(R.string.fan), fanLabel(it)) }
-            zone.humidity.value?.let { InfoRow(stringResource(R.string.humidity), NlFormat.percent(it)) }
+            if (zone.capabilities.fan) FanSelector(zone, controls) { vm.setFan(zone, it) }
         }
 
-        if (zone.override != null || zone.control == "manual") {
-            OutlinedButton(
-                onClick = { vm.resume(zone) },
-                enabled = enabled,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, Huis.colors.outline),
-            ) { Text(stringResource(R.string.resume_schedule), color = Huis.colors.ink) }
-        } else {
-            Button(
-                onClick = { vm.override2h(zone) },
-                enabled = enabled,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Huis.colors.ink, contentColor = Huis.colors.ground),
-            ) { Text(stringResource(R.string.override_2h)) }
+        DetailsCard(zone, showFan = !controls.visible || !zone.capabilities.fan, showMode = !controls.visible)
+
+        if (controls.visible) {
+            if (controls.showResume) {
+                OutlinedButton(
+                    onClick = { vm.resume(zone) },
+                    enabled = controls.resumeEnabled,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, Huis.colors.controlOutline),
+                ) { Text(stringResource(R.string.resume_schedule), color = Huis.colors.ink) }
+            } else {
+                val minutes = ZoneUi.overrideMinutes(zone)
+                Button(
+                    onClick = { vm.overrideFor(zone, minutes) },
+                    enabled = controls.overrideEnabled,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Huis.colors.ink, contentColor = Huis.colors.ground),
+                ) { Text(stringResource(R.string.override_for, durationText(minutes))) }
+            }
         }
     }
 }
 
 @Composable
-private fun Dial(zone: Zone, draft: Double?, modifier: Modifier = Modifier) {
-    val ring = when (zone.mode) {
-        "heat" -> Huis.colors.heatRing
-        "cool" -> Huis.colors.cool.copy(alpha = 0.35f)
+private fun blockedLine(mode: String, reason: String): String =
+    stringResource(R.string.mode_unavailable, modeLabel(mode), reason)
+
+/** The target in a ring (heat orange, cool blue). The number is read aloud when it changes. */
+@Composable
+private fun Dial(zone: Zone, target: Double?, modifier: Modifier = Modifier) {
+    val off = zone.mode == "off" || zone.unitLink == UnitLink.OFFLINE
+    val ring = when {
+        off -> Huis.colors.outline
+        zone.mode == "heat" -> Huis.colors.heatRing
+        zone.mode == "cool" -> Huis.colors.cool.copy(alpha = 0.35f)
         else -> Huis.colors.outline
     }
     val accent = when (zone.mode) {
@@ -168,9 +218,10 @@ private fun Dial(zone: Zone, draft: Double?, modifier: Modifier = Modifier) {
         else -> Huis.colors.muted
     }
     val caps = zone.capabilities
-    val target = draft ?: zone.targetC
-    val fraction = target?.let { ((it - caps.minC) / (caps.maxC - caps.minC)).toFloat().coerceIn(0f, 1f) }
+    val span = (caps.maxC - caps.minC).takeIf { it > 0 } ?: 1.0
+    val fraction = target?.let { ((it - caps.minC) / span).toFloat().coerceIn(0f, 1f) }
     val surface = Huis.colors.surface
+    val spoken = if (zone.mode == "off") modeLabel("off") else targetSpoken(target)
     Box(modifier.size(240.dp), contentAlignment = Alignment.Center) {
         Canvas(Modifier.size(240.dp)) {
             val stroke = 12.dp.toPx()
@@ -178,90 +229,186 @@ private fun Dial(zone: Zone, draft: Double?, modifier: Modifier = Modifier) {
             val arcSize = Size(size.width - stroke, size.height - stroke)
             drawCircle(surface, radius = size.minDimension / 2 - stroke)
             drawArc(ring, startAngle = 135f, sweepAngle = 270f, useCenter = false, topLeft = Offset(inset, inset), size = arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
-            if (fraction != null && zone.mode != "off") {
+            if (fraction != null && !off) {
                 drawArc(accent, startAngle = 135f, sweepAngle = 270f * fraction, useCenter = false, topLeft = Offset(inset, inset), size = arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
             }
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .padding(horizontal = 28.dp)
+                .clearAndSetSemantics {
+                    contentDescription = spoken
+                    liveRegion = LiveRegionMode.Polite
+                },
+        ) {
             Text(stringResource(R.string.target), color = Huis.colors.muted, style = MaterialTheme.typography.bodyMedium)
+            // The ring has a fixed size, so the number keeps its size at large font settings
+            // (it is already 60 sp); every other text scales normally.
             Text(
-                if (zone.mode == "off") NlFormat.mode("off") else NlFormat.temperature(target),
-                style = MaterialTheme.typography.displayLarge,
-            )
-            Text(
-                stringResource(R.string.now_value, NlFormat.temperature(zone.temperature.value), NlFormat.quality(zone.temperature.quality)),
-                color = if (zone.temperature.stale) Huis.colors.warn else Huis.colors.muted,
-                style = MaterialTheme.typography.bodyMedium,
+                if (zone.mode == "off") modeLabel("off") else NlFormat.temperature(target),
+                style = MaterialTheme.typography.displayLarge.noFontScale(),
+                maxLines = 1,
             )
         }
     }
 }
 
+/** "nu 20,3° · gemeten · 2 min geleden" (or "Sensor verouderd"). */
 @Composable
-private fun ModeSelector(zone: Zone, enabled: Boolean, onPick: (String) -> Unit) {
-    val modes = zone.capabilities.modes.ifEmpty { listOf("off", "heat", "cool") }
-    Row(
-        Modifier.fillMaxWidth().selectableGroup(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        modes.forEach { m ->
-            val selected = zone.mode == m
-            val blocked = zone.blockReason(m) != null
-            val (bg, fg) = when {
-                blocked -> Huis.colors.surfaceMuted to Huis.colors.muted
-                selected && m == "heat" -> Huis.colors.heatContainer to Huis.colors.heat
-                selected && m == "cool" -> Huis.colors.coolContainer to Huis.colors.cool
-                else -> Huis.colors.surface to Huis.colors.ink
-            }
-            val border = when {
-                selected && m == "heat" -> BorderStroke(2.dp, Huis.colors.heat)
-                selected && m == "cool" -> BorderStroke(2.dp, Huis.colors.cool)
-                selected -> BorderStroke(2.dp, Huis.colors.ink)
-                else -> BorderStroke(1.dp, Huis.colors.outline)
-            }
-            val blockedLabel = stringResource(R.string.mode_unavailable, NlFormat.mode(m), zone.blockReason(m) ?: "")
-            Surface(
-                modifier = Modifier
-                    .weight(1f)
-                    .heightIn(min = 52.dp)
-                    .selectable(
-                        selected = selected,
-                        enabled = enabled && !blocked,
-                        role = Role.RadioButton,
-                        onClick = { if (!selected) onPick(m) },
-                    )
-                    .semantics { if (blocked) stateDescription = blockedLabel },
-                shape = RoundedCornerShape(16.dp),
-                color = bg,
-                border = border,
-            ) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(vertical = 14.dp)) {
-                    Text(
-                        NlFormat.mode(m),
-                        color = fg,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium),
-                    )
+private fun RoomReading(zone: Zone, modifier: Modifier = Modifier, centered: Boolean = false) {
+    val t = zone.temperature
+    Column(modifier, horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start) {
+        if (!centered) {
+            Text(
+                NlFormat.temperature(t.value),
+                style = MaterialTheme.typography.displayMedium.noFontScale(),
+                color = if (t.stale || t.value == null) Huis.colors.dimmed else Huis.colors.ink,
+            )
+        }
+        val line = listOfNotNull(
+            if (centered) stringResource(R.string.now_short, NlFormat.temperature(t.value)) else null,
+            if (t.stale) stringResource(R.string.stale_sensor_since, NlFormat.relative(t.at)) else qualityText(t.quality),
+            t.at?.takeIf { !t.stale }?.let { NlFormat.relative(it) },
+        ).joinToString(" · ")
+        Text(
+            line,
+            color = if (t.stale) Huis.colors.warn else Huis.colors.muted,
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = if (centered) TextAlign.Center else TextAlign.Start,
+        )
+    }
+}
+
+/** Options per row: fewer at large font settings so labels never get cut off. */
+@Composable
+private fun perRow(normal: Int): Int = if (LocalDensity.current.fontScale > 1.3f) 2 else normal
+
+@Composable
+private fun ModeSelector(zone: Zone, controls: ZoneControls, onPick: (String) -> Unit) {
+    SectionTitle(stringResource(R.string.mode))
+    val modes = ZoneUi.modes(zone)
+    Column(Modifier.fillMaxWidth().selectableGroup(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        modes.chunked(perRow(3)).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { m ->
+                    val reason = zone.blockReason(m)
+                    val blockedLabel = reason?.let { blockedLine(m, it) }
+                    ChoiceButton(
+                        label = modeLabel(m),
+                        selected = zone.mode == m,
+                        enabled = controls.modesEnabled && reason == null,
+                        accent = m,
+                        stateExtra = blockedLabel,
+                        modifier = Modifier.weight(1f),
+                    ) { if (zone.mode != m) onPick(m) }
                 }
+                repeat(perRow(3) - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }
 }
 
 @Composable
-private fun InfoRow(label: String, value: String) {
-    Column {
-        Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-            Text(value, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold))
+private fun FanSelector(zone: Zone, controls: ZoneControls, onPick: (String) -> Unit) {
+    SectionTitle(stringResource(R.string.fan))
+    Column(Modifier.fillMaxWidth().selectableGroup(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        ZoneUi.FAN_SPEEDS.chunked(perRow(4)).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { f ->
+                    ChoiceButton(
+                        label = fanLabel(f),
+                        selected = zone.fan == f,
+                        enabled = controls.fanEnabled,
+                        accent = "fan",
+                        stateExtra = null,
+                        modifier = Modifier.weight(1f),
+                    ) { if (zone.fan != f) onPick(f) }
+                }
+                repeat(perRow(4) - row.size) { Spacer(Modifier.weight(1f)) }
+            }
         }
-        HorizontalDivider(color = Huis.colors.outline.copy(alpha = 0.6f))
     }
 }
 
-private fun fanLabel(fan: String): String = when (fan) {
-    "auto" -> "Auto"
-    "low" -> "Laag"
-    "medium" -> "Middel"
-    "high" -> "Hoog"
-    else -> fan
+/** A radio-style choice (mode or fan speed), at least 52 dp high and growing with the text. */
+@Composable
+private fun ChoiceButton(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    accent: String,
+    stateExtra: String?,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val (bg, fg) = when {
+        selected && accent == "heat" -> Huis.colors.heatContainer to Huis.colors.heat
+        selected && accent == "cool" -> Huis.colors.coolContainer to Huis.colors.cool
+        selected -> Huis.colors.surfaceMuted to Huis.colors.ink
+        else -> Huis.colors.surface to Huis.colors.ink
+    }
+    val border = when {
+        selected && accent == "heat" -> BorderStroke(2.dp, Huis.colors.heat)
+        selected && accent == "cool" -> BorderStroke(2.dp, Huis.colors.cool)
+        selected -> BorderStroke(2.dp, Huis.colors.ink)
+        else -> BorderStroke(1.dp, Huis.colors.controlOutline)
+    }
+    Surface(
+        modifier = modifier
+            .heightIn(min = 52.dp)
+            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
+            .semantics { if (stateExtra != null) stateDescription = stateExtra }
+            .alpha(if (enabled || selected) 1f else 0.5f),
+        shape = RoundedCornerShape(16.dp),
+        color = bg,
+        border = border,
+    ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 6.dp, vertical = 14.dp)) {
+            Text(
+                label,
+                color = fg,
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DetailsCard(zone: Zone, showFan: Boolean, showMode: Boolean) {
+    HuisCard(radius = 20) {
+        if (showMode) InfoRow(stringResource(R.string.mode), modeLabel(zone.mode))
+        InfoRow(stringResource(R.string.control), if (zone.unitLinked) controlLabel(zone) else stringResource(R.string.zone_no_unit_pill))
+        zone.profile?.let { InfoRow(stringResource(R.string.profile), it) }
+        zone.nextChange?.let { n ->
+            InfoRow(
+                stringResource(R.string.next_change),
+                listOfNotNull(NlFormat.clock(n.at), n.targetC?.let { NlFormat.temperature(it) }, n.mode?.let { modeLabel(it) })
+                    .joinToString(" · "),
+            )
+        }
+        if (showFan) zone.fan?.let { InfoRow(stringResource(R.string.fan), fanLabel(it)) }
+        zone.humidity.value?.let {
+            InfoRow(stringResource(R.string.humidity), NlFormat.percent(it), quality = { QualityLabel(zone.humidity.quality) })
+        }
+    }
+}
+
+@Composable
+private fun InfoRow(label: String, value: String, quality: (@Composable () -> Unit)? = null) {
+    Column {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1.2f, fill = false), horizontalAlignment = Alignment.End) {
+                Text(value, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold), textAlign = TextAlign.End)
+                quality?.invoke()
+            }
+        }
+        HorizontalDivider(color = Huis.colors.outline)
+    }
 }

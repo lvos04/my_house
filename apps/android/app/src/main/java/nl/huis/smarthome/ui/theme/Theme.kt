@@ -10,9 +10,11 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /** Design tokens from the "Rustig huis" canvas, plus a dark variant. */
@@ -38,8 +40,11 @@ data class HuisColors(
     val light: Color,
     val onLight: Color,
     val boiler: Color,
+    /** Bars for "Overig": at least 3:1 against the card (verbeterlijst 39 / toegankelijkheid). */
     val rest: Color,
     val dimmed: Color,
+    /** Border of an unselected control (mode, fan, light tile, text field): at least 3:1 against the card. */
+    val controlOutline: Color = Color(0xFF8F8B82),
 )
 
 val LightHuis = HuisColors(
@@ -63,8 +68,9 @@ val LightHuis = HuisColors(
     light = Color(0xFFFCF1D6),
     onLight = Color(0xFF6B5200),
     boiler = Color(0xFFC26A2E),
-    rest = Color(0xFFCFCBC2),
+    rest = Color(0xFF8A857B),
     dimmed = Color(0xFF8C887F),
+    controlOutline = Color(0xFF8F8B82),
 )
 
 val DarkHuis = HuisColors(
@@ -88,8 +94,9 @@ val DarkHuis = HuisColors(
     light = Color(0xFF3A3220),
     onLight = Color(0xFFF1D58E),
     boiler = Color(0xFFE59866),
-    rest = Color(0xFF5A5750),
+    rest = Color(0xFF7A766D),
     dimmed = Color(0xFF8C887F),
+    controlOutline = Color(0xFF7A766D),
 )
 
 val LocalHuis = staticCompositionLocalOf { LightHuis }
@@ -138,4 +145,18 @@ fun HuisTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> 
 
 object Huis {
     val colors: HuisColors @Composable get() = LocalHuis.current
+}
+
+/**
+ * The same text style without the user's font scale. Only for big display numbers inside a
+ * graphic of fixed size (the dial) or next to buttons, which are already 32–60 sp; everything
+ * else scales with the system font size.
+ */
+@Composable
+fun TextStyle.noFontScale(): TextStyle {
+    val density = LocalDensity.current
+    return copy(
+        fontSize = with(density) { fontSize.value.dp.toSp() },
+        lineHeight = if (lineHeight.isSp) with(density) { lineHeight.value.dp.toSp() } else lineHeight,
+    )
 }

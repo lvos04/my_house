@@ -67,6 +67,7 @@ ADMIN_ONLY = [
     r"^/api/v1/clients(/\{client_id\})?$",
     r"^/api/v1/system/backups",
     r"^/api/v1/system/backup-settings$",
+    r"^/api/v1/system/retention$",
     r"^/api/v1/system/restore/(?!jobs/)",  # restore progress is polled without login by design
     r"^/api/v1/system/safe-mode",
     r"^/api/v1/openapi\.json$",
@@ -81,18 +82,30 @@ def _calls(dependant) -> set:
     return out
 
 
+def _api_routes(app):
+    """(full path, APIRoute) for every HTTP route. Routers are enumerated through main.ROUTERS: newer
+    FastAPI versions keep included routers as lazy entries in app.routes."""
+    from shc_api.main import API_PREFIX, ROUTERS
+
+    for mod in ROUTERS:
+        for route in mod.router.routes:
+            if isinstance(route, APIRoute):
+                yield API_PREFIX + route.path, route
+    for route in app.routes:
+        if isinstance(route, APIRoute):
+            yield route.path, route
+
+
 def test_every_management_endpoint_requires_admin(app):
     """Phones with role control/viewer and viewer accounts cannot reach users, pairing, backup,
     restore or settings changes: each such route depends on deps.require_admin."""
     checked = []
-    for route in app.routes:
-        if not isinstance(route, APIRoute):
-            continue
-        sensitive = any(re.search(p, route.path) for p in ADMIN_ONLY)
-        settings_change = route.path == "/api/v1/system/settings" and route.methods & {"PUT", "PATCH", "POST"}
+    for path, route in _api_routes(app):
+        sensitive = any(re.search(p, path) for p in ADMIN_ONLY)
+        settings_change = path == "/api/v1/system/settings" and route.methods & {"PUT", "PATCH", "POST"}
         if sensitive or settings_change:
-            assert require_admin in _calls(route.dependant), f"{route.methods} {route.path} is not admin-only"
-            checked.append(route.path)
+            assert require_admin in _calls(route.dependant), f"{route.methods} {path} is not admin-only"
+            checked.append(path)
     assert "/api/v1/users/{user_id}" in checked and "/api/v1/audit" in checked
     assert any(p.startswith("/api/v1/system/backups") for p in checked)
 

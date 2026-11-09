@@ -5,10 +5,11 @@
   hour) and always recomputes the last ~3 hours, so late readings are picked up. The first run
   backfills from the oldest raw reading forward in chunks of a week, with a time budget per round,
   committing per chunk. Rows in the recomputed window are replaced (idempotent).
-- ``retention_round`` (every 3600 s): deletes raw power readings older than
-  ``retention_power_days`` and raw counter readings older than ``retention_counter_days``, in
-  batches — but never counter readings that are not yet aggregated. Also prunes old zone log lines
-  and the push-event dedupe ledger.
+- ``retention_round`` (every 3600 s): deletes raw power readings older than the power retention
+  and raw counter readings older than the counter retention, in batches — but never counter
+  readings that are not yet aggregated. Also prunes old zone log lines and the push-event dedupe
+  ledger. The periods are set in the app (Setting "retention", GET/PUT /system/retention); the
+  SHC_RETENTION_*_DAYS environment values are the defaults.
 - ``live_round`` (every 5 s): publishes ``energy.live`` (views.energy.live_power) for a home when
   a newer power reading exists, at most once per 5 s per home.
 """
@@ -26,9 +27,10 @@ from sqlalchemy.dialects.postgresql import insert
 
 from .. import energy as en
 from .. import events
-from ..config import Settings
+from ..config import Settings, get_settings
 from ..db import sessionmaker
 from ..models import Device, DeviceBinding, EnergyHourly, Home, LogicalRole, SensorReading
+from ..store import get_setting
 from ..views.energy import ENERGY_ROLES, device_rate, live_power, rate_overrides
 
 log = logging.getLogger("shc.worker")
@@ -43,6 +45,40 @@ PROCESSED_EVENTS_DAYS = 7
 COUNTER_SAFETY = timedelta(days=1)  # keep this much raw data behind the aggregation frontier
 # Device kinds that never report energy/gas counters (skipped to keep the round cheap with many lamps).
 NO_COUNTER_KINDS = ("light", "light_group", "scene", "button", "hue_device", "hue_bridge", "ac_unit", "zigbee_bridge")
+
+
+# Retention periods (days) set in the app: Setting "retention" = {power_days, counter_days, log_days}.
+RETENTION_KEY = "retention"
+RETENTION_FIELDS = ("power_days", "counter_days", "log_days")
+# Lowest values the app accepts: a week of power detail, a quarter of raw counters (the hourly totals
+# are kept forever and un-aggregated counters are never deleted), a week of zone log.
+RETENTION_MIN = {"power_days": 7, "counter_days": 90, "log_days": 7}
+RETENTION_MAX_DAYS = 3650
+
+
+def retention_defaults(s: Settings | None = None) -> dict[str, int]:
+    """The environment values (SHC_RETENTION_*_DAYS): used when nothing is set in the app."""
+    s = s or get_settings()
+    return {
+        "power_days": s.retention_power_days,
+        "counter_days": s.retention_counter_days,
+        "log_days": s.retention_log_days,
+    }
+
+
+async def load_retention(db, s: Settings | None = None) -> dict:
+    """Effective periods: ``{power_days, counter_days, log_days, source: {field: "app"|"env"}}``.
+    A stored value outside the accepted range is ignored (the default applies)."""
+    defaults = retention_defaults(s)
+    stored = await get_setting(db, RETENTION_KEY, {}) or {}
+    out: dict = {"source": {}}
+    for k in RETENTION_FIELDS:
+        v = stored.get(k) if isinstance(stored, dict) else None
+        if isinstance(v, int) and not isinstance(v, bool) and RETENTION_MIN[k] <= v <= RETENTION_MAX_DAYS:
+            out[k], out["source"][k] = v, "app"
+        else:
+            out[k], out["source"][k] = max(1, int(defaults[k])), "env"
+    return out
 
 
 class AggregatesMixin:
@@ -162,16 +198,17 @@ class AggregatesMixin:
     # --- retention ----------------------------------------------------------------------------
 
     async def retention_round(self) -> dict[str, int]:
-        s = self.settings
+        async with sessionmaker()() as db:
+            keep = await load_retention(db, self.settings)
         now = datetime.now(UTC)
         out = {"power": 0, "counters": 0, "zone_log": 0, "processed_events": 0}
-        power_cut = now - timedelta(days=max(1, s.retention_power_days))
+        power_cut = now - timedelta(days=keep["power_days"])
         out["power"] = await _batched_delete(
             "DELETE FROM sensor_readings WHERE id IN (SELECT id FROM sensor_readings "
             "WHERE metric = ANY(:m) AND observed_at < :cut LIMIT :n)",
             {"m": list(en.POWER_METRICS), "cut": power_cut},
         )
-        counter_cut = now - timedelta(days=max(1, s.retention_counter_days))
+        counter_cut = now - timedelta(days=keep["counter_days"])
         async with sessionmaker()() as db:
             fronts = (
                 await db.execute(
@@ -188,7 +225,7 @@ class AggregatesMixin:
                 "WHERE device_id = :d AND metric = :mt AND observed_at < :cut LIMIT :n)",
                 {"d": device_id, "mt": metric, "cut": cut},
             )
-        log_cut = now - timedelta(days=max(1, s.retention_log_days))
+        log_cut = now - timedelta(days=keep["log_days"])
         out["zone_log"] = await _batched_delete(
             "DELETE FROM zone_log WHERE id IN (SELECT id FROM zone_log WHERE at < :cut LIMIT :n)", {"cut": log_cut}
         )

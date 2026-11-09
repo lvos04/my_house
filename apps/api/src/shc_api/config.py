@@ -14,10 +14,12 @@ _VERSION_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z.+_-]{0,31}$")
 
 
 def _read_version() -> str:
-    """App version from the single source of truth: the repository's VERSION file.
+    """App version from the single source of truth: the repository's VERSION file (contract C9).
 
-    Looked up upward from this package (development checkout) and at /app/VERSION (container);
-    falls back to the installed package metadata, then "0.0.0".
+    Looked up upward from this package (development checkout) and at /app/VERSION (container).
+    This is the only runtime version: /health, backups and the API docs use ``VERSION``. The
+    ``version`` in apps/api/pyproject.toml is static package metadata and deliberately not used
+    (it is not kept in step with VERSION); without a VERSION file the result is "0.0.0".
     """
     here = Path(__file__).resolve().parent
     for candidate in [*(d / "VERSION" for d in (here, *here.parents)), Path("/app/VERSION")]:
@@ -27,12 +29,7 @@ def _read_version() -> str:
             continue
         if _VERSION_RE.match(value):
             return value
-    try:
-        from importlib.metadata import PackageNotFoundError, version
-
-        return version("shc-api")
-    except PackageNotFoundError:
-        return "0.0.0"
+    return "0.0.0"
 
 
 VERSION = _read_version()

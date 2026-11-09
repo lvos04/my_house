@@ -14,30 +14,6 @@ import kotlin.math.roundToLong
 import kotlin.random.Random
 
 // ---------------------------------------------------------------------------
-// Connection route: LAN first, then the Cloudflare tunnel.
-// ---------------------------------------------------------------------------
-
-enum class RouteKind { LAN, REMOTE }
-
-data class Route(val kind: RouteKind, val baseUrl: String)
-
-object RouteSelector {
-    /**
-     * Probes the LAN address first (the caller uses a short timeout for it) and
-     * falls back to the remote address. Returns null when neither answers.
-     */
-    suspend fun select(
-        lanUrl: String?,
-        remoteUrl: String?,
-        probe: suspend (baseUrl: String, kind: RouteKind) -> Boolean,
-    ): Route? {
-        if (lanUrl != null && probe(lanUrl, RouteKind.LAN)) return Route(RouteKind.LAN, lanUrl)
-        if (remoteUrl != null && probe(remoteUrl, RouteKind.REMOTE)) return Route(RouteKind.REMOTE, remoteUrl)
-        return null
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Dutch number/time formatting.
 // ---------------------------------------------------------------------------
 
@@ -136,49 +112,6 @@ object Setpoint {
     }
 }
 
-/**
- * Tracks commands that were sent but not yet confirmed by a readback
- * (`zone.updated` with the requested values). The UI shows "Verzonden…" meanwhile.
- */
-class PendingCommands(private val timeout: Duration = Duration.ofSeconds(30)) {
-    data class Pending(val target: Double?, val mode: String?, val sentAt: Instant)
-
-    private val pending = mutableMapOf<String, Pending>()
-
-    @Synchronized
-    fun sent(zoneId: String, target: Double?, mode: String?, now: Instant = Instant.now()) {
-        pending[zoneId] = Pending(target, mode, now)
-    }
-
-    /** Returns true when the update confirms the pending command (which is then cleared). */
-    @Synchronized
-    fun onZoneUpdate(zone: Zone): Boolean {
-        val p = pending[zone.id] ?: return false
-        val targetOk = p.target == null || (zone.targetC != null && abs(zone.targetC - p.target) < 0.01)
-        val modeOk = p.mode == null || zone.mode == p.mode
-        if (targetOk && modeOk) {
-            pending.remove(zone.id)
-            return true
-        }
-        return false
-    }
-
-    @Synchronized
-    fun isPending(zoneId: String, now: Instant = Instant.now()): Boolean {
-        val p = pending[zoneId] ?: return false
-        if (Duration.between(p.sentAt, now) > timeout) {
-            pending.remove(zoneId)
-            return false
-        }
-        return true
-    }
-
-    @Synchronized
-    fun clear(zoneId: String) {
-        pending.remove(zoneId)
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Reconnect backoff.
 // ---------------------------------------------------------------------------
@@ -213,4 +146,77 @@ object AlertFilter {
 
     fun toNotify(alerts: List<Alert>, alreadyNotified: Set<String>): List<Alert> =
         alerts.filter { it.severity in notifySeverities && !it.acknowledged && it.id !in alreadyNotified }
+}
+
+/** What to do with phone notifications after fetching the open alerts. */
+data class NotifyPlan(
+    /** New warnings/errors to show now. */
+    val post: List<Alert>,
+    /** Alert ids whose notification must disappear (resolved or acknowledged). */
+    val cancel: Set<String>,
+    /** Ids shown as a notification and still open: store this set. */
+    val notified: Set<String>,
+    /** Waiting until notifications are allowed; not lost, shown on a later run. */
+    val pending: Set<String>,
+)
+
+object AlertNotifications {
+    /**
+     * An alert counts as notified only once it was really posted. Without permission it stays
+     * pending and is shown on a later run as long as it is still open.
+     */
+    fun plan(open: List<Alert>, notified: Set<String>, canPost: Boolean): NotifyPlan {
+        val openIds = open.filterNot { it.acknowledged }.map { it.id }.toSet()
+        val candidates = AlertFilter.toNotify(open, notified)
+        val post = if (canPost) candidates else emptyList()
+        val pending = if (canPost) emptySet() else candidates.map { it.id }.toSet()
+        return NotifyPlan(
+            post = post,
+            cancel = notified - openIds,
+            notified = (notified intersect openIds) + post.map { it.id },
+            pending = pending,
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phone token lifetime (verbeterlijst 18): tokens expire after 180 days unless refreshed.
+// ---------------------------------------------------------------------------
+
+object TokenLifetime {
+    val REFRESH_WINDOW: Duration = Duration.ofDays(30)
+    val MIN_GAP: Duration = Duration.ofHours(6)
+
+    /**
+     * Refresh when the token expires within [REFRESH_WINDOW] (and has not expired yet: the server
+     * would refuse). [lastAttempt] keeps a failing refresh from being retried on every request.
+     */
+    fun shouldRefresh(expiresAt: Instant?, now: Instant, lastAttempt: Instant? = null): Boolean {
+        if (expiresAt == null || !expiresAt.isAfter(now)) return false
+        if (Duration.between(now, expiresAt) > REFRESH_WINDOW) return false
+        if (lastAttempt != null && Duration.between(lastAttempt, now) < MIN_GAP) return false
+        return true
+    }
+
+    /** Read-only phone: not allowed to operate climate or lights. */
+    fun canControl(userRole: String?, clientRole: String?): Boolean =
+        (userRole == null || userRole == "admin") && (clientRole == null || clientRole == "admin" || clientRole == "control")
+}
+
+// ---------------------------------------------------------------------------
+// Age of cached data (widget, offline view).
+// ---------------------------------------------------------------------------
+
+object Freshness {
+    val STALE_AFTER: Duration = Duration.ofMinutes(30)
+
+    /** Unknown or unreadable times count as stale. */
+    fun isStale(savedAt: String?, now: Instant = Instant.now(), after: Duration = STALE_AFTER): Boolean {
+        val at = NlFormat.parseInstant(savedAt) ?: return true
+        return Duration.between(at, now) > after
+    }
+
+    /** "Bijgewerkt 3 min geleden", "Bijgewerkt gisteren 14:05". */
+    fun ageLabel(savedAt: String?, now: Instant = Instant.now(), zone: ZoneId = ZoneId.of("Europe/Amsterdam")): String =
+        if (NlFormat.parseInstant(savedAt) == null) "Nog niet bijgewerkt" else "Bijgewerkt " + NlFormat.relative(savedAt, now, zone)
 }

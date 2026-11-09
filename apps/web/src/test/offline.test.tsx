@@ -14,7 +14,7 @@ function wrap(children: ReactNode, online: boolean) {
     <QueryClientProvider client={new QueryClient()}>
       <ConnectionProvider initial={{ apiReachable: online, wsState: online ? 'open' : 'closed', lastSeen }}>
         <PendingProvider>
-          <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <MemoryRouter>
             <OfflineBanner />
             {children}
           </MemoryRouter>

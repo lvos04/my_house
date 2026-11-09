@@ -129,7 +129,9 @@ async def test_pre_migration_dump_and_refusal_when_dump_fails(tmp_path, monkeypa
 async def test_migration_errors_propagate_from_env_inside_a_running_loop():
     from alembic import command
 
-    bad = "postgresql+asyncpg://postgres@127.0.0.1:55432/shc_bestaat_niet"
+    from .conftest import PG  # same server as the rest of the suite (local or CI)
+
+    bad = PG.replace("postgresql://", "postgresql+asyncpg://") + "/shc_bestaat_niet"
     with pytest.raises(Exception, match="shc_bestaat_niet"):
         command.upgrade(bk.alembic_config(bad), "head")  # runs in a helper thread; error must come back
 

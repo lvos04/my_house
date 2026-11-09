@@ -41,6 +41,7 @@ from ..base import (
     PairResult,
     StateUpdate,
     Unsupported,
+    network_reason,
 )
 from ..resilience import CircuitBreaker, RateLimiter, backoff_delays
 from ..tls import client_for, fetch_fingerprint, keepalive_socket_options
@@ -266,7 +267,10 @@ class HueAdapter(Adapter):
             try:
                 r = await self._http().get(path, headers=self._headers())
             except httpx.TransportError as exc:
-                raise DeviceOffline(f"Hue Bridge niet bereikbaar: {exc}") from exc
+                raise DeviceOffline(
+                    f"Hue Bridge niet bereikbaar: {network_reason(exc)}",
+                    diagnostics={"error": f"{type(exc).__name__}: {exc}"[:300]},
+                ) from exc
             if r.status_code in (401, 403):
                 raise PairingRequired("Hue Bridge weigert de sleutel; koppel opnieuw")
             r.raise_for_status()
@@ -281,7 +285,10 @@ class HueAdapter(Adapter):
             try:
                 r = await self._http().put(path, headers=self._headers(), json=body)
             except httpx.TransportError as exc:
-                raise DeviceOffline(f"Hue Bridge niet bereikbaar: {exc}") from exc
+                raise DeviceOffline(
+                    f"Hue Bridge niet bereikbaar: {network_reason(exc)}",
+                    diagnostics={"error": f"{type(exc).__name__}: {exc}"[:300]},
+                ) from exc
             if r.status_code in (401, 403):
                 raise PairingRequired("Hue Bridge weigert de sleutel; koppel opnieuw")
             if r.status_code == 429:

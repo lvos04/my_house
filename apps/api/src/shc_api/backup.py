@@ -900,6 +900,8 @@ class RestoreReport:
     new_home_id: str | None = None
     archived_homes: list = field(default_factory=list)
     zigbee2mqtt_included: bool = False
+    # new_home: comfort profiles and schedules taken along as drafts (plan §8.5)
+    drafts: dict | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -913,6 +915,7 @@ class RestoreReport:
             "new_home_id": self.new_home_id,
             "archived_homes": self.archived_homes,
             "zigbee2mqtt_included": self.zigbee2mqtt_included,
+            "drafts": self.drafts,
         }
 
 
@@ -1036,6 +1039,111 @@ def _set(conn, key: str, value: Any) -> None:
     )
 
 
+# Comfort settings a zone takes along to a new home (plan §8.5); calibration (sensor correction,
+# learned start times, adaptive model, unit limits) starts again.
+DRAFT_POLICY_KEYS = ("band_c", "energy_priority", "override_default_minutes")
+
+
+def _copy_comfort_drafts(conn, old_home_ids: list, new_home_id: uuid.UUID, new_zones: dict[str, uuid.UUID]) -> dict:
+    """Plan §8.5, new home: comfort profiles and zone schedules stay available as drafts.
+
+    Profiles are copied as they are (a profile does nothing until a zone follows it). A zone's
+    schedule goes to the new zone with the same name (case-insensitive), with its profile link and
+    comfort settings; that zone starts in control "off", so nothing runs until the user chooses
+    "Terug naar schema". Schedules of zones without a namesake stay with the archived home."""
+    profiles = conn.execute(
+        text(
+            "SELECT p.id, p.name, p.target_c, p.band_c, p.mode, p.energy_priority, p.schedule "
+            "FROM comfort_profiles p JOIN homes h ON h.id = p.home_id "
+            "WHERE p.home_id = ANY(:ids) ORDER BY h.active_from, p.created_at"
+        ),
+        {"ids": list(old_home_ids)},
+    ).all()
+    taken: set[str] = set()
+    profile_map: dict = {}
+    for p in profiles:
+        name, n = p.name, 2
+        while name.lower() in taken:  # two archived homes with the same profile name
+            suffix = f" ({n})"
+            name, n = p.name[: 64 - len(suffix)] + suffix, n + 1
+        taken.add(name.lower())
+        new_pid = uuid.uuid4()
+        conn.execute(
+            text(
+                "INSERT INTO comfort_profiles (id, home_id, name, target_c, band_c, mode, energy_priority, schedule, "
+                "created_at) VALUES (:id, :h, :n, :t, :b, :m, :e, CAST(:s AS jsonb), now())"
+            ),
+            {
+                "id": new_pid,
+                "h": new_home_id,
+                "n": name,
+                "t": p.target_c,
+                "b": p.band_c,
+                "m": p.mode,
+                "e": p.energy_priority,
+                "s": json.dumps(p.schedule or []),
+            },
+        )
+        profile_map[p.id] = new_pid
+    zones = conn.execute(
+        text(
+            "SELECT z.id, z.name, z.profile, z.profile_id, z.policy "
+            "FROM climate_zones z JOIN homes h ON h.id = z.home_id "
+            "WHERE z.home_id = ANY(:ids) ORDER BY h.active_from, z.name"
+        ),
+        {"ids": list(old_home_ids)},
+    ).all()
+    by_name = {k.lower(): v for k, v in new_zones.items()}
+    filled: set = set()
+    out_zones = []
+    for z in zones:
+        blocks = conn.execute(
+            text("SELECT days, start, target_c, mode, label FROM schedule_blocks WHERE zone_id = :z ORDER BY start"),
+            {"z": z.id},
+        ).all()
+        target = by_name.get((z.name or "").lower())
+        if not blocks and z.profile_id is None:
+            continue  # nothing to take along
+        if target is None or target in filled:
+            out_zones.append({"name": z.name, "blocks": len(blocks), "copied_to": None})
+            continue
+        filled.add(target)
+        for b in blocks:
+            conn.execute(
+                text(
+                    "INSERT INTO schedule_blocks (id, zone_id, days, start, target_c, mode, label) "
+                    "VALUES (:id, :z, CAST(:d AS jsonb), :s, :t, :m, :l)"
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "z": target,
+                    "d": json.dumps(b.days),
+                    "s": b.start,
+                    "t": b.target_c,
+                    "m": b.mode,
+                    "l": b.label or "",
+                },
+            )
+        policy = {k: v for k, v in (z.policy or {}).items() if k in DRAFT_POLICY_KEYS}
+        conn.execute(
+            text(
+                "UPDATE climate_zones SET control = 'off', profile = :p, profile_id = :pid, "
+                "policy = CAST(:pol AS jsonb) WHERE id = :id"
+            ),
+            {"p": z.profile, "pid": profile_map.get(z.profile_id), "pol": json.dumps(policy), "id": target},
+        )
+        conn.execute(
+            text("INSERT INTO zone_log (zone_id, at, kind, message) VALUES (:z, now(), 'config', :m)"),
+            {
+                "z": target,
+                "m": "Schema overgenomen uit de vorige woning als concept. De zone staat uit; kies "
+                "'Terug naar schema' zodra de airco gekoppeld en getest is.",
+            },
+        )
+        out_zones.append({"name": z.name, "blocks": len(blocks), "copied_to": str(target)})
+    return {"profiles": len(profile_map), "zones": out_zones}
+
+
 def _after_restore(conn, manifest: dict, mode: str, report: RestoreReport) -> None:
     """Safe mode, maintenance off, a device snapshot for the compatibility check and, for a move to a
     new home, archive the restored home(s) (integrations off) and create a fresh one."""
@@ -1059,7 +1167,9 @@ def _after_restore(conn, manifest: dict, mode: str, report: RestoreReport) -> No
     if mode == "new_home":
         from .routers.homes import DEFAULT_ROLES
 
-        homes = conn.execute(text("SELECT id, name, timezone, currency FROM homes WHERE active_to IS NULL")).all()
+        homes = conn.execute(
+            text("SELECT id, name, timezone, currency FROM homes WHERE active_to IS NULL ORDER BY active_from")
+        ).all()
         first = None
         for h in homes:
             conn.execute(text("UPDATE homes SET active_to = :t WHERE id = :id"), {"t": now, "id": h.id})
@@ -1083,6 +1193,7 @@ def _after_restore(conn, manifest: dict, mode: str, report: RestoreReport) -> No
                 text("INSERT INTO logical_roles (id, home_id, key, label, protected) VALUES (:id, :h, :k, :l, :p)"),
                 {"id": uuid.uuid4(), "h": new_id, "k": key, "l": label, "p": protected},
             )
+        new_zones: dict[str, uuid.UUID] = {}
         for room_name, function in (("Woonkamer", "living"), ("Slaapkamer", "bedroom")):
             rid = uuid.uuid4()
             conn.execute(
@@ -1090,9 +1201,10 @@ def _after_restore(conn, manifest: dict, mode: str, report: RestoreReport) -> No
                 {"id": rid, "h": new_id, "n": room_name, "f": function},
             )
             zt = Base.metadata.tables["climate_zones"]
+            zid = uuid.uuid4()
             conn.execute(
                 zt.insert().values(
-                    id=uuid.uuid4(),
+                    id=zid,
                     home_id=new_id,
                     name=room_name,
                     room_id=rid,
@@ -1106,6 +1218,8 @@ def _after_restore(conn, manifest: dict, mode: str, report: RestoreReport) -> No
                     adaptive_enabled=False,
                 )
             )
+            new_zones[room_name] = zid
+        report.drafts = _copy_comfort_drafts(conn, [h.id for h in homes], new_id, new_zones)
         report.new_home_id = str(new_id)
     report.zigbee2mqtt_included = bool(manifest.get("zigbee2mqtt_included"))
     conn.execute(
