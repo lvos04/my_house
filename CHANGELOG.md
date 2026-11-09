@@ -74,6 +74,16 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
 - OpenAPI-driftcontrole (contract §5): `apps/api/tests/test_openapi_snapshot.py` faalt als `create_app().openapi()`
   afwijkt van `docs/openapi/my_house.openapi.json`. Dit is het driftdeel van P3-10; de rest van P3-10 staat nog open.
 
+### Licentie en opruimen (openbaar maken)
+
+- **Licentie: GPL-3.0** (`LICENSE`, besluit van de eigenaar, 2026-11-09); de README noemt hem.
+- Het gecommitte wheel `shellcheck_py-0.11.0.1-…whl` (3,8 MB, ShellCheck is GPL-3.0) staat niet meer in de root
+  (P3-14). Niets verwees ernaar; CI gebruikt de ShellCheck van de runner.
+- De hulpscripts in `docs/screenshots/peil/werkwijze/` bevatten geen paden van de ontwikkelmachine meer. Repo,
+  Python, PostgreSQL, Playwright en axe-core komen uit `PEIL_REPO`, `PEIL_PYTHON`, `PEIL_PG`, `PEIL_PLAYWRIGHT` en
+  `PEIL_AXE`; zonder die variabelen gebruiken de scripts de pakketten van `apps/web`. App, database en afdrukken
+  veranderen niet.
+
 ### Documentatie
 
 - **Omzettingsontwerp naar de ontwerptaal Peil**:
