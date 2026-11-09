@@ -37,6 +37,17 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
 
+      # The Gradle distribution is downloaded from GitHub; retry so a short outage (504/timeout)
+      # does not fail the build.
+      - name: Download Gradle (with retries)
+        run: |
+          for i in 1 2 3 4 5; do
+            ./gradlew --no-daemon --version && exit 0
+            echo "Gradle downloaden mislukt (poging $i); opnieuw over $((i * 30)) s"
+            sleep $((i * 30))
+          done
+          exit 1
+
       - name: Unit tests
         run: ./gradlew --no-daemon :core:test :app:testDebugUnitTest
 
