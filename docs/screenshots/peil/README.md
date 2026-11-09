@@ -12,9 +12,10 @@ vastgelegd).
 | `voor/web/index.json` | per afdruk: scherm, thema, breedte, URL, h1, horizontale overloop, toelichting | — |
 | `voor/web/axe-voor.json` | axe-core 4.14 (WCAG 2.0/2.1/2.2 A+AA) en eigen metingen per scherm (390 en 1440, licht/donker) | — |
 | `voor/android/` | native app (Jetpack Compose), 360 en 393 dp × licht/donker; `-volledig` = hele scrolllengte | 68 |
-| `na/web/` | web-app ná de omzetting, dezelfde schermen, breedtes en thema's als `voor/web/`, plus `thema-donker-gekozen-*` (systeem licht, in de app Donker gekozen) | 230 |
+| `na/web/` | web-app ná de omzetting, dezelfde schermen, breedtes en thema's als `voor/web/`, plus `thema-donker-gekozen-*` (systeem licht, in de app Donker gekozen). In stap 5 zijn de schermen die de review veranderde vervangen (`index.json`: `bijgewerkt`) en is `verlichting-offline-nooit-geladen-later-*` toegevoegd | 238 |
 | `na/web/index.json` | zelfde velden als `voor/web/index.json` | — |
 | `na/web/axe-na.json` | dezelfde axe- en eigen metingen als `axe-voor.json`, ná de omzetting | — |
+| `review/` | stap 5, onafhankelijke ontwerpreview: samenvatting van de metingen per ronde (`ronde-1/2/3-samenvatting.json`) en uitsneden voor/na per bevinding; zie `docs/ontwerp/PEIL_REVIEW.md` | 12 + 3 |
 | `android/` | native app ná de omzetting (stap 4), dezelfde schermen, breedtes en thema's als `voor/android/`, plus `start-storing-*` (achtergronddienst zonder hartslag) en `peil-onderdelen*` (alle bouwstenen) | 80 |
 
 Namen: `<scherm>-<licht|donker>-<breedte>.png`, dezelfde vorm als de Peil-prototypes (`definitief/shots/`).

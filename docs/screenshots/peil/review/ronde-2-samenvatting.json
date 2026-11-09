@@ -1,0 +1,249 @@
+{
+ "meting": "na de reparaties (alle schermen)",
+ "gemeten": "2026-11-09T18:29:56.476Z",
+ "axe_core": "4.14.0",
+ "tags": [
+  "wcag2a",
+  "wcag2aa",
+  "wcag21a",
+  "wcag21aa",
+  "wcag22aa"
+ ],
+ "metingen": 332,
+ "schermen": [
+  "account-mijn",
+  "account-telefoons",
+  "apparaten",
+  "eerste-start-beheerder",
+  "energie",
+  "help",
+  "inloggen",
+  "installatie",
+  "klimaat-bediening",
+  "klimaat-instellingen",
+  "klimaat-offline",
+  "klimaat-profielen",
+  "klimaat-uit-conflict",
+  "klimaat-verouderd",
+  "klimaat-weekschema",
+  "meer-sheet",
+  "optimalisatie",
+  "overzicht",
+  "overzicht-kijker",
+  "overzicht-offline",
+  "overzicht-verouderd",
+  "server-onbereikbaar",
+  "systeem",
+  "thema-donker-gekozen",
+  "verlichting",
+  "verlichting-offline-nooit-geladen",
+  "verlichting-offline-nooit-geladen-later",
+  "woning-aanmaken"
+ ],
+ "breedtes": [
+  320,
+  360,
+  390,
+  768,
+  1024,
+  1440
+ ],
+ "axe_overtredingen": 0,
+ "tekst_onder_4_5": 0,
+ "veldrand_onder_3": 0,
+ "knopgrens_onder_3": 4,
+ "stippelrand_onder_3": 0,
+ "doelen_onder_44": 0,
+ "overloop_max_px": 0,
+ "opacity_met_tekst": 0,
+ "afgekapt": 0,
+ "inhoud_buiten_element": [
+  "meer-sheet 320: a.bottom-link.active \"Overzicht\" 2 px",
+  "overzicht 320: a.bottom-link.active \"Overzicht\" 2 px",
+  "overzicht-kijker 320: a.bottom-link.active \"Overzicht\" 2 px",
+  "overzicht-offline 320: a.bottom-link.active \"Overzicht\" 2 px",
+  "overzicht-verouderd 320: a.bottom-link.active \"Overzicht\" 2 px",
+  "thema-donker-gekozen 320: a.bottom-link.active \"Overzicht\" 2 px",
+  "woning-aanmaken 320: a.bottom-link.active \"Overzicht\" 2 px"
+ ],
+ "min_tekstcontrast": 4.56,
+ "min_lettergrootte_px": 14,
+ "min_knopgrens": 1.29,
+ "h1_niet_1": [],
+ "kopsprongen": [],
+ "dubbele_ids": [],
+ "kapotte_aria": [],
+ "focus_doorlopen": 106,
+ "focus_stops_totaal": 2154,
+ "focus_ring_min": 0,
+ "focus_zonder_ring": [
+  "energie 1440: input \"2026-11-01\"",
+  "energie 1440: input \"2026-11-09\"",
+  "energie 390: input \"2026-11-01\"",
+  "energie 390: input \"2026-11-09\"",
+  "klimaat-weekschema 1440: input \"06:30\"",
+  "klimaat-weekschema 1440: input \"22:30\"",
+  "klimaat-weekschema 390: input \"06:30\"",
+  "klimaat-weekschema 390: input \"22:30\"",
+  "optimalisatie 1440: input \"\"",
+  "optimalisatie 390: input \"\""
+ ],
+ "focus_zwak": [
+  "energie 1440: input \"2026-11-01\" 0",
+  "energie 1440: input \"2026-11-09\" 0",
+  "energie 390: input \"2026-11-01\" 0",
+  "energie 390: input \"2026-11-09\" 0",
+  "klimaat-weekschema 1440: input \"06:30\" 0",
+  "klimaat-weekschema 1440: input \"22:30\" 0",
+  "klimaat-weekschema 390: input \"06:30\" 0",
+  "klimaat-weekschema 390: input \"22:30\" 0",
+  "optimalisatie 1440: input \"\" 0",
+  "optimalisatie 390: input \"\" 0"
+ ],
+ "focus_bedekt": [],
+ "focus_deels_bedekt": [
+  "account-mijn 1440: a.skip-link \"Naar de inhoud\" 4/5",
+  "account-mijn 390: a.skip-link \"Naar de inhoud\" 4/5",
+  "account-mijn 390: div#account-panel-mijn.tabpanel \"Gebruikersnaam beheerder Rol B\" 3/5",
+  "account-telefoons 1440: a.skip-link \"Naar de inhoud\" 4/5",
+  "account-telefoons 390: a.skip-link \"Naar de inhoud\" 4/5",
+  "apparaten 1440: a.skip-link \"Naar de inhoud\" 4/5",
+  "apparaten 390: a.skip-link \"Naar de inhoud\" 4/5",
+  "energie 1440: a.skip-link \"Naar de inhoud\" 4/5",
+  "energie 390: a.skip-link \"Naar de inhoud\" 4/5",
+  "help 1440: a.skip-link \"Naar de inhoud\" 4/5",
+  "help 390: a.skip-link \"Naar de inhoud\" 4/5",
+  "installatie 1440: a.skip-link \"Naar de inhoud\" 4/5",
+  "installatie 390: a.skip-link \"Naar de inhoud\" 4/5",
+  "klimaat-bediening 1440: a.skip-link \"Naar de inhoud\" 4/5",
+  "klimaat-bediening 390: a.skip-link \"Naar de inhoud\" 4/5",
+  "klimaat-instellingen 1440: a.skip-link \"Naar de inhoud\" 4/5",
+  "klimaat-instellingen 390: a.skip-link \"Naar de inhoud\" 4/5",
+  "klimaat-profielen 1440: a.skip-link \"Naar de inhoud\" 4/5",
+  "klimaat-profielen 390: a.skip-link \"Naar de inhoud\" 4/5",
+  "klimaat-uit-conflict 1440: a.skip-link \"Naar de inhoud\" 4/5",
+  "klimaat-uit-conflict 390: a.skip-link \"Naar de inhoud\" 4/5",
+  "klimaat-verouderd 1440: a.skip-link \"Naar de inhoud\" 4/5",
+  "klimaat-verouderd 390: a.skip-link \"Naar de inhoud\" 4/5",
+  "klimaat-weekschema 1440: a.skip-link \"Naar de inhoud\" 4/5",
+  "klimaat-weekschema 1440: div#sched-5acd6720-bcd7-44cd-848a-a4d98c5c1109-day-panel-d0.tabpanel \"Begintijd blok 1 Doel °C blok \" 3/5",
+  "klimaat-weekschema 390: a.skip-link \"Naar de inhoud\" 4/5",
+  "klimaat-weekschema 390: div#sched-5acd6720-bcd7-44cd-848a-a4d98c5c1109-day-panel-d0.tabpanel \"Begintijd blok 1 Doel °C blok \" 1/3",
+  "optimalisatie 1440: a.skip-link \"Naar de inhoud\" 4/5",
+  "optimalisatie 390: a.skip-link \"Naar de inhoud\" 4/5",
+  "overzicht 1440: a.skip-link \"Naar de inhoud\" 4/5",
+  "overzicht 390: a.skip-link \"Naar de inhoud\" 4/5",
+  "overzicht-kijker 1440: a.skip-link \"Naar de inhoud\" 4/5",
+  "overzicht-kijker 390: a.skip-link \"Naar de inhoud\" 4/5",
+  "overzicht-verouderd 1440: a.skip-link \"Naar de inhoud\" 4/5",
+  "overzicht-verouderd 390: a.skip-link \"Naar de inhoud\" 4/5",
+  "systeem 1440: a.skip-link \"Naar de inhoud\" 4/5",
+  "systeem 390: a.skip-link \"Naar de inhoud\" 4/5",
+  "verlichting 1440: a.skip-link \"Naar de inhoud\" 4/5",
+  "verlichting 390: a.skip-link \"Naar de inhoud\" 4/5",
+  "woning-aanmaken 1440: a.skip-link \"Naar de inhoud\" 4/5",
+  "woning-aanmaken 390: a.skip-link \"Naar de inhoud\" 4/5"
+ ],
+ "focus_eerste_niet_skiplink": [
+  "eerste-start-beheerder 1440: input \"\"",
+  "eerste-start-beheerder 390: input \"\"",
+  "inloggen 1440: input \"\"",
+  "inloggen 390: input \"\"",
+  "klimaat-offline 1440: button#zones-tab-5acd6720-bcd7-44cd-848a-a4d98c5c1109 \"Woonkamer\"",
+  "klimaat-offline 390: button#zones-tab-5acd6720-bcd7-44cd-848a-a4d98c5c1109 \"Woonkamer\"",
+  "meer-sheet 390: a.nav-link \"Optimalisatie\"",
+  "overzicht-offline 1440: a.btn \"Apparaat toevoegen\"",
+  "overzicht-offline 390: a.btn \"Apparaat toevoegen\"",
+  "server-onbereikbaar 1440: button.btn.self-start \"Opnieuw proberen\"",
+  "server-onbereikbaar 390: button.btn.self-start \"Opnieuw proberen\"",
+  "thema-donker-gekozen 1440: a.btn.small \"Account\"",
+  "thema-donker-gekozen 390: button.btn \"Uitloggen\"",
+  "verlichting-offline-nooit-geladen 390: a.bottom-link \"Overzicht\""
+ ],
+ "detail_tekstFout": [],
+ "detail_veldFout": [],
+ "detail_knopGrensFout": [
+  [
+   "{\"el\": \"a.btn.ghost.hub-link\", \"t\": \"Terug naar de Hub\", \"grens\": 1.29, \"rand\": 0, \"vlak\": 1.29, \"randKleur\": \"\", \"randStijl\": \"\", \"vlakKleur\": \"#dce3ec\", \"omgeving\": \"#ffffff\", \"heeftGrens\": true, \"gekozen\": false, \"dis",
+   2
+  ],
+  [
+   "{\"el\": \"a.btn.ghost.hub-link\", \"t\": \"Terug naar de Hub\", \"grens\": 1.38, \"rand\": 0, \"vlak\": 1.38, \"randKleur\": \"\", \"randStijl\": \"\", \"vlakKleur\": \"#26303b\", \"omgeving\": \"#10141a\", \"heeftGrens\": true, \"gekozen\": false, \"dis",
+   2
+  ]
+ ],
+ "detail_stippelFout": [],
+ "detail_doelen": [],
+ "detail_afgekapt": [],
+ "detail_opacityTekst": [],
+ "tekst_4_5_tot_7": [
+  [
+   "span.seg-label \"Dag 21,0°\" (#6e2405 op #f4a57e)",
+   18
+  ],
+  [
+   "span.seg-label \"Dag 21,0°\" (#ffd3b5 op #9c3d14)",
+   18
+  ],
+  [
+   "span.big-num.stale \"20,6°\" (#535d6c op #ffffff)",
+   12
+  ],
+  [
+   "span.small \"Sensor verouderd (3 uur geleden) · 48% RV\" (#535d6c op #ffffff)",
+   12
+  ],
+  [
+   "span.big-num.stale \"18,4°\" (#535d6c op #ffffff)",
+   12
+  ],
+  [
+   "span.small \"Sensor verouderd (3 uur geleden) · 55% RV\" (#535d6c op #ffffff)",
+   12
+  ],
+  [
+   "span.small \"nu 20,6°\" (#535d6c op #ffffff)",
+   12
+  ],
+  [
+   "span.seg-label \"Nacht 18,0°\" (#0b3b73 op #9ec5f4)",
+   3
+  ],
+  [
+   "span.seg-label \"Nacht 18,0°\" (#c2ddfa op #184f95)",
+   3
+  ]
+ ],
+ "groen": [
+  "chart-3/boiler (aqua) | 1 4 7 10 13 16 19 22 25 28 | energie",
+  "chart-3/boiler (aqua) | Boiler (geschat) | energie",
+  "chart-3/boiler (aqua) | Boiler | meer-sheet, overzicht, overzicht-kijker, overzicht-offline, overzicht-verouderd, thema-donker-gekozen",
+  "chart-3/boiler (aqua) | Vandaag Energie 16,5 kWh € 5,42 Airco (beide units) 4,4 kWh € 1,18 ges | overzicht-offline, overzicht-verouderd",
+  "chart-3/boiler (aqua) | Vandaag Energie 18,3 kWh € 5,90 Airco (beide units) 4,6 kWh € 1,24 gem | meer-sheet, overzicht, overzicht-kijker, thema-donker-gekozen",
+  "healthy | Gezond | installatie, meer-sheet, overzicht, overzicht-kijker, overzicht-verouderd, systeem, thema-donker-gekozen",
+  "healthy-ink | Gezond | installatie, meer-sheet, overzicht, overzicht-kijker, overzicht-verouderd, systeem, thema-donker-gekozen"
+ ],
+ "groen_bij_onbekend_of_verouderd": [],
+ "kleur_alleen_kandidaten": [
+  "healthy | circle | Gezond | installatie, systeem",
+  "healthy | path | Gezond | installatie, systeem",
+  "healthy | svg.lucide.lucide-circle-check.lucide-ch | Gezond | installatie, systeem"
+ ],
+ "woordenlijst": {
+  "uitroepteken": [
+   "… ⏎ (geschat) ⏎ Overig huis ⏎ (afgeleid) ⏎ Onvolledig ⏎ ! ⏎ Opmerking (bijv. verdachte meterstand) ⏎ 1 ⏎ 4 ⏎ 7… [energie]"
+  ],
+  "Let op (statuswoord → Beperkt / Wat actie nodig heeft)": [
+   "… meten ⏎ Alleen meten — schakelen geblokkeerd. Let op: de HomeWizard-app kan de stekker nog wel sc… [apparaten]"
+  ],
+  "Gelukt/Klaar (uitvoering → Uitgevoerd en gecontroleerd)": [
+   "…de volgende stappen op. ⏎  ⏎ Opnieuw controleren ⏎ Klaar om te installeren. ⏎ Woning ⏎ Gezond ⏎ Woning ‘Thu… [installatie]",
+   "…e ⏎ 8 ⏎ Sensoren toewijzen ⏎ 9 ⏎ Meters en rollen ⏎ 10 ⏎ Klaar ⏎ Stap 1 van 10 ⏎ Controles vooraf ⏎  ⏎ De server co… [installatie]"
+  ]
+ },
+ "forced_colors_stippel": [
+  "note unknown: dashed",
+  "pill unknown lt-unreach: dashed",
+  "pill unknown: dashed"
+ ]
+}

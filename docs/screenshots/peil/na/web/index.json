@@ -167,7 +167,8 @@
   "url": "/",
   "h1": "Woning aanmaken",
   "overloop_px": 0,
-  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)"
+  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "woning-aanmaken-licht-390.png",
@@ -177,7 +178,8 @@
   "url": "/",
   "h1": "Woning aanmaken",
   "overloop_px": 0,
-  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)"
+  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "woning-aanmaken-licht-768.png",
@@ -187,7 +189,8 @@
   "url": "/",
   "h1": "Woning aanmaken",
   "overloop_px": 0,
-  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)"
+  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "woning-aanmaken-licht-1440.png",
@@ -197,7 +200,8 @@
   "url": "/",
   "h1": "Woning aanmaken",
   "overloop_px": 0,
-  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)"
+  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "woning-aanmaken-donker-360.png",
@@ -207,7 +211,8 @@
   "url": "/",
   "h1": "Woning aanmaken",
   "overloop_px": 0,
-  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)"
+  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "woning-aanmaken-donker-390.png",
@@ -217,7 +222,8 @@
   "url": "/",
   "h1": "Woning aanmaken",
   "overloop_px": 0,
-  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)"
+  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "woning-aanmaken-donker-768.png",
@@ -227,7 +233,8 @@
   "url": "/",
   "h1": "Woning aanmaken",
   "overloop_px": 0,
-  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)"
+  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "woning-aanmaken-donker-1440.png",
@@ -237,7 +244,8 @@
   "url": "/",
   "h1": "Woning aanmaken",
   "overloop_px": 0,
-  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)"
+  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "overzicht-licht-360.png",
@@ -324,160 +332,176 @@
   "scherm": "klimaat-bediening",
   "thema": "licht",
   "breedte": 360,
-  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "url": "/klimaat?zone=5acd6720-bcd7-44cd-848a-a4d98c5c1109&tab=bediening",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)"
+  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-bediening-licht-390.png",
   "scherm": "klimaat-bediening",
   "thema": "licht",
   "breedte": 390,
-  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "url": "/klimaat?zone=5acd6720-bcd7-44cd-848a-a4d98c5c1109&tab=bediening",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)"
+  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-bediening-licht-768.png",
   "scherm": "klimaat-bediening",
   "thema": "licht",
   "breedte": 768,
-  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "url": "/klimaat?zone=5acd6720-bcd7-44cd-848a-a4d98c5c1109&tab=bediening",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)"
+  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-bediening-licht-1440.png",
   "scherm": "klimaat-bediening",
   "thema": "licht",
   "breedte": 1440,
-  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "url": "/klimaat?zone=5acd6720-bcd7-44cd-848a-a4d98c5c1109&tab=bediening",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)"
+  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-bediening-donker-360.png",
   "scherm": "klimaat-bediening",
   "thema": "donker",
   "breedte": 360,
-  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "url": "/klimaat?zone=5acd6720-bcd7-44cd-848a-a4d98c5c1109&tab=bediening",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)"
+  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-bediening-donker-390.png",
   "scherm": "klimaat-bediening",
   "thema": "donker",
   "breedte": 390,
-  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "url": "/klimaat?zone=5acd6720-bcd7-44cd-848a-a4d98c5c1109&tab=bediening",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)"
+  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-bediening-donker-768.png",
   "scherm": "klimaat-bediening",
   "thema": "donker",
   "breedte": 768,
-  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "url": "/klimaat?zone=5acd6720-bcd7-44cd-848a-a4d98c5c1109&tab=bediening",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)"
+  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-bediening-donker-1440.png",
   "scherm": "klimaat-bediening",
   "thema": "donker",
   "breedte": 1440,
-  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "url": "/klimaat?zone=5acd6720-bcd7-44cd-848a-a4d98c5c1109&tab=bediening",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)"
+  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-uit-conflict-licht-360.png",
   "scherm": "klimaat-uit-conflict",
   "thema": "licht",
   "breedte": 360,
-  "url": "/klimaat?zone=5677aa6a-10e4-4edb-9ee9-e4430f4a970f&tab=bediening",
+  "url": "/klimaat?zone=5f37883e-fcb7-427d-8531-ab033fc6d470&tab=bediening",
   "h1": "Slaapkamer",
   "overloop_px": 0,
-  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit"
+  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-uit-conflict-licht-390.png",
   "scherm": "klimaat-uit-conflict",
   "thema": "licht",
   "breedte": 390,
-  "url": "/klimaat?zone=5677aa6a-10e4-4edb-9ee9-e4430f4a970f&tab=bediening",
+  "url": "/klimaat?zone=5f37883e-fcb7-427d-8531-ab033fc6d470&tab=bediening",
   "h1": "Slaapkamer",
   "overloop_px": 0,
-  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit"
+  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-uit-conflict-licht-768.png",
   "scherm": "klimaat-uit-conflict",
   "thema": "licht",
   "breedte": 768,
-  "url": "/klimaat?zone=5677aa6a-10e4-4edb-9ee9-e4430f4a970f&tab=bediening",
+  "url": "/klimaat?zone=5f37883e-fcb7-427d-8531-ab033fc6d470&tab=bediening",
   "h1": "Slaapkamer",
   "overloop_px": 0,
-  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit"
+  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-uit-conflict-licht-1440.png",
   "scherm": "klimaat-uit-conflict",
   "thema": "licht",
   "breedte": 1440,
-  "url": "/klimaat?zone=5677aa6a-10e4-4edb-9ee9-e4430f4a970f&tab=bediening",
+  "url": "/klimaat?zone=5f37883e-fcb7-427d-8531-ab033fc6d470&tab=bediening",
   "h1": "Slaapkamer",
   "overloop_px": 0,
-  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit"
+  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-uit-conflict-donker-360.png",
   "scherm": "klimaat-uit-conflict",
   "thema": "donker",
   "breedte": 360,
-  "url": "/klimaat?zone=5677aa6a-10e4-4edb-9ee9-e4430f4a970f&tab=bediening",
+  "url": "/klimaat?zone=5f37883e-fcb7-427d-8531-ab033fc6d470&tab=bediening",
   "h1": "Slaapkamer",
   "overloop_px": 0,
-  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit"
+  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-uit-conflict-donker-390.png",
   "scherm": "klimaat-uit-conflict",
   "thema": "donker",
   "breedte": 390,
-  "url": "/klimaat?zone=5677aa6a-10e4-4edb-9ee9-e4430f4a970f&tab=bediening",
+  "url": "/klimaat?zone=5f37883e-fcb7-427d-8531-ab033fc6d470&tab=bediening",
   "h1": "Slaapkamer",
   "overloop_px": 0,
-  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit"
+  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-uit-conflict-donker-768.png",
   "scherm": "klimaat-uit-conflict",
   "thema": "donker",
   "breedte": 768,
-  "url": "/klimaat?zone=5677aa6a-10e4-4edb-9ee9-e4430f4a970f&tab=bediening",
+  "url": "/klimaat?zone=5f37883e-fcb7-427d-8531-ab033fc6d470&tab=bediening",
   "h1": "Slaapkamer",
   "overloop_px": 0,
-  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit"
+  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-uit-conflict-donker-1440.png",
   "scherm": "klimaat-uit-conflict",
   "thema": "donker",
   "breedte": 1440,
-  "url": "/klimaat?zone=5677aa6a-10e4-4edb-9ee9-e4430f4a970f&tab=bediening",
+  "url": "/klimaat?zone=5f37883e-fcb7-427d-8531-ab033fc6d470&tab=bediening",
   "h1": "Slaapkamer",
   "overloop_px": 0,
-  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit"
+  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-weekschema-licht-360.png",
@@ -807,7 +831,8 @@
   "url": "/energie",
   "h1": "november 2026",
   "overloop_px": 0,
-  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten"
+  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "energie-licht-390.png",
@@ -817,7 +842,8 @@
   "url": "/energie",
   "h1": "november 2026",
   "overloop_px": 0,
-  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten"
+  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "energie-licht-768.png",
@@ -827,7 +853,8 @@
   "url": "/energie",
   "h1": "november 2026",
   "overloop_px": 0,
-  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten"
+  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "energie-licht-1440.png",
@@ -837,7 +864,8 @@
   "url": "/energie",
   "h1": "november 2026",
   "overloop_px": 0,
-  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten"
+  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "energie-donker-360.png",
@@ -847,7 +875,8 @@
   "url": "/energie",
   "h1": "november 2026",
   "overloop_px": 0,
-  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten"
+  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "energie-donker-390.png",
@@ -857,7 +886,8 @@
   "url": "/energie",
   "h1": "november 2026",
   "overloop_px": 0,
-  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten"
+  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "energie-donker-768.png",
@@ -867,7 +897,8 @@
   "url": "/energie",
   "h1": "november 2026",
   "overloop_px": 0,
-  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten"
+  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "energie-donker-1440.png",
@@ -877,7 +908,8 @@
   "url": "/energie",
   "h1": "november 2026",
   "overloop_px": 0,
-  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten"
+  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "optimalisatie-licht-360.png",
@@ -1904,80 +1936,88 @@
   "scherm": "klimaat-verouderd",
   "thema": "licht",
   "breedte": 360,
-  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "url": "/klimaat?zone=5acd6720-bcd7-44cd-848a-a4d98c5c1109&tab=bediening",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "Woonkamer met verouderde sensorwaarde"
+  "opmerking": "Woonkamer met verouderde sensorwaarde",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-verouderd-licht-390.png",
   "scherm": "klimaat-verouderd",
   "thema": "licht",
   "breedte": 390,
-  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "url": "/klimaat?zone=5acd6720-bcd7-44cd-848a-a4d98c5c1109&tab=bediening",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "Woonkamer met verouderde sensorwaarde"
+  "opmerking": "Woonkamer met verouderde sensorwaarde",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-verouderd-licht-768.png",
   "scherm": "klimaat-verouderd",
   "thema": "licht",
   "breedte": 768,
-  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "url": "/klimaat?zone=5acd6720-bcd7-44cd-848a-a4d98c5c1109&tab=bediening",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "Woonkamer met verouderde sensorwaarde"
+  "opmerking": "Woonkamer met verouderde sensorwaarde",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-verouderd-licht-1440.png",
   "scherm": "klimaat-verouderd",
   "thema": "licht",
   "breedte": 1440,
-  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "url": "/klimaat?zone=5acd6720-bcd7-44cd-848a-a4d98c5c1109&tab=bediening",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "Woonkamer met verouderde sensorwaarde"
+  "opmerking": "Woonkamer met verouderde sensorwaarde",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-verouderd-donker-360.png",
   "scherm": "klimaat-verouderd",
   "thema": "donker",
   "breedte": 360,
-  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "url": "/klimaat?zone=5acd6720-bcd7-44cd-848a-a4d98c5c1109&tab=bediening",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "Woonkamer met verouderde sensorwaarde"
+  "opmerking": "Woonkamer met verouderde sensorwaarde",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-verouderd-donker-390.png",
   "scherm": "klimaat-verouderd",
   "thema": "donker",
   "breedte": 390,
-  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "url": "/klimaat?zone=5acd6720-bcd7-44cd-848a-a4d98c5c1109&tab=bediening",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "Woonkamer met verouderde sensorwaarde"
+  "opmerking": "Woonkamer met verouderde sensorwaarde",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-verouderd-donker-768.png",
   "scherm": "klimaat-verouderd",
   "thema": "donker",
   "breedte": 768,
-  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "url": "/klimaat?zone=5acd6720-bcd7-44cd-848a-a4d98c5c1109&tab=bediening",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "Woonkamer met verouderde sensorwaarde"
+  "opmerking": "Woonkamer met verouderde sensorwaarde",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-verouderd-donker-1440.png",
   "scherm": "klimaat-verouderd",
   "thema": "donker",
   "breedte": 1440,
-  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "url": "/klimaat?zone=5acd6720-bcd7-44cd-848a-a4d98c5c1109&tab=bediening",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "Woonkamer met verouderde sensorwaarde"
+  "opmerking": "Woonkamer met verouderde sensorwaarde",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "overzicht-offline-licht-360.png",
@@ -1987,7 +2027,8 @@
   "url": "/",
   "h1": "Goedemiddag",
   "overloop_px": 0,
-  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit"
+  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "overzicht-offline-licht-390.png",
@@ -1997,7 +2038,8 @@
   "url": "/",
   "h1": "Goedemiddag",
   "overloop_px": 0,
-  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit"
+  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "overzicht-offline-licht-768.png",
@@ -2007,7 +2049,8 @@
   "url": "/",
   "h1": "Goedemiddag",
   "overloop_px": 0,
-  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit"
+  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "overzicht-offline-licht-1440.png",
@@ -2017,7 +2060,8 @@
   "url": "/",
   "h1": "Goedemiddag",
   "overloop_px": 0,
-  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit"
+  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "overzicht-offline-donker-360.png",
@@ -2027,7 +2071,8 @@
   "url": "/",
   "h1": "Goedemiddag",
   "overloop_px": 0,
-  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit"
+  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "overzicht-offline-donker-390.png",
@@ -2037,7 +2082,8 @@
   "url": "/",
   "h1": "Goedemiddag",
   "overloop_px": 0,
-  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit"
+  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "overzicht-offline-donker-768.png",
@@ -2047,7 +2093,8 @@
   "url": "/",
   "h1": "Goedemiddag",
   "overloop_px": 0,
-  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit"
+  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "overzicht-offline-donker-1440.png",
@@ -2057,7 +2104,8 @@
   "url": "/",
   "h1": "Goedemiddag",
   "overloop_px": 0,
-  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit"
+  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-offline-licht-360.png",
@@ -2067,7 +2115,8 @@
   "url": "/klimaat",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "API gestopt: klimaat uit de cache, bediening uit"
+  "opmerking": "API gestopt: klimaat uit de cache, bediening uit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-offline-licht-390.png",
@@ -2077,7 +2126,8 @@
   "url": "/klimaat",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "API gestopt: klimaat uit de cache, bediening uit"
+  "opmerking": "API gestopt: klimaat uit de cache, bediening uit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-offline-licht-768.png",
@@ -2087,7 +2137,8 @@
   "url": "/klimaat",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "API gestopt: klimaat uit de cache, bediening uit"
+  "opmerking": "API gestopt: klimaat uit de cache, bediening uit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-offline-licht-1440.png",
@@ -2097,7 +2148,8 @@
   "url": "/klimaat",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "API gestopt: klimaat uit de cache, bediening uit"
+  "opmerking": "API gestopt: klimaat uit de cache, bediening uit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-offline-donker-360.png",
@@ -2107,7 +2159,8 @@
   "url": "/klimaat",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "API gestopt: klimaat uit de cache, bediening uit"
+  "opmerking": "API gestopt: klimaat uit de cache, bediening uit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-offline-donker-390.png",
@@ -2117,7 +2170,8 @@
   "url": "/klimaat",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "API gestopt: klimaat uit de cache, bediening uit"
+  "opmerking": "API gestopt: klimaat uit de cache, bediening uit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-offline-donker-768.png",
@@ -2127,7 +2181,8 @@
   "url": "/klimaat",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "API gestopt: klimaat uit de cache, bediening uit"
+  "opmerking": "API gestopt: klimaat uit de cache, bediening uit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "klimaat-offline-donker-1440.png",
@@ -2137,7 +2192,8 @@
   "url": "/klimaat",
   "h1": "Woonkamer",
   "overloop_px": 0,
-  "opmerking": "API gestopt: klimaat uit de cache, bediening uit"
+  "opmerking": "API gestopt: klimaat uit de cache, bediening uit",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "verlichting-offline-nooit-geladen-licht-360.png",
@@ -2145,9 +2201,10 @@
   "thema": "licht",
   "breedte": 360,
   "url": "/verlichting",
-  "h1": null,
+  "h1": "Verlichting",
   "overloop_px": 0,
-  "opmerking": "API gestopt: pagina die nog nooit geladen was blijft op \"Laden…\" staan"
+  "opmerking": "API gestopt: pagina die nog nooit geladen was, na 1,5 s — Onbekend, nog niet opgehaald",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "verlichting-offline-nooit-geladen-licht-390.png",
@@ -2155,9 +2212,10 @@
   "thema": "licht",
   "breedte": 390,
   "url": "/verlichting",
-  "h1": null,
+  "h1": "Verlichting",
   "overloop_px": 0,
-  "opmerking": "API gestopt: pagina die nog nooit geladen was blijft op \"Laden…\" staan"
+  "opmerking": "API gestopt: pagina die nog nooit geladen was, na 1,5 s — Onbekend, nog niet opgehaald",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "verlichting-offline-nooit-geladen-licht-768.png",
@@ -2165,9 +2223,10 @@
   "thema": "licht",
   "breedte": 768,
   "url": "/verlichting",
-  "h1": null,
+  "h1": "Verlichting",
   "overloop_px": 0,
-  "opmerking": "API gestopt: pagina die nog nooit geladen was blijft op \"Laden…\" staan"
+  "opmerking": "API gestopt: pagina die nog nooit geladen was, na 1,5 s — Onbekend, nog niet opgehaald",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "verlichting-offline-nooit-geladen-licht-1440.png",
@@ -2175,9 +2234,10 @@
   "thema": "licht",
   "breedte": 1440,
   "url": "/verlichting",
-  "h1": null,
+  "h1": "Verlichting",
   "overloop_px": 0,
-  "opmerking": "API gestopt: pagina die nog nooit geladen was blijft op \"Laden…\" staan"
+  "opmerking": "API gestopt: pagina die nog nooit geladen was, na 1,5 s — Onbekend, nog niet opgehaald",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "verlichting-offline-nooit-geladen-donker-360.png",
@@ -2185,9 +2245,10 @@
   "thema": "donker",
   "breedte": 360,
   "url": "/verlichting",
-  "h1": null,
+  "h1": "Verlichting",
   "overloop_px": 0,
-  "opmerking": "API gestopt: pagina die nog nooit geladen was blijft op \"Laden…\" staan"
+  "opmerking": "API gestopt: pagina die nog nooit geladen was, na 1,5 s — Onbekend, nog niet opgehaald",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "verlichting-offline-nooit-geladen-donker-390.png",
@@ -2195,9 +2256,10 @@
   "thema": "donker",
   "breedte": 390,
   "url": "/verlichting",
-  "h1": null,
+  "h1": "Verlichting",
   "overloop_px": 0,
-  "opmerking": "API gestopt: pagina die nog nooit geladen was blijft op \"Laden…\" staan"
+  "opmerking": "API gestopt: pagina die nog nooit geladen was, na 1,5 s — Onbekend, nog niet opgehaald",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "verlichting-offline-nooit-geladen-donker-768.png",
@@ -2205,9 +2267,10 @@
   "thema": "donker",
   "breedte": 768,
   "url": "/verlichting",
-  "h1": null,
+  "h1": "Verlichting",
   "overloop_px": 0,
-  "opmerking": "API gestopt: pagina die nog nooit geladen was blijft op \"Laden…\" staan"
+  "opmerking": "API gestopt: pagina die nog nooit geladen was, na 1,5 s — Onbekend, nog niet opgehaald",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "verlichting-offline-nooit-geladen-donker-1440.png",
@@ -2215,9 +2278,10 @@
   "thema": "donker",
   "breedte": 1440,
   "url": "/verlichting",
-  "h1": null,
+  "h1": "Verlichting",
   "overloop_px": 0,
-  "opmerking": "API gestopt: pagina die nog nooit geladen was blijft op \"Laden…\" staan"
+  "opmerking": "API gestopt: pagina die nog nooit geladen was, na 1,5 s — Onbekend, nog niet opgehaald",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  },
  {
   "file": "server-onbereikbaar-licht-360.png",
@@ -2298,5 +2362,93 @@
   "h1": "De server is niet bereikbaar",
   "overloop_px": 0,
   "opmerking": "API gestopt, nieuwe sessie: \"De server is niet bereikbaar\""
+ },
+ {
+  "file": "verlichting-offline-nooit-geladen-later-licht-360.png",
+  "scherm": "verlichting-offline-nooit-geladen-later",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/verlichting",
+  "h1": "Verlichting",
+  "overloop_px": 0,
+  "opmerking": "Idem, na de herhaalpogingen (10 s later): blijft Onbekend met reden",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
+ },
+ {
+  "file": "verlichting-offline-nooit-geladen-later-licht-390.png",
+  "scherm": "verlichting-offline-nooit-geladen-later",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/verlichting",
+  "h1": "Verlichting",
+  "overloop_px": 0,
+  "opmerking": "Idem, na de herhaalpogingen (10 s later): blijft Onbekend met reden",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
+ },
+ {
+  "file": "verlichting-offline-nooit-geladen-later-licht-768.png",
+  "scherm": "verlichting-offline-nooit-geladen-later",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/verlichting",
+  "h1": "Verlichting",
+  "overloop_px": 0,
+  "opmerking": "Idem, na de herhaalpogingen (10 s later): blijft Onbekend met reden",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
+ },
+ {
+  "file": "verlichting-offline-nooit-geladen-later-licht-1440.png",
+  "scherm": "verlichting-offline-nooit-geladen-later",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/verlichting",
+  "h1": "Verlichting",
+  "overloop_px": 0,
+  "opmerking": "Idem, na de herhaalpogingen (10 s later): blijft Onbekend met reden",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
+ },
+ {
+  "file": "verlichting-offline-nooit-geladen-later-donker-360.png",
+  "scherm": "verlichting-offline-nooit-geladen-later",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/verlichting",
+  "h1": "Verlichting",
+  "overloop_px": 0,
+  "opmerking": "Idem, na de herhaalpogingen (10 s later): blijft Onbekend met reden",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
+ },
+ {
+  "file": "verlichting-offline-nooit-geladen-later-donker-390.png",
+  "scherm": "verlichting-offline-nooit-geladen-later",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/verlichting",
+  "h1": "Verlichting",
+  "overloop_px": 0,
+  "opmerking": "Idem, na de herhaalpogingen (10 s later): blijft Onbekend met reden",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
+ },
+ {
+  "file": "verlichting-offline-nooit-geladen-later-donker-768.png",
+  "scherm": "verlichting-offline-nooit-geladen-later",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/verlichting",
+  "h1": "Verlichting",
+  "overloop_px": 0,
+  "opmerking": "Idem, na de herhaalpogingen (10 s later): blijft Onbekend met reden",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
+ },
+ {
+  "file": "verlichting-offline-nooit-geladen-later-donker-1440.png",
+  "scherm": "verlichting-offline-nooit-geladen-later",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/verlichting",
+  "h1": "Verlichting",
+  "overloop_px": 0,
+  "opmerking": "Idem, na de herhaalpogingen (10 s later): blijft Onbekend met reden",
+  "bijgewerkt": "stap 5 (ontwerpreview)"
  }
 ]
