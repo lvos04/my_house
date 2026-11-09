@@ -147,7 +147,7 @@ fun HomeScreen(
         // Always there with an overview, also when all is well; problems get the block below too.
         val systemLine = SystemLineUi.of(overview?.status.orEmpty())
         if (overview != null && !systemLine.isEmpty) {
-            item(key = "system") { SystemStatusLine(systemLine) }
+            item(key = "system") { SystemStatusLine(systemLine, verouderd = stale != null) }
         }
         val attention = AttentionUi.of(overview?.status.orEmpty())
         if (attention.level != AttentionLevel.NONE) {
@@ -204,12 +204,12 @@ fun HomeScreen(
  * backups and the worker run when nothing is wrong.
  */
 @Composable
-private fun SystemStatusLine(line: SystemLine, modifier: Modifier = Modifier) {
+private fun SystemStatusLine(line: SystemLine, verouderd: Boolean, modifier: Modifier = Modifier) {
     Column(
         modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        StatusBadge(PeilUi.systeem(line.level))
+        StatusBadge(PeilUi.systeem(line.level, verouderd))
         Text(
             SystemLineUi.text(textSource(), line),
             color = Huis.colors.muted,

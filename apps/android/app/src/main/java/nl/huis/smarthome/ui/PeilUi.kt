@@ -62,9 +62,13 @@ enum class RouteVorm(@StringRes val tekst: Int, @DrawableRes val icoon: Int, val
 }
 
 object PeilUi {
-    /** The status line on Start: all well = Gezond, otherwise the level of the attention block. */
-    fun systeem(level: AttentionLevel): PeilStatus = when (level) {
-        AttentionLevel.NONE -> PeilStatus.GEZOND
+    /**
+     * The status line on Start: all well = Gezond, otherwise the level of the attention block. Without a
+     * connection the line is the last known state, and that is never green (Peil §4.4): Gezond becomes
+     * Verouderd; Beperkt and Storing stay, so a known problem does not disappear when the server is gone.
+     */
+    fun systeem(level: AttentionLevel, verouderd: Boolean = false): PeilStatus = when (level) {
+        AttentionLevel.NONE -> if (verouderd) PeilStatus.VEROUDERD else PeilStatus.GEZOND
         AttentionLevel.WARN -> PeilStatus.BEPERKT
         AttentionLevel.ERROR -> PeilStatus.STORING
     }

@@ -42,6 +42,10 @@ class PeilUiTest {
         assertEquals(PeilStatus.GEZOND, PeilUi.systeem(AttentionLevel.NONE))
         assertEquals(PeilStatus.BEPERKT, PeilUi.systeem(AttentionLevel.WARN))
         assertEquals(PeilStatus.STORING, PeilUi.systeem(AttentionLevel.ERROR))
+        // Offline: the last known "all well" is never green; known problems stay visible.
+        assertEquals(PeilStatus.VEROUDERD, PeilUi.systeem(AttentionLevel.NONE, verouderd = true))
+        assertEquals(PeilStatus.BEPERKT, PeilUi.systeem(AttentionLevel.WARN, verouderd = true))
+        assertEquals(PeilStatus.STORING, PeilUi.systeem(AttentionLevel.ERROR, verouderd = true))
         assertEquals(PeilStatus.GEZOND, PeilUi.item("ok"))
         assertEquals(PeilStatus.BEPERKT, PeilUi.item("warn"))
         assertEquals(PeilStatus.STORING, PeilUi.item("error"))
