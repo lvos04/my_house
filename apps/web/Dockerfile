@@ -11,7 +11,7 @@ ARG APP_VERSION=0.0.0-dev
 ENV VITE_APP_VERSION=${APP_VERSION}
 RUN npm run build
 
-FROM nginxinc/nginx-unprivileged:1.30.6-alpine3.24 AS runtime
+FROM nginxinc/nginx-unprivileged:1.31.7-alpine3.24 AS runtime
 ARG APP_VERSION=0.0.0-dev
 LABEL org.opencontainers.image.title="Smart Home Control web" \
       org.opencontainers.image.description="PWA en reverse proxy voor de Smart Home Control API" \
