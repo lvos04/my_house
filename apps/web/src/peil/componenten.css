@@ -208,6 +208,13 @@
   /* Losse link (niet in lopende tekst): doel ≥ 44 px (WCAG 2.5.8). */
   .los-link > a, a.los-link { @apply inline-flex min-h-touch items-center; }
 
+  /* Review stap 5: onder 1024 px is de kopbalk een eigen flexregel van .shell (flex-wrap, min-height 100vh). Op een
+     korte pagina (offline, nog niets opgehaald) verdeelde de browser de vrije hoogte over de regels, waardoor er
+     ± 136 px leeg vlak tussen de kopbalk en de inhoud stond. De regels beginnen nu bovenaan. */
+  @media (width < 64rem) {
+    .shell { align-content: flex-start; }
+  }
+
   /* ── Tabs (§21): < 768 omlopende knoppen, ≥ 768 rij met onderstreping ───────────────────────────── */
   .tabs { @apply flex flex-wrap gap-2 rounded-none bg-transparent p-0; }
   .tabs [role='tab'] {
@@ -272,4 +279,10 @@
    "Dag kopiëren" volledig achter de balk (WCAG 2.4.11). 9 rem = 144 px dekt de hoogste stand. */
 @media (width < 48rem) {
   html:has(.sched-save) { --actiebalk-h: 9rem; }
+}
+/* Vanaf 1024 px zet ontwerptaal.css de scroll-padding onder op 0,75 rem (geen ondernavigatie), maar de opslaanbalk
+   van het weekschema blijft daar ook vast onderaan (61 px). Met een leeg schema lag de focus op een veld van een nieuw
+   blok dan helemaal achter de balk (gevonden met de Tab-doorloop in e2e/11-peil). */
+@media (width >= 64rem) {
+  html:has(.sched-save) { scroll-padding-bottom: calc(var(--actiebalk-h) + 0.75rem); }
 }
