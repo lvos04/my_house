@@ -6,7 +6,6 @@
 // commands show the server's Dutch reason. Item 13: +/−, fan and "Handmatig 2 uur" are disabled while
 // the unit is off or offline (setpoint_adjustable=false) with "Kies eerst een modus". Item 11:
 // "Terug naar schema" follows can_resume (also from "uit"). Item 31: a zone without airco is neutral.
-import '../climate/climate.css';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, isApiError } from '../api/client';
@@ -16,7 +15,8 @@ import { useDebouncedSetpoint, type DebouncedSetpoint } from '../setpoint';
 import { ago, MODE_LABEL, temp, time } from '../format';
 import { FAN_LABEL, OVERRIDE_SOURCE_LABEL, t } from '../i18n';
 import { useCanAct, useHome } from '../state';
-import { FlameIcon, SnowIcon } from './Icons';
+import { FlameIcon, HandIcon, LockIcon, SnowIcon, UnknownIcon, UnlinkedIcon } from './Icons';
+import { StatusBadge } from './peil/StatusBadge';
 import { ActionButton, QualityBadge } from './bits';
 import { durationText, FormError, SafeLink, storeZone, useClimateCan } from '../climate/common';
 
@@ -40,10 +40,12 @@ export function controlText(zone: Zone, tz?: string): string {
   }
 }
 
+/** Domeinchip van de zone (Peil C-44): verwarmen/koelen in de domeinkleur met icoon; niet bereikbaar =
+ * Onbekend (stippel), handmatig = hand, geen airco = niet gekoppeld (neutraal, nooit rood). */
 export function ModePill({ zone }: { zone: Zone }) {
-  if (!zone.unit_linked) return <span className="pill neutral">Geen airco</span>;
-  if (zone.unit_status === 'offline') return <span className="pill warn">Niet bereikbaar</span>;
-  if (zone.control === 'manual') return <span className="pill override">Handmatig</span>;
+  if (!zone.unit_linked) return <span className="pill neutral"><UnlinkedIcon />Geen airco</span>;
+  if (zone.unit_status === 'offline') return <span className="pill unknown"><UnknownIcon /><span>Onbekend — </span>niet bereikbaar</span>;
+  if (zone.control === 'manual') return <span className="pill override"><HandIcon />Handmatig</span>;
   if (zone.mode === 'heat') return <span className="pill heat"><FlameIcon />Verwarmen</span>;
   if (zone.mode === 'cool') return <span className="pill cool"><SnowIcon />Koelen</span>;
   return <span className="pill neutral">{MODE_LABEL[zone.mode] ?? zone.mode}</span>;
@@ -191,7 +193,7 @@ export function UnitNotLinked({ zone, onLink }: { zone: Zone; onLink?: () => voi
   const hasSensor = Boolean(zone.sensor_device_id) || tm.value !== null;
   return (
     <div className="stack tight">
-      <strong>Nog geen airco gekoppeld</strong>
+      <strong className="inline-flex items-center gap-1.5"><UnlinkedIcon />Nog geen airco gekoppeld</strong>
       {hasSensor && (
         <div className="c-readings">
           <span className={`big-num${tm.stale || tm.value === null ? ' stale' : ''}`} style={{ fontSize: 40 }}>{temp(tm.value)}</span>
@@ -239,6 +241,7 @@ export function ModeButtons({ zone, onPick, disabled }: { zone: Zone; onPick: (m
               disabled={disabled || Boolean(reason)}
               onClick={() => onPick(m)}
             >
+              {reason && <LockIcon />}
               {MODE_LABEL[m] ?? m}
             </button>
           );
@@ -322,7 +325,8 @@ export function ZoneCard({ zone, tz }: { zone: Zone; tz?: string }) {
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               <span className={`big-num${tm.stale || tm.value === null ? ' stale' : ''}`} style={{ fontSize: 56 }}>{temp(tm.value)}</span>
-              <span className="small" style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', color: tm.stale ? 'var(--warn)' : 'var(--muted)' }}>
+              <span className="small" style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', color: tm.stale ? 'var(--stale-ink)' : 'var(--muted-foreground)' }}>
+                {tm.stale && <StatusBadge status="stale" />}
                 <QualityBadge quality={tm.quality} />
                 {measurementLine(zone)}
               </span>
@@ -333,7 +337,7 @@ export function ZoneCard({ zone, tz }: { zone: Zone; tz?: string }) {
               )}
               <div className="c-setpoint-val">
                 <span className="small muted">Doel</span>
-                <span style={{ fontSize: 22, fontWeight: 600 }} className={draft ? 'draft' : undefined} aria-live="polite">{temp(shown)}</span>
+                <span style={{ fontSize: 24, fontWeight: 600 }} className={draft ? 'draft' : undefined} aria-live="polite">{temp(shown)}</span>
               </div>
               {control && (
                 <button type="button" className="sp-btn sm" aria-label={`Doeltemperatuur ${zone.name} hoger`} aria-describedby={reason ? hintId : undefined} disabled={!ctl.adjustable} onClick={() => ctl.bump(1)}>+</button>
@@ -375,7 +379,7 @@ export function ZoneControlPanel({ zone, tz, onLink }: { zone: Zone; tz?: string
   return (
     <section aria-labelledby={`bed-h-${zone.id}`} className={`card live c-control${zone.unit_linked ? '' : ' c-unlinked'}`}>
       <div className="section-head">
-        <h2 id={`bed-h-${zone.id}`} style={{ fontSize: 16, fontFamily: 'var(--font-body)' }}>Bediening</h2>
+        <h2 id={`bed-h-${zone.id}`} style={{ fontSize: 18 }}>Bediening</h2>
         <span className="small muted">{controlText(zone, tz)}</span>
       </div>
       {!zone.unit_linked ? (
@@ -389,7 +393,7 @@ export function ZoneControlPanel({ zone, tz, onLink }: { zone: Zone; tz?: string
             <div className={`c-dial ${zone.mode}`}>
               <span className="small muted">Doel</span>
               <span className={`big-num${draft ? ' draft' : ''}`} aria-live="polite">{temp(shown)}</span>
-              <span className={`small ${tm.stale ? '' : 'muted'}`} style={tm.stale ? { color: 'var(--warn)' } : undefined}>nu {temp(tm.value)}</span>
+              <span className={`small ${tm.stale ? '' : 'muted'}`} style={tm.stale ? { color: 'var(--stale-ink)' } : undefined}>nu {temp(tm.value)}</span>
             </div>
             {control && (
               <button type="button" className="sp-btn" aria-label="Doeltemperatuur hoger" aria-describedby={reason ? hintId : undefined} disabled={!ctl.adjustable} onClick={() => ctl.bump(1)}>+</button>

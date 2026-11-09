@@ -65,7 +65,7 @@ export function ChartLegend({ summary }: { summary: EnergySummary }) {
           <li key={r}>
             <span className={`en-swatch ${segClass(r)}`} aria-hidden="true" />
             {labelOf(summary, r)}
-            {m && m.quality !== 'measured' ? <span className="muted"> ({m.quality === 'derived' ? 'afgeleid' : m.quality === 'estimated' ? 'geschat' : 'ontbreekt'})</span> : null}
+            {m && m.quality !== 'measured' ? <span className="muted"> ({m.quality === 'derived' ? 'afgeleid' : m.quality === 'estimated' ? 'geschat' : 'geen meting'})</span> : null}
           </li>
         );
       })}

@@ -1,13 +1,12 @@
 /* Lights page and Hue button editor (verbeterlijst 25, 27). Tokens from styles.css only. */
 
 .lt-h2 { font-size: 18px; }
-.lt-group.is-on { background: linear-gradient(180deg, var(--light-on) 0, var(--surface) 96px); }
+.lt-group.is-on { border-color: var(--domain-light-on); }
 .lt-unreach { align-self: flex-start; }
-.lt-warn { color: var(--warn-ink); background: var(--warn-bg); padding: 4px 8px; border-radius: 8px; align-self: flex-start; }
-.lt-slider input[type='range'] { width: 100%; min-height: 44px; accent-color: var(--light-ink); }
+.lt-warn { align-self: flex-start; }
+.lt-slider input[type='range'] { width: 100%; min-height: 44px; accent-color: var(--domain-light-on-ink); }
 .lt-slider input[type='range']:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .lt-scenes { display: flex; flex-wrap: wrap; gap: 8px; }
-.lt-scenes .btn[aria-pressed='true'] { border: 2px solid var(--text); font-weight: 600; background: var(--light-on); color: var(--light-ink); }
 .lt-lamp-off { color: var(--text-2); }
 .lt-lamps summary { min-height: 44px; }
 
@@ -18,15 +17,14 @@
 .lt-map-row { display: flex; flex-direction: column; gap: 8px; padding: 10px 0; border-top: 1px dashed var(--border); }
 .lt-map-row:first-child { border-top: 0; }
 .lt-map-head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
-.lt-map { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
-.lt-map.is-off { opacity: 0.75; }
+.lt-map { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); }
+.lt-map.is-off { background-image: repeating-linear-gradient(135deg, var(--stale-hatch) 0 2px, transparent 2px 9px); }
 .lt-map-steps { display: flex; flex-direction: column; gap: 2px; }
-.lt-conflict { border-left: 3px solid var(--warn); }
-.lt-editor { border: 1px solid var(--input-border); border-radius: 14px; padding: 14px; background: var(--surface); }
+.lt-editor { border: 1px solid var(--input-border); border-radius: 8px; padding: 14px; background: var(--surface); }
 .lt-steps { display: flex; flex-direction: column; gap: 10px; }
-.lt-step { border: 1px solid var(--border-strong); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.lt-step { border: 1px solid var(--border-strong); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
 .lt-step-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.lt-confirm { background: var(--warn-bg); color: var(--warn-ink); border-radius: 10px; padding: 4px 10px; }
+.lt-confirm { padding: 4px 10px; }
 .lt-sim { display: flex; flex-direction: column; gap: 8px; }
-.lt-sim-map { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--cool-soft); padding-top: 6px; }
+.lt-sim-map { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--info); padding-top: 6px; }
 .lt-sim-steps { display: flex; flex-direction: column; gap: 4px; }

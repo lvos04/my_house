@@ -1,11 +1,11 @@
 // Outdoor temperature role picker (verbeterlijst 45): GET /homes/{id}/climate/roles shows the bound
 // device; binding uses POST /devices/{id}/bind {role:"outdoor_temp"} (only Zigbee sensors fit).
-import './climate.css';
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { qk } from '../api/keys';
 import { ActionButton, Loading } from '../components/bits';
+import { LinkedIcon, UnlinkedIcon } from '../components/Icons';
 import { FormError, SafeLink, useClimateCan } from './common';
 
 export const OUTDOOR_ROLE = 'outdoor_temp';
@@ -32,7 +32,7 @@ export function OutdoorSensorCard({ homeId }: { homeId: string }) {
     <section className="card" aria-labelledby="outdoor-h">
       <div className="section-head" style={{ alignItems: 'center' }}>
         <h3 id="outdoor-h">{label}</h3>
-        {role && <span className={`pill ${role.device_id ? 'ok' : 'neutral'}`}>{role.device_id ? 'Gekoppeld' : 'Niet gekoppeld'}</span>}
+        {role && <span className={`pill ${role.device_id ? 'ok' : 'neutral'}`}>{role.device_id ? <LinkedIcon /> : <UnlinkedIcon />}{role.device_id ? 'Gekoppeld' : 'Niet gekoppeld'}</span>}
       </div>
       <p className="small muted" style={{ margin: 0 }}>
         Met een buitensensor weegt een experiment het weer mee. Zonder buitensensor is de uitkomst altijd indicatief.

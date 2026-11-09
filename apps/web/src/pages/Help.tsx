@@ -97,7 +97,7 @@ function Matrix({ rows }: { rows: CompatibilityRow[] }) {
               <td data-label="Lokaal" className="small">{r.local}</td>
               <td data-label="Fabrikant" className="small">{r.vendor_app ?? 'Niets nodig'}</td>
               <td data-label="Status">
-                <span className={`pill ${r.status === 'tested' ? 'ok' : r.status === 'unsupported' ? 'error' : 'neutral'}`}>{t(COMPATIBILITY_LABEL, r.status)}</span>
+                <span className={`pill compat ${r.status}`}>{t(COMPATIBILITY_LABEL, r.status)}</span>
                 {r.devices.length > 0 && <div className="small muted">In dit huis: {r.devices.map((d) => d.name).join(', ')}</div>}
               </td>
             </tr>

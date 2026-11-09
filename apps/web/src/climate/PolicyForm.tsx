@@ -1,6 +1,5 @@
 // "Regelgrenzen" for one zone (PUT /zones/{id}/policy is partial: only changed fields are sent).
 // Item 45: energy priority, watchdog and plausibility limits for sensor values are part of the form.
-import './climate.css';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';

@@ -17,7 +17,7 @@ const MODE_HELP: Record<RestoreMode, string> = {
 };
 
 function statusClass(s: CompareStatus | 'new'): string {
-  return s === 'compatible' ? 'ok' : s === 'partial' ? 'warn' : s === 'new' ? 'info' : 'error';
+  return s === 'compatible' ? 'ok' : s === 'partial' ? 'warn' : s === 'new' ? 'info' : 'unknown';
 }
 
 /* ---------- step 1: upload + verify ---------- */
@@ -265,7 +265,7 @@ export function CompareView({ data, onReleased }: { data: RestoreCompare; onRele
       <div className="row" role="list" aria-label="Samenvatting">
         <span role="listitem" className="pill ok">{COMPARE_STATUS_LABEL.compatible}: {s.compatible}</span>
         <span role="listitem" className="pill warn">{COMPARE_STATUS_LABEL.partial}: {s.partial}</span>
-        <span role="listitem" className="pill error">{COMPARE_STATUS_LABEL.unavailable}: {s.unavailable}</span>
+        <span role="listitem" className="pill unknown">{COMPARE_STATUS_LABEL.unavailable}: {s.unavailable}</span>
       </div>
       <h4>Functies</h4>
       <div className="table-wrap">

@@ -102,7 +102,7 @@ function NewSensorRow({ d, rooms }: { d: { id: string; name: string; kind: strin
   return (
     <li>
       <span>
-        <span className="pill ok">Nieuw gevonden</span> <strong>{d.name}</strong>
+        <span className="pill info">Nieuw gevonden</span> <strong>{d.name}</strong>
         <span className="small muted"> · {d.kind === 'zigbee_device' ? 'type wordt nog bepaald' : t(KIND_LABEL, d.kind)}{d.model ? ` · ${d.model}` : ''}</span>
       </span>
       <label className="field" style={{ gap: 2 }}>

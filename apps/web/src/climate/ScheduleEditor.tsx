@@ -1,7 +1,6 @@
 // Week schedule editor (verbeterlijst 12): blocks per day with start, target, mode (incl. "houd huidige
 // modus") and name; copy a day to other days; templates; validation with Dutch messages (also the
 // server's 422); a preview of the next change. Used for zone schedules and for comfort profiles.
-import './climate.css';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { HvacMode, ScheduleBlock } from '../api/types';
 import { MODE_LABEL } from '../format';
@@ -421,7 +420,7 @@ export function ScheduleEditor({ idBase, blocks, range, tz, editable, onSave, in
             </div>
           )}
           <FormError error={saveError} />
-          <div className="sched-save">
+          <div className="sched-save" data-actiebalk="">
             <ActionButton className="btn primary" disabled={saving || !dirty} onClick={save}>{saving ? 'Opslaan…' : saveLabel}</ActionButton>
             <button type="button" className="btn" disabled={!dirty || saving} onClick={undo}>Ongedaan maken</button>
             <span className="small muted" aria-live="polite">

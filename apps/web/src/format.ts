@@ -42,7 +42,7 @@ export const QUALITY_LABEL: Record<Quality, string> = {
   measured: 'gemeten',
   derived: 'afgeleid',
   estimated: 'geschat',
-  missing: 'ontbreekt',
+  missing: 'geen meting',
 };
 
 export const MODE_LABEL: Record<string, string> = {

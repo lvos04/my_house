@@ -24,7 +24,9 @@ describe('Overzicht (items 22, 31, 36)', () => {
     expect(attentionItems([worker, safe, backupOk]).map((s) => s.key)).toEqual(['worker', 'safe_mode']);
     mockApi(() => ({ body: [] }));
     render(<Providers user={admin}><OverviewView data={{ ...overview, status: [worker, safe, backup, ...overview.status] }} /></Providers>);
-    const box = screen.getByRole('region', { name: 'Er is een probleem met het systeem' });
+    // Peil-microcopy (PEIL_MIGRATIE §10): kop "Storing in het systeem" bij een storing, anders "Wat actie nodig heeft".
+    const box = screen.getByRole('region', { name: 'Storing in het systeem' });
+    expect(within(box).getAllByText('Storing').length).toBeGreaterThan(0); // StatusBadge: icoon + vast woord
     expect(within(box).getByText(/Geen hartslag/)).toBeInTheDocument();
     expect(within(box).getByRole('link', { name: 'Veilige modus bekijken' })).toHaveAttribute('href', '/systeem#veilige-modus');
     expect(within(box).getByRole('link', { name: 'Naar back-ups' })).toHaveAttribute('href', '/systeem#backups');
@@ -33,7 +35,7 @@ describe('Overzicht (items 22, 31, 36)', () => {
   it('shows nothing extra when everything is fine', () => {
     mockApi(() => ({ body: [] }));
     render(<Providers><OverviewView data={{ ...overview, status: [backupOk, ...overview.status] }} /></Providers>);
-    expect(screen.queryByRole('region', { name: /probleem|Let op/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: /Storing in het systeem|Wat actie nodig heeft/ })).not.toBeInTheDocument();
   });
 
   it('viewers see the state but no controls', () => {

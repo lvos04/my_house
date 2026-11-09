@@ -21,6 +21,8 @@ import { InstallPage } from './pages/Install';
 import { HelpPage } from './pages/Help';
 import { Loading } from './components/bits';
 import { OfflineBanner } from './components/OfflineBanner';
+import { Button } from './components/ui/button';
+import { CloudOffIcon, RetryIcon } from './components/Icons';
 
 export function makeQueryClient() {
   return new QueryClient({
@@ -84,8 +86,12 @@ function Gate() {
     return (
       <div className="auth" style={{ flexDirection: 'column', gap: 16 }}>
         <OfflineBanner />
-        <p className="muted">{starting ?? 'De server is niet bereikbaar. Controleer of de app op de NAS draait.'}</p>
-        <button className="btn" type="button" onClick={() => auth.refetch()}>Opnieuw proberen</button>
+        {/* Foutpaneel op paginaniveau in de onbekend-stijl: een bron die weg is, is geen gemeten falen. */}
+        <div className="card server-weg" style={{ maxWidth: 420, width: '100%' }}>
+          <h1 className="inline-flex items-center gap-2" style={{ fontSize: 20 }}><CloudOffIcon />De server is niet bereikbaar</h1>
+          <p className="muted" style={{ margin: 0 }}>{starting ?? 'De server is niet bereikbaar. Controleer of de app op de NAS draait.'}</p>
+          <Button className="self-start" onClick={() => auth.refetch()}><RetryIcon />Opnieuw proberen</Button>
+        </div>
       </div>
     );
   if (auth.data.setup_required) return <AuthPage mode="setup" />;

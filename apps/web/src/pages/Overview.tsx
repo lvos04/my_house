@@ -1,4 +1,3 @@
-import '../climate/climate.css';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
@@ -6,12 +5,13 @@ import { qk } from '../api/keys';
 import type { LightGroup, LivePower, Overview as OverviewT, StatusCheck } from '../api/types';
 import { runCommand, useLatestCommand } from '../commands';
 import { useHome } from '../state';
-import { ActionButton, Dot, Empty, ErrorNote, Loading, QualityBadge } from '../components/bits';
+import { ActionButton, Empty, ErrorNote, Loading, QualityBadge } from '../components/bits';
+import { StatusBadge, statusVan } from '../components/peil/StatusBadge';
+import { ErnstLabel, ernstVan } from '../components/peil/ErnstLabel';
 import { ZoneCard } from '../components/zone';
 import { MeterList, partMeters, StackBar } from '../components/energy';
 import { ago, dateTime, kwh, money, time, watts } from '../format';
-import { CHECK_STATE_LABEL, SEVERITY_LABEL, t } from '../i18n';
-import { PlusIcon } from '../components/Icons';
+import { PlusIcon, BulbIcon, BulbOffIcon } from '../components/Icons';
 import { FormError, useClimateCan } from '../climate/common';
 
 /** Greeting by the hour in the home's time zone. */
@@ -38,25 +38,24 @@ export function LightTile({ group }: { group: LightGroup }) {
     : cmd && (cmd.phase === 'failed' || cmd.phase === 'denied' || cmd.phase === 'timeout')
       ? cmd.text
       : state;
+  // LichtTegel (Peil C-45): icoon + naam + toestand. Geen aria-label: de toegankelijke naam begint met de
+  // zichtbare tekst ("Keuken Uit"), aria-pressed zegt aan/uit (WCAG 2.5.3). Onbereikbaar = Onbekend met reden.
+  const Icon = group.reachable && group.on ? BulbIcon : BulbOffIcon;
+  const shown = !group.reachable ? <><span className="lt-unknown">Onbekend — </span>{state}</> : status;
+  const cls = `light-tile live${group.on && group.reachable ? ' on' : ''}${group.reachable ? '' : ' is-unreachable'}`;
   if (!control) {
     return (
-      <div className={`light-tile live${group.on ? ' on' : ''}`} style={{ cursor: 'default' }}>
-        <span style={{ fontWeight: 600, fontSize: 15 }}>{group.name}</span>
-        <span className="small muted">{state}</span>
+      <div className={cls} style={{ cursor: 'default' }}>
+        <span className="lt-name"><Icon />{group.name}</span>
+        <span className="small muted">{shown}</span>
       </div>
     );
   }
   return (
-    <ActionButton
-      className={`light-tile live${group.on ? ' on' : ''}`}
-      aria-pressed={group.on}
-      aria-label={`${group.name}: ${status}. Tik om ${group.on ? 'uit' : 'aan'} te zetten`}
-      disabled={!group.reachable || m.isPending}
-      onClick={() => m.mutate()}
-    >
-      <span style={{ fontWeight: 600, fontSize: 15 }}>{group.name}</span>
-      <span className="small muted">{status}</span>
-      {m.error ? <span className="small" style={{ color: 'var(--error)' }}>{m.error instanceof Error ? m.error.message : 'Mislukt'}</span> : null}
+    <ActionButton className={cls} aria-pressed={group.on} disabled={!group.reachable || m.isPending} onClick={() => m.mutate()}>
+      <span className="lt-name"><Icon />{group.name}</span>
+      <span className="small muted">{shown}</span>
+      {m.error ? <span className="small" style={{ color: 'var(--down-ink)' }}>{m.error instanceof Error ? m.error.message : 'Mislukt'}</span> : null}
     </ActionButton>
   );
 }
@@ -78,17 +77,19 @@ function Attention({ status }: { status: StatusCheck[] }) {
   const items = attentionItems(status);
   if (!items.length) return null;
   const serious = items.some((s) => s.state === 'error');
+  // "Wat actie nodig heeft" (zelfde woorden als de Hub): rand in de slechtste status, per item StatusBadge +
+  // titel + uitleg + één werkwoordlink.
   return (
-    <section className="card attention c-attention" aria-labelledby="attn-h">
-      <h2 id="attn-h" style={{ fontSize: 16, fontFamily: 'var(--font-body)' }}>{serious ? 'Er is een probleem met het systeem' : 'Let op'}</h2>
+    <section className={`card attention c-attention${serious ? ' is-down' : ''}`} aria-labelledby="attn-h">
+      <h2 id="attn-h" style={{ fontSize: 18 }}>{serious ? 'Storing in het systeem' : 'Wat actie nodig heeft'}</h2>
       <ul>
         {items.map((s) => {
           const link = ATTENTION_LINK[s.key];
           return (
-            <li key={s.key}>
-              <Dot state={s.state} />
+            <li key={s.key} className="flex flex-col gap-1">
+              <StatusBadge status={statusVan(s.state)} />
               <span>
-                <strong>{s.label}</strong><span className="sr-only"> ({t(CHECK_STATE_LABEL, s.state)})</span>: {s.detail}
+                <strong>{s.label}</strong>: {s.detail}
                 {admin && link && <> · <Link to={link.to}>{link.label}</Link></>}
               </span>
             </li>
@@ -153,8 +154,8 @@ export function OverviewView({ data }: { data: OverviewT }) {
             <div key={s.key} className="card tight">
               <span className="card-sub">{s.label}</span>
               <span className={`state-line ${s.state}`}>
-                <Dot state={s.state} />
-                <span><span className="sr-only">{t(CHECK_STATE_LABEL, s.state)}: </span>{s.detail}</span>
+                <StatusBadge status={statusVan(s.state)} />
+                <span className="font-normal">{s.detail}</span>
               </span>
             </div>
           ))}
@@ -164,7 +165,7 @@ export function OverviewView({ data }: { data: OverviewT }) {
       <section aria-labelledby="klimaat-h" className="section">
         <div className="section-head">
           <h2 id="klimaat-h">Klimaat</h2>
-          <Link to="/klimaat" className="small" style={{ fontWeight: 500 }}>Alle instellingen</Link>
+          <Link to="/klimaat" className="inline-flex min-h-touch items-center text-sm font-semibold">Alle instellingen</Link>
         </div>
         {data.zones.length ? (
           <div className="c-grid">{data.zones.map((z) => <ZoneCard key={z.id} zone={z} tz={tz} />)}</div>
@@ -189,7 +190,7 @@ export function OverviewView({ data }: { data: OverviewT }) {
         <section aria-labelledby="energie-h" className="card live">
           <div className="section-head">
             <h2 id="energie-h">Vandaag</h2>
-            <Link to="/energie" className="small" style={{ fontWeight: 500 }}>Energie</Link>
+            <Link to="/energie" className="inline-flex min-h-touch items-center text-sm font-semibold">Energie</Link>
           </div>
           <div className="row" style={{ alignItems: 'baseline', gap: 10 }}>
             <span className="big-num" style={{ fontSize: 40 }}>{kwh(e.total_kwh)}</span>
@@ -206,13 +207,14 @@ export function OverviewView({ data }: { data: OverviewT }) {
           {data.alerts.length === 0 && <Empty>Geen open meldingen.</Empty>}
           {data.alerts.slice(0, 6).map((a) => (
             <div key={a.id} className="row" style={{ alignItems: 'flex-start', flexWrap: 'nowrap' }}>
-              <span style={{ marginTop: 7 }}><Dot state={a.severity} /></span>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
-                <span style={{ fontWeight: 600, fontSize: 14 }}><span className="sr-only">{t(SEVERITY_LABEL, a.severity)}: </span>{a.title}</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
+                <ErnstLabel ernst={ernstVan(a.severity)} />
+                <span style={{ fontWeight: 600 }}>{a.title}</span>
                 <span className="small muted">{dateTime(a.created_at, tz)} · {a.detail}</span>
               </div>
               {control && !a.acknowledged && (
-                <ActionButton className="btn small" aria-label={`Melding ${a.title} afhandelen`} onClick={() => ack.mutate(a.id)}>
+                // De zichtbare tekst "Gezien" staat vooraan in de toegankelijke naam (WCAG 2.5.3).
+                <ActionButton className="btn small" aria-label={`Gezien (Melding ${a.title} afhandelen)`} onClick={() => ack.mutate(a.id)}>
                   Gezien
                 </ActionButton>
               )}

@@ -3,24 +3,28 @@ import { Link } from 'react-router-dom';
 import { ApiError, AccessLoginRequired, NetworkError } from '../api/client';
 import type { CheckState, Quality, Severity } from '../api/types';
 import { QUALITY_LABEL } from '../format';
-import { CHECK_STATE_LABEL, ERROR_CODE_LABEL } from '../i18n';
+import { ERROR_CODE_LABEL } from '../i18n';
 import { useCanAct } from '../state';
+import { StatusBadge, StatusIcon, statusVan } from './peil/StatusBadge';
+import { InfoIcon } from './Icons';
 
 export function QualityBadge({ quality }: { quality: Quality }) {
   return <span className={`q ${quality}`}>{QUALITY_LABEL[quality] ?? quality}</span>;
 }
 
-/** Coloured status dot. Decorative: always put the state in text next to it. */
+/** Status-icoon (Peil, vaste lucide-koppeling) in plaats van de oude gekleurde stip. Decoratief: zet de
+ * toestand altijd ook in tekst ernaast. "info" (meldingen) krijgt het info-icoon. */
 export function Dot({ state }: { state: CheckState | Severity | 'not_configured' | (string & {}) }) {
-  return <span className={`dot ${state}`} aria-hidden="true" />;
+  if (state === 'info') return <InfoIcon className="dot-icon info status-icon" />;
+  return <StatusIcon status={statusVan(state)} />;
 }
 
-/** Dot + Dutch state word, for lists where colour alone would not do. */
+/** StatusBadge (icoon + vast woord + vorm) met de reden ernaast (Peil C-03). De haakklasse state-line + toestand blijft. */
 export function StateLabel({ state, children }: { state: CheckState | 'not_configured' | (string & {}); children?: ReactNode }) {
   return (
     <span className={`state-line ${state}`}>
-      <Dot state={state} />
-      {children ?? CHECK_STATE_LABEL[state] ?? state}
+      <StatusBadge status={statusVan(state)} />
+      {children !== undefined && children !== null && children !== '' ? <span>{children}</span> : null}
     </span>
   );
 }
@@ -36,7 +40,7 @@ export function ActionButton({ disabled, children, title, ...rest }: ButtonHTMLA
 }
 
 export function Loading({ label = 'Laden…' }: { label?: string }) {
-  return <p className="muted" role="status">{label}</p>;
+  return <p className="muted" role="status" aria-busy="true">{label}</p>;
 }
 
 /** Error box with the server's Dutch message; links to the right settings for known codes. */

@@ -1,4 +1,3 @@
-import '../climate/climate.css';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -59,9 +58,11 @@ export function HistoryChart({ history }: { history: ZoneHistory }) {
   const last = history.temperature.at(-1);
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 180 }} role="img" aria-label={`Gemeten en doeltemperatuur, bereik ${v0}° tot ${v1}°${last ? `, laatste meting ${temp(last[1])}` : ''}`} preserveAspectRatio="none">
-      {[0.25, 0.5, 0.75].map((f) => <line key={f} x1="0" x2={W} y1={H * f} y2={H * f} stroke="var(--border)" vectorEffect="non-scaling-stroke" />)}
-      <path d={step} fill="none" stroke="var(--heat)" strokeWidth="2.5" strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />
-      <path d={line} fill="none" stroke="var(--text)" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
+      {/* Peil §7: rasterlijnen chart-grid; gemeten = chart-1 (2 px); doel = grenslijn in inkt (chart-limit),
+          gestreepte traplijn — geen "verwarmen"-kleur, want het doel is geen reeks verwarmen. */}
+      {[0.25, 0.5, 0.75].map((f) => <line key={f} x1="0" x2={W} y1={H * f} y2={H * f} stroke="var(--chart-grid)" vectorEffect="non-scaling-stroke" />)}
+      <path d={step} fill="none" stroke="var(--chart-limit)" strokeWidth="1.5" strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />
+      <path d={line} fill="none" stroke="var(--chart-1)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
     </svg>
   );
 }
@@ -88,7 +89,7 @@ export function ZoneSettings({ zone, homeId }: { zone: Zone; homeId: string }) {
   return (
     <div className="c-grid">
       <section aria-labelledby={`link-h-${zone.id}`} className="card">
-        <h2 id={`link-h-${zone.id}`} style={{ fontSize: 16, fontFamily: 'var(--font-body)' }}>Zone-koppeling</h2>
+        <h2 id={`link-h-${zone.id}`} style={{ fontSize: 18 }}>Zone-koppeling</h2>
         <p className="small muted" style={{ margin: 0 }}>
           Kies de airco-unit en de externe sensor voor deze zone. Hang de sensor op een representatieve plek, niet in de luchtstroom of in de zon.
         </p>
@@ -118,7 +119,7 @@ export function ZoneSettings({ zone, homeId }: { zone: Zone; homeId: string }) {
         <FormError error={link.error} />
       </section>
       <section aria-labelledby={`pol-h-${zone.id}`} className="card">
-        <h2 id={`pol-h-${zone.id}`} style={{ fontSize: 16, fontFamily: 'var(--font-body)' }}>Regelgrenzen</h2>
+        <h2 id={`pol-h-${zone.id}`} style={{ fontSize: 18 }}>Regelgrenzen</h2>
         <p className="small muted" style={{ margin: 0 }}>Deze grenzen voorkomen pendelen. De beveiligingen van de airco zelf blijven altijd leidend.</p>
         <PolicyForm zone={zone} homeId={homeId} />
       </section>
@@ -159,7 +160,7 @@ function TodayCard({ zone, tz, homeId }: { zone: Zone; tz?: string; homeId: stri
   return (
     <section aria-labelledby={`sch-h-${zone.id}`} className="card" style={{ gap: 16 }}>
       <div className="section-head">
-        <h2 id={`sch-h-${zone.id}`} style={{ fontSize: 16, fontFamily: 'var(--font-body)' }}>Schema vandaag</h2>
+        <h2 id={`sch-h-${zone.id}`} style={{ fontSize: 18 }}>Schema vandaag</h2>
         {nc && (
           <span className="small muted">
             Volgende: {time(nc.at, tz)} · {nc.label || 'blok'} {nc.mode === 'off' ? 'uit' : temp(nc.target_c)} · {modeEffect(nc.mode)}
@@ -195,14 +196,14 @@ function ControlTab({ zone, tz, homeId, onLink }: { zone: Zone; tz?: string; hom
       </div>
       <section aria-labelledby={`gesch-h-${zone.id}`} className="card">
         <div className="section-head">
-          <h2 id={`gesch-h-${zone.id}`} style={{ fontSize: 16, fontFamily: 'var(--font-body)' }}>Laatste 24 uur</h2>
+          <h2 id={`gesch-h-${zone.id}`} style={{ fontSize: 18 }}>Laatste 24 uur</h2>
           <div className="legend">
-            <span><span className="swatch" style={{ background: 'var(--text)', height: 3 }} />Gemeten</span>
-            <span><span className="swatch" style={{ background: 'var(--heat)', height: 3 }} />Doel</span>
+            <span><span className="swatch" style={{ background: 'var(--chart-1)', height: 3 }} aria-hidden="true" />Gemeten</span>
+            <span><span className="swatch" style={{ background: 'repeating-linear-gradient(90deg, var(--chart-limit) 0 4px, transparent 4px 6px)', height: 2 }} aria-hidden="true" />Doel</span>
           </div>
         </div>
         {history.data ? <HistoryChart history={history.data} /> : history.isLoading ? <Loading /> : <ErrorNote error={history.error} />}
-        <h3 style={{ marginTop: 8, fontSize: 14 }}>Aanpassingslog</h3>
+        <h3 style={{ marginTop: 8, fontSize: 16 }}>Aanpassingslog</h3>
         {log.data?.length ? (
           <ul className="log">
             {log.data.map((l, i) => (
@@ -236,7 +237,7 @@ function ScheduleTab({ zone, tz, homeId }: { zone: Zone; tz?: string; homeId: st
   return (
     <section aria-labelledby={`week-h-${zone.id}`} className="card">
       <div className="section-head">
-        <h2 id={`week-h-${zone.id}`} style={{ fontSize: 16, fontFamily: 'var(--font-body)' }}>Weekschema {zone.name}</h2>
+        <h2 id={`week-h-${zone.id}`} style={{ fontSize: 18 }}>Weekschema {zone.name}</h2>
         {!admin && <span className="small muted">Alleen een beheerder kan het schema wijzigen.</span>}
       </div>
       <ScheduleEditor

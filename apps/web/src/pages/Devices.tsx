@@ -1,4 +1,3 @@
-import '../devices/devices.css';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';

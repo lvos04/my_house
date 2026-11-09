@@ -2,14 +2,23 @@ import type { EnergyBucket, EnergyMeter, EnergySummary, Period } from '../api/ty
 import { kwh, money } from '../format';
 import { QualityBadge } from './bits';
 
+/** Kleur volgt de entiteit (Peil §10, gevalideerd palet): airco chart-1, boiler chart-3, overig chart-other
+ * (+ arcering), net neutraal. Nooit een statuskleur als reeks (teruglevering was groen). */
 export const ROLE_COLOR: Record<string, string> = {
-  airco: 'var(--cool)',
-  boiler: 'var(--boiler)',
-  rest: 'var(--rest)',
-  grid: 'var(--text-2)',
-  grid_import: 'var(--text-2)',
-  grid_export: 'var(--ok)',
+  airco: 'var(--chart-1)',
+  boiler: 'var(--chart-3)',
+  rest: 'var(--chart-other)',
+  grid: 'var(--chart-label)',
+  grid_import: 'var(--chart-label)',
+  grid_export: 'var(--chart-5)',
 };
+/** "Overig" krijgt naast de kleur ook arcering, zodat het niet alleen op kleur leunt. */
+function roleStyle(role: string, extra: Record<string, unknown> = {}) {
+  const background = ROLE_COLOR[role] ?? 'var(--chart-other)';
+  return role === 'rest' || !(role in ROLE_COLOR)
+    ? { ...extra, backgroundColor: background, backgroundImage: 'repeating-linear-gradient(135deg, transparent 0 4px, var(--card) 4px 5.5px)' }
+    : { ...extra, background };
+}
 export const STACK_ROLES = ['airco', 'boiler', 'rest'];
 const GRID_ROLES = new Set(['grid', 'grid_import', 'grid_export']);
 
@@ -23,9 +32,9 @@ export function MeterList({ meters, currency }: { meters: EnergyMeter[]; currenc
   return (
     <ul className="meter-list">
       {meters.map((m) => (
-        <li key={m.role} style={m.quality !== 'measured' ? { color: 'var(--muted)' } : undefined}>
+        <li key={m.role} style={m.quality !== 'measured' ? { color: 'var(--muted-foreground)' } : undefined}>
           <span className="row" style={{ gap: 8 }}>
-            <span className="swatch" style={{ background: ROLE_COLOR[m.role] ?? 'var(--rest)' }} aria-hidden="true" />
+            <span className="swatch" style={roleStyle(m.role)} aria-hidden="true" />
             {m.label}
           </span>
           <span className="row" style={{ gap: 8 }}>
@@ -45,7 +54,7 @@ export function StackBar({ meters }: { meters: EnergyMeter[] }) {
   if (total <= 0) return <div className="energy-bar" aria-hidden="true" />;
   return (
     <div className="energy-bar" role="img" aria-label={meters.map((m) => `${m.label} ${kwh(m.kwh)}`).join(', ')}>
-      {meters.map((m) => (m.kwh ? <div key={m.role} style={{ flex: m.kwh, background: ROLE_COLOR[m.role] ?? 'var(--rest)' }} /> : null))}
+      {meters.map((m) => (m.kwh ? <div key={m.role} style={roleStyle(m.role, { flex: m.kwh })} /> : null))}
     </div>
   );
 }
@@ -88,7 +97,7 @@ export function EnergyBars({ summary, tz }: { summary: EnergySummary; tz?: strin
               role="img"
               aria-label={label}
             >
-              {roles.map((r) => (b.values[r] ? <div key={r} style={{ flex: b.values[r], background: ROLE_COLOR[r] ?? 'var(--rest)' }} /> : null))}
+              {roles.map((r) => (b.values[r] ? <div key={r} style={roleStyle(r, { flex: b.values[r] })} /> : null))}
             </div>
           );
         })}

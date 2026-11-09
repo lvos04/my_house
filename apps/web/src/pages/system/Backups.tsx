@@ -4,6 +4,8 @@ import { api } from '../../api/client';
 import { qk } from '../../api/keys';
 import type { Backup, BackupSchedule, BackupSettings, BackupSettingsIn, RetentionField, RetentionIn, RetentionSettings } from '../../api/types';
 import { ActionButton, Empty, ErrorNote, Loading, yesNo } from '../../components/bits';
+import { StatusBadge } from '../../components/peil/StatusBadge';
+import { BusyIcon, CheckIcon } from '../../components/Icons';
 import { ago, bytes, dateTime, until } from '../../format';
 import { BACKUP_KIND_LABEL, BACKUP_SCHEDULE_LABEL, BACKUP_STATUS_LABEL, t } from '../../i18n';
 
@@ -214,11 +216,16 @@ export function BackupList() {
                 <tr key={b.id}>
                   <td data-label="Moment">{dateTime(b.created_at)}<div className="small muted break">{b.filename}</div></td>
                   <td data-label="Soort">
-                    <span className={`pill ${b.auto ? 'neutral' : 'cool'}`}>{b.auto ? 'Automatisch' : 'Handmatig'}</span>
+                    <span className="pill neutral">{b.auto ? 'Automatisch' : 'Handmatig'}</span>
                     <div className={`small${isDump(b) ? '' : ' muted'}`} style={isDump(b) ? { fontWeight: 600 } : undefined}>{t(BACKUP_KIND_LABEL, b.kind, b.kind)}</div>
                   </td>
                   <td data-label="Status">
-                    <span className={`state-line ${b.status === 'ok' ? 'ok' : b.status === 'failed' ? 'error' : 'warn'}`}>{t(BACKUP_STATUS_LABEL, b.status)}</span>
+                    {/* Gelukt = neutraal met vinkje (klaar ≠ gezond); Mislukt = Storing; Bezig = info. */}
+                    {b.status === 'failed' ? (
+                      <span className="state-line error"><StatusBadge status="down" label={t(BACKUP_STATUS_LABEL, b.status)} /></span>
+                    ) : (
+                      <span className={`pill ${b.status === 'ok' ? 'ok' : 'info'}`}>{b.status === 'ok' ? <CheckIcon /> : <BusyIcon />}{t(BACKUP_STATUS_LABEL, b.status)}</span>
+                    )}
                     {b.error && <div className="small muted">{b.error}</div>}
                   </td>
                   <td data-label="Versie" className="small">app {b.app_version ?? '?'}<br />schema {b.schema_revision ?? '?'}</td>

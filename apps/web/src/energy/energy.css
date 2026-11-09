@@ -1,12 +1,12 @@
 /* Energy page (verbeterlijst 19, 20, 35, 36, 39). Uses the tokens from styles.css only. */
 
-.en-h2 { font-size: 16px; font-family: var(--font-body); }
+.en-h2 { font-size: 18px; font-family: var(--font-body); }
 .en-big { font-size: 28px; }
 
 /* Period navigation */
 .en-nav { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
 .en-nav-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.en-date input { min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--input-border); background: var(--surface); }
+.en-date input { min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--input-border); background: var(--surface); }
 .en-date input:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
 .en-relative { margin-left: 8px; }
 /* The chosen period's figures (tab panel of the period switch); same spacing as the page itself. */
@@ -15,8 +15,8 @@
 
 /* Meter cards */
 .en-meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: 12px; }
-.en-notes { display: flex; flex-direction: column; gap: 2px; color: var(--warn-ink); }
-.en-meter-rest .en-notes, .en-meter-grid .en-notes { color: var(--muted); }
+.en-notes { display: flex; flex-direction: column; gap: 2px; color: var(--info-ink); }
+.en-meter-rest .en-notes, .en-meter-grid .en-notes { color: var(--muted-foreground); }
 
 /* Chart */
 .en-chart { display: flex; flex-direction: column; gap: 6px; }
@@ -24,29 +24,32 @@
 .en-bars.dense { gap: 3px; }
 .en-col { position: relative; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; min-width: 0; }
 .en-bar { display: flex; flex-direction: column-reverse; gap: 2px; min-height: 0; border-radius: 4px 4px 0 0; overflow: hidden; }
-.en-col.is-incomplete .en-bar { outline: 2px dashed var(--warn); outline-offset: 1px; }
-.en-col.is-running .en-bar { opacity: 0.7; outline: 2px dotted var(--muted); outline-offset: 1px; }
-.en-col.is-future::after { content: ''; display: block; height: 2px; background: var(--border); border-radius: 1px; }
+/* Onvolledig: stippelrand (verouderd/onbekend-vorm) en 45°-arcering (geschat), niet amber (amber = Beperkt). */
+.en-col.is-incomplete .en-bar { outline: 2px dashed var(--stale); outline-offset: 1px; }
+.en-col.is-incomplete .en-bar::after { content: ''; position: absolute; inset: 0; color: var(--card); background-image: repeating-linear-gradient(45deg, currentColor 0 1.5px, transparent 1.5px 6px); pointer-events: none; }
+.en-col.is-incomplete .en-bar { position: relative; }
+.en-col.is-running .en-bar { outline: 2px dotted var(--chart-axis); outline-offset: 1px; }
+.en-col.is-future::after { content: ''; display: block; height: 1px; background: var(--chart-grid); }
 .en-seg { min-height: 1px; }
-.en-seg-airco { background: var(--cool); }
-.en-seg-boiler { background: var(--boiler); }
-.en-seg-other { background: var(--text-2); }
+.en-seg-airco { background: var(--chart-1); }
+.en-seg-boiler { background: var(--chart-3); }
+.en-seg-other { background: var(--chart-label); }
 /* "Overig": a colour with ≥ 3:1 contrast plus hatching, so it is visible without relying on colour alone. */
-.en-seg-rest { background-color: var(--rest); background-image: repeating-linear-gradient(135deg, transparent 0 4px, rgba(255, 255, 255, 0.42) 4px 6px); }
-.en-flag { position: absolute; top: -4px; left: 50%; transform: translateX(-50%); width: 16px; height: 16px; border-radius: 8px; font-size: 11px; font-weight: 700; line-height: 14px; text-align: center; background: var(--warn-bg); color: var(--warn-ink); border: 1px solid var(--warn); }
-.en-axis { display: grid; gap: 8px; font-size: 12px; color: var(--muted); text-align: center; }
+.en-seg-rest { background-color: var(--chart-other); background-image: repeating-linear-gradient(135deg, transparent 0 4px, var(--card) 4px 5.5px); }
+.en-flag { position: absolute; top: -6px; left: 50%; transform: translateX(-50%); width: 20px; height: 20px; border-radius: 10px; font-size: 14px; font-weight: 700; line-height: 16px; text-align: center; background: var(--info-bg); color: var(--info-ink); border: 2px solid var(--info); z-index: 1; }
+.en-axis { display: grid; gap: 8px; font-size: 14px; color: var(--muted-foreground); text-align: center; }
 .en-bars.dense + .en-axis { gap: 3px; }
 .en-axis span { overflow: visible; white-space: nowrap; min-width: 0; }
 
-.en-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--text-2); }
+.en-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 14px; color: var(--text-2); }
 .en-legend li { display: inline-flex; align-items: center; gap: 6px; }
 .en-swatch { width: 14px; height: 14px; border-radius: 3px; display: inline-block; flex-shrink: 0; }
-.en-swatch-incomplete { border: 2px dashed var(--warn); }
-.en-flag-demo { width: 16px; height: 16px; border-radius: 8px; font-size: 11px; font-weight: 700; line-height: 14px; text-align: center; background: var(--warn-bg); color: var(--warn-ink); border: 1px solid var(--warn); display: inline-block; }
+.en-swatch-incomplete { border: 2px dashed var(--stale); background-image: repeating-linear-gradient(45deg, var(--stale-hatch) 0 1.5px, transparent 1.5px 4px); }
+.en-flag-demo { width: 20px; height: 20px; border-radius: 10px; font-size: 14px; font-weight: 700; line-height: 16px; text-align: center; background: var(--info-bg); color: var(--info-ink); border: 2px solid var(--info); display: inline-block; }
 
 .en-table th[scope='row'] { font-weight: 500; color: var(--text); font-size: 14px; white-space: nowrap; }
-.en-row-flag td:last-child { color: var(--warn-ink); }
-.en-note-inline { color: var(--warn-ink); }
+.en-row-flag td:last-child { color: var(--info-ink); }
+.en-note-inline { color: var(--info-ink); }
 
 /* Live power */
 .en-live-total { font-size: 34px; }
@@ -59,7 +62,7 @@
 @media (max-width: 640px) {
   .en-bars { height: 180px; gap: 4px; }
   .en-bars.dense { gap: 2px; }
-  .en-axis { gap: 4px; font-size: 11px; }
+  .en-axis { gap: 4px; font-size: 14px; }
   .en-nav { flex-direction: column; align-items: stretch; }
   .en-big { font-size: 22px; }
   .en-meters { gap: 8px; }

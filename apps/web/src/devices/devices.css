@@ -1,22 +1,20 @@
 /* Devices page (verbeterlijst 8, 15, 24, 26, 28, 29, 43). Tokens from styles.css only. */
 
 .dv-cat { display: flex; flex-direction: column; gap: 10px; }
-.dv-cat-h { font-size: 15px; color: var(--text-2); font-weight: 600; }
+.dv-cat-h { font-size: 16px; color: var(--text-2); font-weight: 600; }
 details.dv-cat > summary { min-height: 44px; }
 .dv-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 12px; align-items: start; }
 
-.dv-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.dv-card.is-offline { border-color: var(--border-strong); }
+.dv-card { border: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.dv-card.is-offline { border: 2px dashed var(--unknown); }
 .dv-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 12px; align-items: flex-start; }
 .dv-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 .dv-badges { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .dv-facts { display: flex; flex-direction: column; gap: 2px; color: var(--text-2); }
-.dv-protected { display: flex; gap: 6px; align-items: flex-start; color: var(--warn-ink); background: var(--warn-bg); border-radius: 10px; padding: 8px 10px; }
-.dv-protected svg { margin-top: 2px; }
 .dv-relay { border-top: 1px solid var(--border); padding-top: 10px; }
 
 .dv-roles .dv-role { padding: 0 0 0 12px; gap: 2px; background: var(--sunken); }
-.dv-roles .dv-unbind { min-height: 44px; padding: 0 10px; font-size: 13px; color: var(--text-2); }
+.dv-roles .dv-unbind { min-height: 44px; padding: 0 10px; font-size: 14px; }
 .dv-role-form, .dv-inline-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
 .dv-role-form .field, .dv-inline-form .field { flex: 1 1 200px; }
 
@@ -25,13 +23,11 @@ details.dv-cat > summary { min-height: 44px; }
 .dv-panel > section:last-child { border-bottom: 0; padding-bottom: 0; }
 .dv-test ul { margin: 0; }
 
-.dv-int h3 { font-size: 15px; }
+.dv-int h3 { font-size: 16px; }
 .dv-int-detail { border-top: 1px solid var(--border); padding-top: 8px; }
 
 .dv-compat-card > summary, .dv-archived > summary { min-height: 44px; }
 .dv-compat-table th[scope='row'] { font-weight: 600; color: var(--text); font-size: 14px; }
 .dv-role-cap { flex-basis: 100%; margin-bottom: -4px; }
-.dv-badges .state-line { font-size: 13px; }
-details.card > summary { list-style-position: inside; }
 .dv-role-form .field, .dv-inline-form .field { min-width: 0; }
 .dv-role-form select, .dv-inline-form select { width: 100%; min-width: 0; max-width: 100%; text-overflow: ellipsis; }

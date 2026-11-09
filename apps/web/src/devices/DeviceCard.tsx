@@ -4,7 +4,10 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { qk } from '../api/keys';
 import type { Compatibility, Device, Room } from '../api/types';
-import { ActionButton, ErrorNote, StateLabel, yesNo } from '../components/bits';
+import { ActionButton, ErrorNote, yesNo } from '../components/bits';
+import { BeleidsSlot } from '../components/peil/BeleidsSlot';
+import { StatusBadge } from '../components/peil/StatusBadge';
+import { LinkedIcon } from '../components/Icons';
 import { ago, temp } from '../format';
 import { COMPATIBILITY_LABEL, LIFECYCLE_LABEL, MODE_LABEL, PROVIDER_LABEL, t } from '../i18n';
 import { RoleControl } from './RoleControl';
@@ -20,18 +23,9 @@ export function SafeLink({ to, children }: { to: string; children: ReactNode }) 
   return useInRouterContext() ? <Link to={to}>{children}</Link> : <a href={to}>{children}</a>;
 }
 
-function LockIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-      <rect x="5" y="11" width="14" height="10" rx="2" />
-      <path d="M8 11V7a4 4 0 018 0v4" />
-    </svg>
-  );
-}
-
 export function CompatBadge({ c }: { c: Compatibility }) {
-  const cls = c === 'tested' ? 'ok' : c === 'unsupported' ? 'error' : 'neutral';
-  return <span className={`pill ${cls} dv-compat`}>{t(COMPATIBILITY_LABEL, c)}</span>;
+  // Validatielabel-stijl (gestippelde mono-tag): compatibiliteit is geen gezondheid.
+  return <span className={`pill dv-compat ${c}`}>{t(COMPATIBILITY_LABEL, c)}</span>;
 }
 
 function Facts({ items }: { items: (string | null | false | undefined)[] }) {
@@ -116,7 +110,12 @@ export function DeviceCard({ d, all, homeId, admin, rooms, onNotice }: { d: Devi
         </div>
         <div className="dv-badges">
           {d.lifecycle !== 'active' && <span className="pill neutral">{t(LIFECYCLE_LABEL, d.lifecycle)}</span>}
-          <span className="small"><StateLabel state={d.online ? 'ok' : 'error'}>{d.online ? 'Online' : `Offline · ${ago(d.last_seen)}`}</StateLabel></span>
+          {/* Verbonden is geen gezondheid: neutraal; niet bereikbaar = Onbekend met de reden ernaast. */}
+          {d.online ? (
+            <span className="pill ok"><LinkedIcon />Online</span>
+          ) : (
+            <span className="state-line unknown"><StatusBadge status="unknown" /><span className="text-sm font-normal">{`Offline · ${ago(d.last_seen)}`}</span></span>
+          )}
           <CompatBadge c={d.compatibility} />
         </div>
       </div>
@@ -129,12 +128,10 @@ export function DeviceCard({ d, all, homeId, admin, rooms, onNotice }: { d: Devi
           d.kind === 'button' && d.details?.buttons !== undefined && `${d.details.buttons} ${d.details.buttons === 1 ? 'knop' : 'knoppen'}${d.details.bridge_rules ? `, ${d.details.bridge_rules} met een regel op de Hue Bridge` : ''}`,
         ]}
       />
-      {d.kind === 'button' && <span className="small"><SafeLink to="/verlichting">Acties van deze knop instellen bij Verlichting</SafeLink></span>}
+      {d.kind === 'button' && <span className="small los-link"><SafeLink to="/verlichting">Acties van deze knop instellen bij Verlichting</SafeLink></span>}
       <RoleControl device={d} all={all} homeId={homeId} admin={admin} />
       {d.protected && (
-        <div className="small dv-protected">
-          <span aria-hidden="true"><LockIcon /></span><span>{PROTECTED_TEXT}</span>
-        </div>
+        <BeleidsSlot className="dv-protected">{PROTECTED_TEXT}</BeleidsSlot>
       )}
       {relay && <RelayStatus relay={relay} protectedDevice={d.protected} />}
       {admin && (

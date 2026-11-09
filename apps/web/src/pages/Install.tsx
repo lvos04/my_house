@@ -58,7 +58,7 @@ function Preflight() {
     <div className="stack">
       <p className="small muted" style={{ margin: 0 }}>
         De server controleert de achtergronddienst, Zigbee (MQTT en USB-dongle), of apparaten automatisch te vinden zijn, de klok, het thuisadres en de back-ups.
-        Gele punten zijn geen blokkade; die los je in de volgende stappen op.
+        Punten met Beperkt zijn geen blokkade; die los je in de volgende stappen op.
       </p>
       <div><button type="button" className="btn" onClick={() => q.refetch()} disabled={q.isFetching}>{q.isFetching ? 'Controleren…' : 'Opnieuw controleren'}</button></div>
       {q.isLoading && <Loading label="Controleren…" />}
@@ -66,7 +66,7 @@ function Preflight() {
       {data && (
         <>
           <div className={`note ${data.ready ? 'ok' : 'warn'}`} role="status">
-            {data.ready ? 'Klaar om te installeren.' : 'Er is nog iets dat aandacht nodig heeft (rood). De wizard helpt je verder.'}
+            {data.ready ? 'Klaar om te installeren.' : 'Er is nog iets dat aandacht nodig heeft (Storing). De wizard helpt je verder.'}
           </div>
           <div className="grid-status wide">{data.checks.map((c) => <CheckCard key={c.key} check={c} />)}</div>
         </>

@@ -1,4 +1,3 @@
-import '../lights/lights.css';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { qk } from '../api/keys';
@@ -6,6 +5,7 @@ import type { HueButton, Lights, Zone } from '../api/types';
 import { useHome } from '../state';
 import { useCan } from '../user';
 import { Empty, ErrorNote, Loading } from '../components/bits';
+import { UnknownIcon } from '../components/Icons';
 import { GroupCard } from '../lights/GroupCard';
 import { ButtonCard } from '../lights/ButtonEditor';
 import { buildNames } from '../lights/mapping';
@@ -23,9 +23,9 @@ function LampList({ lights }: { lights: Lights }) {
             <span>{l.name}{l.model ? <span className="small muted"> · {l.model}</span> : null}</span>
             <span className="row" style={{ gap: 8 }}>
               {!l.reachable ? (
-                <span className="pill error">Niet bereikbaar</span>
+                <span className="pill unknown"><UnknownIcon />Niet bereikbaar</span>
               ) : (
-                <span className={`pill ${l.on ? 'ok' : 'neutral'}`}>{l.on ? `Aan${l.brightness !== null ? ` · ${l.brightness}%` : ''}` : 'Uit'}</span>
+                <span className={`pill ${l.on ? 'light' : 'neutral'}`}>{l.on ? `Aan${l.brightness !== null ? ` · ${l.brightness}%` : ''}` : 'Uit'}</span>
               )}
             </span>
             {l.last_command && (l.last_command.status === 'failed' || l.last_command.status === 'denied') && (
@@ -61,7 +61,8 @@ export function LightsPage() {
         <div><span className="eyebrow">Philips Hue</span><h1>Verlichting</h1></div>
       </header>
       {unreachable.length > 0 && (
-        <p className="note warn" style={{ margin: 0 }}>
+        // Een lamp die niet antwoordt is Onbekend (stippel), geen Beperkt (Peil §4.1 regel 4).
+        <p className="note unknown" style={{ margin: 0 }}>
           Niet bereikbaar: {unreachable.map((l) => l.name).join(', ')}. Staat de lichtschakelaar uit, of is de lamp buiten bereik van de bridge?
         </p>
       )}

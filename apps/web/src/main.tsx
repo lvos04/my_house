@@ -1,13 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import '@fontsource/inter/400.css';
-import '@fontsource/inter/500.css';
-import '@fontsource/inter/600.css';
-import '@fontsource/space-grotesk/500.css';
-import '@fontsource/space-grotesk/600.css';
-import './styles.css';
-// Peil fase 1 (docs/ontwerp/PEIL_MIGRATIE.md §8.1): de aliaslaag na styles.css zet de oude variabelen op Peil-waarden.
-import './peil-alias.css';
+// Peil (docs/ontwerp/PEIL_MIGRATIE.md §8): Tailwind 4 + ontwerptaal.css, de oude CSS en de aliaslaag in vaste lagen.
+import './peil/peil.css';
 import { App } from './App';
 import { stripReloadParam } from './api/client';
 

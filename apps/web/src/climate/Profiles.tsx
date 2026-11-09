@@ -1,7 +1,6 @@
 // Comfort profiles (verbeterlijst 45): a named comfort setting (target, band, mode, energy priority,
 // optional week schedule) that can be applied to a zone. Editing a profile re-applies it to the zones
 // that follow it; saving an own schedule for a zone detaches it from its profile.
-import './climate.css';
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';

@@ -75,8 +75,10 @@ export const ROLE_LABEL: Dict = {
 export const LIFECYCLE_LABEL: Dict = { active: 'In gebruik', archived: 'Gearchiveerd', replaced: 'Vervangen' };
 export const COMPATIBILITY_LABEL: Dict = { tested: 'getest', untested: 'nog niet getest', unsupported: 'niet ondersteund' };
 
-export const CHECK_STATE_LABEL: Dict = { ok: 'In orde', warn: 'Let op', error: 'Probleem', unknown: 'Onbekend', not_configured: 'Niet ingesteld' };
-export const SEVERITY_LABEL: Dict = { info: 'Info', warn: 'Waarschuwing', error: 'Storing' };
+// Vaste Peil-statuswoorden (ONTWERPTAAL §11.1); "Niet ingesteld" is neutraal (open ≠ storing).
+export const CHECK_STATE_LABEL: Dict = { ok: 'Gezond', warn: 'Beperkt', error: 'Storing', unknown: 'Onbekend', not_configured: 'Niet ingesteld' };
+// Ernst van meldingen: vaste Peil-ernstwoorden (ErnstLabel); ernst is geen gezondheid.
+export const SEVERITY_LABEL: Dict = { info: 'Info', warn: 'Middel', error: 'Hoog' };
 export const UNIT_STATUS_LABEL: Dict = { not_linked: 'Geen airco gekoppeld', offline: 'Niet bereikbaar', online: 'Bereikbaar' };
 
 export const COMMAND_STATUS_LABEL: Dict = {

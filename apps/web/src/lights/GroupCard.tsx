@@ -5,6 +5,7 @@ import type { GroupCommand, LightGroup, Scene } from '../api/types';
 import { applyCommandSnapshot, runCommand, useLatestCommand } from '../commands';
 import { ActionButton, ErrorNote } from '../components/bits';
 import { BrightnessSlider } from './BrightnessSlider';
+import { BulbIcon, BulbOffIcon, UnknownIcon } from '../components/Icons';
 
 export function groupSummary(g: LightGroup): string {
   if (g.lights_total > 0) return `${g.lights_on} van ${g.lights_total} aan`;
@@ -48,20 +49,22 @@ export function GroupCard({ group, scenes, control }: { group: LightGroup; scene
           </span>
         </div>
         {control ? (
+          // Zichtbaar "Aan"/"Uit" staat vooraan in de toegankelijke naam (WCAG 2.5.3), daarna de handeling.
           <ActionButton
             className={`btn${group.on ? ' primary' : ''}`}
             aria-pressed={group.on}
-            aria-label={`${group.name} ${group.on ? 'uitzetten' : 'aanzetten'}`}
+            aria-label={`${group.on ? 'Aan' : 'Uit'} — ${group.name} ${group.on ? 'uitzetten' : 'aanzetten'}`}
             disabled={disabled}
             onClick={() => send.mutate({ body: { on: !group.on }, label: group.on ? 'Uitzetten' : 'Aanzetten' })}
           >
+            {group.on ? <BulbIcon /> : <BulbOffIcon />}
             {group.on ? 'Aan' : 'Uit'}
           </ActionButton>
         ) : (
-          <span className={`pill ${group.on ? 'ok' : 'neutral'}`}>{group.on ? 'Aan' : 'Uit'}</span>
+          <span className={`pill ${group.on ? 'light' : 'neutral'}`}>{group.on ? <BulbIcon /> : <BulbOffIcon />}{group.on ? 'Aan' : 'Uit'}</span>
         )}
       </div>
-      {!group.reachable && <span className="pill error lt-unreach">Niet bereikbaar</span>}
+      {!group.reachable && <span className="pill unknown lt-unreach"><UnknownIcon /><span>Onbekend — </span>niet bereikbaar</span>}
       {group.reachable && unreachableLamps > 0 && (
         <span className="small lt-warn">{unreachableLamps === 1 ? '1 lamp' : `${unreachableLamps} lampen`} niet bereikbaar (geen stroom of buiten bereik)</span>
       )}

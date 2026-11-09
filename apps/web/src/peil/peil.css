@@ -1,0 +1,22 @@
+/* Peil fase 2 — de enige CSS-ingang van de web-app (docs/ontwerp/PEIL_MIGRATIE.md §8.2, ADR-0009).
+   Lagen (laag → hoog): theme · base (Peil-basis uit ontwerptaal.css) · legacy (de bestaande CSS tot fase 3) ·
+   components (recepten bij de haakklassen) · utilities (Tailwind). Zo winnen utilities van de oude CSS en
+   de oude CSS van de Peil-basis. Tailwinds preflight wordt bewust NIET geladen: de bestaande markup leunt op
+   de standaardmarges van p/ul/ol/img; preflight zou de opbouw veranderen, niet alleen het uiterlijk
+   (ADR-0009). De variabelen van ontwerptaal.css staan buiten een laag en winnen dus van de aliaslaag. */
+@layer theme, base, legacy, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@import "./ontwerptaal.css";
+
+@import "../styles.css" layer(legacy);
+@import "../climate/climate.css" layer(legacy);
+@import "../lights/lights.css" layer(legacy);
+@import "../energy/energy.css" layer(legacy);
+@import "../devices/devices.css" layer(legacy);
+/* Aliaslaag (fase 1): de oude variabelenamen op Peil-waarden, tot fase 3. */
+@import "../peil-alias.css" layer(legacy);
+
+@import "./componenten.css";

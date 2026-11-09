@@ -2,9 +2,10 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { qk } from '../../api/keys';
 import type { IntegrationCheckDetails, StatusCheck } from '../../api/types';
-import { Dot, ErrorNote, Loading, yesNo } from '../../components/bits';
+import { ErrorNote, Loading, yesNo } from '../../components/bits';
+import { StatusBadge, statusVan } from '../../components/peil/StatusBadge';
 import { APP_VERSION, ago, dateTime } from '../../format';
-import { CHECK_STATE_LABEL, HEALTH_FIELD_LABEL, t } from '../../i18n';
+import { HEALTH_FIELD_LABEL, t } from '../../i18n';
 
 const SERVER_ORDER = ['database', 'worker', 'worker_loops', 'maintenance', 'safe_mode', 'restore', 'time', 'disk', 'backup'];
 
@@ -54,10 +55,10 @@ export function CheckCard({ check }: { check: StatusCheck }) {
   return (
     <div className="card tight live check-card" data-testid={`check-${check.key}`}>
       <span className="card-sub">{check.label}</span>
+      {/* SysteemStatusPaneel-rij (Peil C-04): StatusBadge met vast woord + reden in inkt. */}
       <span className={`state-line ${check.state}`}>
-        <Dot state={check.state} />
-        <span className="sr-only">{CHECK_STATE_LABEL[check.state] ?? check.state}: </span>
-        <span>{check.detail || CHECK_STATE_LABEL[check.state]}</span>
+        <StatusBadge status={statusVan(check.state)} />
+        {check.detail ? <span className="font-normal">{check.detail}</span> : null}
       </span>
       {rows.length > 0 && (
         <details className="check-details">

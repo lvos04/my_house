@@ -59,7 +59,7 @@ export function ZigbeeSetup({ homeId }: { homeId: string }) {
           <p style={{ margin: 0 }}><StateLabel state={zigbee.state}>{zigbee.detail || 'Zigbee ingesteld'}</StateLabel></p>
           <div className="row">
             <ActionButton className="btn primary" disabled={join.isPending || open} onClick={() => join.mutate()}>Koppelen starten (2 min)</ActionButton>
-            {open && <span className="pill cool" role="timer" aria-live="off" data-testid="zigbee-countdown">Koppelvenster open, nog {mmss(Math.max(0, Math.round((openUntil! - now) / 1000)))}</span>}
+            {open && <span className="pill info cijfers" role="timer" aria-live="off" data-testid="zigbee-countdown">Koppelvenster open, nog {mmss(Math.max(0, Math.round((openUntil! - now) / 1000)))}</span>}
           </div>
           {open && <p className="small muted" style={{ margin: 0 }} role="status">Houd nu de koppelknop van de sensor ingedrukt tot het lampje knippert. Nieuwe sensoren verschijnen hieronder.</p>}
           {join.error && <ErrorNote error={join.error} />}
@@ -68,7 +68,7 @@ export function ZigbeeSetup({ homeId }: { homeId: string }) {
       {fresh.length > 0 && (
         <ul className="meter-list" aria-label="Nieuw gevonden sensoren">
           {fresh.map((d) => (
-            <li key={d.id}><span><strong>{d.name}</strong><span className="small muted"> · {t(KIND_LABEL, d.kind)}{d.model ? ` · ${d.model}` : ''}</span></span><span className="pill ok">Nieuw</span></li>
+            <li key={d.id}><span><strong>{d.name}</strong><span className="small muted"> · {t(KIND_LABEL, d.kind)}{d.model ? ` · ${d.model}` : ''}</span></span><span className="pill info">Nieuw</span></li>
           ))}
         </ul>
       )}

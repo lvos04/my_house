@@ -100,7 +100,7 @@ export function PairPhone() {
 
 function clientState(c: Client): { text: string; cls: string } {
   if (c.revoked) return { text: 'ingetrokken', cls: 'neutral' };
-  if (c.expired) return { text: 'verlopen', cls: 'warn' };
+  if (c.expired) return { text: 'verlopen', cls: 'neutral' };
   return { text: 'actief', cls: 'ok' };
 }
 

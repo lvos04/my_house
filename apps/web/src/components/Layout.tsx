@@ -12,7 +12,8 @@ import { APP_VERSION } from '../format';
 import { USER_ROLE_LABEL } from '../i18n';
 import { OfflineBanner } from './OfflineBanner';
 import { NextSteps, NoHomeSetup } from './NoHome';
-import { BoltIcon, BulbIcon, DeviceIcon, GearIcon, GridIcon, HelpIcon, HomeIcon, MenuIcon, ThermoIcon, TrendIcon, UserIcon } from './Icons';
+import { BoltIcon, BulbIcon, DeviceIcon, GearIcon, GridIcon, HelpIcon, HomeIcon, LogOutIcon, MenuIcon, ThermoIcon, TrendIcon, UserIcon } from './Icons';
+import { Button } from './ui/button';
 
 /** Routes that work without a home (the rest show the "Woning aanmaken" form until there is one). */
 export const HOME_FREE_PATHS = ['/systeem', '/account', '/installatie', '/help'];
@@ -81,7 +82,7 @@ function MoreSheet({ user, onClose, onLogout, busy }: { user: User; onClose: () 
       <div ref={ref} className="sheet" role="dialog" aria-modal="true" aria-labelledby="more-h" onClick={(e) => e.stopPropagation()}>
         <div className="section-head">
           <h2 id="more-h">Meer</h2>
-          <button type="button" className="btn ghost" onClick={onClose}>Sluiten</button>
+          <Button variant="stil" onClick={onClose}>Sluiten</Button>
         </div>
         <nav aria-label="Meer pagina's" className="sheet-nav">
           {MORE_NAV.map(({ to, label, icon: Icon }) => (
@@ -93,7 +94,7 @@ function MoreSheet({ user, onClose, onLogout, busy }: { user: User; onClose: () 
         </nav>
         <div className="sheet-foot">
           <span className="small muted">Ingelogd als <strong>{user.username}</strong> ({USER_ROLE_LABEL[user.role] ?? user.role})</span>
-          <button type="button" className="btn" disabled={busy} onClick={onLogout}>Uitloggen</button>
+          <Button disabled={busy} onClick={onLogout}><LogOutIcon />Uitloggen</Button>
           <span className="small muted">Versie {APP_VERSION}</span>
         </div>
       </div>
@@ -173,10 +174,10 @@ export function Layout({ user }: { user: User }) {
         <div className="sidebar-foot">
           <span>Ingelogd als <strong>{user.username}</strong> ({USER_ROLE_LABEL[user.role] ?? user.role})</span>
           <div className="row" style={{ gap: 8 }}>
-            <Link className="btn small" to="/account">Account</Link>
-            <Link className="btn small" to="/help">Help</Link>
+            <Button asChild size="klein"><Link to="/account">Account</Link></Button>
+            <Button asChild size="klein"><Link to="/help">Help</Link></Button>
           </div>
-          <button type="button" className="btn" disabled={logout.isPending} onClick={() => logout.mutate()}>Uitloggen</button>
+          <Button disabled={logout.isPending} onClick={() => logout.mutate()}><LogOutIcon />Uitloggen</Button>
           <span className="small">Versie {APP_VERSION}</span>
         </div>
       </nav>

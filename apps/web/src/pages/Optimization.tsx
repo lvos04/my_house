@@ -1,4 +1,3 @@
-import '../climate/climate.css';
 import { useId, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
@@ -6,6 +5,7 @@ import { qk } from '../api/keys';
 import type { AdaptiveModel, AdaptiveStatus, Experiment, ExperimentResult, Profile, Zone, ZoneRestored } from '../api/types';
 import { useHome } from '../state';
 import { ActionButton, Empty, ErrorNote, Loading } from '../components/bits';
+import { CheckIcon } from '../components/Icons';
 import { dateTime } from '../format';
 import { EXPERIMENT_STATUS_LABEL, ZONE_RESTORED_TEXT, t } from '../i18n';
 import { FormError, useClimateCan } from '../climate/common';
@@ -41,7 +41,7 @@ function AdaptiveCard({ zone, status }: { zone: Zone; status: AdaptiveStatus }) 
     <article className="card" aria-labelledby={`ad-${zone.id}`}>
       <div className="section-head" style={{ alignItems: 'center' }}>
         <h3 id={`ad-${zone.id}`}>{zone.name}</h3>
-        <span className={`pill ${status.enabled ? 'heat' : 'neutral'}`}>{status.enabled ? 'Adaptief aan' : 'Adaptief uit'}</span>
+        <span className={`pill ${status.enabled ? 'ok' : 'neutral'}`}>{status.enabled ? 'Adaptief aan' : 'Adaptief uit'}</span>
       </div>
       <p className="small muted" style={{ margin: 0 }}>
         Max. bijsturing ±{nl(status.max_offset_c)}°, harde grenzen blijven gelden, standaard uit.
@@ -49,12 +49,14 @@ function AdaptiveCard({ zone, status }: { zone: Zone; status: AdaptiveStatus }) 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div className="section-head small">
           <span>Baseline (passief meten)</span>
-          <span className={b.ready ? '' : 'muted'} style={b.ready ? { color: 'var(--ok)', fontWeight: 600 } : undefined}>
+          {/* "Klaar" is geen gezondheid: inkt + vinkje, nooit groen (Peil §4.1 regel 1). */}
+          <span className={b.ready ? 'inline-flex items-center gap-1 font-semibold' : 'muted'}>
+            {b.ready && <CheckIcon />}
             {b.ready ? 'Klaar' : `${b.running_samples} van ${b.required} kwartieren`}
           </span>
         </div>
         <div className="band" role="progressbar" aria-label={`Baseline ${zone.name}`} aria-valuemin={0} aria-valuemax={b.required} aria-valuenow={Math.min(b.running_samples, b.required)}>
-          <div className="band-fill" style={{ left: 0, width: `${pct}%`, background: b.ready ? 'var(--ok)' : 'var(--cool)' }} />
+          <div className="band-fill" style={{ left: 0, width: `${pct}%`, background: 'var(--primary)' }} />
         </div>
         <span className="small muted">{b.samples} kwartieren gemeten{b.since ? ` sinds ${dateTime(b.since)}` : ''}; alleen kwartieren waarin de airco draait tellen mee.</span>
       </div>
@@ -282,7 +284,8 @@ function NewExperiment({ homeId, zones, profiles }: { homeId: string; zones: Zon
   );
 }
 
-const STATUS_PILL: Record<string, string> = { defined: 'neutral', running: 'ok', paused: 'warn', finished: 'info', stopped: 'neutral' };
+// Experimentstatus: neutrale labels; gepauzeerd = info (pauze ≠ beperkt, loopt ≠ gezond; PEIL_MIGRATIE §6).
+const STATUS_PILL: Record<string, string> = { defined: 'neutral', running: 'ok', paused: 'info', finished: 'neutral', stopped: 'neutral' };
 
 /** Stopping or deleting an auto-apply experiment that still runs: by default the zone gets back the
  * profile and schedule it had before the experiment (restore); or it keeps what it has now. */

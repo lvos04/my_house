@@ -16,6 +16,11 @@ const GEPIND: { app: string; bron: string; sha256: string }[] = [
     bron: 'design/ontwerptaal/aliaslagen/my_house.css',
     sha256: '18495346cb556e48753c99260424338ce344ef17d92003655c39c69988f8c302',
   },
+  {
+    app: 'apps/web/src/peil/ontwerptaal.css',
+    bron: 'design/ontwerptaal/ontwerptaal.css',
+    sha256: 'b384b3d074c7c892d8e5a8320b1bdcd3d8612d98b3a05daa9a9e6d12560d020e',
+  },
 ];
 
 describe('Peil-kopieën (herkomst en drift)', () => {
