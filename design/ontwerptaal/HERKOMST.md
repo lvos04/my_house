@@ -5,8 +5,10 @@ ontwerpreview 1.0.0 → 1.1.0). De bron van waarheid wordt na de overdracht
 `ai-server-manager/docs/platform-v2/ONTWERPTAAL.md` + `ai-server-manager/design/ontwerptaal/` (contract 1.2 §13). Tot die
 commit bestaat staat de bron in de map `definitief/` van de ontwerptaal (buiten de repos).
 
-**Status in my_house:** alleen referentie. Niets hiervan wordt nu door de app geïmporteerd; de omzetting staat in
-[`docs/ontwerp/PEIL_MIGRATIE.md`](../../docs/ontwerp/PEIL_MIGRATIE.md).
+**Status in my_house:** de omzetting staat in [`docs/ontwerp/PEIL_MIGRATIE.md`](../../docs/ontwerp/PEIL_MIGRATIE.md).
+De web-app gebruikt kopieën met herkomstkop in `apps/web/src/` (§14 daar). De Android-app genereert zijn kleuren en
+typografie uit `tokens.json` hieronder (`apps/android/tools/peil_tokens.py` → `PeilTokens.kt`, met dezelfde sha256 in de
+kop); `PeilTokensTest` en de CI-stap `peil_tokens.py --check` falen als die niet meer overeenkomen (ADR-0010).
 
 | Bestand | Gebruik in my_house | sha256 van het bronbestand |
 |---|---|---|

@@ -15,6 +15,7 @@ vastgelegd).
 | `na/web/` | web-app ná de omzetting, dezelfde schermen, breedtes en thema's als `voor/web/`, plus `thema-donker-gekozen-*` (systeem licht, in de app Donker gekozen) | 230 |
 | `na/web/index.json` | zelfde velden als `voor/web/index.json` | — |
 | `na/web/axe-na.json` | dezelfde axe- en eigen metingen als `axe-voor.json`, ná de omzetting | — |
+| `android/` | native app ná de omzetting (stap 4), dezelfde schermen, breedtes en thema's als `voor/android/`, plus `start-storing-*` (achtergronddienst zonder hartslag) en `peil-onderdelen*` (alle bouwstenen) | 80 |
 
 Namen: `<scherm>-<licht|donker>-<breedte>.png`, dezelfde vorm als de Peil-prototypes (`definitief/shots/`).
 
@@ -98,3 +99,17 @@ De afdrukken van `klimaat-bediening`, `klimaat-weekschema`, `klimaat-verouderd`,
 "Schema vandaag", de rij van het weekschema); de rest komt uit de volledige ronde daarvoor. Beide rondes draaiden tegen
 dezelfde testgegevens.
 
+## Android ná de omzetting (9 november 2026, stap 4)
+
+**Met Paparazzi in de repo** (`apps/android/app/src/test/java/nl/huis/smarthome/peil/PeilAfdrukken.kt`): dezelfde
+echte composables als bij de nulmeting, nu met de echte schil (`HuisSchil`) in plaats van een kopie, dezelfde fictieve
+API-gegevens (`app/src/test/resources/peil/`, uit de testopstelling hierboven) en een vaste klok (9 nov 2026 16:06:30,
+Amsterdam), zodat relatieve tijden en de begroeting bij elke run gelijk zijn. De 56 gewone afdrukken (14 × licht/donker
+× 360/393 dp) zijn ook de referentiebeelden van de CI-test (`app/src/test/snapshots/images/`, onverkleind); hier staan
+ze verkleind met `nabewerk.py`, plus de 24 lange `-volledig`-versies (drie delen onder elkaar, lege ruimte weggeknipt).
+Opnieuw maken: zie [`werkwijze/README.md`](werkwijze/README.md) › Android.
+
+Beperkingen (eerlijk): geen echte telefoon of emulator (op deze machine geen KVM-toegang), dus lettertype, statusbalk en
+randen kunnen op een toestel afwijken — **NIET GEVALIDEERD (hardware)**. De ViewModel is een nep-object (wat pas na een
+netwerkverzoek verschijnt, blijft in de laadtoestand; het weekschema van de slaapkamer toont "Weekschema laden…"). De
+camera start niet in Paparazzi ("De camera kan niet worden gestart"). De widget (Glance) is niet afgedrukt.

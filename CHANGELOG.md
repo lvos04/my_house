@@ -22,6 +22,20 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
 - Toegankelijkheid: lichttegels en de knoppen "Gezien" en Aan/Uit hebben een naam die met de zichtbare tekst begint
   (axe 0 op alle hoofdschermen in licht en donker).
 
+### Uiterlijk (Android-app naar de ontwerptaal Peil)
+
+- **Zelfde beeldtaal als de web-app**: kleuren en typografie komen uit de Peil-tokens (licht en donker volgen het
+  systeem), lucide-iconen in plaats van Material-iconen, kaarten met een rand in plaats van een schaduw, hoeken van
+  8 dp, tekst minstens 14 sp en knoppen minstens 48 dp hoog. Primaire knoppen zijn blauw.
+- **Status altijd als icoon + woord + vorm** (Gezond · Beperkt · Storing · Onbekend · Verouderd), meldingen met een
+  ernstlabel (Info · Middel · Hoog), de opdrachtregel met een eigen icoon per uitkomst. "Let op" heet nu
+  **"Wat actie nodig heeft"**, een systeemfout **"Storing in het systeem"** en meetkwaliteit "ontbreekt" heet
+  **"geen meting"**, net als in de web-app.
+- **Geen verbinding**: de app dimt niets meer; elke kaart krijgt een gestippelde rand en "Verouderd · Laatst bekend ·
+  15:47". Ook de widget toont "Verouderd" met een icoon in plaats van grijze tekst.
+- Boiler en verwarmen hebben eigen kleuren in de grafiek (waren in donker bijna gelijk); "Thuis", "gemeten" en
+  "Opgeslagen" zijn niet meer groen. Het koppelscherm volgt nu het thema van de telefoon.
+
 ### Toegevoegd
 
 - **Themaknop Systeem / Licht / Donker** in de zijbalk en het menu "Meer" (alleen op dit apparaat bewaard).
@@ -30,6 +44,9 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
 
 ### Tests
 
+- Android: schermafdruktests met Paparazzi (licht en donker, 360 en 393 dp; CI vergelijkt ze met de vastgelegde
+  beelden), unittests voor de Peil-statusvorm, het contrast van alle gebruikte kleurparen en de tokens tegen
+  `design/ontwerptaal/tokens.json`.
 - Browsertests met axe-core op de hoofdschermen (licht en donker, 390 en 1440 px) en de Peil-matrix van 320 tot
   1440 px; unittests voor thema, Hub-adres en de nieuwe componenten; infra-unittest voor het startscript van de
   webcontainer.
@@ -45,6 +62,8 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
 - Nulmeting: schermafdrukken van de huidige stand (web 222, Android 68) en een axe-meting in
   `docs/screenshots/peil/voor/`; afdrukken en axe-meting ná de omzetting in `docs/screenshots/peil/na/`.
 - Versie-gepinde kopie van Peil 1.1.0 met herkomst en sha256 in `design/ontwerptaal/`.
+- Android-app naar Peil: `docs/adr/ADR-0010-peil-android-compose.md`, uitvoering in `docs/ontwerp/PEIL_MIGRATIE.md`
+  §15, afdrukken in `docs/screenshots/peil/android/`.
 
 ### Gerepareerd
 

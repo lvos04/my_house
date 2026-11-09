@@ -1,6 +1,6 @@
 # my_house naar Peil — omzettingsontwerp (stap 2)
 
-**Status:** web-app gebouwd (fase 1 en fase 2 + beide toevoegingen, stap 3 — zie [§14](#14-uitvoering-web-stap-3)); Android nog niet · **Peil-versie:** 1.1.0 (gepinde kopie in [`design/ontwerptaal/`](../../design/ontwerptaal/HERKOMST.md)) ·
+**Status:** web-app gebouwd (fase 1 en fase 2 + beide toevoegingen, stap 3 — zie [§14](#14-uitvoering-web-stap-3)); Android-app gebouwd (stap 4 — zie [§15](#15-uitvoering-android-stap-4)) · **Peil-versie:** 1.1.0 (gepinde kopie in [`design/ontwerptaal/`](../../design/ontwerptaal/HERKOMST.md)) ·
 **Datum:** 9 november 2026 · **Rol:** design-agent (contract §13: ontwerpstap vóór de UI-bouwstap) ·
 **Afdrukken vooraf:** [`docs/screenshots/peil/voor/`](../screenshots/peil/README.md) · **Besluit:** [ADR-0008](../adr/ADR-0008-peil-omzetting-twee-fasen.md)
 
@@ -13,7 +13,8 @@ Inhoud: [1 Uitgangspunten](#1-uitgangspunten-wat-verandert-en-wat-niet) · [2 Nu
 [5 Componenten](#5-componenten-web) · [6 Per scherm](#6-per-scherm-web) · [7 Grafieken](#7-grafieken-dataviz) ·
 [8 Fasen](#8-de-twee-fasen-web) · [9 Toevoegingen](#9-toegestane-toevoegingen) · [10 Microcopy](#10-microcopy-nl) ·
 [11 Android](#11-android-peil-in-jetpack-compose) · [12 Tests](#12-welke-tests-geraakt-worden) ·
-[13 Open punten](#13-risicos-open-punten-en-contractpunten) · [14 Uitvoering web](#14-uitvoering-web-stap-3)
+[13 Open punten](#13-risicos-open-punten-en-contractpunten) · [14 Uitvoering web](#14-uitvoering-web-stap-3) ·
+[15 Uitvoering Android](#15-uitvoering-android-stap-4)
 
 ---
 
@@ -641,3 +642,27 @@ preflight, `aria-disabled`), de tabelweergave bij "Laatste 24 uur" (§13 punt 6,
 geladen pagina offline" (§13 punt 5), een echte schermlezer en echte apparaten (**NIET GEVALIDEERD (hardware)**) en het
 `HUB_URL`-veld in een Custom App-formulier (komt met de alles-in-één image, ADR-0004).
 
+---
+
+## 15. Uitvoering Android (stap 4)
+
+**Gebouwd op 9 november 2026** (branch `ccr-c133d7a0-kuz1cv`); besluiten in
+[ADR-0010](../adr/ADR-0010-peil-android-compose.md). Afdrukken ná de omzetting:
+[`docs/screenshots/peil/android/`](../screenshots/peil/README.md) (zelfde namen als `voor/android/`, plus
+`start-storing-*` en `peil-onderdelen*`).
+
+| Onderdeel (§11) | Uitgevoerd | Afwijking van dit ontwerp (en waarom) |
+|---|---|---|
+| Tokens (§11.1) | `tools/peil_tokens.py` → `ui/theme/PeilTokens.kt` (alle kleurtokens licht/donker, typografierollen, radius; sha256 van `tokens.json` in de kop); `HuisColors` haalt elke waarde uit Peil; `PeilTokensTest` (drift) en CI-stap `peil_tokens.py --check` | ook de overige Material-rollen (secondary, tertiary, inverse, surfaceTint) uit Peil, anders verschijnt het standaardpaars |
+| Typografie en vormen | rollen meta 14 · body 16 · titel 18 · sectie 20 · pagina 24 · waarde 30 · held 48 (alleen de draaiknop zonder lettergrootteschaal); radius 8 dp, risico 4, dialoog 12; kaarten met 1 dp rand zonder schaduw | de kaartwaarde (30 sp) schaalt nu wél mee met de lettergrootte (was 48 sp vast) |
+| Status (§11.2) | `PeilStatus`/`StatusBadge`: icoon + vast woord + vorm, gestippeld voor Onbekend/Verouderd/Niet gekoppeld; systeemregel, "Wat actie nodig heeft", zonechip, lichttegel, route, verbindingsbanner, opdrachtregel, meldingen (ErnstLabel), meetkwaliteit en widget omgezet; geen `alpha` meer | de rand van een gekozen modus en een brandende lichtgroep in de domein-*inkt* (contrast, ADR-0010 punt 5); het vinkje boven het woord |
+| Iconen | 32 lucide-iconen als `res/drawable/lucide_*.xml` via `tools/lucide_naar_vector.mjs` (lucide-react 1.70.0, zelfde als web), licentie in `assets/licenties/`; `material-icons-extended` verwijderd | — |
+| Aanraakdoelen | `PeilKnop` ≥ 48 dp, −/+ 48/56 dp, modus/ventilator 52 dp, tabs 48 dp, belknop 48 dp | — |
+| Schermen (§11.3) | Start, Klimaat (tabs met 4 dp-onderstreping in `primary`), Energie (uurstaven `chart-1/3/other`, onvolledig = arcering + stippel), Meer (ErnstLabel, `destructive` voor Ontkoppelen), Koppelen, Niet meer gekoppeld | het koppelscherm volgt nu het thema (was altijd donker); het zoekkader over het camerabeeld blijft wit |
+| Tests (§12) | Paparazzi 1.3.5 in de repo (alleen test): 14 afdrukken × licht/donker × 360/393 dp = 56 referentiebeelden, CI `:app:verifyPaparazziDebug`; `PeilUiTest` (8), `PeilContrastTest` (5), `PeilTokensTest` (4); bestaande tests core 82 + app 36 ongewijzigd groen | — |
+
+**Niet gedaan (eerlijk):** een rooktest op een emulator of echte telefoon (geen KVM-toegang voor deze gebruiker op de
+testmachine; **NIET GEVALIDEERD (hardware)**), TalkBack, de widget in een afdruk (Glance rendert niet in Paparazzi) en
+een automatische meting van aanraakdoelen in de gerenderde schermen (de maten staan als constanten in de code). Getallen
+en eenheden houden de bestaande notatie (`20,6°` zonder vaste spatie): dat is opmaak in `:core`, die getest wordt en
+buiten deze stap blijft.

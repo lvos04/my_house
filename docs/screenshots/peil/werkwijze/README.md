@@ -15,7 +15,8 @@ maakt een `tmp/`-map naast zichzelf.
 | `fixtures.mjs` | JSON van de echte API (`overview`, `energy/summary`, `schedule`) voor de Android-afdrukken |
 | `axe.mjs` | nulmeting axe-core 4.14 + eigen metingen → `axe-voor.json` |
 | `nabewerk.py` | Android-delen samenvoegen/inkorten en alle PNG's verkleinen (vlakkleuren exact, met controle) |
-| `android/PeilVoorShots.kt` | Paparazzi-test voor de Android-afdrukken (alleen in een kopie van `apps/android`) |
+| `android/PeilVoorShots.kt` | Paparazzi-test voor de Android-afdrukken van de nulmeting (alleen in een kopie van `apps/android`) |
+| `android/verzamel.py` | Android ná de omzetting: afdrukken uit het Paparazzi-rapport halen en de `-volledig`-delen samenvoegen |
 
 **Vereist (deze machine, 9 nov 2026):** Python 3.12-venv met `pip install -e integrations -e apps/api` (pad staat
 bovenin `run_shots.sh` als `PY`), PostgreSQL 16 op 127.0.0.1:5432 waarin de rol databases mag maken, een gebouwde
@@ -38,3 +39,17 @@ axe-core (pad in `axe.mjs`), Pillow + numpy voor `nabewerk.py`. Pas de absolute 
 
 In fase 2 hoort Paparazzi als testafhankelijkheid in de repo zelf (zie `docs/ontwerp/PEIL_MIGRATIE.md` §12); dan
 vervalt de kopie.
+
+## Android ná de omzetting (stap 4, Paparazzi in de repo)
+
+Sinds stap 4 staat de test in de repo (`apps/android/app/src/test/java/nl/huis/smarthome/peil/PeilAfdrukken.kt`,
+ADR-0010); er is geen kopie meer nodig. Vanuit `apps/android` (JDK 17, Android SDK 35; op deze machine onder
+`flock …/gradle.lock` met `--max-workers=4` en `-Dorg.gradle.jvmargs=-Xmx2g`):
+
+```sh
+./gradlew :app:recordPaparazziDebug                                        # referentiebeelden (56) vastleggen
+./gradlew :app:verifyPaparazziDebug                                        # vergelijken (zo doet CI het)
+PEIL_VOLLEDIG=1 ./gradlew :app:testDebugUnitTest --tests 'nl.huis.smarthome.peil.*'   # ook de lange delen
+python android/verzamel.py ../../apps/android/app/build/reports/paparazzi/debug <ruwe map>
+python nabewerk.py <ruwe map> ../android                                   # inkorten en verkleinen
+```

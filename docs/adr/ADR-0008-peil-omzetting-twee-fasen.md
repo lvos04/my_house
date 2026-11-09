@@ -1,7 +1,8 @@
 # ADR-0008 — Omzetting naar de ontwerptaal Peil in twee fasen, met twee toegestane toevoegingen
 
 - **Status:** aangenomen (2026-11-09): fase 1, fase 2 en beide toevoegingen gebouwd in de web-app; uitwerking en
-  afwijkingen in [ADR-0009](ADR-0009-peil-fase-2-tailwind-shadcn-react18.md). De Android-app (punten 5 en 6) volgt nog.
+  afwijkingen in [ADR-0009](ADR-0009-peil-fase-2-tailwind-shadcn-react18.md). De Android-app (punten 5 en 6) is gebouwd
+  in stap 4; uitwerking in [ADR-0010](ADR-0010-peil-android-compose.md).
 - **Context-ID's:** geen eigen Excel-ID (uiterlijk); contract 1.2 §13 (ontwerptaal) en §2.3 punt 5 (uiterlijk van de
   bestaande apps); Peil 1.1.0 (`design/ontwerptaal/`), ONTWERPTAAL §13.5; besluiten van de gebruiker O-09, O-11,
   "my_house fase 2 op Tailwind 4 + shadcn in de React 18-variant", "ook de Android-apps".

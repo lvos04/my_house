@@ -6,14 +6,16 @@ Native Android-app (Kotlin + Jetpack Compose) voor Smart Home Control. De app pr
 
 | Onderdeel | Functie |
 |---|---|
-| **Start** | Klimaatzones met +/− (één eindwaarde, verzonden 0,8 s na de laatste tik), verlichtingsgroepen aan/uit, huidig verbruik, meldingenbadge. Bovenaan altijd een korte **systeemregel**, ook als alles goed gaat: "Laatste back-up 5 uur geleden · Achtergronddienst actief" (en "Veilige modus aan" als die aan staat), met een stip in groen, oranje of rood. Daaronder een blok **"Let op"** als de achtergronddienst geen hartslag geeft, de veilige modus aan staat, de laatste back-up te oud is of er onderhoud loopt (zelfde regels als het overzicht in de web-app) |
+| **Start** | Klimaatzones met +/− (één eindwaarde, verzonden 0,8 s na de laatste tik), verlichtingsgroepen aan/uit, huidig verbruik, meldingenbadge. Bovenaan altijd een korte **systeemregel**, ook als alles goed gaat: "Laatste back-up 5 uur geleden · Achtergronddienst actief" (en "Veilige modus aan" als die aan staat), met een status als icoon + woord: Gezond, Beperkt of Storing. Daaronder een blok **"Wat actie nodig heeft"** als de achtergronddienst geen hartslag geeft, de veilige modus aan staat, de laatste back-up te oud is of er onderhoud loopt (zelfde regels als het overzicht in de web-app) |
 | **Klimaat** | Doeltemperatuur, modus (geblokkeerde modi met uitleg, bv. gedeelde buitenunit), volgende wijziging, het **weekschema** (alleen lezen: dagen met dezelfde blokken samen, het blok dat nu geldt gemarkeerd; aanpassen in de web-app onder Klimaat), 2 uur handmatig, "Terug naar schema" (ook als de airco uit staat) |
-| **Energie** | Verbruik per uur en per meter, met kwaliteitslabel (gemeten / afgeleid / geschat / ontbreekt) |
+| **Energie** | Verbruik per uur en per meter, met kwaliteitslabel (gemeten / afgeleid / geschat / geen meting) |
 | **Meer** | Meldingen, verbinding, adressen, Cloudflare Access, ontkoppelen |
-| **Widget** | Temperatuur van twee zones en het huidige vermogen, met de leeftijd van de gegevens. Ouder dan 30 minuten: gedimd en "Verouderd". De achtergrondtaak ververst de widget ook als de app dicht is. |
+| **Widget** | Temperatuur van twee zones en het huidige vermogen, met de leeftijd van de gegevens. Ouder dan 30 minuten: "Verouderd" met een klokicoon, de waarden in de kleur voor verouderde gegevens. De achtergrondtaak ververst de widget ook als de app dicht is. |
 | **Meldingen** | Elke 15 minuten haalt de telefoon open waarschuwingen en fouten op en toont nieuwe als melding. Een opgeloste of gezien-gemelde melding verdwijnt weer uit de meldingenbalk. Geen Google-pushdienst nodig. |
 
-Zonder verbinding toont de app de laatst bekende waarden gedimd, met het tijdstip, en zijn alle knoppen uitgeschakeld.
+Zonder verbinding toont de app de laatst bekende waarden met "Verouderd · Laatst bekend · 15:47" en een gestippelde rand (niet gedimd), en zijn alle knoppen uitgeschakeld.
+
+**Uiterlijk.** De app volgt de ontwerptaal **Peil** van het platform, net als de web-app: kleuren en lettermaten komen uit `design/ontwerptaal/tokens.json` (gegenereerd naar `ui/theme/PeilTokens.kt` met `tools/peil_tokens.py`), iconen zijn lucide (`res/drawable/lucide_*.xml`, gemaakt met `tools/lucide_naar_vector.mjs`; licentie in `assets/licenties/`). Licht en donker volgen de instelling van de telefoon. Een status is altijd icoon + woord + vorm, nooit alleen kleur; knoppen zijn minstens 48 dp hoog. Zie `docs/adr/ADR-0010-peil-android-compose.md`.
 
 **Commando's.** Een opdracht (temperatuur, modus, lamp) krijgt van de server een nummer. De app toont "Verzonden · wacht op bevestiging…" tot de server meldt wat er gebeurde: *bevestigd*, *opnieuw proberen*, *verzonden maar niet bevestigd*, *mislukt* of *geweigerd* (met de reden). Komt er binnen de tijd geen uitkomst, dan zegt de app dat ook. Staat de airco uit of is hij niet bereikbaar, dan zijn +/−, ventilator en "Handmatig 2 uur" uit; alleen een moduskeuze kan hem starten.
 
@@ -51,8 +53,10 @@ Zelf bouwen kan met Android Studio (Ladybug of nieuwer) of met JDK 17 + Android 
 
 ```bash
 cd apps/android
-./gradlew :core:test :app:testDebugUnitTest :app:assembleDebug
+./gradlew :core:test :app:verifyPaparazziDebug :app:assembleDebug
 ```
+
+`verifyPaparazziDebug` draait alle unit-tests van de app en vergelijkt de schermafdrukken (Paparazzi; licht en donker, 360 en 393 dp) met `app/src/test/snapshots/images/`. Na een bewuste wijziging van het uiterlijk: `./gradlew :app:recordPaparazziDebug` en de nieuwe beelden in de review bekijken. Met `PEIL_VOLLEDIG=1` maakt de test ook de lange versies voor `docs/screenshots/peil/android/` (zie `docs/screenshots/peil/werkwijze/README.md`).
 
 ## Koppelen
 
