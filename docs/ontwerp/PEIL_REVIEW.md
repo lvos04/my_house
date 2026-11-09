@@ -269,3 +269,33 @@ plekken van ronde 1 en daarna alleen nog de ondernavigatie.
   namen), plus `verlichting-offline-nooit-geladen-later-*`.
 - Scripts: `docs/screenshots/peil/werkwijze/review.mjs` en `analyse.py` (alleen documentatie; draaien buiten de repo
   met `PEIL_SCRIPT=review.mjs ./run_shots.sh <map>`, zie `werkwijze/README.md`).
+
+---
+
+## 10. QA-controle na de review (stap 6, 9 november 2026)
+
+Onafhankelijke controle van de hele Peil-ronde op regressies, tests en eerlijkheid. Gemeten op HEAD `daeb9d3` en
+daarna op de reparaties hieronder.
+
+- **Geen functionele regressie.** De OpenAPI-export is byte-gelijk aan `docs/openapi/my_house.openapi.json`; dat bestand is
+  sinds `210614b` (vóór de ronde) niet veranderd. Routes, API-paden in de web-app, `data-testid`'s en rollen zijn gelijk
+  of alleen aangevuld (3 nieuwe testid's, 2 extra `role`'s). `apps/api/src` veranderde alleen in migratie 0004 (stap 1,
+  ADR-0007); `integrations/`, compose, `install.sh` en `render_truenas.py` niet. Versie 0.2.0, geen tag, geen release.
+- **Gerepareerd:**
+  1. De offline-browsertest (`08-offline`) controleerde "nooit groen offline", maar zonder worker stond er online geen
+     enkele "Gezond" op het overzicht: los gedraaid was de controle altijd waar. De test zet nu een verse hartslag van
+     de achtergronddienst (testgegevens via `seed.py`) en eist online ≥ 1 Gezond en offline evenveel Verouderd. Tegen
+     een build zonder de offline-regel (ADR-0011) faalt hij nu (`Expected: 0, Received: 1`).
+  2. Het startscript van de webcontainer liet verkorte schrijfwijzen van loopback door naar `/_shc/config.json`
+     (`0177.0.0.1`, `2130706433`, `0x7f.1`, `[0::1]`, `[0:0:0:0:0:ffff:7f00:1]`). De browser verborg de link al
+     (`src/hub.ts` gebruikt de URL-parser), maar het logboek zweeg. Nu: IPv4 alleen als `a.b.c.d`, IPv6-loopback en `::`
+     in elke schrijfwijze geweigerd; getest met de host-shell én in de image (busybox).
+  3. OpenAPI-driftcontrole als pytest (`apps/api/tests/test_openapi_snapshot.py`, contract §5): een
+     alleen-uiterlijk-ronde blijft zo aantoonbaar zonder API-wijziging.
+  4. Documentatie: de README zei nog "nog niet gebouwd"; de Android-README noemde `Theme.kt` als bron van de kleuren;
+     `thema.js` verwees naar een testbestand dat niet bestaat; HERKOMST.md vergelijkt nu ook met de bron in
+     ai-server-manager (`172ee87`).
+- **Niet veranderd, wel gemeld:** `/_shc/config.json` is zonder inloggen leesbaar. Via een tunnel zonder Cloudflare
+  Access ziet een buitenstaander dus het (interne) Hub-adres. Contract 1.2 noemt `HUB_URL` niet geheim, maar het blijft
+  een keuze voor de gebruiker (ADR-0008 punt 3).
+- Echte apparaten, een schermlezer en Android op toestel of emulator: nog steeds **NIET GEVALIDEERD (hardware)**.

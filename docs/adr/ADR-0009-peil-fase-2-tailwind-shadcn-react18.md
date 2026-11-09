@@ -52,7 +52,8 @@ die op haakklassen, rollen en toegankelijke namen leunen.
 9. **"Terug naar de Hub" (O-11):** de webcontainer schrijft bij de start uit de **optionele** omgevingsvariabele
    `HUB_URL` het bestand dat nginx als `/_shc/config.json` serveert (`apps/web/docker/15-shc-config.sh`, regels van
    contract 1.2 §3.2: alleen `http(s)://host[:poort]`, geen pad/query/fragment/inloggegevens, geen loopback,
-   link-local, `0.0.0.0`, `::` of IPv4-gemapte adressen). Ongeldig of leeg = `{}`; de container start altijd. De app
+   link-local, `0.0.0.0`, `::` of IPv4-gemapte adressen; een IPv4-adres alleen als `a.b.c.d`, zodat verkorte vormen als
+   `0177.0.0.1` of `2130706433` niet langs de loopbackcontrole komen; QA-review). Ongeldig of leeg = `{}`; de container start altijd. De app
    controleert het adres opnieuw (`src/hub.ts`) en toont de link alleen dan, in hetzelfde tabblad. Geen API-route,
    geen OpenAPI-wijziging, geen nieuw installatieveld in deze ronde.
 
