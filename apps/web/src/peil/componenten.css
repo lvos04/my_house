@@ -239,6 +239,13 @@
   details > summary::before { transform: rotate(-90deg); transition: transform var(--duration-fast) var(--ease-standard); }
   details[open] > summary::before { transform: none; }
 
+  /* Lijngrafiek "Laatste 24 uur" (review stap 5, Peil §10): graden links naast de rasterlijnen, begin- en
+     eindtijd eronder, in chart-label (≥ 7:1), 14 px, tabelcijfers. */
+  .hist-plot { @apply relative pl-11; }
+  .hist-y { @apply absolute inset-y-0 left-0 w-9; }
+  .hist-tick { @apply absolute right-0 -translate-y-1/2 text-sm leading-5 whitespace-nowrap text-chart-label; }
+  .hist-x { @apply mt-1 flex justify-between pl-11 text-sm text-chart-label; }
+
   /* ── Overig ────────────────────────────────────────────────────────────────────────────────────── */
   .progress { @apply rounded-full border border-input bg-muted; }
   .progress-fill { background: var(--primary); }

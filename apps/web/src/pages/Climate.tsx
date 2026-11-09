@@ -57,7 +57,7 @@ function ScheduleBar({ zoneId, tz }: { zoneId: string; tz?: string }) {
   );
 }
 
-export function HistoryChart({ history }: { history: ZoneHistory }) {
+export function HistoryChart({ history, tz }: { history: ZoneHistory; tz?: string }) {
   const all = [...history.temperature, ...history.target];
   if (!all.length) return <Empty>Nog geen geschiedenis.</Empty>;
   const ts = all.map(([tt]) => new Date(tt).getTime());
@@ -70,14 +70,31 @@ export function HistoryChart({ history }: { history: ZoneHistory }) {
   const line = history.temperature.map(([tt, v], i) => `${i ? 'L' : 'M'}${x(tt).toFixed(1)} ${y(v).toFixed(1)}`).join(' ');
   const step = history.target.map(([tt, v], i) => (i ? `H${x(tt).toFixed(1)} V${y(v).toFixed(1)}` : `M${x(tt).toFixed(1)} ${y(v).toFixed(1)}`)).join(' ') + (history.target.length ? ` H${W}` : '');
   const last = history.temperature.at(-1);
+  // Review stap 5 (Peil §10, dataviz): de lijn had geen schaal. Rasterlijnen op ronde graden (stap 1 of 2) met
+  // het getal ernaast, en begin- en eindtijd onder de grafiek; tekst in teksttokens (chart-label), nooit de reekskleur.
+  const stap = v1 - v0 > 6 ? 2 : 1;
+  const ticks: number[] = [];
+  for (let v = Math.ceil(v0 / stap) * stap; v <= v1; v += stap) ticks.push(v);
+  const pct = (v: number) => `${((y(v) / H) * 100).toFixed(2)}%`;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 180 }} role="img" aria-label={`Gemeten en doeltemperatuur, bereik ${v0}° tot ${v1}°${last ? `, laatste meting ${temp(last[1])}` : ''}`} preserveAspectRatio="none">
-      {/* Peil §7: rasterlijnen chart-grid; gemeten = chart-1 (2 px); doel = grenslijn in inkt (chart-limit),
-          gestreepte traplijn — geen "verwarmen"-kleur, want het doel is geen reeks verwarmen. */}
-      {[0.25, 0.5, 0.75].map((f) => <line key={f} x1="0" x2={W} y1={H * f} y2={H * f} stroke="var(--chart-grid)" vectorEffect="non-scaling-stroke" />)}
-      <path d={step} fill="none" stroke="var(--chart-limit)" strokeWidth="1.5" strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />
-      <path d={line} fill="none" stroke="var(--chart-1)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-    </svg>
+    <div className="hist-chart">
+      <div className="hist-plot">
+        <div className="hist-y" aria-hidden="true">
+          {ticks.map((v) => <span key={v} className="hist-tick cijfers" style={{ top: pct(v) }}>{`${v}°`}</span>)}
+        </div>
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 180 }} role="img" aria-label={`Gemeten en doeltemperatuur, bereik ${v0}° tot ${v1}°${last ? `, laatste meting ${temp(last[1])}` : ''}`} preserveAspectRatio="none">
+          {/* Peil §7: rasterlijnen chart-grid; gemeten = chart-1 (2 px); doel = grenslijn in inkt (chart-limit),
+              gestreepte traplijn — geen "verwarmen"-kleur, want het doel is geen reeks verwarmen. */}
+          {ticks.map((v) => <line key={v} x1="0" x2={W} y1={y(v)} y2={y(v)} stroke="var(--chart-grid)" vectorEffect="non-scaling-stroke" />)}
+          <path d={step} fill="none" stroke="var(--chart-limit)" strokeWidth="1.5" strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />
+          <path d={line} fill="none" stroke="var(--chart-1)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+        </svg>
+      </div>
+      <div className="hist-x cijfers" aria-hidden="true">
+        <span>{time(new Date(t0), tz)}</span>
+        <span>{time(new Date(t1), tz)}</span>
+      </div>
+    </div>
   );
 }
 
@@ -216,7 +233,7 @@ function ControlTab({ zone, tz, homeId, onLink }: { zone: Zone; tz?: string; hom
             <span><span className="swatch" style={{ background: 'repeating-linear-gradient(90deg, var(--chart-limit) 0 4px, transparent 4px 6px)', height: 2 }} aria-hidden="true" />Doel</span>
           </div>
         </div>
-        {history.data ? <HistoryChart history={history.data} /> : history.isLoading ? <Loading /> : <ErrorNote error={history.error} />}
+        {history.data ? <HistoryChart history={history.data} tz={tz} /> : history.isLoading ? <Loading /> : <ErrorNote error={history.error} />}
         <h3 style={{ marginTop: 8, fontSize: 16 }}>Aanpassingslog</h3>
         {log.data?.length ? (
           <ul className="log">
