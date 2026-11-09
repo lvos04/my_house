@@ -1,4 +1,4 @@
-// Schermafdrukken "voor" van de my_house-web-app (Peil-migratie, stap 2). Gestart door run_shots.sh,
+// Schermafdrukken "voor"/"na" van de my_house-web-app (Peil-migratie, stap 2). Gestart door run_shots.sh,
 // dat de echte stack (PostgreSQL + API + vite preview) op vrije poorten heeft gestart.
 // Uitvoer: <PEIL_OUT>/<scherm>-<licht|donker>-<breedte>.png (volledige pagina) + index.json.
 import { execFileSync } from 'node:child_process';
@@ -8,7 +8,8 @@ import { chromium, request as pwRequest } from '/home/transcode/truenas-v2/.loka
 const BASE = process.env.E2E_BASE_URL;
 const OUT = process.env.PEIL_OUT;
 const WIDTHS = (process.env.PEIL_WIDTHS || '360,390,768,1440').split(',').map(Number);
-const THEMES = ['licht', 'donker'];
+const THEMES = (process.env.PEIL_THEMAS || 'licht,donker').split(',');
+const ALLEEN = process.env.PEIL_ALLEEN ? new Set(process.env.PEIL_ALLEEN.split(',')) : null;
 const ADMIN = { username: 'beheerder', password: 'lang-genoeg-wachtwoord-2026' };
 const index = [];
 const log = (...a) => console.error('[shots]', ...a);
@@ -19,6 +20,14 @@ function seed(cmd, data) {
 }
 
 const browser = await chromium.launch();
+
+// "Terug naar de Hub" (O-11): vite preview kent /_shc/config.json niet (nginx maakt het uit HUB_URL). Voor de
+// afdrukken een FICTIEF adres (.invalid bestaat nooit), zodat de link zichtbaar is. Geen echt Hub-adres.
+const HUB_FICTIEF = 'https://hub.voorbeeld.invalid:8443';
+async function hubRoute(page) {
+  if (process.env.PEIL_GEEN_HUB === '1') return;
+  await page.route('**/_shc/config.json', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ hub_url: HUB_FICTIEF }) }));
+}
 
 async function newContext(width, theme, storageState) {
   return browser.newContext({
@@ -75,9 +84,11 @@ async function snap(page, name, theme, width, note = '', full = true) {
 
 /** Maakt voor elk thema × breedte een context, opent de route en maakt de afdruk. */
 async function capture(name, path, storageState, { before, note, widths = WIDTHS, full = true } = {}) {
+  if (ALLEEN && !ALLEEN.has(name)) return;
   for (const theme of THEMES) for (const w of widths) {
     const ctx = await newContext(w, theme, storageState);
     const page = await ctx.newPage();
+    await hubRoute(page);
     await page.goto(path);
     await settle(page);
     if (before) await before(page, w);
@@ -143,12 +154,22 @@ const pages = [
 ];
 for (const [name, path, note] of pages) await capture(name, path, adminState, { note });
 
-// Meer-sheet (alleen < 820 px, daarboven is er een zijbalk)
+// Meer-sheet (alleen < 1024 px, daarboven is er een zijbalk)
 await capture('meer-sheet', '/', adminState, {
-  widths: WIDTHS.filter((w) => w < 820),
+  widths: WIDTHS.filter((w) => w < 1024),
   note: 'Mobiel: Meer-sheet open (alleen het venster)',
   full: false,
   before: async (page) => { await page.getByRole('button', { name: 'Meer' }).click(); await page.waitForTimeout(300); },
+});
+// Themaknop (O-09): systeem licht, gekozen Donker (de knop in de stand Donker).
+await capture('thema-donker-gekozen', '/', adminState, {
+  note: 'Systeem licht, in de app Donker gekozen (themaknop)',
+  full: false,
+  before: async (page, w) => {
+    if (w < 1024) await page.getByRole('button', { name: 'Meer' }).click();
+    await page.getByRole('group', { name: 'Thema' }).getByRole('button', { name: 'Donker' }).click();
+    await page.waitForTimeout(300);
+  },
 });
 // Kijker (alleen lezen)
 const viewerApi = await pwRequest.newContext({ baseURL: BASE });
@@ -162,10 +183,12 @@ await capture('overzicht-verouderd', '/', adminState, { note: 'Sensorwaarden en 
 await capture('klimaat-verouderd', `/klimaat?zone=${wk.id}&tab=bediening`, adminState, { note: 'Woonkamer met verouderde sensorwaarde' });
 
 // ---------------------------------------------------------------- 6. offline (API gestopt)
+if (!ALLEEN || ALLEEN.has('overzicht-offline')) {
 const open = [];
 for (const theme of THEMES) for (const w of WIDTHS) {
   const ctx = await newContext(w, theme, adminState);
   const page = await ctx.newPage();
+  await hubRoute(page);
   await page.goto(`/klimaat?zone=${wk.id}&tab=bediening`);
   await settle(page);
   await page.locator('a[href="/"]:visible').first().click();
@@ -190,6 +213,7 @@ for (const o of open) {
   await snap(o.page, 'verlichting-offline-nooit-geladen', o.theme, o.w, 'API gestopt: pagina die nog nooit geladen was blijft op "Laden…" staan');
 }
 for (const o of open) await o.ctx.close();
+}
 await capture('server-onbereikbaar', '/', undefined, { note: 'API gestopt, nieuwe sessie: "De server is niet bereikbaar"' });
 
 writeFileSync(`${OUT}/index.json`, JSON.stringify(index, null, 1) + '\n');

@@ -1,7 +1,9 @@
 # Werkwijze: hulpscripts voor de Peil-afdrukken
 
-Alleen documentatie: hiermee zijn de afdrukken in `../voor/` gemaakt, en met dezelfde scripts komen later
-`../na-fase-1/` en `../na-fase-2/` (zelfde namen, zodat voor en na naast elkaar te leggen zijn). CI gebruikt ze niet,
+Alleen documentatie: hiermee zijn de afdrukken in `../voor/` en `../na/` gemaakt (zelfde namen, zodat voor en na
+naast elkaar te leggen zijn). Sinds stap 3 kent `shots.mjs` ook `PEIL_ALLEEN=<scherm>,…` (alleen die schermen),
+`PEIL_THEMAS=licht|donker` en `PEIL_GEEN_HUB=1` (geen nagespeeld Hub-adres); `axe.mjs` schrijft naar
+`PEIL_AXE_NAAM` (standaard `axe-voor.json`). CI gebruikt ze niet,
 de app importeert ze niet. **Kopieer deze map naar een plek buiten de repo voordat je ze draait**: `run_shots.sh`
 maakt een `tmp/`-map naast zichzelf.
 

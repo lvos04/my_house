@@ -1,0 +1,2302 @@
+[
+ {
+  "file": "eerste-start-beheerder-licht-360.png",
+  "scherm": "eerste-start-beheerder",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/",
+  "h1": "Beheerder aanmaken",
+  "overloop_px": 0,
+  "opmerking": "Lege database: beheerder aanmaken (AuthPage mode=setup)"
+ },
+ {
+  "file": "eerste-start-beheerder-licht-390.png",
+  "scherm": "eerste-start-beheerder",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/",
+  "h1": "Beheerder aanmaken",
+  "overloop_px": 0,
+  "opmerking": "Lege database: beheerder aanmaken (AuthPage mode=setup)"
+ },
+ {
+  "file": "eerste-start-beheerder-licht-768.png",
+  "scherm": "eerste-start-beheerder",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/",
+  "h1": "Beheerder aanmaken",
+  "overloop_px": 0,
+  "opmerking": "Lege database: beheerder aanmaken (AuthPage mode=setup)"
+ },
+ {
+  "file": "eerste-start-beheerder-licht-1440.png",
+  "scherm": "eerste-start-beheerder",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/",
+  "h1": "Beheerder aanmaken",
+  "overloop_px": 0,
+  "opmerking": "Lege database: beheerder aanmaken (AuthPage mode=setup)"
+ },
+ {
+  "file": "eerste-start-beheerder-donker-360.png",
+  "scherm": "eerste-start-beheerder",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/",
+  "h1": "Beheerder aanmaken",
+  "overloop_px": 0,
+  "opmerking": "Lege database: beheerder aanmaken (AuthPage mode=setup)"
+ },
+ {
+  "file": "eerste-start-beheerder-donker-390.png",
+  "scherm": "eerste-start-beheerder",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/",
+  "h1": "Beheerder aanmaken",
+  "overloop_px": 0,
+  "opmerking": "Lege database: beheerder aanmaken (AuthPage mode=setup)"
+ },
+ {
+  "file": "eerste-start-beheerder-donker-768.png",
+  "scherm": "eerste-start-beheerder",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/",
+  "h1": "Beheerder aanmaken",
+  "overloop_px": 0,
+  "opmerking": "Lege database: beheerder aanmaken (AuthPage mode=setup)"
+ },
+ {
+  "file": "eerste-start-beheerder-donker-1440.png",
+  "scherm": "eerste-start-beheerder",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/",
+  "h1": "Beheerder aanmaken",
+  "overloop_px": 0,
+  "opmerking": "Lege database: beheerder aanmaken (AuthPage mode=setup)"
+ },
+ {
+  "file": "inloggen-licht-360.png",
+  "scherm": "inloggen",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/",
+  "h1": "Inloggen",
+  "overloop_px": 0,
+  "opmerking": "Uitgelogd: inlogscherm (AuthPage mode=login)"
+ },
+ {
+  "file": "inloggen-licht-390.png",
+  "scherm": "inloggen",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/",
+  "h1": "Inloggen",
+  "overloop_px": 0,
+  "opmerking": "Uitgelogd: inlogscherm (AuthPage mode=login)"
+ },
+ {
+  "file": "inloggen-licht-768.png",
+  "scherm": "inloggen",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/",
+  "h1": "Inloggen",
+  "overloop_px": 0,
+  "opmerking": "Uitgelogd: inlogscherm (AuthPage mode=login)"
+ },
+ {
+  "file": "inloggen-licht-1440.png",
+  "scherm": "inloggen",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/",
+  "h1": "Inloggen",
+  "overloop_px": 0,
+  "opmerking": "Uitgelogd: inlogscherm (AuthPage mode=login)"
+ },
+ {
+  "file": "inloggen-donker-360.png",
+  "scherm": "inloggen",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/",
+  "h1": "Inloggen",
+  "overloop_px": 0,
+  "opmerking": "Uitgelogd: inlogscherm (AuthPage mode=login)"
+ },
+ {
+  "file": "inloggen-donker-390.png",
+  "scherm": "inloggen",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/",
+  "h1": "Inloggen",
+  "overloop_px": 0,
+  "opmerking": "Uitgelogd: inlogscherm (AuthPage mode=login)"
+ },
+ {
+  "file": "inloggen-donker-768.png",
+  "scherm": "inloggen",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/",
+  "h1": "Inloggen",
+  "overloop_px": 0,
+  "opmerking": "Uitgelogd: inlogscherm (AuthPage mode=login)"
+ },
+ {
+  "file": "inloggen-donker-1440.png",
+  "scherm": "inloggen",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/",
+  "h1": "Inloggen",
+  "overloop_px": 0,
+  "opmerking": "Uitgelogd: inlogscherm (AuthPage mode=login)"
+ },
+ {
+  "file": "woning-aanmaken-licht-360.png",
+  "scherm": "woning-aanmaken",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/",
+  "h1": "Woning aanmaken",
+  "overloop_px": 0,
+  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)"
+ },
+ {
+  "file": "woning-aanmaken-licht-390.png",
+  "scherm": "woning-aanmaken",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/",
+  "h1": "Woning aanmaken",
+  "overloop_px": 0,
+  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)"
+ },
+ {
+  "file": "woning-aanmaken-licht-768.png",
+  "scherm": "woning-aanmaken",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/",
+  "h1": "Woning aanmaken",
+  "overloop_px": 0,
+  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)"
+ },
+ {
+  "file": "woning-aanmaken-licht-1440.png",
+  "scherm": "woning-aanmaken",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/",
+  "h1": "Woning aanmaken",
+  "overloop_px": 0,
+  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)"
+ },
+ {
+  "file": "woning-aanmaken-donker-360.png",
+  "scherm": "woning-aanmaken",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/",
+  "h1": "Woning aanmaken",
+  "overloop_px": 0,
+  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)"
+ },
+ {
+  "file": "woning-aanmaken-donker-390.png",
+  "scherm": "woning-aanmaken",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/",
+  "h1": "Woning aanmaken",
+  "overloop_px": 0,
+  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)"
+ },
+ {
+  "file": "woning-aanmaken-donker-768.png",
+  "scherm": "woning-aanmaken",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/",
+  "h1": "Woning aanmaken",
+  "overloop_px": 0,
+  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)"
+ },
+ {
+  "file": "woning-aanmaken-donker-1440.png",
+  "scherm": "woning-aanmaken",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/",
+  "h1": "Woning aanmaken",
+  "overloop_px": 0,
+  "opmerking": "Ingelogd, nog geen woning (NoHomeSetup)"
+ },
+ {
+  "file": "overzicht-licht-360.png",
+  "scherm": "overzicht",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Overzicht met zones, licht, energie vandaag en meldingen"
+ },
+ {
+  "file": "overzicht-licht-390.png",
+  "scherm": "overzicht",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Overzicht met zones, licht, energie vandaag en meldingen"
+ },
+ {
+  "file": "overzicht-licht-768.png",
+  "scherm": "overzicht",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Overzicht met zones, licht, energie vandaag en meldingen"
+ },
+ {
+  "file": "overzicht-licht-1440.png",
+  "scherm": "overzicht",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Overzicht met zones, licht, energie vandaag en meldingen"
+ },
+ {
+  "file": "overzicht-donker-360.png",
+  "scherm": "overzicht",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Overzicht met zones, licht, energie vandaag en meldingen"
+ },
+ {
+  "file": "overzicht-donker-390.png",
+  "scherm": "overzicht",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Overzicht met zones, licht, energie vandaag en meldingen"
+ },
+ {
+  "file": "overzicht-donker-768.png",
+  "scherm": "overzicht",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Overzicht met zones, licht, energie vandaag en meldingen"
+ },
+ {
+  "file": "overzicht-donker-1440.png",
+  "scherm": "overzicht",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Overzicht met zones, licht, energie vandaag en meldingen"
+ },
+ {
+  "file": "klimaat-bediening-licht-360.png",
+  "scherm": "klimaat-bediening",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)"
+ },
+ {
+  "file": "klimaat-bediening-licht-390.png",
+  "scherm": "klimaat-bediening",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)"
+ },
+ {
+  "file": "klimaat-bediening-licht-768.png",
+  "scherm": "klimaat-bediening",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)"
+ },
+ {
+  "file": "klimaat-bediening-licht-1440.png",
+  "scherm": "klimaat-bediening",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)"
+ },
+ {
+  "file": "klimaat-bediening-donker-360.png",
+  "scherm": "klimaat-bediening",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)"
+ },
+ {
+  "file": "klimaat-bediening-donker-390.png",
+  "scherm": "klimaat-bediening",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)"
+ },
+ {
+  "file": "klimaat-bediening-donker-768.png",
+  "scherm": "klimaat-bediening",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)"
+ },
+ {
+  "file": "klimaat-bediening-donker-1440.png",
+  "scherm": "klimaat-bediening",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Woonkamer verwarmt (airco aan, sensor vers)"
+ },
+ {
+  "file": "klimaat-uit-conflict-licht-360.png",
+  "scherm": "klimaat-uit-conflict",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/klimaat?zone=5677aa6a-10e4-4edb-9ee9-e4430f4a970f&tab=bediening",
+  "h1": "Slaapkamer",
+  "overloop_px": 0,
+  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit"
+ },
+ {
+  "file": "klimaat-uit-conflict-licht-390.png",
+  "scherm": "klimaat-uit-conflict",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/klimaat?zone=5677aa6a-10e4-4edb-9ee9-e4430f4a970f&tab=bediening",
+  "h1": "Slaapkamer",
+  "overloop_px": 0,
+  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit"
+ },
+ {
+  "file": "klimaat-uit-conflict-licht-768.png",
+  "scherm": "klimaat-uit-conflict",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/klimaat?zone=5677aa6a-10e4-4edb-9ee9-e4430f4a970f&tab=bediening",
+  "h1": "Slaapkamer",
+  "overloop_px": 0,
+  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit"
+ },
+ {
+  "file": "klimaat-uit-conflict-licht-1440.png",
+  "scherm": "klimaat-uit-conflict",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/klimaat?zone=5677aa6a-10e4-4edb-9ee9-e4430f4a970f&tab=bediening",
+  "h1": "Slaapkamer",
+  "overloop_px": 0,
+  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit"
+ },
+ {
+  "file": "klimaat-uit-conflict-donker-360.png",
+  "scherm": "klimaat-uit-conflict",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/klimaat?zone=5677aa6a-10e4-4edb-9ee9-e4430f4a970f&tab=bediening",
+  "h1": "Slaapkamer",
+  "overloop_px": 0,
+  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit"
+ },
+ {
+  "file": "klimaat-uit-conflict-donker-390.png",
+  "scherm": "klimaat-uit-conflict",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/klimaat?zone=5677aa6a-10e4-4edb-9ee9-e4430f4a970f&tab=bediening",
+  "h1": "Slaapkamer",
+  "overloop_px": 0,
+  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit"
+ },
+ {
+  "file": "klimaat-uit-conflict-donker-768.png",
+  "scherm": "klimaat-uit-conflict",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/klimaat?zone=5677aa6a-10e4-4edb-9ee9-e4430f4a970f&tab=bediening",
+  "h1": "Slaapkamer",
+  "overloop_px": 0,
+  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit"
+ },
+ {
+  "file": "klimaat-uit-conflict-donker-1440.png",
+  "scherm": "klimaat-uit-conflict",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/klimaat?zone=5677aa6a-10e4-4edb-9ee9-e4430f4a970f&tab=bediening",
+  "h1": "Slaapkamer",
+  "overloop_px": 0,
+  "opmerking": "Slaapkamer: airco uit; koelen geblokkeerd door gedeelde buitenunit"
+ },
+ {
+  "file": "klimaat-weekschema-licht-360.png",
+  "scherm": "klimaat-weekschema",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/klimaat?zone=752c0ed4-d160-4ec5-9f78-aab01c183b76&tab=schema",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Weekschema-editor"
+ },
+ {
+  "file": "klimaat-weekschema-licht-390.png",
+  "scherm": "klimaat-weekschema",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/klimaat?zone=752c0ed4-d160-4ec5-9f78-aab01c183b76&tab=schema",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Weekschema-editor"
+ },
+ {
+  "file": "klimaat-weekschema-licht-768.png",
+  "scherm": "klimaat-weekschema",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/klimaat?zone=752c0ed4-d160-4ec5-9f78-aab01c183b76&tab=schema",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Weekschema-editor"
+ },
+ {
+  "file": "klimaat-weekschema-licht-1440.png",
+  "scherm": "klimaat-weekschema",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/klimaat?zone=752c0ed4-d160-4ec5-9f78-aab01c183b76&tab=schema",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Weekschema-editor"
+ },
+ {
+  "file": "klimaat-weekschema-donker-360.png",
+  "scherm": "klimaat-weekschema",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/klimaat?zone=752c0ed4-d160-4ec5-9f78-aab01c183b76&tab=schema",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Weekschema-editor"
+ },
+ {
+  "file": "klimaat-weekschema-donker-390.png",
+  "scherm": "klimaat-weekschema",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/klimaat?zone=752c0ed4-d160-4ec5-9f78-aab01c183b76&tab=schema",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Weekschema-editor"
+ },
+ {
+  "file": "klimaat-weekschema-donker-768.png",
+  "scherm": "klimaat-weekschema",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/klimaat?zone=752c0ed4-d160-4ec5-9f78-aab01c183b76&tab=schema",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Weekschema-editor"
+ },
+ {
+  "file": "klimaat-weekschema-donker-1440.png",
+  "scherm": "klimaat-weekschema",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/klimaat?zone=752c0ed4-d160-4ec5-9f78-aab01c183b76&tab=schema",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Weekschema-editor"
+ },
+ {
+  "file": "klimaat-profielen-licht-360.png",
+  "scherm": "klimaat-profielen",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/klimaat?zone=16237b89-405e-46a5-b841-26cd2ce82d5a&tab=profielen",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Comfortprofielen"
+ },
+ {
+  "file": "klimaat-profielen-licht-390.png",
+  "scherm": "klimaat-profielen",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/klimaat?zone=16237b89-405e-46a5-b841-26cd2ce82d5a&tab=profielen",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Comfortprofielen"
+ },
+ {
+  "file": "klimaat-profielen-licht-768.png",
+  "scherm": "klimaat-profielen",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/klimaat?zone=16237b89-405e-46a5-b841-26cd2ce82d5a&tab=profielen",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Comfortprofielen"
+ },
+ {
+  "file": "klimaat-profielen-licht-1440.png",
+  "scherm": "klimaat-profielen",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/klimaat?zone=16237b89-405e-46a5-b841-26cd2ce82d5a&tab=profielen",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Comfortprofielen"
+ },
+ {
+  "file": "klimaat-profielen-donker-360.png",
+  "scherm": "klimaat-profielen",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/klimaat?zone=16237b89-405e-46a5-b841-26cd2ce82d5a&tab=profielen",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Comfortprofielen"
+ },
+ {
+  "file": "klimaat-profielen-donker-390.png",
+  "scherm": "klimaat-profielen",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/klimaat?zone=16237b89-405e-46a5-b841-26cd2ce82d5a&tab=profielen",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Comfortprofielen"
+ },
+ {
+  "file": "klimaat-profielen-donker-768.png",
+  "scherm": "klimaat-profielen",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/klimaat?zone=16237b89-405e-46a5-b841-26cd2ce82d5a&tab=profielen",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Comfortprofielen"
+ },
+ {
+  "file": "klimaat-profielen-donker-1440.png",
+  "scherm": "klimaat-profielen",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/klimaat?zone=16237b89-405e-46a5-b841-26cd2ce82d5a&tab=profielen",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Comfortprofielen"
+ },
+ {
+  "file": "klimaat-instellingen-licht-360.png",
+  "scherm": "klimaat-instellingen",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/klimaat?zone=16237b89-405e-46a5-b841-26cd2ce82d5a&tab=instellingen",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Zone-koppeling en regelgrenzen"
+ },
+ {
+  "file": "klimaat-instellingen-licht-390.png",
+  "scherm": "klimaat-instellingen",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/klimaat?zone=16237b89-405e-46a5-b841-26cd2ce82d5a&tab=instellingen",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Zone-koppeling en regelgrenzen"
+ },
+ {
+  "file": "klimaat-instellingen-licht-768.png",
+  "scherm": "klimaat-instellingen",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/klimaat?zone=16237b89-405e-46a5-b841-26cd2ce82d5a&tab=instellingen",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Zone-koppeling en regelgrenzen"
+ },
+ {
+  "file": "klimaat-instellingen-licht-1440.png",
+  "scherm": "klimaat-instellingen",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/klimaat?zone=16237b89-405e-46a5-b841-26cd2ce82d5a&tab=instellingen",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Zone-koppeling en regelgrenzen"
+ },
+ {
+  "file": "klimaat-instellingen-donker-360.png",
+  "scherm": "klimaat-instellingen",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/klimaat?zone=16237b89-405e-46a5-b841-26cd2ce82d5a&tab=instellingen",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Zone-koppeling en regelgrenzen"
+ },
+ {
+  "file": "klimaat-instellingen-donker-390.png",
+  "scherm": "klimaat-instellingen",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/klimaat?zone=16237b89-405e-46a5-b841-26cd2ce82d5a&tab=instellingen",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Zone-koppeling en regelgrenzen"
+ },
+ {
+  "file": "klimaat-instellingen-donker-768.png",
+  "scherm": "klimaat-instellingen",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/klimaat?zone=16237b89-405e-46a5-b841-26cd2ce82d5a&tab=instellingen",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Zone-koppeling en regelgrenzen"
+ },
+ {
+  "file": "klimaat-instellingen-donker-1440.png",
+  "scherm": "klimaat-instellingen",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/klimaat?zone=16237b89-405e-46a5-b841-26cd2ce82d5a&tab=instellingen",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Zone-koppeling en regelgrenzen"
+ },
+ {
+  "file": "verlichting-licht-360.png",
+  "scherm": "verlichting",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/verlichting",
+  "h1": "Verlichting",
+  "overloop_px": 0,
+  "opmerking": "Groepen (aan, uit, onbereikbaar), scènes, knoppen"
+ },
+ {
+  "file": "verlichting-licht-390.png",
+  "scherm": "verlichting",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/verlichting",
+  "h1": "Verlichting",
+  "overloop_px": 0,
+  "opmerking": "Groepen (aan, uit, onbereikbaar), scènes, knoppen"
+ },
+ {
+  "file": "verlichting-licht-768.png",
+  "scherm": "verlichting",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/verlichting",
+  "h1": "Verlichting",
+  "overloop_px": 0,
+  "opmerking": "Groepen (aan, uit, onbereikbaar), scènes, knoppen"
+ },
+ {
+  "file": "verlichting-licht-1440.png",
+  "scherm": "verlichting",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/verlichting",
+  "h1": "Verlichting",
+  "overloop_px": 0,
+  "opmerking": "Groepen (aan, uit, onbereikbaar), scènes, knoppen"
+ },
+ {
+  "file": "verlichting-donker-360.png",
+  "scherm": "verlichting",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/verlichting",
+  "h1": "Verlichting",
+  "overloop_px": 0,
+  "opmerking": "Groepen (aan, uit, onbereikbaar), scènes, knoppen"
+ },
+ {
+  "file": "verlichting-donker-390.png",
+  "scherm": "verlichting",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/verlichting",
+  "h1": "Verlichting",
+  "overloop_px": 0,
+  "opmerking": "Groepen (aan, uit, onbereikbaar), scènes, knoppen"
+ },
+ {
+  "file": "verlichting-donker-768.png",
+  "scherm": "verlichting",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/verlichting",
+  "h1": "Verlichting",
+  "overloop_px": 0,
+  "opmerking": "Groepen (aan, uit, onbereikbaar), scènes, knoppen"
+ },
+ {
+  "file": "verlichting-donker-1440.png",
+  "scherm": "verlichting",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/verlichting",
+  "h1": "Verlichting",
+  "overloop_px": 0,
+  "opmerking": "Groepen (aan, uit, onbereikbaar), scènes, knoppen"
+ },
+ {
+  "file": "energie-licht-360.png",
+  "scherm": "energie",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/energie",
+  "h1": "november 2026",
+  "overloop_px": 0,
+  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten"
+ },
+ {
+  "file": "energie-licht-390.png",
+  "scherm": "energie",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/energie",
+  "h1": "november 2026",
+  "overloop_px": 0,
+  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten"
+ },
+ {
+  "file": "energie-licht-768.png",
+  "scherm": "energie",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/energie",
+  "h1": "november 2026",
+  "overloop_px": 0,
+  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten"
+ },
+ {
+  "file": "energie-licht-1440.png",
+  "scherm": "energie",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/energie",
+  "h1": "november 2026",
+  "overloop_px": 0,
+  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten"
+ },
+ {
+  "file": "energie-donker-360.png",
+  "scherm": "energie",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/energie",
+  "h1": "november 2026",
+  "overloop_px": 0,
+  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten"
+ },
+ {
+  "file": "energie-donker-390.png",
+  "scherm": "energie",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/energie",
+  "h1": "november 2026",
+  "overloop_px": 0,
+  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten"
+ },
+ {
+  "file": "energie-donker-768.png",
+  "scherm": "energie",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/energie",
+  "h1": "november 2026",
+  "overloop_px": 0,
+  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten"
+ },
+ {
+  "file": "energie-donker-1440.png",
+  "scherm": "energie",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/energie",
+  "h1": "november 2026",
+  "overloop_px": 0,
+  "opmerking": "Energie per dag: meters, staafgrafiek, tabel, kosten"
+ },
+ {
+  "file": "optimalisatie-licht-360.png",
+  "scherm": "optimalisatie",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/optimalisatie",
+  "h1": "Optimalisatie",
+  "overloop_px": 0,
+  "opmerking": "Adaptief model, weer, experimenten"
+ },
+ {
+  "file": "optimalisatie-licht-390.png",
+  "scherm": "optimalisatie",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/optimalisatie",
+  "h1": "Optimalisatie",
+  "overloop_px": 0,
+  "opmerking": "Adaptief model, weer, experimenten"
+ },
+ {
+  "file": "optimalisatie-licht-768.png",
+  "scherm": "optimalisatie",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/optimalisatie",
+  "h1": "Optimalisatie",
+  "overloop_px": 0,
+  "opmerking": "Adaptief model, weer, experimenten"
+ },
+ {
+  "file": "optimalisatie-licht-1440.png",
+  "scherm": "optimalisatie",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/optimalisatie",
+  "h1": "Optimalisatie",
+  "overloop_px": 0,
+  "opmerking": "Adaptief model, weer, experimenten"
+ },
+ {
+  "file": "optimalisatie-donker-360.png",
+  "scherm": "optimalisatie",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/optimalisatie",
+  "h1": "Optimalisatie",
+  "overloop_px": 0,
+  "opmerking": "Adaptief model, weer, experimenten"
+ },
+ {
+  "file": "optimalisatie-donker-390.png",
+  "scherm": "optimalisatie",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/optimalisatie",
+  "h1": "Optimalisatie",
+  "overloop_px": 0,
+  "opmerking": "Adaptief model, weer, experimenten"
+ },
+ {
+  "file": "optimalisatie-donker-768.png",
+  "scherm": "optimalisatie",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/optimalisatie",
+  "h1": "Optimalisatie",
+  "overloop_px": 0,
+  "opmerking": "Adaptief model, weer, experimenten"
+ },
+ {
+  "file": "optimalisatie-donker-1440.png",
+  "scherm": "optimalisatie",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/optimalisatie",
+  "h1": "Optimalisatie",
+  "overloop_px": 0,
+  "opmerking": "Adaptief model, weer, experimenten"
+ },
+ {
+  "file": "apparaten-licht-360.png",
+  "scherm": "apparaten",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/apparaten",
+  "h1": "Apparaten",
+  "overloop_px": 0,
+  "opmerking": "Apparaten per categorie, rollen, compatibiliteit"
+ },
+ {
+  "file": "apparaten-licht-390.png",
+  "scherm": "apparaten",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/apparaten",
+  "h1": "Apparaten",
+  "overloop_px": 0,
+  "opmerking": "Apparaten per categorie, rollen, compatibiliteit"
+ },
+ {
+  "file": "apparaten-licht-768.png",
+  "scherm": "apparaten",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/apparaten",
+  "h1": "Apparaten",
+  "overloop_px": 0,
+  "opmerking": "Apparaten per categorie, rollen, compatibiliteit"
+ },
+ {
+  "file": "apparaten-licht-1440.png",
+  "scherm": "apparaten",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/apparaten",
+  "h1": "Apparaten",
+  "overloop_px": 0,
+  "opmerking": "Apparaten per categorie, rollen, compatibiliteit"
+ },
+ {
+  "file": "apparaten-donker-360.png",
+  "scherm": "apparaten",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/apparaten",
+  "h1": "Apparaten",
+  "overloop_px": 0,
+  "opmerking": "Apparaten per categorie, rollen, compatibiliteit"
+ },
+ {
+  "file": "apparaten-donker-390.png",
+  "scherm": "apparaten",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/apparaten",
+  "h1": "Apparaten",
+  "overloop_px": 0,
+  "opmerking": "Apparaten per categorie, rollen, compatibiliteit"
+ },
+ {
+  "file": "apparaten-donker-768.png",
+  "scherm": "apparaten",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/apparaten",
+  "h1": "Apparaten",
+  "overloop_px": 0,
+  "opmerking": "Apparaten per categorie, rollen, compatibiliteit"
+ },
+ {
+  "file": "apparaten-donker-1440.png",
+  "scherm": "apparaten",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/apparaten",
+  "h1": "Apparaten",
+  "overloop_px": 0,
+  "opmerking": "Apparaten per categorie, rollen, compatibiliteit"
+ },
+ {
+  "file": "systeem-licht-360.png",
+  "scherm": "systeem",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/systeem",
+  "h1": "Systeem",
+  "overloop_px": 0,
+  "opmerking": "Status, versie, adressen, back-ups, meldingen, herstellen, woningen"
+ },
+ {
+  "file": "systeem-licht-390.png",
+  "scherm": "systeem",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/systeem",
+  "h1": "Systeem",
+  "overloop_px": 0,
+  "opmerking": "Status, versie, adressen, back-ups, meldingen, herstellen, woningen"
+ },
+ {
+  "file": "systeem-licht-768.png",
+  "scherm": "systeem",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/systeem",
+  "h1": "Systeem",
+  "overloop_px": 0,
+  "opmerking": "Status, versie, adressen, back-ups, meldingen, herstellen, woningen"
+ },
+ {
+  "file": "systeem-licht-1440.png",
+  "scherm": "systeem",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/systeem",
+  "h1": "Systeem",
+  "overloop_px": 0,
+  "opmerking": "Status, versie, adressen, back-ups, meldingen, herstellen, woningen"
+ },
+ {
+  "file": "systeem-donker-360.png",
+  "scherm": "systeem",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/systeem",
+  "h1": "Systeem",
+  "overloop_px": 0,
+  "opmerking": "Status, versie, adressen, back-ups, meldingen, herstellen, woningen"
+ },
+ {
+  "file": "systeem-donker-390.png",
+  "scherm": "systeem",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/systeem",
+  "h1": "Systeem",
+  "overloop_px": 0,
+  "opmerking": "Status, versie, adressen, back-ups, meldingen, herstellen, woningen"
+ },
+ {
+  "file": "systeem-donker-768.png",
+  "scherm": "systeem",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/systeem",
+  "h1": "Systeem",
+  "overloop_px": 0,
+  "opmerking": "Status, versie, adressen, back-ups, meldingen, herstellen, woningen"
+ },
+ {
+  "file": "systeem-donker-1440.png",
+  "scherm": "systeem",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/systeem",
+  "h1": "Systeem",
+  "overloop_px": 0,
+  "opmerking": "Status, versie, adressen, back-ups, meldingen, herstellen, woningen"
+ },
+ {
+  "file": "account-mijn-licht-360.png",
+  "scherm": "account-mijn",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/account",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: eigen wachtwoord"
+ },
+ {
+  "file": "account-mijn-licht-390.png",
+  "scherm": "account-mijn",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/account",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: eigen wachtwoord"
+ },
+ {
+  "file": "account-mijn-licht-768.png",
+  "scherm": "account-mijn",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/account",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: eigen wachtwoord"
+ },
+ {
+  "file": "account-mijn-licht-1440.png",
+  "scherm": "account-mijn",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/account",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: eigen wachtwoord"
+ },
+ {
+  "file": "account-mijn-donker-360.png",
+  "scherm": "account-mijn",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/account",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: eigen wachtwoord"
+ },
+ {
+  "file": "account-mijn-donker-390.png",
+  "scherm": "account-mijn",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/account",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: eigen wachtwoord"
+ },
+ {
+  "file": "account-mijn-donker-768.png",
+  "scherm": "account-mijn",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/account",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: eigen wachtwoord"
+ },
+ {
+  "file": "account-mijn-donker-1440.png",
+  "scherm": "account-mijn",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/account",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: eigen wachtwoord"
+ },
+ {
+  "file": "account-gebruikers-licht-360.png",
+  "scherm": "account-gebruikers",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/account#gebruikers",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: gebruikers"
+ },
+ {
+  "file": "account-gebruikers-licht-390.png",
+  "scherm": "account-gebruikers",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/account#gebruikers",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: gebruikers"
+ },
+ {
+  "file": "account-gebruikers-licht-768.png",
+  "scherm": "account-gebruikers",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/account#gebruikers",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: gebruikers"
+ },
+ {
+  "file": "account-gebruikers-licht-1440.png",
+  "scherm": "account-gebruikers",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/account#gebruikers",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: gebruikers"
+ },
+ {
+  "file": "account-gebruikers-donker-360.png",
+  "scherm": "account-gebruikers",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/account#gebruikers",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: gebruikers"
+ },
+ {
+  "file": "account-gebruikers-donker-390.png",
+  "scherm": "account-gebruikers",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/account#gebruikers",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: gebruikers"
+ },
+ {
+  "file": "account-gebruikers-donker-768.png",
+  "scherm": "account-gebruikers",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/account#gebruikers",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: gebruikers"
+ },
+ {
+  "file": "account-gebruikers-donker-1440.png",
+  "scherm": "account-gebruikers",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/account#gebruikers",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: gebruikers"
+ },
+ {
+  "file": "account-telefoons-licht-360.png",
+  "scherm": "account-telefoons",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/account#telefoons",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: telefoons koppelen (QR)"
+ },
+ {
+  "file": "account-telefoons-licht-390.png",
+  "scherm": "account-telefoons",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/account#telefoons",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: telefoons koppelen (QR)"
+ },
+ {
+  "file": "account-telefoons-licht-768.png",
+  "scherm": "account-telefoons",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/account#telefoons",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: telefoons koppelen (QR)"
+ },
+ {
+  "file": "account-telefoons-licht-1440.png",
+  "scherm": "account-telefoons",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/account#telefoons",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: telefoons koppelen (QR)"
+ },
+ {
+  "file": "account-telefoons-donker-360.png",
+  "scherm": "account-telefoons",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/account#telefoons",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: telefoons koppelen (QR)"
+ },
+ {
+  "file": "account-telefoons-donker-390.png",
+  "scherm": "account-telefoons",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/account#telefoons",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: telefoons koppelen (QR)"
+ },
+ {
+  "file": "account-telefoons-donker-768.png",
+  "scherm": "account-telefoons",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/account#telefoons",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: telefoons koppelen (QR)"
+ },
+ {
+  "file": "account-telefoons-donker-1440.png",
+  "scherm": "account-telefoons",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/account#telefoons",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: telefoons koppelen (QR)"
+ },
+ {
+  "file": "account-logboek-licht-360.png",
+  "scherm": "account-logboek",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/account#logboek",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: logboek"
+ },
+ {
+  "file": "account-logboek-licht-390.png",
+  "scherm": "account-logboek",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/account#logboek",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: logboek"
+ },
+ {
+  "file": "account-logboek-licht-768.png",
+  "scherm": "account-logboek",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/account#logboek",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: logboek"
+ },
+ {
+  "file": "account-logboek-licht-1440.png",
+  "scherm": "account-logboek",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/account#logboek",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: logboek"
+ },
+ {
+  "file": "account-logboek-donker-360.png",
+  "scherm": "account-logboek",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/account#logboek",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: logboek"
+ },
+ {
+  "file": "account-logboek-donker-390.png",
+  "scherm": "account-logboek",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/account#logboek",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: logboek"
+ },
+ {
+  "file": "account-logboek-donker-768.png",
+  "scherm": "account-logboek",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/account#logboek",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: logboek"
+ },
+ {
+  "file": "account-logboek-donker-1440.png",
+  "scherm": "account-logboek",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/account#logboek",
+  "h1": "Account",
+  "overloop_px": 0,
+  "opmerking": "Account: logboek"
+ },
+ {
+  "file": "installatie-licht-360.png",
+  "scherm": "installatie",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/installatie",
+  "h1": "Installatiewizard",
+  "overloop_px": 0,
+  "opmerking": "Installatiewizard stap 1 (controles vooraf) · 1 echt LAN-adres afgedekt (magenta)"
+ },
+ {
+  "file": "installatie-licht-390.png",
+  "scherm": "installatie",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/installatie",
+  "h1": "Installatiewizard",
+  "overloop_px": 0,
+  "opmerking": "Installatiewizard stap 1 (controles vooraf) · 1 echt LAN-adres afgedekt (magenta)"
+ },
+ {
+  "file": "installatie-licht-768.png",
+  "scherm": "installatie",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/installatie",
+  "h1": "Installatiewizard",
+  "overloop_px": 0,
+  "opmerking": "Installatiewizard stap 1 (controles vooraf) · 1 echt LAN-adres afgedekt (magenta)"
+ },
+ {
+  "file": "installatie-licht-1440.png",
+  "scherm": "installatie",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/installatie",
+  "h1": "Installatiewizard",
+  "overloop_px": 0,
+  "opmerking": "Installatiewizard stap 1 (controles vooraf) · 1 echt LAN-adres afgedekt (magenta)"
+ },
+ {
+  "file": "installatie-donker-360.png",
+  "scherm": "installatie",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/installatie",
+  "h1": "Installatiewizard",
+  "overloop_px": 0,
+  "opmerking": "Installatiewizard stap 1 (controles vooraf) · 1 echt LAN-adres afgedekt (magenta)"
+ },
+ {
+  "file": "installatie-donker-390.png",
+  "scherm": "installatie",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/installatie",
+  "h1": "Installatiewizard",
+  "overloop_px": 0,
+  "opmerking": "Installatiewizard stap 1 (controles vooraf) · 1 echt LAN-adres afgedekt (magenta)"
+ },
+ {
+  "file": "installatie-donker-768.png",
+  "scherm": "installatie",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/installatie",
+  "h1": "Installatiewizard",
+  "overloop_px": 0,
+  "opmerking": "Installatiewizard stap 1 (controles vooraf) · 1 echt LAN-adres afgedekt (magenta)"
+ },
+ {
+  "file": "installatie-donker-1440.png",
+  "scherm": "installatie",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/installatie",
+  "h1": "Installatiewizard",
+  "overloop_px": 0,
+  "opmerking": "Installatiewizard stap 1 (controles vooraf) · 1 echt LAN-adres afgedekt (magenta)"
+ },
+ {
+  "file": "help-licht-360.png",
+  "scherm": "help",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/help",
+  "h1": "Help",
+  "overloop_px": 0,
+  "opmerking": "Help per fabrikant"
+ },
+ {
+  "file": "help-licht-390.png",
+  "scherm": "help",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/help",
+  "h1": "Help",
+  "overloop_px": 0,
+  "opmerking": "Help per fabrikant"
+ },
+ {
+  "file": "help-licht-768.png",
+  "scherm": "help",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/help",
+  "h1": "Help",
+  "overloop_px": 0,
+  "opmerking": "Help per fabrikant"
+ },
+ {
+  "file": "help-licht-1440.png",
+  "scherm": "help",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/help",
+  "h1": "Help",
+  "overloop_px": 0,
+  "opmerking": "Help per fabrikant"
+ },
+ {
+  "file": "help-donker-360.png",
+  "scherm": "help",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/help",
+  "h1": "Help",
+  "overloop_px": 0,
+  "opmerking": "Help per fabrikant"
+ },
+ {
+  "file": "help-donker-390.png",
+  "scherm": "help",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/help",
+  "h1": "Help",
+  "overloop_px": 0,
+  "opmerking": "Help per fabrikant"
+ },
+ {
+  "file": "help-donker-768.png",
+  "scherm": "help",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/help",
+  "h1": "Help",
+  "overloop_px": 0,
+  "opmerking": "Help per fabrikant"
+ },
+ {
+  "file": "help-donker-1440.png",
+  "scherm": "help",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/help",
+  "h1": "Help",
+  "overloop_px": 0,
+  "opmerking": "Help per fabrikant"
+ },
+ {
+  "file": "meer-sheet-licht-360.png",
+  "scherm": "meer-sheet",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Mobiel: Meer-sheet open (alleen het venster)"
+ },
+ {
+  "file": "meer-sheet-licht-390.png",
+  "scherm": "meer-sheet",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Mobiel: Meer-sheet open (alleen het venster)"
+ },
+ {
+  "file": "meer-sheet-licht-768.png",
+  "scherm": "meer-sheet",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Mobiel: Meer-sheet open (alleen het venster)"
+ },
+ {
+  "file": "meer-sheet-donker-360.png",
+  "scherm": "meer-sheet",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Mobiel: Meer-sheet open (alleen het venster)"
+ },
+ {
+  "file": "meer-sheet-donker-390.png",
+  "scherm": "meer-sheet",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Mobiel: Meer-sheet open (alleen het venster)"
+ },
+ {
+  "file": "meer-sheet-donker-768.png",
+  "scherm": "meer-sheet",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Mobiel: Meer-sheet open (alleen het venster)"
+ },
+ {
+  "file": "thema-donker-gekozen-licht-360.png",
+  "scherm": "thema-donker-gekozen",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Systeem licht, in de app Donker gekozen (themaknop)"
+ },
+ {
+  "file": "thema-donker-gekozen-licht-390.png",
+  "scherm": "thema-donker-gekozen",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Systeem licht, in de app Donker gekozen (themaknop)"
+ },
+ {
+  "file": "thema-donker-gekozen-licht-768.png",
+  "scherm": "thema-donker-gekozen",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Systeem licht, in de app Donker gekozen (themaknop)"
+ },
+ {
+  "file": "thema-donker-gekozen-licht-1440.png",
+  "scherm": "thema-donker-gekozen",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Systeem licht, in de app Donker gekozen (themaknop)"
+ },
+ {
+  "file": "thema-donker-gekozen-donker-360.png",
+  "scherm": "thema-donker-gekozen",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Systeem licht, in de app Donker gekozen (themaknop)"
+ },
+ {
+  "file": "thema-donker-gekozen-donker-390.png",
+  "scherm": "thema-donker-gekozen",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Systeem licht, in de app Donker gekozen (themaknop)"
+ },
+ {
+  "file": "thema-donker-gekozen-donker-768.png",
+  "scherm": "thema-donker-gekozen",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Systeem licht, in de app Donker gekozen (themaknop)"
+ },
+ {
+  "file": "thema-donker-gekozen-donker-1440.png",
+  "scherm": "thema-donker-gekozen",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Systeem licht, in de app Donker gekozen (themaknop)"
+ },
+ {
+  "file": "overzicht-kijker-licht-360.png",
+  "scherm": "overzicht-kijker",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Rol kijker: geen bediening"
+ },
+ {
+  "file": "overzicht-kijker-licht-390.png",
+  "scherm": "overzicht-kijker",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Rol kijker: geen bediening"
+ },
+ {
+  "file": "overzicht-kijker-licht-768.png",
+  "scherm": "overzicht-kijker",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Rol kijker: geen bediening"
+ },
+ {
+  "file": "overzicht-kijker-licht-1440.png",
+  "scherm": "overzicht-kijker",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Rol kijker: geen bediening"
+ },
+ {
+  "file": "overzicht-kijker-donker-360.png",
+  "scherm": "overzicht-kijker",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Rol kijker: geen bediening"
+ },
+ {
+  "file": "overzicht-kijker-donker-390.png",
+  "scherm": "overzicht-kijker",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Rol kijker: geen bediening"
+ },
+ {
+  "file": "overzicht-kijker-donker-768.png",
+  "scherm": "overzicht-kijker",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Rol kijker: geen bediening"
+ },
+ {
+  "file": "overzicht-kijker-donker-1440.png",
+  "scherm": "overzicht-kijker",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Rol kijker: geen bediening"
+ },
+ {
+  "file": "overzicht-verouderd-licht-360.png",
+  "scherm": "overzicht-verouderd",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Sensorwaarden en vermogen 3 uur oud (verouderd)"
+ },
+ {
+  "file": "overzicht-verouderd-licht-390.png",
+  "scherm": "overzicht-verouderd",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Sensorwaarden en vermogen 3 uur oud (verouderd)"
+ },
+ {
+  "file": "overzicht-verouderd-licht-768.png",
+  "scherm": "overzicht-verouderd",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Sensorwaarden en vermogen 3 uur oud (verouderd)"
+ },
+ {
+  "file": "overzicht-verouderd-licht-1440.png",
+  "scherm": "overzicht-verouderd",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Sensorwaarden en vermogen 3 uur oud (verouderd)"
+ },
+ {
+  "file": "overzicht-verouderd-donker-360.png",
+  "scherm": "overzicht-verouderd",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Sensorwaarden en vermogen 3 uur oud (verouderd)"
+ },
+ {
+  "file": "overzicht-verouderd-donker-390.png",
+  "scherm": "overzicht-verouderd",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Sensorwaarden en vermogen 3 uur oud (verouderd)"
+ },
+ {
+  "file": "overzicht-verouderd-donker-768.png",
+  "scherm": "overzicht-verouderd",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Sensorwaarden en vermogen 3 uur oud (verouderd)"
+ },
+ {
+  "file": "overzicht-verouderd-donker-1440.png",
+  "scherm": "overzicht-verouderd",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "Sensorwaarden en vermogen 3 uur oud (verouderd)"
+ },
+ {
+  "file": "klimaat-verouderd-licht-360.png",
+  "scherm": "klimaat-verouderd",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Woonkamer met verouderde sensorwaarde"
+ },
+ {
+  "file": "klimaat-verouderd-licht-390.png",
+  "scherm": "klimaat-verouderd",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Woonkamer met verouderde sensorwaarde"
+ },
+ {
+  "file": "klimaat-verouderd-licht-768.png",
+  "scherm": "klimaat-verouderd",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Woonkamer met verouderde sensorwaarde"
+ },
+ {
+  "file": "klimaat-verouderd-licht-1440.png",
+  "scherm": "klimaat-verouderd",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Woonkamer met verouderde sensorwaarde"
+ },
+ {
+  "file": "klimaat-verouderd-donker-360.png",
+  "scherm": "klimaat-verouderd",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Woonkamer met verouderde sensorwaarde"
+ },
+ {
+  "file": "klimaat-verouderd-donker-390.png",
+  "scherm": "klimaat-verouderd",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Woonkamer met verouderde sensorwaarde"
+ },
+ {
+  "file": "klimaat-verouderd-donker-768.png",
+  "scherm": "klimaat-verouderd",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Woonkamer met verouderde sensorwaarde"
+ },
+ {
+  "file": "klimaat-verouderd-donker-1440.png",
+  "scherm": "klimaat-verouderd",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/klimaat?zone=c60178ec-a680-4a7b-929f-c76a6d6cdcee&tab=bediening",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "Woonkamer met verouderde sensorwaarde"
+ },
+ {
+  "file": "overzicht-offline-licht-360.png",
+  "scherm": "overzicht-offline",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit"
+ },
+ {
+  "file": "overzicht-offline-licht-390.png",
+  "scherm": "overzicht-offline",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit"
+ },
+ {
+  "file": "overzicht-offline-licht-768.png",
+  "scherm": "overzicht-offline",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit"
+ },
+ {
+  "file": "overzicht-offline-licht-1440.png",
+  "scherm": "overzicht-offline",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit"
+ },
+ {
+  "file": "overzicht-offline-donker-360.png",
+  "scherm": "overzicht-offline",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit"
+ },
+ {
+  "file": "overzicht-offline-donker-390.png",
+  "scherm": "overzicht-offline",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit"
+ },
+ {
+  "file": "overzicht-offline-donker-768.png",
+  "scherm": "overzicht-offline",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit"
+ },
+ {
+  "file": "overzicht-offline-donker-1440.png",
+  "scherm": "overzicht-offline",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/",
+  "h1": "Goedemiddag",
+  "overloop_px": 0,
+  "opmerking": "API gestopt: banner, laatst bekende gegevens gedimd, bediening uit"
+ },
+ {
+  "file": "klimaat-offline-licht-360.png",
+  "scherm": "klimaat-offline",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/klimaat",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "API gestopt: klimaat uit de cache, bediening uit"
+ },
+ {
+  "file": "klimaat-offline-licht-390.png",
+  "scherm": "klimaat-offline",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/klimaat",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "API gestopt: klimaat uit de cache, bediening uit"
+ },
+ {
+  "file": "klimaat-offline-licht-768.png",
+  "scherm": "klimaat-offline",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/klimaat",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "API gestopt: klimaat uit de cache, bediening uit"
+ },
+ {
+  "file": "klimaat-offline-licht-1440.png",
+  "scherm": "klimaat-offline",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/klimaat",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "API gestopt: klimaat uit de cache, bediening uit"
+ },
+ {
+  "file": "klimaat-offline-donker-360.png",
+  "scherm": "klimaat-offline",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/klimaat",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "API gestopt: klimaat uit de cache, bediening uit"
+ },
+ {
+  "file": "klimaat-offline-donker-390.png",
+  "scherm": "klimaat-offline",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/klimaat",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "API gestopt: klimaat uit de cache, bediening uit"
+ },
+ {
+  "file": "klimaat-offline-donker-768.png",
+  "scherm": "klimaat-offline",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/klimaat",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "API gestopt: klimaat uit de cache, bediening uit"
+ },
+ {
+  "file": "klimaat-offline-donker-1440.png",
+  "scherm": "klimaat-offline",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/klimaat",
+  "h1": "Woonkamer",
+  "overloop_px": 0,
+  "opmerking": "API gestopt: klimaat uit de cache, bediening uit"
+ },
+ {
+  "file": "verlichting-offline-nooit-geladen-licht-360.png",
+  "scherm": "verlichting-offline-nooit-geladen",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/verlichting",
+  "h1": null,
+  "overloop_px": 0,
+  "opmerking": "API gestopt: pagina die nog nooit geladen was blijft op \"Laden…\" staan"
+ },
+ {
+  "file": "verlichting-offline-nooit-geladen-licht-390.png",
+  "scherm": "verlichting-offline-nooit-geladen",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/verlichting",
+  "h1": null,
+  "overloop_px": 0,
+  "opmerking": "API gestopt: pagina die nog nooit geladen was blijft op \"Laden…\" staan"
+ },
+ {
+  "file": "verlichting-offline-nooit-geladen-licht-768.png",
+  "scherm": "verlichting-offline-nooit-geladen",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/verlichting",
+  "h1": null,
+  "overloop_px": 0,
+  "opmerking": "API gestopt: pagina die nog nooit geladen was blijft op \"Laden…\" staan"
+ },
+ {
+  "file": "verlichting-offline-nooit-geladen-licht-1440.png",
+  "scherm": "verlichting-offline-nooit-geladen",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/verlichting",
+  "h1": null,
+  "overloop_px": 0,
+  "opmerking": "API gestopt: pagina die nog nooit geladen was blijft op \"Laden…\" staan"
+ },
+ {
+  "file": "verlichting-offline-nooit-geladen-donker-360.png",
+  "scherm": "verlichting-offline-nooit-geladen",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/verlichting",
+  "h1": null,
+  "overloop_px": 0,
+  "opmerking": "API gestopt: pagina die nog nooit geladen was blijft op \"Laden…\" staan"
+ },
+ {
+  "file": "verlichting-offline-nooit-geladen-donker-390.png",
+  "scherm": "verlichting-offline-nooit-geladen",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/verlichting",
+  "h1": null,
+  "overloop_px": 0,
+  "opmerking": "API gestopt: pagina die nog nooit geladen was blijft op \"Laden…\" staan"
+ },
+ {
+  "file": "verlichting-offline-nooit-geladen-donker-768.png",
+  "scherm": "verlichting-offline-nooit-geladen",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/verlichting",
+  "h1": null,
+  "overloop_px": 0,
+  "opmerking": "API gestopt: pagina die nog nooit geladen was blijft op \"Laden…\" staan"
+ },
+ {
+  "file": "verlichting-offline-nooit-geladen-donker-1440.png",
+  "scherm": "verlichting-offline-nooit-geladen",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/verlichting",
+  "h1": null,
+  "overloop_px": 0,
+  "opmerking": "API gestopt: pagina die nog nooit geladen was blijft op \"Laden…\" staan"
+ },
+ {
+  "file": "server-onbereikbaar-licht-360.png",
+  "scherm": "server-onbereikbaar",
+  "thema": "licht",
+  "breedte": 360,
+  "url": "/",
+  "h1": "De server is niet bereikbaar",
+  "overloop_px": 0,
+  "opmerking": "API gestopt, nieuwe sessie: \"De server is niet bereikbaar\""
+ },
+ {
+  "file": "server-onbereikbaar-licht-390.png",
+  "scherm": "server-onbereikbaar",
+  "thema": "licht",
+  "breedte": 390,
+  "url": "/",
+  "h1": "De server is niet bereikbaar",
+  "overloop_px": 0,
+  "opmerking": "API gestopt, nieuwe sessie: \"De server is niet bereikbaar\""
+ },
+ {
+  "file": "server-onbereikbaar-licht-768.png",
+  "scherm": "server-onbereikbaar",
+  "thema": "licht",
+  "breedte": 768,
+  "url": "/",
+  "h1": "De server is niet bereikbaar",
+  "overloop_px": 0,
+  "opmerking": "API gestopt, nieuwe sessie: \"De server is niet bereikbaar\""
+ },
+ {
+  "file": "server-onbereikbaar-licht-1440.png",
+  "scherm": "server-onbereikbaar",
+  "thema": "licht",
+  "breedte": 1440,
+  "url": "/",
+  "h1": "De server is niet bereikbaar",
+  "overloop_px": 0,
+  "opmerking": "API gestopt, nieuwe sessie: \"De server is niet bereikbaar\""
+ },
+ {
+  "file": "server-onbereikbaar-donker-360.png",
+  "scherm": "server-onbereikbaar",
+  "thema": "donker",
+  "breedte": 360,
+  "url": "/",
+  "h1": "De server is niet bereikbaar",
+  "overloop_px": 0,
+  "opmerking": "API gestopt, nieuwe sessie: \"De server is niet bereikbaar\""
+ },
+ {
+  "file": "server-onbereikbaar-donker-390.png",
+  "scherm": "server-onbereikbaar",
+  "thema": "donker",
+  "breedte": 390,
+  "url": "/",
+  "h1": "De server is niet bereikbaar",
+  "overloop_px": 0,
+  "opmerking": "API gestopt, nieuwe sessie: \"De server is niet bereikbaar\""
+ },
+ {
+  "file": "server-onbereikbaar-donker-768.png",
+  "scherm": "server-onbereikbaar",
+  "thema": "donker",
+  "breedte": 768,
+  "url": "/",
+  "h1": "De server is niet bereikbaar",
+  "overloop_px": 0,
+  "opmerking": "API gestopt, nieuwe sessie: \"De server is niet bereikbaar\""
+ },
+ {
+  "file": "server-onbereikbaar-donker-1440.png",
+  "scherm": "server-onbereikbaar",
+  "thema": "donker",
+  "breedte": 1440,
+  "url": "/",
+  "h1": "De server is niet bereikbaar",
+  "overloop_px": 0,
+  "opmerking": "API gestopt, nieuwe sessie: \"De server is niet bereikbaar\""
+ }
+]

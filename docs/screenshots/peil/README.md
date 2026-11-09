@@ -1,8 +1,10 @@
 # Schermafdrukken voor de Peil-omzetting
 
-Nulmeting van het uiterlijk van my_house **vóór** de omzetting naar de ontwerptaal Peil 1.1.0 (stap 2,
-omzettingsontwerp). De vertaling per scherm staat in [`docs/ontwerp/PEIL_MIGRATIE.md`](../../ontwerp/PEIL_MIGRATIE.md).
-Na elke fase komt er een map `na-fase-1/` en `na-fase-2/` met dezelfde namen, zodat voor en na naast elkaar te leggen zijn.
+Het uiterlijk van my_house **vóór** (stap 2, nulmeting) en **ná** de omzetting naar de ontwerptaal Peil 1.1.0
+(stap 3: fase 1 + fase 2 + de toegestane toevoegingen). De vertaling per scherm staat in
+[`docs/ontwerp/PEIL_MIGRATIE.md`](../../ontwerp/PEIL_MIGRATIE.md). `na/` heeft dezelfde namen als `voor/`, zodat voor en na
+naast elkaar te leggen zijn (in plaats van de eerder genoemde `na-fase-1/` en `na-fase-2/`: alleen de eindstand is
+vastgelegd).
 
 | Map | Wat | Aantal |
 |---|---|---|
@@ -10,6 +12,9 @@ Na elke fase komt er een map `na-fase-1/` en `na-fase-2/` met dezelfde namen, zo
 | `voor/web/index.json` | per afdruk: scherm, thema, breedte, URL, h1, horizontale overloop, toelichting | — |
 | `voor/web/axe-voor.json` | axe-core 4.14 (WCAG 2.0/2.1/2.2 A+AA) en eigen metingen per scherm (390 en 1440, licht/donker) | — |
 | `voor/android/` | native app (Jetpack Compose), 360 en 393 dp × licht/donker; `-volledig` = hele scrolllengte | 68 |
+| `na/web/` | web-app ná de omzetting, dezelfde schermen, breedtes en thema's als `voor/web/`, plus `thema-donker-gekozen-*` (systeem licht, in de app Donker gekozen) | 230 |
+| `na/web/index.json` | zelfde velden als `voor/web/index.json` | — |
+| `na/web/axe-na.json` | dezelfde axe- en eigen metingen als `axe-voor.json`, ná de omzetting | — |
 
 Namen: `<scherm>-<licht|donker>-<breedte>.png`, dezelfde vorm als de Peil-prototypes (`definitief/shots/`).
 
@@ -71,3 +76,25 @@ PEIL_SCRIPT=fixtures.mjs ./run_shots.sh <map>      # JSON voor de Android-afdruk
 PEIL_SCRIPT=axe.mjs      ./run_shots.sh <map>      # axe-nulmeting
 python nabewerk.py <ruwe map> <doelmap>            # verkleinen (Android: ook samenvoegen en inkorten)
 ```
+
+## Ná de omzetting (9 november 2026, stap 3)
+
+Zelfde werkwijze, testgegevens en machine als hierboven (scripts in `werkwijze/`, bijgewerkt), tegen de gebouwde
+web-app van branch `ccr-c133d7a0-kuz1cv`. Verschillen met de nulmeting:
+
+- **"Terug naar de Hub"** staat in de afdrukken met een **fictief** adres (`https://hub.voorbeeld.invalid:8443`, het
+  domein `.invalid` bestaat nooit): `vite preview` kent `/_shc/config.json` niet, dus `shots.mjs` speelt dat antwoord na
+  (`page.route`). In een echte installatie komt het adres uit de optionele omgevingsvariabele `HUB_URL`; zonder die
+  variabele is de link er niet. Er is geen echt Hub- of NAS-adres gebruikt.
+- De app heeft nu een **themaknop**; de afdrukken staan op "Systeem", dus `prefers-color-scheme` bepaalt licht of
+  donker, zoals bij de nulmeting. `thema-donker-gekozen-*` laat de knop in de stand Donker zien.
+- De **Meer-sheet** bestaat nu onder 1024 px (was 820 px), dus ook op 768 px.
+- Net als bij de nulmeting: op de installatie-afdrukken is het echte LAN-adres van de testmachine (netwerkdetectie) met een magenta vak
+  afgedekt; "Vrije schijfruimte" is de schijf van de testmachine, niet van een NAS.
+- **NIET GEVALIDEERD (hardware):** geen echte telefoon, tablet of wandpaneel, geen echte schermlezer.
+
+De afdrukken van `klimaat-bediening`, `klimaat-weekschema`, `klimaat-verouderd`, `klimaat-offline`, `overzicht-offline`,
+`verlichting-offline-nooit-geladen` en `optimalisatie` zijn opnieuw gemaakt na de laatste opmaakcorrectie (labels in
+"Schema vandaag", de rij van het weekschema); de rest komt uit de volledige ronde daarvoor. Beide rondes draaiden tegen
+dezelfde testgegevens.
+

@@ -71,4 +71,4 @@ for (const theme of ['licht', 'donker']) for (const w of [390, 1440]) {
   await ctx.close();
 }
 await browser.close();
-writeFileSync(process.env.PEIL_OUT + '/axe-voor.json', JSON.stringify({ gemeten: new Date().toISOString(), axe_core: '4.14.0', tags: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'], resultaten: result }, null, 1) + '\n');
+writeFileSync(process.env.PEIL_OUT + '/' + (process.env.PEIL_AXE_NAAM || 'axe-voor.json'), JSON.stringify({ gemeten: new Date().toISOString(), axe_core: '4.14.0', tags: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'], resultaten: result }, null, 1) + '\n');
