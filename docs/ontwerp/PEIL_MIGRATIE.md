@@ -1,6 +1,6 @@
 # my_house naar Peil — omzettingsontwerp (stap 2)
 
-**Status:** ontwerp, nog niet gebouwd · **Peil-versie:** 1.1.0 (gepinde kopie in [`design/ontwerptaal/`](../../design/ontwerptaal/HERKOMST.md)) ·
+**Status:** web-app gebouwd (fase 1 en fase 2 + beide toevoegingen, stap 3 — zie [§14](#14-uitvoering-web-stap-3)); Android nog niet · **Peil-versie:** 1.1.0 (gepinde kopie in [`design/ontwerptaal/`](../../design/ontwerptaal/HERKOMST.md)) ·
 **Datum:** 9 november 2026 · **Rol:** design-agent (contract §13: ontwerpstap vóór de UI-bouwstap) ·
 **Afdrukken vooraf:** [`docs/screenshots/peil/voor/`](../screenshots/peil/README.md) · **Besluit:** [ADR-0008](../adr/ADR-0008-peil-omzetting-twee-fasen.md)
 
@@ -13,7 +13,7 @@ Inhoud: [1 Uitgangspunten](#1-uitgangspunten-wat-verandert-en-wat-niet) · [2 Nu
 [5 Componenten](#5-componenten-web) · [6 Per scherm](#6-per-scherm-web) · [7 Grafieken](#7-grafieken-dataviz) ·
 [8 Fasen](#8-de-twee-fasen-web) · [9 Toevoegingen](#9-toegestane-toevoegingen) · [10 Microcopy](#10-microcopy-nl) ·
 [11 Android](#11-android-peil-in-jetpack-compose) · [12 Tests](#12-welke-tests-geraakt-worden) ·
-[13 Open punten](#13-risicos-open-punten-en-contractpunten)
+[13 Open punten](#13-risicos-open-punten-en-contractpunten) · [14 Uitvoering web](#14-uitvoering-web-stap-3)
 
 ---
 
@@ -611,3 +611,33 @@ Ondernavigatie: Start `house`, Klimaat `thermometer`, Energie `zap`, Meer `menu`
 | 8 | Tailwind 4 vraagt moderne browsers (Safari 16.4+, Chrome 111+, Firefox 128+). Oude tablets/wandpanelen kunnen breken. | risico | vóór fase 2 de gebruikte apparaten nagaan (onbekend); fase 1 heeft dit risico niet. |
 | 9 | Android-afdrukken zonder echt toestel; widget niet vastgelegd; echte schermlezer (NVDA/TalkBack) en fel-zonlicht niet getest. | validatie | NIET GEVALIDEERD (hardware); hoort bij de acceptatie (08_UI). |
 | 10 | Lucide op Android als vector drawables (± 30 bestanden). | keuze | ADR-0008 punt 6; alternatief Material Symbols afgewezen (twee beeldtalen). |
+
+---
+
+## 14. Uitvoering web (stap 3)
+
+**Gebouwd op 9 november 2026** (branch `ccr-c133d7a0-kuz1cv`); besluiten in
+[ADR-0009](../adr/ADR-0009-peil-fase-2-tailwind-shadcn-react18.md). Afdrukken ná de omzetting:
+[`docs/screenshots/peil/na/`](../screenshots/peil/README.md).
+
+| Onderdeel | Uitgevoerd | Afwijking van dit ontwerp (en waarom) |
+|---|---|---|
+| Fase 1 | `src/peil-alias.css` (kopie met herkomstkop, sha256 bewaakt door `src/test/peil-herkomst.test.ts`), theme-color en manifest | geen; de proefafdrukken van fase 1 zijn alleen bekeken, niet als `na-fase-1/` vastgelegd (de eindstand staat in `na/`) |
+| Fase 2 basis | Tailwind 4.3.5 (`@tailwindcss/vite`), `src/peil/ontwerptaal.css` (kopie), lagen in `src/peil/peil.css`, lucide-react 1.70.0, cva, tailwind-merge, clsx, `@radix-ui/react-slot`; `components.json` (`rsc: false`) | **geen preflight** (ADR-0009 punt 2); fontsource al nu verwijderd (werd niet meer gebruikt) |
+| Componenten | Button/Badge/Card (React 18, forwardRef); StatusBadge, ErnstLabel, BeleidsSlot; recepten bij de haakklassen in `src/peil/componenten.css` | de ± 150 bestaande `.btn`-plekken zijn niet herschreven naar `<Button>`: het recept zit bij de haakklasse, `buttonVariants` zet dezelfde klassen (ADR-0009 punt 3) |
+| Status en kleur | §5.2 en §10 toegepast; "Online", "Gekoppeld", "Gelukt", "Loopt", "Klaar" neutraal; onbereikbaar = Onbekend; compatibiliteit als validatielabel; teruglevering `chart-5` | niet-bereikbaar-melding op Verlichting kreeg de nieuwe variant `.note.unknown` |
+| Toegankelijkheid | LichtTegel zonder `aria-label` (naam "Keuken Uit"); "Gezien" en de groepsknop met een `aria-label` dat met de zichtbare tekst begint | §5.2 noemde sr-only tekst; die gaf in de e2e een dubbele treffer op de meldingstitel, dus `aria-label` (zelfde naam, WCAG 2.5.3 opgelost) |
+| Toevoegingen | ThemaKeuze (§9.2) en "Terug naar de Hub" (§9.1) in zijbalk en Meer-sheet | `HUB_URL` wordt bij de start van de webcontainer gecontroleerd (`apps/web/docker/15-shc-config.sh`), niet via envsubst (ADR-0009 punt 9) |
+| Tests | vitest 26 bestanden / 179 tests (o.a. `peil.test.tsx`, `peil-toevoegingen.test.tsx`, `peil-herkomst.test.ts`), e2e 23 tests waarvan `11-peil` (axe, matrix 320–1440, elementen buiten hun kaart, thema, Hub-link), infra-unittest voor het startscript, rooktestcontrole `/_shc/config.json` | Tab-doorloop met bedekte focus, forced colors en 200 %-zoom zijn niet geautomatiseerd (open) |
+
+**Meting ná de omzetting** (zelfde 52 metingen als §2.2, `docs/screenshots/peil/na/web/axe-na.json`): axe-core 0
+overtredingen (voor: `label-content-name-mismatch` op Overzicht en Verlichting, 8 metingen), tekst < 14 px 0 (voor ± 2 770
+tekstknopen), bedienbare doelen < 44 px 0 (voor 58), elementen met opacity en tekst 0 (voor 108), zijwaartse scroll 0
+op alle 230 afdrukken. De e2e-matrix draait daarnaast op 320–1440 px met de lettertypen van deze machine (Noto Sans)
+én met DejaVu Sans (zoals de CI); op 320 px vond die 5 px overloop bij de experimentvarianten (opgelost).
+
+**Niet gedaan in deze stap (eerlijk):** de Android-app (§11), fase 3 (inline styles, `styles.css` en aliaslaag weg,
+preflight, `aria-disabled`), de tabelweergave bij "Laatste 24 uur" (§13 punt 6, niet besloten), het gedrag "nooit
+geladen pagina offline" (§13 punt 5), een echte schermlezer en echte apparaten (**NIET GEVALIDEERD (hardware)**) en het
+`HUB_URL`-veld in een Custom App-formulier (komt met de alles-in-één image, ADR-0004).
+

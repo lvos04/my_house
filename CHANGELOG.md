@@ -4,15 +4,46 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
 
 ## Unreleased
 
+### Uiterlijk (web-app naar de ontwerptaal Peil)
+
+- **Nieuw uiterlijk volgens Peil 1.1.0**, in twee stappen: eerst de aliaslaag (alle kleuren, radii en de focusring),
+  daarna Tailwind 4 + shadcn/ui (React 18-variant) + lucide-iconen. Koel neutrale ondergrond, systeemlettertype,
+  blauwe primaire knop, randen die ook in de zon zichtbaar zijn, tekst minstens 14 px en knoppen minstens 44 × 44 px.
+  De zijbalk verschijnt vanaf 1024 px; daaronder kopbalk en ondernavigatie.
+- **Status altijd als icoon + woord + vorm**: Gezond · Beperkt · Storing · Onbekend (met reden), meldingen met een
+  ernstlabel (Info · Middel · Hoog), "Alleen meten" bij de boiler zonder schakelaar. Groen alleen nog voor gemeten
+  gezondheid; verbonden, gekoppeld, klaar en gemeten zijn neutraal. Offline en verouderd worden gestippeld en
+  gearceerd in plaats van vaag (geen doorzichtigheid meer op tekst).
+- **Grafieken** in het gevalideerde Peil-palet (airco, boiler en overig ook in donker goed te onderscheiden);
+  onvolledige dagen gestippeld en gearceerd in plaats van oranje.
+- Teksten: "Let op" heet nu **"Wat actie nodig heeft"**, een systeemfout **"Storing in het systeem"**, meetkwaliteit
+  "ontbreekt" heet **"geen meting"**. Teksten met domeinbetekenis (boilerblokkade, gedeelde buitenunit, offline-banner)
+  zijn gelijk gebleven.
+- Toegankelijkheid: lichttegels en de knoppen "Gezien" en Aan/Uit hebben een naam die met de zichtbare tekst begint
+  (axe 0 op alle hoofdschermen in licht en donker).
+
+### Toegevoegd
+
+- **Themaknop Systeem / Licht / Donker** in de zijbalk en het menu "Meer" (alleen op dit apparaat bewaard).
+- **Link "Terug naar de Hub"** in de zijbalk en het menu "Meer", alleen zichtbaar als de webcontainer een geldig
+  Hub-adres krijgt via de optionele omgevingsvariabele `HUB_URL` (zonder die variabele verandert er niets).
+
+### Tests
+
+- Browsertests met axe-core op de hoofdschermen (licht en donker, 390 en 1440 px) en de Peil-matrix van 320 tot
+  1440 px; unittests voor thema, Hub-adres en de nieuwe componenten; infra-unittest voor het startscript van de
+  webcontainer.
+
 ### Documentatie
 
-- **Omzettingsontwerp naar de ontwerptaal Peil** (alleen ontwerp, de app is niet gewijzigd):
+- **Omzettingsontwerp naar de ontwerptaal Peil**:
   `docs/ontwerp/PEIL_MIGRATIE.md` vertaalt elk scherm van de web-app en de Android-app naar Peil (tokens, componenten,
   iconen, statusvorm, microcopy), beschrijft fase 1 (aliaslaag) en fase 2 (Tailwind 4 + shadcn/ui in de React
   18-variant), de link "Terug naar de Hub", de themaknop en welke tests geraakt worden. Besluit in
-  `docs/adr/ADR-0008-peil-omzetting-twee-fasen.md`.
+  `docs/adr/ADR-0008-peil-omzetting-twee-fasen.md`; de bouwkeuzes van fase 2 in
+  `docs/adr/ADR-0009-peil-fase-2-tailwind-shadcn-react18.md`.
 - Nulmeting: schermafdrukken van de huidige stand (web 222, Android 68) en een axe-meting in
-  `docs/screenshots/peil/voor/`.
+  `docs/screenshots/peil/voor/`; afdrukken en axe-meting ná de omzetting in `docs/screenshots/peil/na/`.
 - Versie-gepinde kopie van Peil 1.1.0 met herkomst en sha256 in `design/ontwerptaal/`.
 
 ### Gerepareerd
