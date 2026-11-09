@@ -14,6 +14,8 @@ maakt een `tmp/`-map naast zichzelf.
 | `shots.mjs` | alle web-afdrukken (28 schermen/toestanden × 360/390/768/1440 × licht/donker) + `index.json`; dekt echte LAN-adressen van de testmachine af |
 | `fixtures.mjs` | JSON van de echte API (`overview`, `energy/summary`, `schedule`) voor de Android-afdrukken |
 | `axe.mjs` | nulmeting axe-core 4.14 + eigen metingen → `axe-voor.json` |
+| `review.mjs` | stap 5, onafhankelijke review (`PEIL_SCRIPT=review.mjs`): per scherm × thema × 320/360/390/768/1024/1440 axe-core 4.14, contrast in de gerenderde pagina (methode van Peil `bouw/controle.cjs`), UI-grenzen, doelen, overloop, inhoud buiten zijn element, koppen, groen-audit, "alleen kleur"-kandidaten, de zichtbare tekst voor de woordenlijst, op 390/1440 een volledige Tab-doorloop; afdrukken op 360/390/768/1440 → `review.json` + `shots/` |
+| `analyse.py` | vat `review.json` samen (`python analyse.py review.json --json samenvatting.json`): tellingen, details, groen-audit, woordenlijst |
 | `nabewerk.py` | Android-delen samenvoegen/inkorten en alle PNG's verkleinen (vlakkleuren exact, met controle) |
 | `android/PeilVoorShots.kt` | Paparazzi-test voor de Android-afdrukken van de nulmeting (alleen in een kopie van `apps/android`) |
 | `android/verzamel.py` | Android ná de omzetting: afdrukken uit het Paparazzi-rapport halen en de `-volledig`-delen samenvoegen |

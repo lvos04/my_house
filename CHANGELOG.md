@@ -36,6 +36,20 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
 - Boiler en verwarmen hebben eigen kleuren in de grafiek (waren in donker bijna gelijk); "Thuis", "gemeten" en
   "Opgeslagen" zijn niet meer groen. Het koppelscherm volgt nu het thema van de telefoon.
 
+### Uiterlijk (onafhankelijke ontwerpreview, stap 5)
+
+- **Zonder verbinding is niets meer groen**: een laatst bekende "Gezond" heet offline "Verouderd" (web en Android);
+  Beperkt en Storing blijven staan. Offline krijgen de kaarten weer de gestippelde Verouderd-rand. Zie
+  `docs/adr/ADR-0011-peil-review-verouderd-en-nooit-opgehaald.md`.
+- **Een pagina die nog nooit was opgehaald** toont zonder verbinding "Onbekend — nog niet opgehaald" met de reden in
+  plaats van eindeloos "Laden…", en heeft ook tijdens laden of bij een fout een paginakop.
+- Het vinkje van een gekozen modus ("✓ Verwarmen") en de naam van een lichttegel op 320 px blijven binnen hun knop;
+  op een telefoon schuift de focus in het weekschema niet meer onder de opslaanbalk.
+- De grafiek "Laatste 24 uur" heeft graden en tijden op de assen; een offline apparaat heeft een goed zichtbare
+  stippelrand; decoratieve scheidingslijnen zijn doorgetrokken (stippel betekent alleen nog onbekend of verouderd).
+- Koppen zonder sprongen en `aria-controls` alleen naar een bestaand paneel (alleen voor schermlezers merkbaar); een
+  back-up die er staat heet "Gemaakt" in plaats van "Gelukt".
+
 ### Toegevoegd
 
 - **Themaknop Systeem / Licht / Donker** in de zijbalk en het menu "Meer" (alleen op dit apparaat bewaard).
@@ -50,6 +64,9 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
 - Browsertests met axe-core op de hoofdschermen (licht en donker, 390 en 1440 px) en de Peil-matrix van 320 tot
   1440 px; unittests voor thema, Hub-adres en de nieuwe componenten; infra-unittest voor het startscript van de
   webcontainer.
+- Ontwerpreview: de Peil-matrix controleert ook dat inhoud binnen zijn knop of tegel blijft; een volledige
+  Tab-doorloop (390 en 1440 px, licht en donker) eist een focusring van minstens 3:1 die nooit achter een vaste balk
+  ligt; de offline-test eist "nooit groen" en Onbekend voor een nooit opgehaalde pagina.
 
 ### Documentatie
 
@@ -64,6 +81,8 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
 - Versie-gepinde kopie van Peil 1.1.0 met herkomst en sha256 in `design/ontwerptaal/`.
 - Android-app naar Peil: `docs/adr/ADR-0010-peil-android-compose.md`, uitvoering in `docs/ontwerp/PEIL_MIGRATIE.md`
   §15, afdrukken in `docs/screenshots/peil/android/`.
+- Onafhankelijke ontwerpreview tegen Peil: `docs/ontwerp/PEIL_REVIEW.md` (bevindingen, metingen in twee rondes,
+  vergelijking met de prototypes, open punten), samenvattingen in `docs/screenshots/peil/review/`.
 
 ### Gerepareerd
 

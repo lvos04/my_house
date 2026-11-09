@@ -666,3 +666,13 @@ testmachine; **NIET GEVALIDEERD (hardware)**), TalkBack, de widget in een afdruk
 een automatische meting van aanraakdoelen in de gerenderde schermen (de maten staan als constanten in de code). Getallen
 en eenheden houden de bestaande notatie (`20,6°` zonder vaste spatie): dat is opmaak in `:core`, die getest wordt en
 buiten deze stap blijft.
+
+---
+
+## 16. Onafhankelijke review (stap 5)
+
+De omgezette web- en Android-app zijn op 9 november 2026 onafhankelijk doorgemeten en bekeken; uitkomst, metingen en
+open punten in [`PEIL_REVIEW.md`](PEIL_REVIEW.md), besluit in
+[ADR-0011](../adr/ADR-0011-peil-review-verouderd-en-nooit-opgehaald.md). Daarmee is §13 punt 5 (nooit geladen pagina
+offline) opgelost: "Onbekend — nog niet opgehaald" met de reden en een paginakop. §13 punten 3 en 6 (readback-woord,
+tabel bij "Laatste 24 uur") blijven open; de grafiek heeft wel as-labels gekregen.

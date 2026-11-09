@@ -1,0 +1,271 @@
+# my_house — onafhankelijke ontwerpreview tegen Peil 1.1.0 (stap 5)
+
+**Datum:** 9 november 2026 · **Branch:** `ccr-c133d7a0-kuz1cv` · **Rol:** ontwerp-agent, onafhankelijk van de bouwers
+van stap 3 (web) en stap 4 (Android) · **Maatstaf:** Peil 1.1.0 (`design/ontwerptaal/`, ONTWERPTAAL.md en
+COMPONENTEN.md), de prototypes en afdrukken van Peil (`definitief/prototypes`, `definitief/shots`), de besluiten van de
+gebruiker (BESLUITEN_GEBRUIKER.md) en WCAG 2.2 AA · **Besluit bij deze review:**
+[ADR-0011](../adr/ADR-0011-peil-review-verouderd-en-nooit-opgehaald.md).
+
+Vaste regels van deze ronde: alleen uiterlijk, teksten, toegankelijkheid en de twee toegestane toevoegingen. Routes,
+API-aanroepen, foutformaat, datamodel, poorten, installatie, `data-testid`'s en rollen zijn niet veranderd; de
+OpenAPI-export is byte-gelijk gecontroleerd.
+
+---
+
+## 1. Oordeel in het kort
+
+De omzetting is goed en dicht bij Peil: kleuren, typografie, randen, statusvormen, de ondernavigatie en de Meer-sheet
+komen overeen met de prototypes, en de meetbare basis (axe, tekstcontrast, doelen, overloop) was al op orde. De review
+vond toch **elf echte fouten** die de geautomatiseerde tests van stap 3 niet zagen, omdat ze iets anders meten (de
+pagina als geheel, niet de inhoud van één knop; een stilstaande pagina, niet de offline-toestand; axe, niet de
+Tab-doorloop). Alle elf zijn gerepareerd (§4); twee daarvan (10 en 11) vond pas de tweede ronde en de nieuwe
+Tab-doorloop in de browsertests. Wat open blijft, staat in §6 en §7; niets daarvan is als geslaagd
+gemeld.
+
+| | Ronde 1 (vóór de reparaties, build `ff9744f`) | Ronde 2 + 3 (na de reparaties) |
+|---|---|---|
+| Metingen (scherm × thema × breedte) | 320 (27 schermen/toestanden) | 332 (28, met "nooit geladen, na de herhaalpogingen") + 96 in ronde 3 (korte en offline pagina's na reparatie 11) |
+| axe-core 4.14, WCAG 2.0/2.1/2.2 A+AA | 0 | 0 |
+| Tekst < 4,5:1 (in de gerenderde pagina) | 0 (laagste 4,56:1, de bewust gedempte laatst bekende waarde op de arcering) | 0 (laagste 4,56:1, idem) |
+| Veld- en knopgrenzen < 3:1 | 0 velden; 2 knoppen (hovertoestand, zie §5.2) | 0 velden; 0 knoppen buiten dezelfde hovertoestand (laagste 3,07:1) |
+| Stippelranden < 3:1 | 48 (decoratieve stippellijnen, offline apparaatkaart) | 0 |
+| Doelen < 44 px · tekst < 14 px · zijwaartse scroll | 0 · 0 · 0 px | 0 · 0 · 0 px |
+| Inhoud buiten zijn knop/tegel | 3 plekken (modusknop 8–13 px, lichttegel 18 px, ondernavigatie 2 px) | 1: het vette "Overzicht" in de ondernavigatie op 320 px, 2 px (open punt, §6) |
+| Focus helemaal bedekt (Tab-doorloop) | 2× (weekschema 390 px) | 0; de e2e-doorloop vond daarna nog ≥ 1024 px met een leeg schema (bevinding 10), ook gerepareerd |
+| Koppen: geen h1 · sprongen · kapotte aria-verwijzingen | 12 · 4 · 15 | 0 · 0 · 0 |
+| Groen bij Onbekend/Verouderd | 1 (offline: "Achtergronddienst — Gezond") | 0 |
+| "Laden…" op een nooit opgehaalde pagina zonder verbinding | ja (geen einde) | nee: "Onbekend — nog niet opgehaald" met reden, ook na de herhaalpogingen |
+
+---
+
+## 2. Werkwijze
+
+- **Echte app met fictieve testgegevens.** Wegwerp-database in de gedeelde PostgreSQL 16, de echte API
+  (`shc-api serve`), de gebouwde web-app achter `vite preview` (zelfde opzet als `apps/web/e2e/run-stack.sh`), de
+  testgegevens van stap 2 (`seed_peil.py`: twee Gree-units, Zigbee-sensoren, Hue-groepen aan/uit/onbereikbaar,
+  P1/kWh-meters, boilerstekker, tarief, meldingen, weekschema, beheerder en kijker). Toestanden: lege database,
+  uitgelogd, geen woning, kijker, sensorwaarden 3 uur oud, API gestopt (offline, ook een nooit geladen pagina, direct en
+  na de herhaalpogingen) en een nieuwe sessie zonder server. Het Hub-adres is fictief (`https://hub.voorbeeld.invalid:8443`).
+- **Meetscript** `docs/screenshots/peil/werkwijze/review.mjs` (Playwright 1.65, Chromium, nl-NL, Europe/Amsterdam,
+  `prefers-reduced-motion`), per scherm × licht/donker × **320, 360, 390, 768, 1024, 1440 px**: axe-core 4.14 met de
+  tags `wcag2a, wcag2aa, wcag21a, wcag21aa, wcag22aa`; contrast van elke tekstknoop **in de gerenderde pagina** (met de
+  methode van Peil `bouw/controle.cjs`: lagen, opacity, color-mix en de donkerste kleur van een arcering); de grens van
+  elk veld, elke knop, tab, tegel en uitklapkop t.o.v. zijn omgeving (rand, eigen vlak of inset-balk); stippelranden;
+  doelgrootte; overloop; inhoud die buiten zijn eigen element steekt; koppen, dubbele id's en aria-verwijzingen; een
+  groen-audit (elke kleur, rand, vulling en `::before` in een gezondheidsgroen of het aqua van grafiekslot 3) en
+  "alleen kleur"-kandidaten (kleine elementen met een statuskleur zonder tekst of naam). Op 390 en 1440 px daarnaast
+  een **volledige Tab-doorloop** (106 doorlopen, ± 2 150 stops): ring aanwezig, ringcontrast, helemaal of deels bedekt
+  door een vaste balk. Samenvatting met `analyse.py`.
+- **Afdrukken** (volledige pagina) op 360/390/768/1440 × licht/donker van alle hoofdschermen en toestanden, zelf
+  bekeken en naast de Peil-prototypes gelegd (§5.1).
+- **Gerichte nametingen** voor elke bevinding op een aparte stack, daarna een volledige tweede ronde na de reparaties.
+- **Android:** de 80 afdrukken van stap 4 (Paparazzi) in licht en donker bekeken; de bron gecontroleerd op dezelfde
+  punten; tests en `verifyPaparazziDebug` opnieuw gedraaid (§5.5).
+- Skills: design:accessibility-review, design:design-critique, design:ux-copy, design:design-system,
+  design:design-handoff en dataviz (vóór de grafiekwijziging).
+
+---
+
+## 3. Vergelijking met de Peil-prototypes (design-critique)
+
+**Eerste indruk.** Rustig en eerlijk: bovenaan staat wat aandacht vraagt ("Wat actie nodig heeft" met Beperkt),
+daaronder de systeemstatus en de zones. Dat volgt het patroon "Overzicht/Home" (Peil §9) en het prototype `home.html`.
+Het oog valt eerst op de begroeting en het aandachtsblok — dat is goed.
+
+| Onderdeel | Prototype (`huis.html`, `home.html`, `offline.html`) | my_house na de review | Oordeel |
+|---|---|---|---|
+| Ondergrond, kaarten, randen | koel neutraal, kaart met 1 px rand, geen schaduw | gelijk, licht en donker | ✓ |
+| Typografie | systeemfont, h1 24, kaartwaarde 30, meta 14 | gelijk; nergens < 14 px | ✓ |
+| Status | pil met icoon + woord; Gezond zonder vlak; Onbekend gestippeld | gelijk (StatusBadge) | ✓ |
+| Lichttegel | aan = `domain-light-on-bg` + rand, uit = kaart, onbereikbaar = stippel + Onbekend | gelijk; op 320 px nu één kolom | ✓ (na reparatie) |
+| Modusknoppen | gekozen = domeinvlak + vinkje | gelijk; het vinkje paste niet (gerepareerd) | ✓ (na reparatie) |
+| Draaiknop/doel | ring in `domain-heat-soft`, −/+ 44 px | gelijk | ✓ |
+| Verouderd | gearceerd vak, stippelrand, "Laatst bekend · 06:40" | arcering + "Verouderd"-pil + stale-ink; kaartrand nu gestippeld | ✓ (na reparatie) |
+| Offline | banner `unknown`, elke kaart verouderd, nooit groen | banner gelijk; groen "Gezond" en vaste kaartrand gerepareerd | ✓ (na reparatie) |
+| Readback | "Verstuurd — wacht op bevestiging van my_house" | "Verzonden, nog niet bevestigd" | bewust anders, zie §8 punt 1 |
+| Grafiek trend | lijn met as-labels en tabel | as-labels toegevoegd; tabel niet (vraagt akkoord) | deels, zie §6 |
+| Schil | zijbalk ≥ 1024, ondernavigatie < 1024, Meer-sheet | gelijk; "Terug naar de Hub" en de themaknop op de afgesproken plekken | ✓ |
+
+**Hiërarchie en consistentie.** Eén h1 per pagina (nu ook tijdens laden en bij een fout), secties als h2, kaarttitels
+op 18 px. Dezelfde woorden voor dezelfde begrippen in web en Android (Gezond · Beperkt · Storing · Onbekend ·
+Verouderd, Info · Middel · Hoog, "Wat actie nodig heeft", "geen meting"). Wat goed werkt: de rust van de neutrale
+ondergrond, de duidelijke grens van elke knop (≥ 3:1, laagste 3,07:1), het eerlijke "Onbekend — niet bereikbaar" bij
+de tuinlampen, de boiler als "Alleen meten" zonder schakelaar.
+
+---
+
+## 4. Bevindingen en reparaties
+
+| # | Bevinding (gemeten in de echte pagina) | Norm | Ernst | Reparatie | Commit |
+|---|---|---|---|---|---|
+| 1 | Zonder verbinding toonde het overzicht "Achtergronddienst — **Gezond**" (groen) over een stand die niet meer gemeten wordt; Android deed hetzelfde op Start | Peil §1, §4.4 ("verouderd is nooit gezond") | hoog | laatst bekende Gezond → **Verouderd** (web: `useStatusNu` in StatusBadge; Android: `PeilUi.systeem(…, verouderd)`); Beperkt/Storing blijven (ADR-0011) | `4678a8d`, `b24f021` |
+| 2 | Offline hadden de kaarten een vaste rand: het kaartrecept van fase 2 overschreef de stippelregel van de aliaslaag | Peil §9 offline | middel | `.from-snapshot`/`.is-offline` kaarten: 2 px stippel in `--stale`; aandachtsblok houdt zijn statuskleur | `4678a8d` |
+| 3 | Een nooit opgehaalde pagina bleef zonder verbinding "Laden…" tonen, zonder h1 | Peil §9, §11.1; A-02 | middel | "**Onbekend** — nog niet opgehaald" met reden (`note unknown`), h1 tijdens laden en fout (`Loading titel`, `PaginaFout`) | `4678a8d` |
+| 4 | "✓ Verwarmen" stak 8–13 px buiten de modusknop (390–1440 px) | Peil §6/§12 (reflow, niets afgekapt of overlappend) | middel | kolommen ≥ 8,5 rem, icoon mag boven het woord | `6b4ef3b` |
+| 5 | Lichttegel "Woonkamer" stak op 320 px 18 px buiten de tegel | Peil §6 reflow 320 | middel | hooguit twee tegels, één kolom als een tegel te smal wordt; lange naam breekt binnen de tegel | `6b4ef3b` |
+| 6 | Weekschema < 768 px: focus op de dagvinkjes van "Dag kopiëren" lag **helemaal** achter de vaste opslaanbalk (113–142 px hoog, scroll-padding rekende 72 px) | WCAG 2.4.11; Peil §6 scroll-padding | middel | `--actiebalk-h: 9rem` onder 768 px | `6b4ef3b` |
+| 7 | Offline apparaatkaart (in het ingeklapte blok "Lampen, groepen en scènes", zichtbaar na uitklappen): stippelrand in de decoratieve `--border` (2,0:1 licht, 1,8:1 donker); decoratieve scheidingslijnen gestippeld (kosten, knoppenkoppelingen, beheerpaneel) | WCAG 1.4.11; Peil §4.2 (stippel = onbekend/verouderd) | laag | apparaat offline: `--unknown` (≥ 3:1); scheidingslijnen doorgetrokken | `4678a8d` |
+| 8 | Kopsprongen h1→h3 (Account, Verlichting), h2→h4 (Weekschema); 15× `aria-controls` naar een gesloten (niet bestaand) paneel (Apparaten) | Peil §12 matrix; WCAG 1.3.1, 4.1.2 | laag | juiste kopniveaus met de oude stijl (geen zichtbare verandering); `aria-controls` alleen als het paneel open is | `5857172` |
+| 9 | De lijngrafiek "Laatste 24 uur" had geen schaal (geen graden, geen tijden) | Peil §5 ("elk getal heeft eenheid … tijd"), §10 | laag | rasterlijnen op ronde graden met het getal, begin- en eindtijd eronder, in `chart-label` (dataviz-regels) | `757bf79` |
+| 10 | Weekschema ≥ 1024 px met een **leeg** schema: focus op een veld van een nieuw blok helemaal achter de vaste opslaanbalk (61 px; scroll-padding onder 0,75 rem) — gevonden door de nieuwe Tab-doorloop in `e2e/11-peil` | WCAG 2.4.11 | middel | vanaf 1024 px scroll-padding = actiebalk + 0,75 rem | `1f6b124` |
+| 11 | Korte pagina's < 1024 px (offline, nog niets opgehaald): ± 136 px leeg vlak tussen kopbalk en inhoud (`.shell` flex-wrap verdeelde de vrije hoogte over de regels; bestond al vóór Peil) | Peil §6 (opbouw), §9 offline | laag | `.shell { align-content: flex-start }` onder 1024 px | `1f6b124` |
+| — | Peil §11.1 "niet meer: Gelukt": back-upstatus "Gelukt" | woordenlijst | laag | "Gemaakt" | `5857172` |
+
+De nieuwe controles zitten nu in de tests, zodat deze fouten niet terugkomen: `e2e/11-peil` (inhoud binnen het
+element in de matrix 320–1440 px; volledige Tab-doorloop op 390/1440 in licht en donker met ring ≥ 3:1 en "niet achter
+een vaste balk"), `e2e/08-offline` (geen `data-status="healthy"` offline, gestippelde kaart, nooit opgehaalde pagina
+met h1 en Onbekend) en `src/test/peil-review.test.tsx`; Android `PeilUiTest`.
+
+**Negatieve controle (eerlijk):** met de regels voor modusknop, lichttegel en opslaanbalk tijdelijk teruggedraaid faalde
+de nieuwe Tab-doorloop op 390 px (4× "ligt achter een vaste balk") — en ook op 1440 px (8×), wat bevinding 10
+blootlegde; met de reparaties slaagt hij (13/13 in `11-peil`, 25/25 in de volledige run). De inhoudcontrole van de matrix
+bleef in die run groen: in de e2e-testgegevens staat geen zone op Verwarmen en heeft geen lichtgroep een lange naam,
+dus die controle is in de browsertests **niet negatief getoetst**; in `review.mjs` vond dezelfde meting wel de drie
+plekken van ronde 1 en daarna alleen nog de ondernavigatie.
+
+### 4.1 Handoff van de reparaties (voor de Hub, MediaGuard en MSO)
+
+| Onderdeel | Specificatie |
+|---|---|
+| Keuzeknoppen met icoon (modus) | rooster `repeat(auto-fit, minmax(min(8.5rem, 100%), 1fr))`, gap 8 px; knop `min-h-12`, `flex-wrap`, `gap-x-1.5 gap-y-0.5`, `text-center`; gekozen = domein-`-bg` + `-ink` + 2 px rand + vinkje (`check`) vóór of boven het woord; nooit breder dan de knop |
+| Tegels in twee kolommen | `minmax(max(8.5rem, calc(50% - gap/2)), 1fr)`: hooguit twee, één kolom als een tegel < 8,5 rem wordt; naam `overflow-wrap: anywhere` als laatste redmiddel |
+| Vaste actiebalk | scroll-padding onder = ondernavigatie + werkelijke balkhoogte + 12 px op elke breedte, ook ≥ 1024 px als de balk daar vast blijft (Peil zet hem ≥ lg in de flow) |
+| Offline/verouderd | StatusBadge `healthy` + offline → `stale` (`clock-alert`, stippel + arcering); `degraded`/`down` blijven; kaarten 2 px stippel in `--stale`; aandachtsblok stippel in zijn statuskleur |
+| Nooit opgehaald | `note unknown` (`circle-help`, stippel `--unknown`): "**Onbekend** — nog niet opgehaald." + reden + wat er gebeurt; geen `aria-busy`; paginakop h1 blijft staan |
+| Lijngrafiek-as | ticks op ronde waarden (stap 1, of 2 bij > 6 eenheden) links in `chart-label` 14 px tabelcijfers; begin- en eindtijd onder het plotvlak; tekst `aria-hidden`, de samenvatting blijft in de naam van de grafiek |
+
+---
+
+## 5. Controle per eis
+
+### 5.1 Afdrukken en vergelijking
+
+- Ronde 1: 215 afdrukken (27 schermen/toestanden × 360/390/768/1440 × licht/donker, de Meer-sheet alleen < 1024 px,
+  plus forced colors), ronde 2: 223, ronde 3: 65. Bekeken als contactvellen naast de Peil-afdrukken
+  (`definitief/shots/huis-*`, `home-*`, `offline-*`) en ingezoomd op elke meldingsplek. De meetscripts vonden de
+  meeste fouten; drie vond pas het kijken: het vinkje naast "Verwarmen" (daarna als meting toegevoegd), het lege vlak
+  boven korte pagina's en de ontbrekende schaal van "Laatste 24 uur".
+- In de repo: de schermen die door de review veranderden zijn in `docs/screenshots/peil/na/web/` vervangen (zelfde
+  namen; `index.json` veld `bijgewerkt`), plus de nieuwe toestand `verlichting-offline-nooit-geladen-later-*`; uitsneden
+  voor/na per bevinding in `docs/screenshots/peil/review/` (1 offline groen, 3 nooit opgehaald, 4 modusknop, 5
+  lichttegel 320 px, 7 offline apparaat, 9 grafiekschaal). Afdrukken die niet veranderden (bijv. Apparaten: de offline
+  apparaatkaarten staan in het ingeklapte blok "Lampen, groepen en scènes") zijn niet opnieuw vastgelegd.
+- Echte LAN-adressen van de testmachine zijn afgedekt (zelfde regel als stap 2); het Hub-adres is fictief.
+
+### 5.2 axe, contrast, overloop, doelen, toetsenbord en focus
+
+- **axe-core 4.14** (WCAG 2.0/2.1/2.2 A+AA): 0 overtredingen in alle drie rondes, op alle schermen, breedtes en thema's.
+- **Tekstcontrast in de pagina ≥ 4,5:1:** 0 fouten. Laagste waarde 4,56:1: de laatst bekende waarde (`--stale-ink`) op
+  de donkerste arceerpixel — de bewuste Peil-uitzondering (Peil §3.3, ≥ 4,5:1). Tussen 4,5 en 7:1 (onder het Peil-niveau
+  voor gewone tekst, maar AA): alleen de stale-ink-teksten (≈ 6:1, bedoeld) en de labels in de schemaband
+  ("Dag 21,0°" `domain-heat-ink` op `domain-heat-soft`: 5,49:1 licht, 4,93:1 donker; "Nacht 18,0°" 6,22:1). Dat paar
+  staat in de brede Peil-matrix (laagste 4,93), maar Peil noemt `-soft` decoratief; zie §8 punt 3.
+- **UI-grenzen ≥ 3:1:** alle invoervelden ≥ 3:1; elke knop met een rand of vlak ≥ 3:1 (laagste 3,07:1). De meldingen
+  (2 in ronde 1, 4 in ronde 2 en 3) waren allemaal de **hovertoestand** van "Terug naar de Hub" (accentvlak 1,29:1 t.o.v. de zijbalk): een
+  stille knop wordt door zijn tekst herkend, het hovervlak is extra terugkoppeling — geen fout. Tekstknoppen zonder
+  grens (navigatie, onderstreepte tabs ≥ 768 px, stille knoppen) worden door hun tekst herkend; de gekozen stand heeft
+  een balk in `--primary` (≥ 3:1).
+- **Focus:** elke stop heeft de tweekleurige ring (3 px `--ring` + 2 px halo), laagste ringcontrast 7,68:1 (licht) en
+  7,55:1 (donker). Uitzondering zonder eigen ring: het klokknopje in tijd- en datumvelden (Weekschema, Energie, Optimalisatie) — dat tekent de browser
+  zelf met een zwarte of witte ring van 2 px (bekeken in licht en donker, goed zichtbaar); Peil kan daar niet bij.
+  Geen focus meer helemaal bedekt (was 2× in het weekschema). "Deels bedekt" bij de skiplink is een meetpunt in de
+  afgeronde hoek; bij het tabpaneel van Account (groot element) blijft het grootste deel zichtbaar (2.4.11 AA vraagt
+  "niet helemaal").
+- **Toetsenbord:** skiplink "Naar de inhoud" is de eerste stop op elke vers geladen pagina met schil (na een routewissel
+  of in de Meer-sheet begint de focus bewust in de inhoud of het menu); volgorde volgt de leesvolgorde;
+  geen focusval (de Meer-sheet houdt de focus vast zolang hij open is, Esc sluit). De volgorde is gemeten, niet met een
+  schermlezer beluisterd (§7).
+- **Overloop op 320 px:** 0 px op alle schermen en toestanden.
+- **Doelen ≥ 44 px:** 0 kleinere doelen (inline links in lopende tekst uitgezonderd, WCAG 2.5.8; Android ≥ 48 dp in de
+  code, zie §5.5).
+- **Forced colors:** stippelranden blijven gestippeld (`note unknown`, `pill unknown`, onbereikbare lamp).
+
+### 5.3 Onbekend/verouderd nooit groen, status nooit alleen kleur, microcopy
+
+- **Groen-audit:** gezondheidsgroen komt alleen voor bij StatusBadge "Gezond" (Achtergronddienst, Woning, Netwerkdetectie)
+  met een verse meting. Het aqua van grafiekslot 3 komt alleen voor bij de boiler in grafiek en legenda (Peil: domein =
+  grafiekslot). Na reparatie 1: **geen groen meer bij offline, onbekend of verouderd** (ronde 2 en 3: 0 treffers; het
+  offline overzicht toont "Achtergronddienst — Verouderd").
+- **Status nooit alleen kleur:** elke status heeft icoon + woord + vorm; de enige kandidaten van de automatische zoektocht
+  waren het vinkje-icoon náást het woord "Gezond" (geen fout). Grafieken: legenda + tekst, onvolledig gestippeld en
+  gearceerd, energie met "Toon als tabel".
+- **Woordenlijst (Peil §11.1):** Gezond · Beperkt · Storing · Onbekend (+ reden) · Verouderd · Gepauzeerd ·
+  Info/Middel/Hoog · "Wat actie nodig heeft" · "geen meting" staan in web en Android gelijk. Gevonden en gerepareerd:
+  "Laden…" als eindtoestand (nu Onbekend + reden) en "Gelukt" (nu "Gemaakt"). Bewust gelaten (domeintekst, Peil §13):
+  "Let op: de HomeWizard-app kan de stekker nog wel schakelen" (Apparaten), de wizardstap "Klaar" en "Klaar om te
+  installeren." (neutraal, geen groen), "Verzonden" (§8 punt 1). Het "!" in de energielegenda is het teken voor
+  "Opmerking", geen uitroep.
+
+### 5.4 Toegestane toevoegingen
+
+- **Themaknop Systeem/Licht/Donker (O-09):** in de zijbalk en de Meer-sheet; `aria-pressed`, groep "Thema", elk
+  ≥ 44 px; Donker blijft na herladen, Systeem volgt het apparaat (e2e `11-peil`, geslaagd); afdrukken
+  `thema-donker-gekozen-*` bekeken. Vóór het inloggen geen knop, wel het juiste thema.
+- **"Terug naar de Hub" (O-11):** alleen met een geldig adres uit `/_shc/config.json`, in zijbalk en Meer-sheet, zelfde
+  tabblad, ≥ 44 px; verborgen bij leeg, `javascript:`, pad of loopback (e2e `11-peil`, geslaagd). In de Tab-doorloop
+  is het de tweede stop (na de skiplink) op ≥ 1024 px. De nginx-kant (HUB_URL-validatie, `no-store`) is in stap 3
+  getest; deze review heeft de webcontainer niet opnieuw gebouwd.
+
+### 5.5 Android (afdrukken licht en donker)
+
+- **Bekeken:** alle 80 afdrukken van stap 4 (`docs/screenshots/peil/android/`, Paparazzi, 360/393 dp × licht/donker):
+  Start (ook offline, kijker, storing), Klimaat (ook conflict en offline), Energie, Meer, Koppelen, Niet meer gekoppeld en
+  de onderdelenpagina. Licht en donker gebruiken dezelfde Peil-tokens als de web-app; status is overal icoon + woord +
+  vorm; offline is gestippeld met "Verouderd · Laatst bekend", zonder dimmen; de boiler gebruikt het aqua van
+  grafiekslot 3 alleen in grafiek en legenda; ernst is Info/Middel met de linkerbalk; doelen zijn ≥ 48 dp in de code.
+- **Gevonden:** dezelfde fout als op het web — de statusregel op Start bleef offline "Gezond" (groen) als er geen
+  probleem bekend was. Gerepareerd in `PeilUi.systeem(level, verouderd)` en `HomeScreen` (`b24f021`), getest in
+  `PeilUiTest`. De offline-afdruk toont Beperkt (geen back-up) en verandert dus niet; `:app:verifyPaparazziDebug`
+  slaagt met de bestaande 56 referentiebeelden.
+- **Gezien en gelaten:** de waarde in een verouderde zonekaart staat in stale-ink met een stippelrand maar zonder
+  arceervak (ADR-0010, Compose); de draaiknop houdt offline zijn domeinkleur (decoratief, de waarde zelf is gedempt);
+  het zoekkader over het camerabeeld blijft wit. Geen van drieën is een fout tegen Peil.
+- **Niet gedaan:** geen toestel of emulator (geen KVM), geen TalkBack, widget niet in een afdruk — **NIET GEVALIDEERD
+  (hardware)**.
+
+---
+
+## 6. Niet gerepareerd of bewust gelaten
+
+| Punt | Waarom niet | Voorstel |
+|---|---|---|
+| Ondernavigatie op 320 px: het vette "Overzicht" (actief) is 2 px breder dan zijn kolom van 64 px (Noto Sans; met bredere lettertypen meer). Niet afgekapt en leesbaar | vijf kolommen van 64 px zijn te smal; 14 px is de ondergrens, vet is de Peil-aanduiding voor actief | Peil 1.1.1: regel voor 320 px (bijv. actief zonder vet, alleen de balk) — besluit bij de bron; de e2e-controle sluit de ondernavigatie bewust uit |
+| Tabelweergave bij "Laatste 24 uur" (WCAG-tweeling, Peil §10) | functionele toevoeging; het besluit van de gebruiker geldt alleen MediaGuard/MSO | akkoord vragen (open sinds stap 2) |
+| Labels in de schemaband op `domain-*-soft` (4,93–6,22:1) | AA gehaald; Peil zet het paar zelf in de brede matrix | Peil 1.1.1: label op het `-bg`-vlak of een donkerdere `-soft` (§8 punt 3) |
+| Klokknopje in tijd-/datumvelden zonder Peil-ring | browseronderdeel; de browserring is zichtbaar | geen |
+| Readback "Verzonden" i.p.v. Peil "Verstuurd" | my_house is eigenaar van de readback; tests en Android gebruiken "Verzonden" | Peil 1.1.1 neemt "Verzonden" over (§8 punt 1) |
+
+---
+
+## 7. Niet getest (NIET GEVALIDEERD)
+
+- **Echte schermlezer** (NVDA, TalkBack, VoiceOver): niet beschikbaar. De toegankelijke namen, rollen en koppen zijn
+  automatisch gecontroleerd, niet beluisterd.
+- **Echte apparaten:** telefoon, tablet, wandpaneel, fel zonlicht: **NIET GEVALIDEERD (hardware)**. Welke browsers de
+  apparaten van de gebruiker hebben is onbekend (Tailwind 4 vraagt Safari 16.4+, Chrome 111+, Firefox 128+).
+- **Android op een toestel of emulator:** geen KVM-toegang voor deze gebruiker; alleen Paparazzi (Sim-getest).
+  Aanraakdoelen ≥ 48 dp staan als maten in de code en zijn niet in een gerenderd scherm gemeten. De widget (Glance) is
+  niet vastgelegd.
+- **200 %-zoom** is alleen benaderd via de breedtes 640/768 px van de matrix, niet met echte browserzoom.
+
+---
+
+## 8. Voorstellen voor Peil 1.1.1 (bron: ai-server-manager)
+
+1. Readback-woord: "Verzonden — wacht op bevestiging" (my_house) in plaats van "Verstuurd" (sinds stap 2 open).
+2. Ondernavigatie op 320 px: actief zonder extra gewicht, of een kortere vaste set labels.
+3. `domain-*-soft` draagt in my_house tekst (schemaband): als tekstvlak een eigen paar met ≥ 7:1, of tekst op `-bg`.
+4. Rand-token voor gekozen domeinknoppen (al voorgesteld in stap 4, ADR-0010 punt 5).
+5. Een regel voor offline/verouderd op statuspillen: "laatst bekende Gezond = Verouderd; Beperkt/Storing blijven" (ADR-0011), zodat de Hub en MediaGuard hetzelfde doen.
+6. De aliaslaag-correcties uit PEIL_MIGRATIE §8.1 in de generator (sinds stap 2 open).
+
+---
+
+## 9. Bestanden en opnieuw meten
+
+- Samenvattingen: [`docs/screenshots/peil/review/`](../screenshots/peil/review/) (`ronde-1-samenvatting.json`,
+  `ronde-2-samenvatting.json`, `ronde-3-samenvatting.json`, uitsneden voor en na per bevinding).
+- Afdrukken na de review: `docs/screenshots/peil/na/web/` — de schermen die de review veranderde zijn vervangen (zelfde
+  namen), plus `verlichting-offline-nooit-geladen-later-*`.
+- Scripts: `docs/screenshots/peil/werkwijze/review.mjs` en `analyse.py` (alleen documentatie; draaien buiten de repo
+  met `PEIL_SCRIPT=review.mjs ./run_shots.sh <map>`, zie `werkwijze/README.md`).
