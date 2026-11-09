@@ -6,12 +6,19 @@ import { apiProcess, ensureLinkedZone, expect, seed, test, unique } from './help
 test('offline: API gestopt, banner, bediening uit, laatste gegevens zichtbaar, en herstel', async ({ adminPage: page, api, homeId }) => {
   test.setTimeout(180_000);
   const zone = await ensureLinkedZone(api, homeId, 'Slaapkamer');
+  // A fresh worker heartbeat (test data, no worker runs here): "Achtergronddienst" is measured healthy on the
+  // overview, so the "never green while offline" check below really tests something (PEIL_REVIEW finding 1).
+  // Removed again at the end, so the following tests see the same state as before.
+  seed('heartbeat', {});
 
   const ws = page.waitForEvent('websocket', (w) => w.url().includes('/api/v1/ws'));
   await page.goto('/');
   await (await ws).waitForEvent('framereceived', { predicate: (f) => String(f.payload).includes('"hello"') });
   const card = page.getByRole('article', { name: 'Slaapkamer' });
   await expect(card.getByRole('button', { name: 'Doeltemperatuur Slaapkamer hoger' })).toBeEnabled();
+  // Online staat er minstens één gemeten "Gezond" op het overzicht; anders zegt de controle offline hieronder niets.
+  const healthy = await page.locator('main [data-status="healthy"]').count();
+  expect(healthy, 'online minstens één Gezond op het overzicht').toBeGreaterThan(0);
   await page.getByRole('navigation', { name: 'Hoofdmenu', exact: true }).getByRole('link', { name: 'Klimaat' }).click();
   await page.getByRole('tablist', { name: 'Zone' }).getByRole('tab', { name: 'Slaapkamer' }).click();
   const control = page.getByRole('region', { name: 'Bediening' });
@@ -45,6 +52,7 @@ test('offline: API gestopt, banner, bediening uit, laatste gegevens zichtbaar, e
     // Peil (docs/ontwerp/PEIL_REVIEW.md): de laatst bekende stand is nooit groen, en de kaarten krijgen de
     // gestippelde Verouderd-rand.
     await expect(page.locator('main [data-status="healthy"]')).toHaveCount(0);
+    await expect.poll(() => page.locator('main [data-status="stale"]').count()).toBeGreaterThanOrEqual(healthy);
     await expect(page.getByRole('article', { name: 'Slaapkamer' })).toHaveCSS('border-top-style', 'dashed');
 
     // A page that was never fetched: Onbekend with the reason and a heading, not an endless "Laden…".
@@ -57,6 +65,7 @@ test('offline: API gestopt, banner, bediening uit, laatste gegevens zichtbaar, e
     await expect(page.getByRole('article', { name: 'Slaapkamer' })).toBeVisible();
   } finally {
     apiProcess('start');
+    seed('heartbeat', { clear: true });
   }
 
   // Back: the banner goes away by itself and the controls work again (reconnect backs off up to 30 s).

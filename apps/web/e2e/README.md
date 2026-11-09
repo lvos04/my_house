@@ -2,7 +2,7 @@
 
 End-to-end tests in Chromium tegen de echte stack: PostgreSQL, de API (`shc-api serve`) en de gebouwde
 web-app achter `vite preview`, die `/api` (ook de WebSocket) doorstuurt naar de API. Zonder worker en
-zonder hardware: apparaten, knopkoppelingen en meldingen zet `seed.py` rechtstreeks in de testdatabase.
+zonder hardware: apparaten, knopkoppelingen, meldingen en (voor de offline-test) een hartslag van de achtergronddienst zet `seed.py` rechtstreeks in de testdatabase.
 
 ## Draaien
 
@@ -32,7 +32,7 @@ Rapporten en traces komen in `e2e/.output/` (niet in git). In CI draait de job `
 | `05-meter-roles` | P1-meter rol geven, rol verplaatsen met bevestiging, loskoppelen |
 | `06-backup` | automatische back-up instellen (ook dagelijks dump + wekelijks volledig), nu back-up maken, downloaden, controleren via upload; push-adres voor meldingen buiten de app weigeren, instellen, testen en verwijderen |
 | `07-notifications` | melding verschijnt live (WebSocket), "Gezien", verdwijnt na oplossen; waakhondwaarschuwing bij de zone alleen zolang de waakhondmelding open is |
-| `08-offline` | API stoppen → banner na de drempel, bediening uit, laatste gegevens zichtbaar; herstart → herstelt vanzelf |
+| `08-offline` | API stoppen → banner na de drempel, bediening uit, laatste gegevens zichtbaar; een gemeten "Gezond" (verse hartslag van de achtergronddienst als testgegevens) wordt "Verouderd", nooit groen; een nooit opgehaalde pagina is "Onbekend — nog niet opgehaald"; herstart → herstelt vanzelf |
 | `09-viewer` | kijk-account ziet nergens bediening of beheer; de server weigert een commando |
 | `10-mobile` | 360 en 320 px: knoppen minstens 44 × 44 px, thermostaat (−/+ en draaiknop) en kaarten blijven binnen hun kaart/de pagina, geen zijwaartse scroll, uitloggen via "Meer" |
 | `11-peil` | ontwerptaal Peil: axe-core (WCAG 2.0/2.1/2.2 A+AA) = 0 op de hoofdschermen, de Meer-sheet en inloggen in licht en donker op 390 en 1440 px; Peil-matrix 320–1440 px (geen zijwaartse scroll, geen tekst < 14 px, doelen ≥ 44 px); themaknop (Donker blijft na herladen, Systeem volgt het apparaat); "Terug naar de Hub" alleen met een geldig adres uit `/_shc/config.json` (in de test nagespeeld met `page.route`) |

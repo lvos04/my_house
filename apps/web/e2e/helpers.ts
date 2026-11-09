@@ -18,7 +18,7 @@ function env(name: string): string {
 }
 
 /** Writes test data straight into the test database (devices, mappings, alerts). See seed.py. */
-export function seed<T = Record<string, unknown>>(command: 'device' | 'mapping' | 'alert' | 'resolve', data: object): T {
+export function seed<T = Record<string, unknown>>(command: 'device' | 'mapping' | 'alert' | 'resolve' | 'heartbeat', data: object): T {
   const out = execFileSync(env('E2E_PYTHON'), [SEED, command, JSON.stringify(data)], { encoding: 'utf8', env: process.env });
   return JSON.parse(out.trim().split('\n').at(-1) ?? '{}') as T;
 }

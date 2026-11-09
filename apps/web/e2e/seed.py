@@ -102,7 +102,20 @@ async def resolve(a: dict) -> dict:
         return {"resolved": [str(x.id) for x in done]}
 
 
-COMMANDS = {"device": device, "mapping": mapping, "alert": alert, "resolve": resolve}
+async def heartbeat(a: dict) -> dict:
+    """The worker's heartbeat as worker/core.py writes it (now), or none again with {"clear": true}: the
+    overview then shows "Achtergronddienst" as measured healthy, or as "no heartbeat" like before."""
+    from shc_api.db import sessionmaker
+    from shc_api.store import set_setting
+
+    value = None if a.get("clear") else datetime.now(UTC).isoformat()
+    async with sessionmaker()() as db:
+        await set_setting(db, "worker_heartbeat", value)
+        await db.commit()
+    return {"worker_heartbeat": value}
+
+
+COMMANDS = {"device": device, "mapping": mapping, "alert": alert, "resolve": resolve, "heartbeat": heartbeat}
 
 
 async def main(cmd: str, raw: str) -> dict:
