@@ -76,7 +76,10 @@ fieldset.c-fieldset > legend { font-size: 14px; color: var(--muted-foreground); 
 }
 .sched-block > .f-mode { grid-column: 1 / -1; }
 .sched-block .field input, .sched-block .field select { width: 100%; min-width: 0; }
-@media (min-width: 700px) {
+/* Vijf kolommen alleen als de lijst er breed genoeg voor is (container, niet het venster): met de Peil-
+   lettergrootte (16 px) paste de rij op 768–1199 px niet meer in de kaart. */
+.sched-blocks { container-type: inline-size; }
+@container (min-width: 46rem) {
   .sched-block { grid-template-columns: 8.5em 6.5em minmax(11em, 1.3fr) minmax(8em, 1fr) auto; }
   .sched-block > .f-mode { grid-column: auto; }
 }
@@ -96,5 +99,6 @@ fieldset.c-fieldset > legend { font-size: 14px; color: var(--muted-foreground); 
 /* Profiles, experiments */
 .c-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
 .c-pills { display: flex; flex-wrap: wrap; gap: 6px; }
-.c-variant { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 12px; align-items: end; }
+.c-variant { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin: 0; min-width: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 12px; align-items: end; }
+.c-variant .field, .c-variant .field input, .c-variant .field select { min-width: 0; max-width: 100%; }
 .c-variant > legend { font-size: 14px; color: var(--muted-foreground); padding: 0 4px; }

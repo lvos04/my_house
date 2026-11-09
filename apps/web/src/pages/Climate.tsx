@@ -20,6 +20,20 @@ import { modeEffect, todaySegments, weekdayIndex } from '../climate/schedule';
 export { todaySegments, weekdayIndex } from '../climate/schedule';
 export type { Segment } from '../climate/schedule';
 
+/** Peil §7: een label staat alleen in een segment als het er helemaal in past; anders weg (nooit half
+ * afgeknipt). De volledige tekst staat in het aria-label van de balk en in de title per segment. */
+function fitSegmentLabels(bar: HTMLDivElement | null) {
+  if (!bar) return;
+  const check = () =>
+    bar.querySelectorAll<HTMLElement>('.seg-label').forEach((l) => {
+      const seg = l.parentElement!;
+      const room = seg.clientWidth - parseFloat(getComputedStyle(seg).paddingLeft || '0') - 4;
+      l.style.visibility = l.getBoundingClientRect().width > room ? 'hidden' : '';
+    });
+  check();
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(check).observe(bar);
+}
+
 function ScheduleBar({ zoneId, tz }: { zoneId: string; tz?: string }) {
   const q = useQuery({ queryKey: qk.schedule(zoneId), queryFn: () => api.zoneSchedule(zoneId) });
   if (q.isLoading) return <Loading />;
@@ -31,10 +45,10 @@ function ScheduleBar({ zoneId, tz }: { zoneId: string; tz?: string }) {
   const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
   return (
     <>
-      <div className="schedule-bar" role="img" aria-label={`Vandaag: ${segs.map((s) => `${hhmm(s.from)} ${s.label} ${temp(s.target_c)}`).join(', ')}`}>
+      <div className="schedule-bar" ref={fitSegmentLabels} role="img" aria-label={`Vandaag: ${segs.map((s) => `${hhmm(s.from)} ${s.label} ${temp(s.target_c)}`).join(', ')}`}>
         {segs.map((s, i) => (
           <div key={i} className={s.target_c > mid || temps.every((x) => x === mid) ? 'warm' : 'cold'} style={{ flex: s.to - s.from }} title={`${s.label} ${temp(s.target_c)}`}>
-            {s.to - s.from >= 180 ? `${s.label} ${temp(s.target_c)}` : ''}
+            {s.to - s.from >= 180 ? <span className="seg-label">{`${s.label} ${temp(s.target_c)}`}</span> : ''}
           </div>
         ))}
       </div>

@@ -4,12 +4,13 @@
 // toevoegingen: de themaknop Systeem / Licht / Donker (O-09) en de link "Terug naar de Hub" (O-11).
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
-import { expect, expectNoHorizontalScroll, test } from './helpers';
+import { expect, test } from './helpers';
 
 const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 const SCREENS: [string, string][] = [
   ['Overzicht', '/'],
   ['Klimaat', '/klimaat'],
+  ['Klimaat › Weekschema', '/klimaat?tab=schema'],
   ['Verlichting', '/verlichting'],
   ['Energie', '/energie'],
   ['Optimalisatie', '/optimalisatie'],
@@ -74,6 +75,39 @@ async function smallTargets(page: Page): Promise<string[]> {
   });
 }
 
+/** Bedienbare elementen of blokken die rechts buiten hun kaart steken (geen zijwaartse scroll, maar wel
+ * kapot). Tabellen in .table-wrap mogen scrollen en tellen niet mee. */
+async function outsideCards(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const out: string[] = [];
+    for (const card of Array.from(document.querySelectorAll<HTMLElement>('main .card'))) {
+      const c = card.getBoundingClientRect();
+      if (!c.width) continue;
+      for (const el of Array.from(card.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], .sched-block, .card'))) {
+        if (el.closest('.table-wrap, [role="img"], .sr-only')) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width && r.right > c.right + 1) out.push(`${el.tagName.toLowerCase()} "${(el.textContent || el.getAttribute('aria-label') || '').trim().slice(0, 30)}" tot ${Math.round(r.right)} (kaart tot ${Math.round(c.right)})`);
+      }
+    }
+    return out;
+  });
+}
+
+/** Het element dat het verst buiten de pagina steekt (diagnose bij zijwaartse scroll). */
+async function widest(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const vw = document.documentElement.clientWidth;
+    let worst: { el: Element; right: number } | null = null;
+    for (const el of Array.from(document.querySelectorAll('body *'))) {
+      const r = el.getBoundingClientRect();
+      if (r.width && r.right > vw + 1 && (!worst || r.right > worst.right)) worst = { el, right: r.right };
+    }
+    if (!worst) return 'onbekend';
+    const e = worst.el as HTMLElement;
+    return `${e.tagName.toLowerCase()}.${String(e.className).split(' ').join('.')} "${(e.textContent ?? '').trim().slice(0, 40)}" tot ${Math.round(worst.right)} px`;
+  });
+}
+
 for (const [scheme, thema] of [['light', 'licht'], ['dark', 'donker']] as const) {
   for (const width of [390, 1440]) {
     test(`axe 0 op de hoofdschermen · ${thema} · ${width} px`, async ({ adminPage: page }) => {
@@ -117,7 +151,9 @@ test('Peil-matrix: geen zijwaartse scroll, geen tekst < 14 px, doelen ≥ 44 px 
     for (const [name, path] of SCREENS) {
       await page.goto(path);
       await settled(page);
-      await expectNoHorizontalScroll(page);
+      const overloop = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      if (overloop > 1) fouten.push(`${width} px ${name}: ${overloop} px zijwaartse scroll (${await widest(page)})`);
+      for (const f of await outsideCards(page)) fouten.push(`${width} px ${name}: buiten de kaart ${f}`);
       for (const f of await smallText(page)) fouten.push(`${width} px ${name}: tekst ${f}`);
       for (const f of await smallTargets(page)) fouten.push(`${width} px ${name}: doel ${f}`);
     }
