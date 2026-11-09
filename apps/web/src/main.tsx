@@ -6,6 +6,8 @@ import '@fontsource/inter/600.css';
 import '@fontsource/space-grotesk/500.css';
 import '@fontsource/space-grotesk/600.css';
 import './styles.css';
+// Peil fase 1 (docs/ontwerp/PEIL_MIGRATIE.md §8.1): de aliaslaag na styles.css zet de oude variabelen op Peil-waarden.
+import './peil-alias.css';
 import { App } from './App';
 import { stripReloadParam } from './api/client';
 

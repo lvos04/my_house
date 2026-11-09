@@ -32,8 +32,9 @@ export default defineConfig({
         lang: 'nl',
         start_url: '/',
         display: 'standalone',
-        background_color: '#F5F4F0',
-        theme_color: '#1C1B19',
+        // Peil: achtergrond licht (background); donker volgt via de meta theme-color in index.html.
+        background_color: '#EEF1F5',
+        theme_color: '#EEF1F5',
         icons: [
           { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
           { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
