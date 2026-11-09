@@ -1,10 +1,10 @@
 import { useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ApiError, AccessLoginRequired, NetworkError } from '../api/client';
+import { ApiError, AccessLoginRequired, NetworkError, isTransientError } from '../api/client';
 import type { CheckState, Quality, Severity } from '../api/types';
 import { QUALITY_LABEL } from '../format';
 import { ERROR_CODE_LABEL } from '../i18n';
-import { useCanAct } from '../state';
+import { useCanAct, useConnectionOptional } from '../state';
 import { StatusBadge, StatusIcon, statusVan } from './peil/StatusBadge';
 import { InfoIcon } from './Icons';
 
@@ -39,8 +39,43 @@ export function ActionButton({ disabled, children, title, ...rest }: ButtonHTMLA
   );
 }
 
-export function Loading({ label = 'Laden…' }: { label?: string }) {
-  return <p className="muted" role="status" aria-busy="true">{label}</p>;
+/** Laden (Peil C-17/18). Zonder verbinding is een nooit opgehaalde pagina geen "Laden…" maar Onbekend met de
+ * reden (Peil §9 offline, §11.1): anders bleef zo'n pagina eindeloos "Laden…" tonen. Zodra de verbinding terug is,
+ * haalt de pagina de gegevens gewoon op (niets in een wachtrij). */
+export function Loading({ label = 'Laden…', titel }: { label?: string; titel?: string }) {
+  const conn = useConnectionOptional();
+  const status = conn?.offline ? (
+    <p className="note unknown" role="status" data-testid="nooit-opgehaald">
+      <strong>Onbekend</strong> — nog niet opgehaald. Zonder verbinding kan dit nu niet worden geladen; zodra de verbinding terug is, halen we het op.
+    </p>
+  ) : (
+    <p className="muted" role="status" aria-busy="true">{label}</p>
+  );
+  // Op paginaniveau (titel): ook tijdens het laden staat er één h1 (Peil A-02), zodat de pagina een kop heeft.
+  if (!titel) return status;
+  return (
+    <>
+      <PaginaKop titel={titel} />
+      {status}
+    </>
+  );
+}
+
+function PaginaKop({ titel }: { titel: string }) {
+  return <header className="page-head"><div><h1>{titel}</h1></div></header>;
+}
+
+/** Een pagina die niet geladen kon worden: met h1. Zonder verbinding (netwerkfout) is dat Onbekend — nog niet
+ * opgehaald, net als bij Loading; andere fouten tonen de foutmelding van de server. */
+export function PaginaFout({ titel, error }: { titel: string; error: unknown }) {
+  const conn = useConnectionOptional();
+  if (conn?.offline && isTransientError(error)) return <Loading titel={titel} />;
+  return (
+    <>
+      <PaginaKop titel={titel} />
+      <ErrorNote error={error} />
+    </>
+  );
 }
 
 /** Error box with the server's Dutch message; links to the right settings for known codes. */

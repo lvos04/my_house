@@ -101,6 +101,18 @@
   .card.attention.is-down { @apply border-down; }
   .c-attention li { @apply items-start; }
   .c-unlinked { @apply border-2 border-dashed border-unknown; }
+  /* Review stap 5 — offline (Peil §9): elke kaart toont de laatst bekende stand en krijgt de gestippelde
+     Verouderd-rand. De aliaslaag deed dit al (.from-snapshot .main .card), maar het .card-recept hierboven
+     overschreef die rand weer met de decoratieve rand. "Wat actie nodig heeft" houdt de kleur van de slechtste
+     status (gestippeld), zodat een bekend probleem zichtbaar blijft. */
+  .from-snapshot .main .card, .is-offline :is(.card.live, .live > .card) { @apply border-2 border-dashed border-stale; }
+  .from-snapshot .main .card.attention { @apply border-degraded; }
+  .from-snapshot .main .card.attention.is-down { @apply border-down; }
+  /* Apparaat offline = Onbekend: stippelrand in --unknown (≥ 3:1), niet in de decoratieve --border (2,0:1). */
+  .dv-card.is-offline { @apply border-2 border-dashed border-unknown; }
+  /* Stippel is in Peil gereserveerd voor Onbekend/Verouderd: decoratieve scheidingslijnen zijn doorgetrokken. */
+  .dv-panel > section, .dv-panel > form, .en-cost-rows > div { border-bottom-style: solid; }
+  .lt-map-row { border-top-style: solid; }
   .card.server-weg { @apply border-2 border-dashed border-unknown; }
 
   /* ── Labels: domeinchip, neutraal, verbonden (nooit groen), info ───────────────────────────────── */

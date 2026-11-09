@@ -5,7 +5,7 @@ import { qk } from '../api/keys';
 import type { LightGroup, LivePower, Overview as OverviewT, StatusCheck } from '../api/types';
 import { runCommand, useLatestCommand } from '../commands';
 import { useHome } from '../state';
-import { ActionButton, Empty, ErrorNote, Loading, QualityBadge } from '../components/bits';
+import { ActionButton, Empty, Loading, QualityBadge, PaginaFout } from '../components/bits';
 import { StatusBadge, statusVan } from '../components/peil/StatusBadge';
 import { ErnstLabel, ernstVan } from '../components/peil/ErnstLabel';
 import { ZoneCard } from '../components/zone';
@@ -231,7 +231,7 @@ export function OverviewView({ data }: { data: OverviewT }) {
 export function OverviewPage() {
   const { homeId } = useHome();
   const q = useQuery({ queryKey: qk.overview(homeId ?? ''), queryFn: () => api.overview(homeId!), enabled: !!homeId, refetchInterval: 60_000 });
-  if (!homeId || q.isLoading) return <Loading />;
-  if (!q.data) return <ErrorNote error={q.error} />;
+  if (!homeId || q.isLoading) return <Loading titel="Overzicht" />;
+  if (!q.data) return <PaginaFout titel="Overzicht" error={q.error} />;
   return <OverviewView data={q.data} />;
 }

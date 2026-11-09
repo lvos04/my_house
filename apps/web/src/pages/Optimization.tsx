@@ -4,7 +4,7 @@ import { api } from '../api/client';
 import { qk } from '../api/keys';
 import type { AdaptiveModel, AdaptiveStatus, Experiment, ExperimentResult, Profile, Zone, ZoneRestored } from '../api/types';
 import { useHome } from '../state';
-import { ActionButton, Empty, ErrorNote, Loading } from '../components/bits';
+import { ActionButton, Empty, ErrorNote, Loading, PaginaFout } from '../components/bits';
 import { CheckIcon } from '../components/Icons';
 import { dateTime } from '../format';
 import { EXPERIMENT_STATUS_LABEL, ZONE_RESTORED_TEXT, t } from '../i18n';
@@ -468,8 +468,8 @@ function Experiments({ homeId, zones }: { homeId: string; zones: Zone[] }) {
 export function OptimizationPage() {
   const { homeId } = useHome();
   const zones = useQuery({ queryKey: qk.zones(homeId ?? ''), queryFn: () => api.zones(homeId!), enabled: !!homeId });
-  if (!homeId || zones.isLoading) return <Loading />;
-  if (!zones.data) return <ErrorNote error={zones.error} />;
+  if (!homeId || zones.isLoading) return <Loading titel="Optimalisatie" />;
+  if (!zones.data) return <PaginaFout titel="Optimalisatie" error={zones.error} />;
   return (
     <>
       <header className="page-head"><div><span className="eyebrow">Zelflerend klimaat</span><h1>Optimalisatie</h1></div></header>

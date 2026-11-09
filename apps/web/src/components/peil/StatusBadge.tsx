@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import { CircleCheck, CircleDashed, CircleHelp, CirclePause, ClockAlert, Hourglass, Link2Off, OctagonX, TriangleAlert, type LucideIcon } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useConnectionOptional } from '../../state';
 
 export type StatusSoort = 'healthy' | 'degraded' | 'down' | 'unknown' | 'stale' | 'paused' | 'unlinked' | 'not_yet' | 'not_configured';
 
@@ -40,12 +41,22 @@ export function statusVan(state: string | null | undefined): StatusSoort {
   }
 }
 
-export function StatusIcon({ status, className }: { status: StatusSoort; className?: string }) {
+/** Zonder verbinding is elke getoonde status de laatst bekende stand. "Gezond" is dan niet meer gemeten en
+ * dus nooit groen (ONTWERPTAAL §1.1, §4.4: verouderde data is nooit gezond): het wordt "Verouderd". Beperkt en
+ * Storing blijven staan, zodat een bekend probleem niet verdwijnt zodra de server wegvalt. */
+export function useStatusNu(status: StatusSoort): StatusSoort {
+  const conn = useConnectionOptional();
+  return status === 'healthy' && conn?.offline ? 'stale' : status;
+}
+
+export function StatusIcon({ status: gemeld, className }: { status: StatusSoort; className?: string }) {
+  const status = useStatusNu(gemeld);
   const { Icon, icoon } = STATUS[status];
   return <Icon size={18} strokeWidth={2} className={cn('status-icon shrink-0', icoon, className)} aria-hidden="true" />;
 }
 
-export function StatusBadge({ status, label, className, children }: { status: StatusSoort; label?: string; className?: string; children?: ReactNode }) {
+export function StatusBadge({ status: gemeld, label, className, children }: { status: StatusSoort; label?: string; className?: string; children?: ReactNode }) {
+  const status = useStatusNu(gemeld);
   const s = STATUS[status];
   return (
     <span
@@ -57,7 +68,7 @@ export function StatusBadge({ status, label, className, children }: { status: St
       )}
     >
       <StatusIcon status={status} />
-      <span>{label ?? s.woord}</span>
+      <span>{status === gemeld ? (label ?? s.woord) : s.woord}</span>
       {children}
     </span>
   );

@@ -78,7 +78,7 @@ function Preflight() {
 function HomeStep() {
   const homes = useQuery({ queryKey: qk.homes, queryFn: api.homes });
   const list = (Array.isArray(homes.data) ? homes.data : []).filter((h) => h.active);
-  if (homes.isLoading) return <Loading />;
+  if (homes.isLoading) return <Loading titel="Installatiewizard" />;
   return (
     <div className="stack">
       {list.length > 0 ? (

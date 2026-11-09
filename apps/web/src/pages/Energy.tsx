@@ -38,7 +38,7 @@ export function EnergyPage() {
     enabled: !!homeId && !!start,
     refetchInterval: anchor === null ? 300_000 : false,
   });
-  if (!homeId || !tz || !today || !date || !start) return <Loading />;
+  if (!homeId || !tz || !today || !date || !start) return <Loading titel="Energie" />;
   const data = s.data && typeof s.data === 'object' && !Array.isArray(s.data) && 'buckets' in s.data ? s.data : null;
   const last = periodLastDay(date, period);
   const rel = relativeLabel(date, period, today);
