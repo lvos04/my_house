@@ -1,6 +1,7 @@
 # ADR-0002 — Hub-koppeling: lezen via bestaande routes, bedienen alleen via een ondertekend verzoek
 
-- **Status:** voorgesteld (ontwerp in P0, uitvoering in P3)
+- **Status:** voorgesteld (ontwerp in P0, uitvoering in P3). **Punt 2 opgeschort door ADR-0006** (tweede lezing:
+  de leesadapter hoort volgens contract §6 in de Hub); punten 1 en 3–6 blijven.
 - **Context-ID's:** B06-003, B06-006, B06-007, EX16, EX17, EX18, EX20, EX27, EX45; `PLATFORM_CONTRACTEN.md` §3, §4, §6–§8;
   `01_ARCHITECTUUR/02_DATA_EIGENAARSCHAP.md`
 
