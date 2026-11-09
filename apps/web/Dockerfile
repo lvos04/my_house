@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Build context: apps/web. Base images are pinned by tag; Dependabot (docker) proposes updates.
-FROM node:22.23.4-alpine3.24 AS build
+FROM node:26.13.0-alpine3.24 AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
