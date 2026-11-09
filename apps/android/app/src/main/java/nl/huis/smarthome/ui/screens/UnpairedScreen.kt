@@ -5,18 +5,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.LinkOff
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,7 +20,11 @@ import androidx.compose.ui.unit.dp
 import nl.huis.smarthome.R
 import nl.huis.smarthome.data.CoreTexts
 import nl.huis.smarthome.data.HomeState
+import nl.huis.smarthome.ui.PeilStatus
 import nl.huis.smarthome.ui.components.HuisCard
+import nl.huis.smarthome.ui.components.KnopSoort
+import nl.huis.smarthome.ui.components.PeilKnop
+import nl.huis.smarthome.ui.components.StatusBadge
 import nl.huis.smarthome.ui.components.NeutralNote
 import nl.huis.smarthome.ui.theme.Huis
 
@@ -46,17 +42,18 @@ fun UnpairedScreen(state: HomeState, onRepair: () -> Unit) {
             .background(Huis.colors.ground)
             .safeDrawingPadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 32.dp),
+            .padding(horizontal = 16.dp, vertical = 32.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        Icon(Icons.Outlined.LinkOff, contentDescription = null, tint = Huis.colors.warn, modifier = Modifier.size(40.dp))
+        // Not paired any more is a fact, not a fault: the "Niet gekoppeld" shape (link-2-off, dashed).
+        StatusBadge(PeilStatus.NIET_GEKOPPELD)
         Text(
             stringResource(R.string.unpaired_title),
-            style = MaterialTheme.typography.headlineMedium,
+            style = MaterialTheme.typography.headlineSmall,
             color = Huis.colors.ink,
             modifier = Modifier.semantics { heading() },
         )
-        HuisCard(radius = 20) {
+        HuisCard {
             // Why (revoked, expired, unknown after a restore …), in the text from strings.xml.
             reason?.let { Text(stringResource(CoreTexts.of(it)), style = MaterialTheme.typography.bodyLarge, color = Huis.colors.ink) }
             (state.overview?.home?.name ?: state.pairing?.homeName)?.let {
@@ -64,11 +61,11 @@ fun UnpairedScreen(state: HomeState, onRepair: () -> Unit) {
             }
         }
         NeutralNote(stringResource(R.string.unpaired_note))
-        Button(
+        PeilKnop(
+            stringResource(R.string.unpaired_repair),
             onClick = onRepair,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Huis.colors.ink, contentColor = Huis.colors.ground),
-        ) { Text(stringResource(R.string.unpaired_repair)) }
+            soort = KnopSoort.PRIMAIR,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }

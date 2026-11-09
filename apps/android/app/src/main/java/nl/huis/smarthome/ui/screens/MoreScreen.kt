@@ -12,17 +12,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -59,11 +55,17 @@ import nl.huis.smarthome.data.HomeState
 import nl.huis.smarthome.ui.MainViewModel
 import nl.huis.smarthome.ui.NotifAction
 import nl.huis.smarthome.ui.NotifUi
+import nl.huis.smarthome.ui.MeldingSoort
+import nl.huis.smarthome.ui.PeilUi
+import nl.huis.smarthome.ui.components.ErnstLabel
+import nl.huis.smarthome.ui.components.KnopSoort
+import nl.huis.smarthome.ui.components.Note
+import nl.huis.smarthome.ui.components.PeilIcoon
+import nl.huis.smarthome.ui.components.PeilKnop
 import nl.huis.smarthome.ui.components.ConnectionBanner
 import nl.huis.smarthome.ui.components.HuisCard
 import nl.huis.smarthome.ui.components.InfoBox
 import nl.huis.smarthome.ui.components.SectionTitle
-import nl.huis.smarthome.ui.components.StatusDot
 import nl.huis.smarthome.ui.components.relativeText
 import nl.huis.smarthome.ui.theme.Huis
 import java.time.ZoneId
@@ -82,33 +84,38 @@ fun MoreScreen(state: HomeState, vm: MainViewModel, notif: NotifUi) {
             // The keyboard must not cover the address and Cloudflare fields.
             .imePadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 20.dp),
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(
             stringResource(R.string.nav_more),
-            style = MaterialTheme.typography.headlineMedium,
+            style = MaterialTheme.typography.headlineSmall,
             modifier = Modifier.semantics { heading() },
         )
         ConnectionBanner(state, vm::retry)
 
         // Meldingen van het huis
         SectionTitle(stringResource(R.string.alerts))
-        HuisCard(radius = 20) {
+        HuisCard {
             if (alerts.isEmpty()) {
                 Text(stringResource(R.string.no_alerts), color = Huis.colors.muted)
             }
             alerts.forEachIndexed { i, a ->
                 AlertRow(a, canAck = state.controlsEnabled) { vm.acknowledge(a) }
-                if (i < alerts.lastIndex) HorizontalDivider(color = Huis.colors.outline)
+                if (i < alerts.lastIndex) HorizontalDivider(color = Huis.peil.border)
             }
         }
 
         // Meldingen op deze telefoon
         SectionTitle(stringResource(R.string.notifications_title))
-        HuisCard(radius = 20) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                StatusDot(if (notif.canPost) Huis.colors.ok else Huis.colors.warn)
+        HuisCard {
+            // On/off is a setting, not health: bell or bell-off in ink, never a green or amber dot.
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PeilIcoon(
+                    if (notif.canPost) R.drawable.lucide_bell else R.drawable.lucide_bell_off,
+                    Huis.colors.ink,
+                    Modifier.padding(top = 2.dp),
+                )
                 Text(
                     stringResource(if (notif.canPost) R.string.notifications_on else R.string.notifications_off),
                     style = MaterialTheme.typography.bodyMedium,
@@ -116,29 +123,25 @@ fun MoreScreen(state: HomeState, vm: MainViewModel, notif: NotifUi) {
                 )
             }
             if (!notif.canPost && notif.waiting > 0) {
-                Text(
+                Note(
                     LocalContext.current.resources.getQuantityString(R.plurals.notifications_waiting_count, notif.waiting, notif.waiting),
-                    color = Huis.colors.warn,
-                    style = MaterialTheme.typography.bodySmall,
+                    MeldingSoort.BEPERKT,
                 )
             }
             val requesting = !notif.canPost && notif.action == NotifAction.REQUEST
-            OutlinedButton(
+            PeilKnop(
+                stringResource(if (requesting) R.string.notifications_allow else R.string.notifications_settings),
                 onClick = if (requesting) notif.onAllow else notif.onSettings,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-            ) {
-                Text(
-                    stringResource(if (requesting) R.string.notifications_allow else R.string.notifications_settings),
-                    color = Huis.colors.ink,
-                )
-            }
+                soort = KnopSoort.SECUNDAIR,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
 
         // Verbinding
         SectionTitle(stringResource(R.string.connection))
         var editing by rememberSaveable { mutableStateOf(false) }
         var savedNote by rememberSaveable { mutableStateOf(false) }
-        HuisCard(radius = 20) {
+        HuisCard {
             KeyValue(stringResource(R.string.home), state.pairing?.homeName ?: "–")
             KeyValue(stringResource(R.string.phone_role), roleLabel(state))
             KeyValue(stringResource(R.string.lan_address), state.pairing?.lanUrl ?: stringResource(R.string.not_set), stacked = true)
@@ -162,23 +165,17 @@ fun MoreScreen(state: HomeState, vm: MainViewModel, notif: NotifUi) {
                 }
             }
             if (savedNote && !editing) {
-                Text(
-                    stringResource(R.string.addresses_saved),
-                    color = Huis.colors.ok,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                )
+                // Saved is done, not healthy: a neutral check.
+                SavedLine(stringResource(R.string.addresses_saved))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = vm::retry, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                    Text(stringResource(R.string.retry), color = Huis.colors.ink, textAlign = TextAlign.Center)
-                }
-                OutlinedButton(
+                PeilKnop(stringResource(R.string.retry), onClick = vm::retry, soort = KnopSoort.SECUNDAIR, modifier = Modifier.weight(1f))
+                PeilKnop(
+                    stringResource(R.string.addresses_edit),
                     onClick = { editing = !editing; savedNote = false },
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                ) {
-                    Text(stringResource(R.string.addresses_edit), color = Huis.colors.ink, textAlign = TextAlign.Center)
-                }
+                    soort = KnopSoort.SECUNDAIR,
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
         if (editing) {
@@ -199,13 +196,13 @@ fun MoreScreen(state: HomeState, vm: MainViewModel, notif: NotifUi) {
 
         CloudflareAccessCard(vm)
 
-        Button(
+        PeilKnop(
+            stringResource(R.string.unpair),
             onClick = { confirmUnpair = true },
             enabled = !unpairing,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Huis.colors.surface, contentColor = Huis.colors.error),
-        ) { Text(stringResource(R.string.unpair)) }
+            soort = KnopSoort.GEVAAR,
+            modifier = Modifier.fillMaxWidth(),
+        )
 
         Text(
             stringResource(R.string.version, BuildConfig.VERSION_NAME),
@@ -222,7 +219,7 @@ fun MoreScreen(state: HomeState, vm: MainViewModel, notif: NotifUi) {
             text = {
                 if (unpairing) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = Huis.colors.ink)
+                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = Huis.peil.primary)
                         Text(stringResource(R.string.unpair_busy))
                     }
                 } else {
@@ -237,7 +234,7 @@ fun MoreScreen(state: HomeState, vm: MainViewModel, notif: NotifUi) {
                     },
                     enabled = !unpairing,
                     modifier = Modifier.heightIn(min = 48.dp),
-                ) { Text(stringResource(R.string.unpair), color = Huis.colors.error) }
+                ) { Text(stringResource(R.string.unpair), color = Huis.peil.destructive, fontWeight = FontWeight.SemiBold) }
             },
             dismissButton = {
                 TextButton(
@@ -260,12 +257,14 @@ private fun roleLabel(state: HomeState): String = stringResource(
 )
 
 @Composable
-private fun huisFieldColors() = OutlinedTextFieldDefaults.colors(
-    unfocusedBorderColor = Huis.colors.controlOutline,
-    focusedBorderColor = Huis.colors.ink,
-    focusedLabelColor = Huis.colors.ink,
-    unfocusedLabelColor = Huis.colors.muted,
-    cursorColor = Huis.colors.ink,
+internal fun huisFieldColors() = OutlinedTextFieldDefaults.colors(
+    unfocusedBorderColor = Huis.peil.input,
+    focusedBorderColor = Huis.peil.ring,
+    focusedLabelColor = Huis.peil.foreground,
+    unfocusedLabelColor = Huis.peil.mutedForeground,
+    cursorColor = Huis.peil.foreground,
+    focusedContainerColor = Huis.peil.card,
+    unfocusedContainerColor = Huis.peil.card,
 )
 
 /**
@@ -288,7 +287,7 @@ private fun AddressEditor(
         error = onSave(lan, remote)
     }
     SectionTitle(stringResource(R.string.addresses_edit))
-    HuisCard(radius = 20) {
+    HuisCard {
         Text(stringResource(R.string.addresses_help), color = Huis.colors.muted, style = MaterialTheme.typography.bodyMedium)
         OutlinedTextField(
             value = lan,
@@ -315,14 +314,8 @@ private fun AddressEditor(
             InfoBox(it, warn = true, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive })
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                onClick = save,
-                modifier = Modifier.heightIn(min = 48.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Huis.colors.ink, contentColor = Huis.colors.ground),
-            ) { Text(stringResource(R.string.save)) }
-            TextButton(onClick = onCancel, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.cancel), color = Huis.colors.ink)
-            }
+            PeilKnop(stringResource(R.string.save), onClick = save, soort = KnopSoort.PRIMAIR)
+            PeilKnop(stringResource(R.string.cancel), onClick = onCancel, soort = KnopSoort.STIL)
         }
     }
 }
@@ -341,7 +334,7 @@ private fun CloudflareAccessCard(vm: MainViewModel) {
     }
 
     SectionTitle(stringResource(R.string.cf_access))
-    HuisCard(radius = 20) {
+    HuisCard {
         Text(stringResource(R.string.cf_access_help), color = Huis.colors.muted, style = MaterialTheme.typography.bodyMedium)
         OutlinedTextField(
             value = id,
@@ -364,41 +357,39 @@ private fun CloudflareAccessCard(vm: MainViewModel) {
             modifier = Modifier.fillMaxWidth(),
         )
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(
-                onClick = save,
-                modifier = Modifier.heightIn(min = 48.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Huis.colors.ink, contentColor = Huis.colors.ground),
-            ) { Text(stringResource(R.string.save)) }
-            if (saved) {
-                Text(
-                    stringResource(R.string.saved),
-                    color = Huis.colors.ok,
-                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                )
-            }
+            PeilKnop(stringResource(R.string.save), onClick = save, soort = KnopSoort.PRIMAIR)
+            if (saved) SavedLine(stringResource(R.string.saved))
         }
     }
 }
 
+/** "Opgeslagen": done is not healthy, so a neutral check in ink (Peil), read aloud when it appears. */
+@Composable
+private fun SavedLine(text: String) {
+    Row(
+        Modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        PeilIcoon(R.drawable.lucide_check, Huis.colors.ink, size = 18.dp)
+        Text(text, color = Huis.colors.ink, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+/** An alert with its severity label (Info · Middel · Hoog) instead of a coloured dot, and "Gezien". */
 @Composable
 private fun AlertRow(alert: Alert, canAck: Boolean, onAck: () -> Unit) {
-    val color = when (alert.severity) {
-        "error" -> Huis.colors.error
-        "warn" -> Huis.colors.warn
-        else -> Huis.colors.cool
-    }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(Modifier.padding(top = 7.dp)) { StatusDot(color) }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(alert.title, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold))
-            val sub = listOfNotNull(alert.detail, alert.createdAt?.let { relativeText(it) }).joinToString(" · ")
-            Text(sub, color = Huis.colors.muted, style = MaterialTheme.typography.bodySmall)
-        }
-        if (canAck) {
-            TextButton(onClick = onAck, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.acknowledge), color = Huis.colors.ink)
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ErnstLabel(PeilUi.ernst(alert.severity))
+            Spacer(Modifier.weight(1f))
+            if (canAck) {
+                PeilKnop(stringResource(R.string.acknowledge), onClick = onAck, soort = KnopSoort.SECUNDAIR)
             }
         }
+        Text(alert.title, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold))
+        val sub = listOfNotNull(alert.detail, alert.createdAt?.let { relativeText(it) }).joinToString(" · ")
+        Text(sub, color = Huis.colors.muted, style = MaterialTheme.typography.bodySmall)
     }
 }
 

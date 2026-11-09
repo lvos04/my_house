@@ -1,10 +1,14 @@
 package nl.huis.smarthome.ui.screens
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,20 +21,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedIconButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
@@ -64,14 +63,22 @@ import nl.huis.smarthome.ui.SystemLine
 import nl.huis.smarthome.ui.SystemLineUi
 import nl.huis.smarthome.ui.UnitState
 import nl.huis.smarthome.ui.ZoneUi
+import nl.huis.smarthome.ui.PeilStatus
+import nl.huis.smarthome.ui.PeilUi
+import nl.huis.smarthome.ui.components.Aanraakdoel
 import nl.huis.smarthome.ui.components.CommandStatusText
+import nl.huis.smarthome.ui.components.PeilIcoon
+import nl.huis.smarthome.ui.components.SectionTitle
+import nl.huis.smarthome.ui.components.StatusBadge
+import nl.huis.smarthome.ui.components.arcering
+import nl.huis.smarthome.ui.components.lastKnownClock
+import nl.huis.smarthome.ui.components.stippelRand
 import nl.huis.smarthome.ui.components.ConnectionBanner
 import nl.huis.smarthome.ui.components.HuisCard
 import nl.huis.smarthome.ui.components.NotificationPromptCard
 import nl.huis.smarthome.ui.components.QualityLabel
 import nl.huis.smarthome.ui.components.ReadOnlyNote
 import nl.huis.smarthome.ui.components.RouteChip
-import nl.huis.smarthome.ui.components.StatusDot
 import nl.huis.smarthome.ui.components.SetpointControl
 import nl.huis.smarthome.ui.components.TargetReadout
 import nl.huis.smarthome.ui.components.UnitNotLinked
@@ -80,7 +87,7 @@ import nl.huis.smarthome.ui.components.qualityText
 import nl.huis.smarthome.ui.components.relativeText
 import nl.huis.smarthome.ui.components.textSource
 import nl.huis.smarthome.ui.theme.Huis
-import nl.huis.smarthome.ui.theme.noFontScale
+import nl.huis.smarthome.ui.theme.LocalHuisKlok
 import java.time.LocalTime
 
 @Composable
@@ -92,27 +99,28 @@ fun HomeScreen(
     notif: NotifUi? = null,
 ) {
     val overview = state.overview
-    val dim = if (state.online) 1f else 0.55f
+    // Offline: no dimming (Peil: never opacity on text); every card is marked "Verouderd · Laatst bekend · 15:47".
+    val stale = if (state.online) null else lastKnownClock(state)
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item(key = "header") {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             overview?.home?.name ?: state.pairing?.homeName ?: "",
                             color = Huis.colors.muted,
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.weight(1f, fill = false),
                         )
                         RouteChip(state)
                     }
                     Text(
                         greeting(),
-                        style = MaterialTheme.typography.headlineMedium,
+                        style = MaterialTheme.typography.headlineSmall,
                         color = Huis.colors.ink,
                         modifier = Modifier.semantics { heading() },
                     )
@@ -121,12 +129,13 @@ fun HomeScreen(
                 val label = stringResource(R.string.alerts_button, openAlerts)
                 OutlinedIconButton(
                     onClick = onOpenAlerts,
-                    modifier = Modifier.size(48.dp).semantics { contentDescription = label },
+                    modifier = Modifier.size(Aanraakdoel).semantics { contentDescription = label },
                     border = BorderStroke(1.dp, Huis.colors.controlOutline),
                     colors = IconButtonDefaults.outlinedIconButtonColors(containerColor = Huis.colors.surface),
                 ) {
-                    BadgedBox(badge = { if (openAlerts > 0) Badge(containerColor = Huis.colors.warn, contentColor = Huis.colors.surface) { Text("$openAlerts") } }) {
-                        Icon(Icons.Outlined.Notifications, contentDescription = null, tint = Huis.colors.ink)
+                    // The count in ink, never red: the number is information, the alerts say how serious they are.
+                    BadgedBox(badge = { if (openAlerts > 0) Badge(containerColor = Huis.colors.ink, contentColor = Huis.colors.surface) { Text("$openAlerts") } }) {
+                        PeilIcoon(R.drawable.lucide_bell, Huis.colors.ink, size = 24.dp)
                     }
                 }
             }
@@ -138,7 +147,7 @@ fun HomeScreen(
         // Always there with an overview, also when all is well; problems get the block below too.
         val systemLine = SystemLineUi.of(overview?.status.orEmpty())
         if (overview != null && !systemLine.isEmpty) {
-            item(key = "system") { SystemStatusLine(systemLine, Modifier.alpha(dim)) }
+            item(key = "system") { SystemStatusLine(systemLine) }
         }
         val attention = AttentionUi.of(overview?.status.orEmpty())
         if (attention.level != AttentionLevel.NONE) {
@@ -158,7 +167,7 @@ fun HomeScreen(
             ZoneCard(
                 zone = zone,
                 state = state,
-                dim = dim,
+                stale = stale,
                 onNudge = { vm.nudge(zone, it) },
                 onOpen = { onOpenZone(zone.id) },
             )
@@ -166,23 +175,18 @@ fun HomeScreen(
 
         val lights = LightsUi.visible(overview?.lights.orEmpty())
         if (lights.isNotEmpty()) {
-            item(key = "lights-title") {
-                Text(
-                    stringResource(R.string.lights),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Huis.colors.muted,
-                    modifier = Modifier.semantics { heading() },
-                )
-            }
+            item(key = "lights-title") { SectionTitle(stringResource(R.string.lights)) }
             items(lights.chunked(2), key = { row -> row.joinToString("|") { it.id } }) { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Both tiles of a row equally high (one may carry the Onbekend badge).
+                Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     row.forEach { g ->
                         LightTile(
                             group = g,
                             line = CommandUi.line(state, g),
                             enabled = state.controlsEnabled,
                             readOnly = state.readOnly,
-                            modifier = Modifier.weight(1f).alpha(dim),
+                            stale = stale != null,
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
                         ) { vm.toggle(g) }
                     }
                     if (row.size == 1) Box(Modifier.weight(1f))
@@ -190,96 +194,89 @@ fun HomeScreen(
             }
         }
 
-        overview?.powerNow?.let { power -> item(key = "power") { PowerCard(power, Modifier.alpha(dim)) } }
+        overview?.powerNow?.let { power -> item(key = "power") { HuisCard(verouderd = stale) { PowerSummary(power, stale = stale != null) } } }
     }
 }
 
 /**
  * "Laatste back-up 5 uur geleden · Achtergronddienst actief" (+ "Veilige modus aan"): one quiet
- * line, so the user also sees that backups and the worker run when nothing is wrong.
+ * line with its Peil status (Gezond, Beperkt or Storing: icon + word), so the user also sees that
+ * backups and the worker run when nothing is wrong.
  */
 @Composable
 private fun SystemStatusLine(line: SystemLine, modifier: Modifier = Modifier) {
-    val dot = when (line.level) {
-        AttentionLevel.NONE -> Huis.colors.ok
-        AttentionLevel.WARN -> Huis.colors.warn
-        AttentionLevel.ERROR -> Huis.colors.error
-    }
-    // The dot's colour for TalkBack; nothing extra when all is well.
-    val levelText = when (line.level) {
-        AttentionLevel.NONE -> null
-        AttentionLevel.WARN -> stringResource(R.string.attention_state_warn)
-        AttentionLevel.ERROR -> stringResource(R.string.attention_state_error)
-    }
-    Row(
-        modifier.fillMaxWidth().semantics(mergeDescendants = true) { levelText?.let { stateDescription = it } },
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.Top,
+    Column(
+        modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Box(Modifier.padding(top = 5.dp)) { StatusDot(dot) }
+        StatusBadge(PeilUi.systeem(line.level))
         Text(
             SystemLineUi.text(textSource(), line),
             color = Huis.colors.muted,
             style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.weight(1f),
         )
     }
 }
 
 /**
- * Worker heartbeat, safe mode, last backup and maintenance (verbeterlijst 22): without this the
- * start screen stayed calm while the worker was down and nothing was measured or regulated.
+ * "Wat actie nodig heeft" (verbeterlijst 22; same words as the Hub): worker heartbeat, safe mode,
+ * last backup and maintenance. A panel with a 2 dp border in the worst status; every item has its
+ * status icon and word, so colour is never the only sign.
  */
 @Composable
 private fun AttentionCard(attention: Attention, isAdmin: Boolean) {
     val serious = attention.level == AttentionLevel.ERROR
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        color = Huis.colors.warnContainer,
-        border = BorderStroke(1.dp, if (serious) Huis.colors.error else Huis.colors.warn),
+    val p = Huis.peil
+    val (vlak, rand) = if (serious) p.downBg to p.down else p.degradedBg to p.degraded
+    val inkt = if (serious) p.downInk else p.degradedInk
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(vlak)
+            .border(BorderStroke(2.dp, rand), RoundedCornerShape(8.dp))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PeilIcoon(if (serious) R.drawable.lucide_octagon_x else R.drawable.lucide_triangle_alert, rand, size = 22.dp)
             Text(
                 stringResource(if (serious) R.string.attention_title_error else R.string.attention_title_warn),
-                style = MaterialTheme.typography.titleSmall,
-                color = Huis.colors.onWarnContainer,
+                style = MaterialTheme.typography.titleMedium,
+                color = inkt,
                 modifier = Modifier.semantics { heading() },
             )
-            attention.items.forEach { item ->
-                val stateText = stringResource(if (item.state == "error") R.string.attention_state_error else R.string.attention_state_warn)
-                Row(
-                    Modifier.fillMaxWidth().semantics(mergeDescendants = true) { stateDescription = stateText },
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.Top,
-                ) {
-                    Box(Modifier.padding(top = 6.dp)) {
-                        StatusDot(if (item.state == "error") Huis.colors.error else Huis.colors.warn, size = 10)
-                    }
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(
-                            item.label.ifBlank { item.key },
-                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = Huis.colors.onWarnContainer,
-                        )
-                        item.detail?.takeIf { it.isNotBlank() }?.let {
-                            Text(it, style = MaterialTheme.typography.bodySmall, color = Huis.colors.onWarnContainer)
-                        }
-                    }
+        }
+        attention.items.forEach { item ->
+            Column(
+                Modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatusBadge(PeilUi.item(item.state))
+                    Text(
+                        item.label.ifBlank { item.key },
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = inkt,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                item.detail?.takeIf { it.isNotBlank() }?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = inkt)
                 }
             }
-            Text(
-                stringResource(if (isAdmin) R.string.attention_more_admin else R.string.attention_more),
-                style = MaterialTheme.typography.bodySmall,
-                color = Huis.colors.onWarnContainer,
-            )
         }
+        Text(
+            stringResource(if (isAdmin) R.string.attention_more_admin else R.string.attention_more),
+            style = MaterialTheme.typography.bodySmall,
+            color = inkt,
+        )
     }
 }
 
 @Composable
 private fun greeting(): String {
-    val h = LocalTime.now().hour
+    val h = LocalTime.now(LocalHuisKlok.current).hour
     return stringResource(
         when (h) {
             in 6..11 -> R.string.greeting_morning
@@ -294,20 +291,20 @@ private fun greeting(): String {
 private fun ZoneCard(
     zone: Zone,
     state: HomeState,
-    dim: Float,
+    stale: String?,
     onNudge: (Double) -> Unit,
     onOpen: () -> Unit,
 ) {
     val unit = ZoneUi.unitState(zone)
     val controls = ZoneUi.controls(zone, state)
     val openLabel = stringResource(R.string.zone_open, zone.name)
-    HuisCard(onClick = onOpen, onClickLabel = openLabel) {
+    HuisCard(onClick = onOpen, onClickLabel = openLabel, verouderd = stale) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(zone.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             ZonePillView(zone)
         }
         if (unit == UnitState.NOT_LINKED) {
-            if (ZoneUi.hasSensor(zone)) Reading(zone, Modifier.alpha(dim))
+            if (ZoneUi.hasSensor(zone)) Reading(zone, stale = stale != null)
             UnitNotLinked(zone, canManage = state.isAdmin)
             return@HuisCard
         }
@@ -316,49 +313,53 @@ private fun ZoneCard(
             when {
                 controls.visible && unit == UnitState.ON ->
                     SetpointControl(value = shown, enabled = controls.setpointEnabled, onNudge = onNudge, step = zone.capabilities.stepC)
-                unit == UnitState.ON -> TargetReadout(shown, Modifier.alpha(dim))
+                unit == UnitState.ON -> TargetReadout(shown)
                 else -> Unit
             }
         }
         if (LocalDensity.current.fontScale > 1.3f) {
             // Large font: reading and +/− below each other, so neither gets squeezed.
-            Reading(zone, Modifier.alpha(dim))
+            Reading(zone, stale = stale != null)
             target()
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Reading(zone, Modifier.weight(1f).alpha(dim))
+                Reading(zone, Modifier.weight(1f), stale = stale != null)
                 target()
             }
         }
         when (unit) {
             UnitState.OFF -> Text(stringResource(R.string.zone_off_short), color = Huis.colors.muted, style = MaterialTheme.typography.bodySmall)
-            UnitState.OFFLINE -> Text(stringResource(R.string.unit_unreachable), color = Huis.colors.warn, style = MaterialTheme.typography.bodySmall)
+            UnitState.OFFLINE -> IconLine(R.drawable.lucide_circle_help, Huis.peil.unknown, stringResource(R.string.unit_unreachable), Huis.peil.unknownInk)
             else -> Unit
         }
         zone.notice?.takeIf { zone.noticeIsWarning && unit == UnitState.ON }?.let {
-            Text(it, color = Huis.colors.warn, style = MaterialTheme.typography.bodySmall)
+            IconLine(R.drawable.lucide_triangle_alert, Huis.peil.degraded, it, Huis.peil.degradedInk)
         }
         CommandStatusText(CommandUi.line(state, zone))
     }
 }
 
-/** Room temperature with its quality label (or "Sensor verouderd"). */
+/** A short line with its icon (18 dp) in front: the icon carries the meaning, the colour only helps. */
 @Composable
-private fun Reading(zone: Zone, modifier: Modifier = Modifier) {
+private fun IconLine(@DrawableRes icoon: Int, iconTint: Color, text: String, textColor: Color) {
+    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        PeilIcoon(icoon, iconTint, Modifier.padding(top = 1.dp), size = 18.dp)
+        Text(text, color = textColor, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+/** Room temperature with its quality label (or "Sensor verouderd"); last known values in stale ink. */
+@Composable
+private fun Reading(zone: Zone, modifier: Modifier = Modifier, stale: Boolean = false) {
     val t = zone.temperature
-    Column(modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(
             NlFormat.temperature(t.value),
-            // Already 48 sp: kept at that size so it never breaks over two lines next to +/−.
-            style = MaterialTheme.typography.displayMedium.noFontScale(),
-            color = if (t.stale || t.value == null) Huis.colors.dimmed else Huis.colors.ink,
+            style = MaterialTheme.typography.displaySmall,
+            color = if (stale || t.stale || t.value == null) Huis.colors.dimmed else Huis.colors.ink,
         )
         if (t.stale) {
-            Text(
-                stringResource(R.string.stale_sensor_since, relativeText(t.at)),
-                color = Huis.colors.warn,
-                style = MaterialTheme.typography.bodySmall,
-            )
+            IconLine(R.drawable.lucide_clock_alert, Huis.peil.stale, stringResource(R.string.stale_sensor_since, relativeText(t.at)), Huis.peil.staleInk)
         } else {
             QualityLabel(t.quality, t.at?.let { relativeText(it) })
         }
@@ -366,8 +367,9 @@ private fun Reading(zone: Zone, modifier: Modifier = Modifier) {
 }
 
 /**
- * A light group: one tap switches it. TalkBack hears a switch with its state ("aan"/"uit");
- * a viewer phone sees the state without a switch.
+ * A light group (LichtTegel): one tap switches it. On = warm surface with a lightbulb, off = strong
+ * border with lightbulb-off, unreachable = Onbekend (dashed, never transparent). TalkBack hears a
+ * switch with its state ("aan"/"uit"); a viewer phone sees the state without a switch.
  */
 @Composable
 private fun LightTile(
@@ -375,11 +377,13 @@ private fun LightTile(
     line: CommandLine?,
     enabled: Boolean,
     readOnly: Boolean,
+    stale: Boolean,
     modifier: Modifier = Modifier,
     onToggle: () -> Unit,
 ) {
+    val p = Huis.peil
     val on = group.on && group.reachable
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(8.dp)
     val stateText = stringResource(
         when {
             !group.reachable -> R.string.lights_unreachable
@@ -397,19 +401,40 @@ private fun LightTile(
             onValueChange = { onToggle() },
         )
     }
-    Surface(
-        modifier = modifier
+    val (vlak, inkt) = when {
+        !group.reachable -> p.unknownBg to p.unknownInk
+        on -> p.domainLightOnBg to p.domainLightOnInk
+        else -> p.card to p.foreground
+    }
+    val rand = when {
+        !group.reachable || stale -> Modifier.stippelRand(if (stale) p.stale else p.unknown, radius = 8.dp)
+        // The ink, not the amber domain colour (2,8:1 on its own surface in light): ≥ 3:1 (PeilContrastTest).
+        on -> Modifier.border(BorderStroke(2.dp, p.domainLightOnInk), shape)
+        else -> Modifier.border(BorderStroke(1.dp, p.borderStrong), shape)
+    }
+    Column(
+        modifier
             .heightIn(min = 76.dp)
             .clip(shape)
-            .then(interaction),
-        shape = shape,
-        color = if (on) Huis.colors.light else Huis.colors.surface,
-        border = if (on) null else BorderStroke(1.dp, Huis.colors.controlOutline),
+            .background(vlak)
+            .then(interaction)
+            .then(rand)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(group.name, style = MaterialTheme.typography.titleSmall, color = if (on) Huis.colors.onLight else Huis.colors.ink)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            PeilIcoon(
+                if (on) R.drawable.lucide_lightbulb else R.drawable.lucide_lightbulb_off,
+                if (stale) p.staleInk else inkt,
+                size = 20.dp,
+            )
+            Text(group.name, style = MaterialTheme.typography.titleSmall, color = if (stale) p.staleInk else inkt)
+        }
+        if (!group.reachable) {
+            StatusBadge(PeilStatus.ONBEKEND)
+            Text(stateText, style = MaterialTheme.typography.bodySmall, color = inkt)
+        } else {
             val sub = when {
-                !group.reachable -> stateText
                 !group.on -> stateText
                 else -> listOfNotNull(
                     group.scene,
@@ -417,24 +442,21 @@ private fun LightTile(
                     group.lightsTotal.takeIf { it > 1 && group.lightsOn in 1 until it }?.let { stringResource(R.string.lights_partly, group.lightsOn, it) },
                 ).joinToString(" · ").ifBlank { stateText }
             }
-            Text(sub, style = MaterialTheme.typography.bodySmall, color = if (on) Huis.colors.onLight else Huis.colors.muted)
-            CommandStatusText(line)
+            Text(sub, style = MaterialTheme.typography.bodySmall, color = if (stale) p.staleInk else inkt)
         }
+        CommandStatusText(line)
     }
 }
 
+/**
+ * Live power (P1) with quality per part; also used on the Energie tab. The thin bar (Peil
+ * "dunne segmentbalk") uses the chart colours: airco chart-1, boiler chart-3, overig chart-other
+ * with hatching, teruglevering chart-5; the list below carries the numbers.
+ */
 @Composable
-private fun PowerCard(power: LivePower, modifier: Modifier = Modifier) {
-    HuisCard(modifier) {
-        PowerSummary(power)
-    }
-}
-
-/** Live power (P1) with quality per part; also used on the Energie tab. */
-@Composable
-fun PowerSummary(power: LivePower) {
+fun PowerSummary(power: LivePower, stale: Boolean = false) {
     val quality = if (power.totalW == null) Quality.MISSING else Quality.MEASURED
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             stringResource(R.string.power_now),
             style = MaterialTheme.typography.titleMedium,
@@ -446,15 +468,22 @@ fun PowerSummary(power: LivePower) {
             style = MaterialTheme.typography.bodySmall,
         )
     }
-    Text(NlFormat.watts(power.totalW), style = MaterialTheme.typography.displaySmall)
+    Text(
+        NlFormat.watts(power.totalW),
+        style = MaterialTheme.typography.displaySmall,
+        color = if (stale) Huis.colors.dimmed else Huis.colors.ink,
+    )
     val parts = power.parts.filter { (it.watts ?: 0.0) > 0 }
     val total = parts.sumOf { it.watts ?: 0.0 }.takeIf { it > 0 }
     if (total != null) {
+        val card = Huis.peil.card
+        val hatch = Huis.peil.card
         Row(
             Modifier
                 .fillMaxWidth()
                 .height(8.dp)
-                .clip(RoundedCornerShape(4.dp)),
+                .clip(RoundedCornerShape(4.dp))
+                .background(card),
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             parts.forEach { p ->
@@ -462,37 +491,52 @@ fun PowerSummary(power: LivePower) {
                     Modifier
                         .weight(((p.watts ?: 0.0) / total).toFloat().coerceAtLeast(0.01f))
                         .height(8.dp)
-                        .background(roleColor(p.role)),
+                        .background(roleColor(p.role))
+                        .then(if (p.role == "rest") Modifier.arcering(hatch, spacing = 4.dp) else Modifier),
                 )
             }
         }
     }
     power.parts.forEach { p ->
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(Modifier.size(10.dp).clip(RoundedCornerShape(3.dp)).background(roleColor(p.role)))
+        Row(
+            Modifier.heightIn(min = 32.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            RoleSwatch(p.role)
             Text(p.label.ifBlank { p.role }, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             Text(
                 NlFormat.watts(p.watts),
                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = if (p.watts == null || p.stale) Huis.colors.dimmed else Huis.colors.ink,
+                color = if (stale || p.watts == null || p.stale) Huis.colors.dimmed else Huis.colors.ink,
             )
             QualityLabel(if (p.stale) Quality.MISSING else p.quality)
         }
     }
     if (!power.complete) {
-        Text(
-            power.note ?: stringResource(R.string.power_incomplete),
-            color = Huis.colors.warn,
-            style = MaterialTheme.typography.bodySmall,
-        )
+        IconLine(R.drawable.lucide_info, Huis.peil.mutedForeground, power.note ?: stringResource(R.string.power_incomplete), Huis.peil.mutedForeground)
     }
 }
 
+/** Colour square of a role in a legend or list (overig hatched, as in the bars). */
+@Composable
+fun RoleSwatch(role: String, modifier: Modifier = Modifier) {
+    val hatch = Huis.peil.card
+    Box(
+        modifier
+            .size(12.dp)
+            .clip(RoundedCornerShape(3.dp))
+            .background(roleColor(role))
+            .then(if (role == "rest") Modifier.arcering(hatch, spacing = 3.dp) else Modifier),
+    )
+}
+
+/** Chart colours per meter role (Peil palette, validated in light and dark). */
 @Composable
 fun roleColor(role: String): Color = when (role) {
-    "airco" -> Huis.colors.cool
-    "boiler" -> Huis.colors.boiler
-    "grid", "grid_import" -> Huis.colors.ink
-    "grid_export" -> Huis.colors.ok
-    else -> Huis.colors.rest
+    "airco" -> Huis.peil.chart1
+    "boiler" -> Huis.peil.chart3
+    "grid", "grid_import" -> Huis.peil.chartLimit
+    "grid_export" -> Huis.peil.chart5
+    else -> Huis.peil.chartOther
 }

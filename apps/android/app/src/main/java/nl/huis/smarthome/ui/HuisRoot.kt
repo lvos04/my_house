@@ -7,15 +7,12 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Bolt
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.MoreHoriz
-import androidx.compose.material.icons.outlined.Thermostat
-import androidx.compose.material3.Icon
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -34,9 +31,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -49,14 +47,16 @@ import nl.huis.smarthome.ui.screens.HomeScreen
 import nl.huis.smarthome.ui.screens.MoreScreen
 import nl.huis.smarthome.ui.screens.PairScreen
 import nl.huis.smarthome.ui.screens.UnpairedScreen
+import nl.huis.smarthome.ui.components.PeilIcoon
 import nl.huis.smarthome.ui.theme.Huis
 import nl.huis.smarthome.work.AlertNotifier
 
-private enum class Tab(@StringRes val label: Int, val icon: ImageVector) {
-    START(R.string.nav_start, Icons.Outlined.Home),
-    CLIMATE(R.string.nav_climate, Icons.Outlined.Thermostat),
-    ENERGY(R.string.nav_energy, Icons.Outlined.Bolt),
-    MORE(R.string.nav_more, Icons.Outlined.MoreHoriz),
+/** The four tabs of the bottom navigation, with their lucide icon (Peil: house, thermometer, zap, menu). */
+internal enum class Tab(@StringRes val label: Int, @DrawableRes val icon: Int) {
+    START(R.string.nav_start, R.drawable.lucide_house),
+    CLIMATE(R.string.nav_climate, R.drawable.lucide_thermometer),
+    ENERGY(R.string.nav_energy, R.drawable.lucide_zap),
+    MORE(R.string.nav_more, R.drawable.lucide_menu),
 }
 
 /** Phone notifications as the screens need them (start-screen card and Meer). */
@@ -97,51 +97,77 @@ fun HuisRoot(state: HomeState, vm: MainViewModel) {
 
     val notif = rememberNotifUi(vm, state.notificationsWaiting)
 
+    HuisSchil(tab = Tab.entries[tab], onTab = { tab = it.ordinal }, snackbar = snackbar) {
+        when (Tab.entries[tab]) {
+            Tab.START -> HomeScreen(
+                state = state,
+                vm = vm,
+                onOpenZone = { selectedZone = it; tab = Tab.CLIMATE.ordinal },
+                onOpenAlerts = { tab = Tab.MORE.ordinal },
+                notif = notif,
+            )
+            Tab.CLIMATE -> ClimateScreen(
+                state = state,
+                vm = vm,
+                selectedZoneId = selectedZone,
+                onSelectZone = { selectedZone = it },
+                onBack = { tab = Tab.START.ordinal },
+            )
+            Tab.ENERGY -> EnergyScreen(state = state, vm = vm)
+            Tab.MORE -> MoreScreen(state = state, vm = vm, notif = notif)
+        }
+    }
+}
+
+/**
+ * The app's shell: Scaffold with the bottom navigation (Peil: card surface with a top border,
+ * icons 24 dp, labels 14 sp, the selected tab bold on the accent indicator). Separate from
+ * [HuisRoot] so the screenshot tests draw exactly this shell.
+ */
+@Composable
+internal fun HuisSchil(
+    tab: Tab,
+    onTab: (Tab) -> Unit,
+    snackbar: SnackbarHostState? = null,
+    content: @Composable () -> Unit,
+) {
     Scaffold(
         containerColor = Huis.colors.ground,
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { if (snackbar != null) SnackbarHost(snackbar) },
         bottomBar = {
-            NavigationBar(containerColor = Huis.colors.surface) {
-                Tab.entries.forEachIndexed { i, t ->
-                    NavigationBarItem(
-                        selected = tab == i,
-                        onClick = { tab = i },
-                        icon = { Icon(t.icon, contentDescription = null) },
-                        label = { Text(stringResource(t.label), style = MaterialTheme.typography.labelMedium) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Huis.colors.ink,
-                            selectedTextColor = Huis.colors.ink,
-                            indicatorColor = Huis.colors.surfaceMuted,
-                            unselectedIconColor = Huis.colors.muted,
-                            unselectedTextColor = Huis.colors.muted,
-                        ),
-                    )
+            Column {
+                HorizontalDivider(color = Huis.peil.border)
+                NavigationBar(containerColor = Huis.peil.card, tonalElevation = 0.dp) {
+                    Tab.entries.forEach { t ->
+                        val selected = tab == t
+                        NavigationBarItem(
+                            selected = selected,
+                            onClick = { onTab(t) },
+                            icon = { PeilIcoon(t.icon, if (selected) Huis.peil.foreground else Huis.peil.mutedForeground, size = 24.dp) },
+                            label = {
+                                Text(
+                                    stringResource(t.label),
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                    ),
+                                )
+                            },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = Huis.peil.foreground,
+                                selectedTextColor = Huis.peil.foreground,
+                                indicatorColor = Huis.peil.accent,
+                                unselectedIconColor = Huis.peil.mutedForeground,
+                                unselectedTextColor = Huis.peil.mutedForeground,
+                            ),
+                        )
+                    }
                 }
             }
         },
     ) { padding ->
         // consumeWindowInsets: imePadding() further down then only adds what the keyboard covers
         // beyond the bottom bar.
-        Box(Modifier.padding(padding).consumeWindowInsets(padding)) {
-            when (Tab.entries[tab]) {
-                Tab.START -> HomeScreen(
-                    state = state,
-                    vm = vm,
-                    onOpenZone = { selectedZone = it; tab = Tab.CLIMATE.ordinal },
-                    onOpenAlerts = { tab = Tab.MORE.ordinal },
-                    notif = notif,
-                )
-                Tab.CLIMATE -> ClimateScreen(
-                    state = state,
-                    vm = vm,
-                    selectedZoneId = selectedZone,
-                    onSelectZone = { selectedZone = it },
-                    onBack = { tab = Tab.START.ordinal },
-                )
-                Tab.ENERGY -> EnergyScreen(state = state, vm = vm)
-                Tab.MORE -> MoreScreen(state = state, vm = vm, notif = notif)
-            }
-        }
+        Box(Modifier.padding(padding).consumeWindowInsets(padding)) { content() }
     }
 }
 

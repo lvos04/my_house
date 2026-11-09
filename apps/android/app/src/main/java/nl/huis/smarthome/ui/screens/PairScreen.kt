@@ -2,6 +2,7 @@ package nl.huis.smarthome.ui.screens
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.annotation.DrawableRes
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
@@ -31,15 +32,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -52,7 +48,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
@@ -65,6 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -82,26 +78,25 @@ import nl.huis.smarthome.data.UnpairResult
 import nl.huis.smarthome.ui.CameraIssue
 import nl.huis.smarthome.ui.CameraPolicy
 import nl.huis.smarthome.ui.MainViewModel
+import nl.huis.smarthome.ui.MeldingSoort
+import nl.huis.smarthome.ui.components.HuisCard
+import nl.huis.smarthome.ui.components.KnopSoort
+import nl.huis.smarthome.ui.components.Note
+import nl.huis.smarthome.ui.components.PeilIcoon
+import nl.huis.smarthome.ui.components.PeilKnop
+import nl.huis.smarthome.ui.components.PeilVorm
+import nl.huis.smarthome.ui.components.meldingKleur
+import nl.huis.smarthome.ui.components.meldingRand
+import nl.huis.smarthome.ui.components.stippelRand
+import nl.huis.smarthome.ui.theme.Huis
+import nl.huis.smarthome.ui.theme.PeilTokens
 import nl.huis.smarthome.ui.UiPrefs
 import nl.huis.smarthome.ui.appSettingsIntent
 import nl.huis.smarthome.ui.findActivity
 import nl.huis.smarthome.ui.startSafely
 import java.util.concurrent.Executors
 
-// The pairing screen is always dark, as in the design.
-private val PairBg = Color(0xFF1C1B19)
-private val PairPanel = Color(0xFF2A2926)
-private val PairText = Color(0xFFF5F4F0)
-private val PairMuted = Color(0xFFD6D3CB)
-private val PairSubtle = Color(0xFFB8B4AA)
-
-/** Borders of text fields and buttons: 4.7:1 on the background (was 1.9:1). */
-private val PairOutline = Color(0xFF8C887F)
-private val PairAccent = Color(0xFFE8A27A)
-private val PairWarnBg = Color(0xFF3A2E16)
-private val PairWarnText = Color(0xFFF2D9A6)
-private val PairOkBg = Color(0xFF1F3327)
-private val PairOkText = Color(0xFFBFE6CC)
+// The pairing screen follows the system theme like the rest of the app (Peil tokens, light and dark).
 
 @Composable
 fun PairScreen(vm: MainViewModel, storeWasReset: Boolean = false) {
@@ -149,31 +144,33 @@ fun PairScreen(vm: MainViewModel, storeWasReset: Boolean = false) {
         vm.clearPairError()
     }
 
+    val p = Huis.peil
     Column(
         Modifier
             .fillMaxSize()
-            .background(PairBg)
+            .background(p.background)
             // Includes the keyboard: the manual fields stay visible.
             .safeDrawingPadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 24.dp),
+            .padding(horizontal = 16.dp, vertical = 24.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(stringResource(R.string.pair_step), color = PairSubtle, style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.pair_step), color = p.mutedForeground, style = MaterialTheme.typography.bodySmall)
             Text(
                 stringResource(R.string.pair_title),
-                color = PairText,
-                style = MaterialTheme.typography.headlineMedium,
+                color = p.foreground,
+                style = MaterialTheme.typography.headlineSmall,
                 modifier = Modifier.semantics { heading() },
             )
-            Text(stringResource(R.string.pair_body), color = PairMuted, style = MaterialTheme.typography.bodyLarge)
+            Text(stringResource(R.string.pair_body), color = p.mutedForeground, style = MaterialTheme.typography.bodyLarge)
         }
 
         when (unpairResult) {
-            UnpairResult.REVOKED_ON_SERVER -> PairNote(stringResource(R.string.unpair_revoked), PairOkBg, PairOkText)
-            UnpairResult.LOCAL_ONLY -> PairNote(stringResource(R.string.unpair_local_only), PairWarnBg, PairWarnText)
-            null -> if (storeWasReset) PairNote(stringResource(R.string.store_reset), PairWarnBg, PairWarnText)
+            // Done is neutral (a check), something left to do is Beperkt; never green for "done".
+            UnpairResult.REVOKED_ON_SERVER -> Note(stringResource(R.string.unpair_revoked), MeldingSoort.NEUTRAAL, icoon = R.drawable.lucide_check)
+            UnpairResult.LOCAL_ONLY -> Note(stringResource(R.string.unpair_local_only), MeldingSoort.BEPERKT)
+            null -> if (storeWasReset) Note(stringResource(R.string.store_reset), MeldingSoort.BEPERKT)
         }
 
         if (manual) {
@@ -194,72 +191,57 @@ fun PairScreen(vm: MainViewModel, storeWasReset: Boolean = false) {
         }
 
         pair.error?.let { error ->
+            // Foutpaneel (Peil): a refused code or a different server answering is a measured mismatch.
+            val k = meldingKleur(MeldingSoort.STORING)
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(PairWarnBg)
+                    .clip(PeilVorm)
+                    .background(k.vlak)
+                    .meldingRand(k)
                     .semantics { liveRegion = LiveRegionMode.Assertive }
-                    .padding(start = 14.dp, end = 6.dp, top = 12.dp, bottom = 4.dp),
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text(error, color = PairWarnText, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(end = 8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    PeilIcoon(R.drawable.lucide_octagon_x, k.icoon, Modifier.padding(top = 2.dp))
+                    Text(error, color = k.inkt, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                }
                 if (!manual) {
                     // The same rejected QR code is not sent again until the user asks for it.
-                    TextButton(
+                    PeilKnop(
+                        stringResource(R.string.pair_scan_again),
                         onClick = vm::clearPairError,
-                        modifier = Modifier.align(Alignment.End).heightIn(min = 48.dp),
-                    ) { Text(stringResource(R.string.pair_scan_again), color = PairWarnText) }
+                        soort = KnopSoort.SECUNDAIR,
+                        icoon = R.drawable.lucide_rotate_ccw,
+                        modifier = Modifier.align(Alignment.End),
+                    )
                 }
             }
         }
 
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .background(PairPanel)
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            RouteLine(stringResource(R.string.route_lan), Color(0xFF7FC79B), stringResource(R.string.pair_route_lan))
-            RouteLine(stringResource(R.string.route_remote), Color(0xFF9DBAE8), stringResource(R.string.pair_route_remote))
-            Text(stringResource(R.string.pair_route_info), color = PairMuted, style = MaterialTheme.typography.bodySmall)
+        HuisCard {
+            RouteLine(stringResource(R.string.route_lan), R.drawable.lucide_house, stringResource(R.string.pair_route_lan))
+            RouteLine(stringResource(R.string.route_remote), R.drawable.lucide_globe, stringResource(R.string.pair_route_remote))
+            Text(stringResource(R.string.pair_route_info), color = p.mutedForeground, style = MaterialTheme.typography.bodySmall)
         }
 
-        OutlinedButton(
+        PeilKnop(
+            stringResource(if (manual) R.string.pair_scan_instead else R.string.pair_manual),
             onClick = switchMode,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-            shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, PairOutline),
-        ) {
-            Text(
-                stringResource(if (manual) R.string.pair_scan_instead else R.string.pair_manual),
-                color = PairText,
-                style = MaterialTheme.typography.labelLarge,
-            )
-        }
+            soort = KnopSoort.SECUNDAIR,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
+/** "Thuis — Lokaal adres, het snelst": the route with its icon (neutral: a route is not a health status). */
 @Composable
-private fun PairNote(text: String, bg: Color, fg: Color) {
-    Text(
-        text,
-        color = fg,
-        style = MaterialTheme.typography.bodyMedium,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(bg)
-            .padding(14.dp),
-    )
-}
-
-@Composable
-private fun RouteLine(label: String, color: Color, text: String) {
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(label, color = color, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold))
-        Text(text, color = PairMuted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+private fun RouteLine(label: String, @DrawableRes icoon: Int, text: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+        PeilIcoon(icoon, Huis.peil.foreground, Modifier.padding(top = 1.dp), size = 18.dp)
+        Text(label, color = Huis.peil.foreground, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold))
+        Text(text, color = Huis.peil.mutedForeground, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
     }
 }
 
@@ -277,12 +259,16 @@ private fun ScannerPanel(
     onScanned: (String) -> Unit,
 ) {
     val previewLabel = stringResource(R.string.camera_preview)
+    val p = Huis.peil
+    // No picture (camera not allowed or not available) is Onbekend: dashed, with the reason; never red.
+    val noPicture = cameraIssue != null || !hasCamera
     Box(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 320.dp)
-            .clip(RoundedCornerShape(28.dp))
-            .background(PairPanel),
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (noPicture) p.unknownBg else p.muted)
+            .then(if (noPicture) Modifier.stippelRand(p.unknown, radius = 12.dp) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
         when {
@@ -315,27 +301,29 @@ private fun ScannerPanel(
                     onResult = onScanned,
                     onError = onCameraError,
                 )
+                // Over the camera picture: a white frame in both themes (a dark frame would vanish on a dark picture).
                 Box(
                     Modifier
                         .size(220.dp)
-                        .border(4.dp, PairText.copy(alpha = 0.9f), RoundedCornerShape(18.dp)),
+                        .border(4.dp, PeilTokens.Licht.card, RoundedCornerShape(12.dp)),
                 )
                 Box(
                     Modifier
                         .size(width = 188.dp, height = 2.dp)
-                        .background(PairAccent),
+                        .background(p.primary),
                 )
                 if (busy) {
                     Column(
                         Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(PairBg.copy(alpha = 0.85f))
+                            .clip(PeilVorm)
+                            .background(p.card)
+                            .border(BorderStroke(1.dp, p.border), PeilVorm)
                             .padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        CircularProgressIndicator(color = PairText)
-                        Text(stringResource(R.string.pair_busy), color = PairText, style = MaterialTheme.typography.bodyMedium)
+                        CircularProgressIndicator(color = p.primary)
+                        Text(stringResource(R.string.pair_busy), color = p.foreground, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
@@ -353,24 +341,23 @@ private fun CameraMessage(
     /** Read out by TalkBack when it appears (a camera error replaces the picture). */
     announce: Boolean = false,
 ) {
+    val p = Huis.peil
     Column(
         Modifier.padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        PeilIcoon(R.drawable.lucide_camera_off, p.unknown, size = 32.dp)
         Text(
             text,
-            color = PairMuted,
+            color = p.unknownInk,
             style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
             modifier = if (announce) Modifier.semantics { liveRegion = LiveRegionMode.Polite } else Modifier,
         )
-        Button(
-            onClick = onClick,
-            modifier = Modifier.heightIn(min = 48.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = PairText, contentColor = PairBg),
-        ) { Text(button) }
+        PeilKnop(button, onClick = onClick, soort = KnopSoort.PRIMAIR)
         if (secondary != null && onSecondary != null) {
-            TextButton(onClick = onSecondary, modifier = Modifier.heightIn(min = 48.dp)) { Text(secondary, color = PairText) }
+            PeilKnop(secondary, onClick = onSecondary, soort = KnopSoort.STIL)
         }
     }
 }
@@ -387,17 +374,7 @@ private fun ManualEntry(busy: Boolean, onSubmit: (String, String) -> Unit) {
             onSubmit(address, code)
         }
     }
-    val colors = OutlinedTextFieldDefaults.colors(
-        focusedTextColor = PairText,
-        unfocusedTextColor = PairText,
-        focusedBorderColor = PairText,
-        unfocusedBorderColor = PairOutline,
-        focusedLabelColor = PairText,
-        unfocusedLabelColor = PairSubtle,
-        focusedPlaceholderColor = PairSubtle,
-        unfocusedPlaceholderColor = PairSubtle,
-        cursorColor = PairText,
-    )
+    val colors = huisFieldColors()
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         OutlinedTextField(
             value = address,
@@ -420,15 +397,13 @@ private fun ManualEntry(busy: Boolean, onSubmit: (String, String) -> Unit) {
             colors = colors,
             modifier = Modifier.fillMaxWidth(),
         )
-        Button(
+        PeilKnop(
+            stringResource(if (busy) R.string.pair_busy else R.string.pair_submit),
             onClick = submit,
             enabled = canSubmit,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = PairText, contentColor = PairBg),
-        ) {
-            Text(stringResource(if (busy) R.string.pair_busy else R.string.pair_submit))
-        }
+            soort = KnopSoort.PRIMAIR,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

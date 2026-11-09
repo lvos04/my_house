@@ -1,17 +1,15 @@
 package nl.huis.smarthome.ui.components
 
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.LinkOff
-import androidx.compose.material.icons.outlined.Remove
-import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,10 +23,14 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import nl.huis.smarthome.R
 import nl.huis.smarthome.core.NlFormat
 import nl.huis.smarthome.core.Zone
 import nl.huis.smarthome.ui.HoursMinutes
+import nl.huis.smarthome.ui.MeldingSoort
+import nl.huis.smarthome.ui.PeilStatus
+import nl.huis.smarthome.ui.PeilUi
 import nl.huis.smarthome.ui.Spoken
 import nl.huis.smarthome.ui.ZoneHint
 import nl.huis.smarthome.ui.ZonePill
@@ -42,7 +44,8 @@ fun targetSpoken(value: Double?): String =
 
 /**
  * − value + for a zone's target. The value is a live region, so TalkBack reads the new target
- * after every tap. [showValue] is false on the Klimaat screen, where the dial shows it.
+ * after every tap. [showValue] is false on the Klimaat screen, where the dial shows it. Round
+ * buttons of 48 dp (56 dp on Klimaat) with a strong border; disabled = dashed, never transparent.
  */
 @Composable
 fun SetpointControl(
@@ -53,18 +56,13 @@ fun SetpointControl(
     big: Boolean = false,
     showValue: Boolean = !big,
 ) {
-    val btn = if (big) 64.dp else 48.dp
+    val btn = if (big) 56.dp else Aanraakdoel
     val lower = stringResource(R.string.target_lower)
     val higher = stringResource(R.string.target_higher)
     val spoken = targetSpoken(value)
     val delta = if (step > 0) step else 0.5
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        FilledTonalIconButton(
-            onClick = { onNudge(-delta) },
-            enabled = enabled,
-            modifier = Modifier.size(btn).semantics { contentDescription = lower },
-            colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Huis.colors.surfaceMuted, contentColor = Huis.colors.ink),
-        ) { Icon(Icons.Outlined.Remove, contentDescription = null) }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        StepButton(R.drawable.lucide_minus, lower, enabled, btn) { onNudge(-delta) }
         if (showValue) {
             Column(
                 Modifier
@@ -79,13 +77,29 @@ fun SetpointControl(
                 Text(NlFormat.temperature(value), style = MaterialTheme.typography.titleMedium)
             }
         }
-        FilledTonalIconButton(
-            onClick = { onNudge(delta) },
-            enabled = enabled,
-            modifier = Modifier.size(btn).semantics { contentDescription = higher },
-            colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Huis.colors.surfaceMuted, contentColor = Huis.colors.ink),
-        ) { Icon(Icons.Outlined.Add, contentDescription = null) }
+        StepButton(R.drawable.lucide_plus, higher, enabled, btn) { onNudge(delta) }
     }
+}
+
+@Composable
+private fun StepButton(@DrawableRes icoon: Int, label: String, enabled: Boolean, size: Dp, onClick: () -> Unit) {
+    val p = Huis.peil
+    OutlinedIconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .size(size)
+            .then(if (enabled) Modifier else Modifier.stippelRand(p.borderStrong, width = 1.5.dp, pill = true))
+            .semantics { contentDescription = label },
+        shape = CircleShape,
+        border = if (enabled) BorderStroke(1.dp, p.borderStrong) else null,
+        colors = IconButtonDefaults.outlinedIconButtonColors(
+            containerColor = p.card,
+            contentColor = p.foreground,
+            disabledContainerColor = p.muted,
+            disabledContentColor = p.disabledForeground,
+        ),
+    ) { PeilIcoon(icoon, if (enabled) p.foreground else p.disabledForeground, size = 24.dp) }
 }
 
 /** Target as plain text, for viewer phones (no buttons). */
@@ -101,30 +115,36 @@ fun TargetReadout(value: Double?, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * The label at the top right of a zone card (Peil): a domain chip for the mode (Verwarmen with a
+ * flame, Koelen with a snowflake, others neutral), "Handmatig tot 16:00" with a hand (neutral, not a
+ * warning), no airco = Niet gekoppeld, unreachable = Onbekend (dashed, never amber).
+ */
 @Composable
 fun ZonePillView(zone: Zone) {
     when (ZoneUi.pill(zone)) {
-        ZonePill.NO_UNIT -> Pill(stringResource(R.string.zone_no_unit_pill), Huis.colors.surfaceMuted, Huis.colors.muted)
-        ZonePill.UNREACHABLE -> Pill(stringResource(R.string.zone_unreachable_pill), Huis.colors.warnContainer, Huis.colors.onWarnContainer)
+        ZonePill.NO_UNIT -> StatusBadge(PeilStatus.NIET_GEKOPPELD, label = stringResource(R.string.zone_no_unit_pill))
+        ZonePill.UNREACHABLE -> StatusBadge(PeilStatus.ONBEKEND, label = stringResource(R.string.zone_unreachable_pill))
         ZonePill.MANUAL -> Pill(
             zone.override?.until?.let { stringResource(R.string.override_until, NlFormat.clock(it)) } ?: stringResource(R.string.zone_manual_pill),
-            Huis.colors.warnContainer,
-            Huis.colors.onWarnContainer,
+            Huis.peil.muted,
+            Huis.peil.foreground,
+            icoon = R.drawable.lucide_hand,
         )
         ZonePill.MODE -> {
             val (bg, fg) = modeColors(zone.mode)
-            Pill(modeLabel(zone.mode), bg, fg)
+            Pill(modeLabel(zone.mode), bg, fg, icoon = PeilUi.modusIcoon(zone.mode))
         }
     }
 }
 
-/** Why +/−, fan and "Handmatig" are off (verbeterlijst 13). Offline is a warning, "uit" is info. */
+/** Why +/−, fan and "Handmatig" are off (verbeterlijst 13): "uit" is info, unreachable is Onbekend. */
 @Composable
 fun ZoneHintNote(hint: ZoneHint?, modifier: Modifier = Modifier) {
     when (hint) {
         null -> Unit
-        ZoneHint.CHOOSE_MODE -> InfoBox(stringResource(R.string.hint_choose_mode), modifier = modifier)
-        ZoneHint.UNIT_OFFLINE -> InfoBox(stringResource(R.string.hint_unit_offline), warn = true, modifier = modifier)
+        ZoneHint.CHOOSE_MODE -> Note(stringResource(R.string.hint_choose_mode), MeldingSoort.INFO, modifier)
+        ZoneHint.UNIT_OFFLINE -> Note(stringResource(R.string.hint_unit_offline), MeldingSoort.ONBEKEND, modifier)
     }
 }
 
@@ -133,7 +153,7 @@ fun ZoneHintNote(hint: ZoneHint?, modifier: Modifier = Modifier) {
 fun UnitNotLinked(zone: Zone, canManage: Boolean, modifier: Modifier = Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(Icons.Outlined.LinkOff, contentDescription = null, tint = Huis.colors.muted, modifier = Modifier.size(18.dp))
+            PeilIcoon(R.drawable.lucide_link_2_off, Huis.colors.muted, size = 20.dp)
             Text(
                 stringResource(R.string.zone_no_unit_title),
                 style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),

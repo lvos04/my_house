@@ -1,7 +1,9 @@
 package nl.huis.smarthome.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -16,141 +18,197 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.time.Clock
 
-/** Design tokens from the "Rustig huis" canvas, plus a dark variant. */
+/**
+ * The colours the screens ask for by their old "Rustig huis" names (many call sites). Since the
+ * move to the platform design language Peil (docs/ontwerp/PEIL_MIGRATIE.md §11.1) every value comes
+ * from [PeilTokens] (generated from design/ontwerptaal/tokens.json); new code reads [Huis.peil].
+ */
 @Immutable
 data class HuisColors(
+    /** `background` */
     val ground: Color,
+    /** `card` */
     val surface: Color,
+    /** `muted` (a surface, not a text colour) */
     val surfaceMuted: Color,
+    /** `foreground` */
     val ink: Color,
+    /** `muted-foreground`: ≥ 7:1 on the card */
     val muted: Color,
+    /** `border`: decorative only (cards, dividers) */
     val outline: Color,
     val heat: Color,
     val heatContainer: Color,
     val heatRing: Color,
+    val heatInk: Color,
     val cool: Color,
     val coolContainer: Color,
+    val coolRing: Color,
     val onCoolContainer: Color,
+    /** `healthy` (icon): only for measured health, never for "connected" or "done". */
     val ok: Color,
     val warn: Color,
     val warnContainer: Color,
     val onWarnContainer: Color,
+    /** `down` (icon and border); text on a light surface uses [errorInk]. */
     val error: Color,
+    val errorInk: Color,
     val light: Color,
     val onLight: Color,
     val boiler: Color,
-    /** Bars for "Overig": at least 3:1 against the card (verbeterlijst 39 / toegankelijkheid). */
+    /** "Overig" in the charts (`chart-other`, with hatching). */
     val rest: Color,
+    /** `stale-ink`: last known values; never alpha. */
     val dimmed: Color,
-    /** Border of an unselected control (mode, fan, light tile, text field): at least 3:1 against the card. */
-    val controlOutline: Color = Color(0xFF8F8B82),
+    /** `border-strong`: border of a control (mode, fan, light tile, text field), ≥ 3:1 on the card. */
+    val controlOutline: Color,
 )
 
-val LightHuis = HuisColors(
-    ground = Color(0xFFF5F4F0),
-    surface = Color(0xFFFFFFFF),
-    surfaceMuted = Color(0xFFF0EEE8),
-    ink = Color(0xFF1C1B19),
-    muted = Color(0xFF5F5C55),
-    outline = Color(0xFFE4E2DC),
-    heat = Color(0xFFB9470F),
-    heatContainer = Color(0xFFFBEDE5),
-    heatRing = Color(0xFFF3C9B2),
-    cool = Color(0xFF1F5FBF),
-    coolContainer = Color(0xFFEEF3FB),
-    onCoolContainer = Color(0xFF173E78),
-    ok = Color(0xFF1E7A46),
-    warn = Color(0xFF9A5B00),
-    warnContainer = Color(0xFFFFF8EA),
-    onWarnContainer = Color(0xFF6B4300),
-    error = Color(0xFFB42318),
-    light = Color(0xFFFCF1D6),
-    onLight = Color(0xFF6B5200),
-    boiler = Color(0xFFC26A2E),
-    rest = Color(0xFF8A857B),
-    dimmed = Color(0xFF8C887F),
-    controlOutline = Color(0xFF8F8B82),
+fun huisKleuren(p: PeilKleuren) = HuisColors(
+    ground = p.background,
+    surface = p.card,
+    surfaceMuted = p.muted,
+    ink = p.foreground,
+    muted = p.mutedForeground,
+    outline = p.border,
+    heat = p.domainHeat,
+    heatContainer = p.domainHeatBg,
+    heatRing = p.domainHeatSoft,
+    heatInk = p.domainHeatInk,
+    cool = p.domainCool,
+    coolContainer = p.domainCoolBg,
+    coolRing = p.domainCoolSoft,
+    onCoolContainer = p.domainCoolInk,
+    ok = p.healthy,
+    warn = p.degraded,
+    warnContainer = p.degradedBg,
+    onWarnContainer = p.degradedInk,
+    error = p.down,
+    errorInk = p.downInk,
+    light = p.domainLightOnBg,
+    onLight = p.domainLightOnInk,
+    boiler = p.domainBoiler,
+    rest = p.chartOther,
+    dimmed = p.staleInk,
+    controlOutline = p.borderStrong,
 )
 
-val DarkHuis = HuisColors(
-    ground = Color(0xFF141412),
-    surface = Color(0xFF1F1E1B),
-    surfaceMuted = Color(0xFF2A2926),
-    ink = Color(0xFFF2F0EA),
-    muted = Color(0xFFB8B4AA),
-    outline = Color(0xFF3A3833),
-    heat = Color(0xFFF08A5D),
-    heatContainer = Color(0xFF3D2418),
-    heatRing = Color(0xFF7A3A1C),
-    cool = Color(0xFF8FB2F0),
-    coolContainer = Color(0xFF1B2A44),
-    onCoolContainer = Color(0xFFC9D9F6),
-    ok = Color(0xFF6CC793),
-    warn = Color(0xFFE7B65C),
-    warnContainer = Color(0xFF3A2E16),
-    onWarnContainer = Color(0xFFF2D9A6),
-    error = Color(0xFFF97066),
-    light = Color(0xFF3A3220),
-    onLight = Color(0xFFF1D58E),
-    boiler = Color(0xFFE59866),
-    rest = Color(0xFF7A766D),
-    dimmed = Color(0xFF8C887F),
-    controlOutline = Color(0xFF7A766D),
-)
+val LightHuis = huisKleuren(PeilTokens.Licht)
+val DarkHuis = huisKleuren(PeilTokens.Donker)
 
 val LocalHuis = staticCompositionLocalOf { LightHuis }
+val LocalPeil = staticCompositionLocalOf { PeilTokens.Licht }
 
-// Space Grotesk / Inter are the design fonts; the app uses the system sans-serif
-// so no font files or Google Play font provider are required.
-private val Display = FontFamily.SansSerif
+/**
+ * The clock the screens read "nu" from (relative times, greeting, the block of the week schedule in
+ * force). The system clock in the app; a fixed clock in the screenshot tests, so they stay the same.
+ */
+val LocalHuisKlok = staticCompositionLocalOf<Clock> { Clock.systemDefaultZone() }
 
-private val HuisTypography = Typography(
-    displayLarge = TextStyle(fontFamily = Display, fontWeight = FontWeight.Medium, fontSize = 60.sp, lineHeight = 64.sp),
-    displayMedium = TextStyle(fontFamily = Display, fontWeight = FontWeight.Medium, fontSize = 48.sp, lineHeight = 52.sp),
-    displaySmall = TextStyle(fontFamily = Display, fontWeight = FontWeight.Medium, fontSize = 32.sp, lineHeight = 36.sp),
-    headlineMedium = TextStyle(fontFamily = Display, fontWeight = FontWeight.SemiBold, fontSize = 28.sp, lineHeight = 34.sp),
-    headlineSmall = TextStyle(fontFamily = Display, fontWeight = FontWeight.SemiBold, fontSize = 24.sp, lineHeight = 30.sp),
-    titleMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 22.sp),
-    titleSmall = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 20.sp),
-    bodyLarge = TextStyle(fontSize = 15.sp, lineHeight = 22.sp),
-    bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
-    bodySmall = TextStyle(fontSize = 12.sp, lineHeight = 16.sp),
-    labelLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 15.sp, lineHeight = 20.sp),
-    labelMedium = TextStyle(fontWeight = FontWeight.Medium, fontSize = 12.sp, lineHeight = 16.sp),
+// Peil: system font (Roboto on Android), no font files (ONTWERPTAAL O-01).
+private val Sans = FontFamily.Default
+
+private fun rol(naam: String, gewicht: FontWeight? = null): TextStyle {
+    val r = PeilTokens.rollen.getValue(naam)
+    return TextStyle(
+        fontFamily = Sans,
+        fontWeight = gewicht ?: FontWeight(r.gewicht),
+        fontSize = r.grootteSp.sp,
+        lineHeight = r.regelSp.sp,
+    )
+}
+
+/**
+ * Peil roles mapped onto Material 3 (PEIL_MIGRATIE §11.1): nothing below 14 sp; body 16, page title
+ * 24 bold, card value 30, the dial 48 ("held").
+ */
+val HuisTypography = Typography(
+    displayLarge = rol("held"),
+    displayMedium = rol("held"),
+    displaySmall = rol("waarde"),
+    headlineMedium = rol("pagina"),
+    headlineSmall = rol("pagina"),
+    titleLarge = rol("sectie"),
+    titleMedium = rol("titel"),
+    titleSmall = rol("body", FontWeight.SemiBold),
+    bodyLarge = rol("body"),
+    bodyMedium = rol("body"),
+    bodySmall = rol("meta"),
+    labelLarge = rol("body", FontWeight.SemiBold),
+    labelMedium = rol("meta", FontWeight.Medium),
+    labelSmall = rol("meta", FontWeight.Medium),
+)
+
+/** Peil radii: 4 risk/code, 6, 8 card/button/field (`--radius`), 12 dialog/sheet. */
+val HuisShapes = Shapes(
+    extraSmall = RoundedCornerShape(4.dp),
+    small = RoundedCornerShape(6.dp),
+    medium = RoundedCornerShape(PeilTokens.RADIUS_DP.dp),
+    large = RoundedCornerShape(12.dp),
+    extraLarge = RoundedCornerShape(12.dp),
 )
 
 @Composable
 fun HuisTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
+    val p = if (dark) PeilTokens.Donker else PeilTokens.Licht
     val c = if (dark) DarkHuis else LightHuis
+    // The primary colour of the other mode, for text on the inverse surface (snackbar action).
+    val inversePrimary = if (dark) PeilTokens.Licht.primary else PeilTokens.Donker.primary
+    // Blue primary = interaction (Peil); M3 buttons, switches and progress follow it.
     val scheme = if (dark) {
         darkColorScheme(
-            primary = c.ink, onPrimary = c.ground, background = c.ground, onBackground = c.ink,
-            surface = c.surface, onSurface = c.ink, surfaceVariant = c.surfaceMuted, onSurfaceVariant = c.muted,
-            outline = c.outline, error = c.error, secondaryContainer = c.surfaceMuted, onSecondaryContainer = c.ink,
-            surfaceContainer = c.surface,
+            primary = p.primary, onPrimary = p.primaryForeground,
+            background = p.background, onBackground = p.foreground,
+            surface = p.card, onSurface = p.foreground, surfaceVariant = p.muted, onSurfaceVariant = p.mutedForeground,
+            surfaceContainer = p.card, surfaceContainerLow = p.card, surfaceContainerHigh = p.popover,
+            surfaceContainerHighest = p.popover, surfaceContainerLowest = p.card,
+            outline = p.borderStrong, outlineVariant = p.border,
+            secondaryContainer = p.accent, onSecondaryContainer = p.foreground,
+            error = p.destructive, onError = p.destructiveForeground,
+            errorContainer = p.downBg, onErrorContainer = p.downInk,
+            // No Material default (purple) anywhere: the remaining roles also come from Peil.
+            primaryContainer = p.infoBg, onPrimaryContainer = p.infoInk,
+            secondary = p.mutedForeground, onSecondary = p.card,
+            tertiary = p.info, onTertiary = p.card, tertiaryContainer = p.infoBg, onTertiaryContainer = p.infoInk,
+            inverseSurface = p.foreground, inverseOnSurface = p.background, inversePrimary = inversePrimary,
+            surfaceTint = p.card, surfaceBright = p.card, surfaceDim = p.background,
         )
     } else {
         lightColorScheme(
-            primary = c.ink, onPrimary = c.surface, background = c.ground, onBackground = c.ink,
-            surface = c.surface, onSurface = c.ink, surfaceVariant = c.surfaceMuted, onSurfaceVariant = c.muted,
-            outline = c.outline, error = c.error, secondaryContainer = Color(0xFFEAE8E2), onSecondaryContainer = c.ink,
-            surfaceContainer = c.surface,
+            primary = p.primary, onPrimary = p.primaryForeground,
+            background = p.background, onBackground = p.foreground,
+            surface = p.card, onSurface = p.foreground, surfaceVariant = p.muted, onSurfaceVariant = p.mutedForeground,
+            surfaceContainer = p.card, surfaceContainerLow = p.card, surfaceContainerHigh = p.popover,
+            surfaceContainerHighest = p.popover, surfaceContainerLowest = p.card,
+            outline = p.borderStrong, outlineVariant = p.border,
+            secondaryContainer = p.accent, onSecondaryContainer = p.foreground,
+            error = p.destructive, onError = p.destructiveForeground,
+            errorContainer = p.downBg, onErrorContainer = p.downInk,
+            // No Material default (purple) anywhere: the remaining roles also come from Peil.
+            primaryContainer = p.infoBg, onPrimaryContainer = p.infoInk,
+            secondary = p.mutedForeground, onSecondary = p.card,
+            tertiary = p.info, onTertiary = p.card, tertiaryContainer = p.infoBg, onTertiaryContainer = p.infoInk,
+            inverseSurface = p.foreground, inverseOnSurface = p.background, inversePrimary = inversePrimary,
+            surfaceTint = p.card, surfaceBright = p.card, surfaceDim = p.background,
         )
     }
-    CompositionLocalProvider(LocalHuis provides c) {
-        MaterialTheme(colorScheme = scheme, typography = HuisTypography, content = content)
+    CompositionLocalProvider(LocalHuis provides c, LocalPeil provides p) {
+        MaterialTheme(colorScheme = scheme, typography = HuisTypography, shapes = HuisShapes, content = content)
     }
 }
 
 object Huis {
     val colors: HuisColors @Composable get() = LocalHuis.current
+
+    /** All Peil tokens of the current mode (light or dark). */
+    val peil: PeilKleuren @Composable get() = LocalPeil.current
 }
 
 /**
- * The same text style without the user's font scale. Only for big display numbers inside a
- * graphic of fixed size (the dial) or next to buttons, which are already 32–60 sp; everything
- * else scales with the system font size.
+ * The same text style without the user's font scale. Only for the big number inside the dial,
+ * a graphic of fixed size; everything else scales with the system font size.
  */
 @Composable
 fun TextStyle.noFontScale(): TextStyle {

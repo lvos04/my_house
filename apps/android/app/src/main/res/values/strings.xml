@@ -31,10 +31,8 @@
     <string name="lights_unreachable">Niet bereikbaar</string>
     <string name="power_now">Nu</string>
     <string name="no_zones">Nog geen klimaatzones ingesteld. Doe dit in de web-app.</string>
-    <string name="attention_title_error">Er is een probleem met het systeem</string>
-    <string name="attention_title_warn">Let op</string>
-    <string name="attention_state_error">fout</string>
-    <string name="attention_state_warn">waarschuwing</string>
+    <string name="attention_title_error">Storing in het systeem</string>
+    <string name="attention_title_warn">Wat actie nodig heeft</string>
     <string name="attention_more_admin">Details en wat je kunt doen staan in de web-app onder Systeem.</string>
     <string name="attention_more">Een beheerder ziet de details in de web-app onder Systeem.</string>
     <!-- Systeemregel op Start, altijd zichtbaar: "Laatste back-up 5 uur geleden · Achtergronddienst actief" -->
@@ -133,7 +131,7 @@
     <string name="quality_measured">gemeten</string>
     <string name="quality_derived">afgeleid</string>
     <string name="quality_estimated">geschat</string>
-    <string name="quality_missing">ontbreekt</string>
+    <string name="quality_missing">geen meting</string>
 
     <!-- Widget en meldingen -->
     <string name="widget_name">Huis</string>
@@ -379,4 +377,20 @@
     <string name="day_fri_spoken">vrijdag</string>
     <string name="day_sat_spoken">zaterdag</string>
     <string name="day_sun_spoken">zondag</string>
+
+    <!-- Ontwerptaal Peil (docs/ontwerp/PEIL_MIGRATIE.md §10, §11): vaste statuswoorden, altijd met icoon en vorm -->
+    <string name="status_healthy">Gezond</string>
+    <string name="status_degraded">Beperkt</string>
+    <string name="status_down">Storing</string>
+    <string name="status_unknown">Onbekend</string>
+    <string name="status_stale">Verouderd</string>
+    <string name="status_paused">Gepauzeerd</string>
+    <string name="status_unlinked">Niet gekoppeld</string>
+    <!-- Ernst van een melding (ErnstLabel): info → Info, warn → Middel, error → Hoog -->
+    <string name="severity_info">Info</string>
+    <string name="severity_medium">Middel</string>
+    <string name="severity_high">Hoog</string>
+    <string name="severity_spoken">Ernst: %1$s</string>
+    <!-- Boven een verouderde waarde: "Laatst bekend · 15:47" -->
+    <string name="stale_last_known">Laatst bekend · %1$s</string>
 </resources>

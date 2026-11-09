@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Peil 1.1.0 (design/ontwerptaal/tokens.json): background en foreground, donker. -->
 <resources>
-    <color name="ground">#FF141412</color>
-    <color name="ink">#FFF2F0EA</color>
+    <color name="ground">#FF0A0D12</color>
+    <color name="ink">#FFF2F5F8</color>
 </resources>

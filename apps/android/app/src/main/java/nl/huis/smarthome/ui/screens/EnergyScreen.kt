@@ -23,7 +23,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -51,10 +50,13 @@ import nl.huis.smarthome.ui.components.ConnectionBanner
 import nl.huis.smarthome.ui.components.HuisCard
 import nl.huis.smarthome.ui.components.InfoBox
 import nl.huis.smarthome.ui.components.QualityLabel
+import nl.huis.smarthome.ui.components.arceer
+import nl.huis.smarthome.ui.components.arcering
+import nl.huis.smarthome.ui.components.lastKnownClock
+import nl.huis.smarthome.ui.components.stippelRand
 import nl.huis.smarthome.ui.theme.Huis
-import nl.huis.smarthome.ui.theme.noFontScale
+import nl.huis.smarthome.ui.theme.LocalHuisKlok
 import java.text.NumberFormat
-import java.time.Instant
 import java.time.ZoneId
 import java.util.Locale
 
@@ -78,25 +80,26 @@ fun EnergyScreen(state: HomeState, vm: MainViewModel) {
         }
     }
     val summary = state.energy ?: state.overview?.energyToday
-    val dim = if (state.online) 1f else 0.55f
+    // Offline: no dimming (Peil); the cards say "Verouderd · Laatst bekend · 15:47".
+    val stale = if (state.online) null else lastKnownClock(state)
     val zone = summary?.timezone?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: ZoneId.of("Europe/Amsterdam")
 
     Column(
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 20.dp),
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
-                stringResource(R.string.energy_today_until, NlFormat.clock((state.updatedAt ?: Instant.now()).toString(), zone)),
+                stringResource(R.string.energy_today_until, NlFormat.clock((state.updatedAt ?: LocalHuisKlok.current.instant()).toString(), zone)),
                 color = Huis.colors.muted,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
             )
             Text(
                 stringResource(R.string.nav_energy),
-                style = MaterialTheme.typography.headlineMedium,
+                style = MaterialTheme.typography.headlineSmall,
                 modifier = Modifier.semantics { heading() },
             )
         }
@@ -104,7 +107,7 @@ fun EnergyScreen(state: HomeState, vm: MainViewModel) {
 
         // Live power (energy.live over the WebSocket, at most every 5 s).
         state.overview?.powerNow?.let { power ->
-            HuisCard(Modifier.alpha(dim)) { PowerSummary(power) }
+            HuisCard(verouderd = stale) { PowerSummary(power, stale = stale != null) }
         }
 
         if (summary == null) {
@@ -112,20 +115,24 @@ fun EnergyScreen(state: HomeState, vm: MainViewModel) {
             return@Column
         }
 
-        HuisCard(Modifier.alpha(dim)) {
+        HuisCard(verouderd = stale) {
             Text(
                 stringResource(R.string.energy_today_title),
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.semantics { heading() },
             )
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(NlFormat.kwh(summary.totalKwh), style = MaterialTheme.typography.displayMedium.noFontScale())
+                Text(
+                    NlFormat.kwh(summary.totalKwh),
+                    style = MaterialTheme.typography.displaySmall,
+                    color = if (stale != null) Huis.colors.dimmed else Huis.colors.ink,
+                )
                 summary.cost?.let {
                     Text(
                         NlFormat.euro(it),
                         color = Huis.colors.muted,
                         style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.padding(bottom = 8.dp),
+                        modifier = Modifier.padding(bottom = 4.dp),
                     )
                 }
             }
@@ -136,35 +143,39 @@ fun EnergyScreen(state: HomeState, vm: MainViewModel) {
                 HourBars(summary, zone)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     listOf("00", "06", "12", "18", "24").forEach {
-                        Text(it, color = Huis.colors.muted, style = MaterialTheme.typography.labelMedium)
+                        Text(it, color = Huis.peil.chartLabel, style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"))
                     }
                 }
                 Legend(summary)
                 if (summary.buckets.any { !it.complete }) {
-                    Text(stringResource(R.string.energy_incomplete), color = Huis.colors.warn, style = MaterialTheme.typography.bodySmall)
+                    // Incomplete = hatched with a dashed outline (Peil: geschat), not amber.
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        IncompleteSwatch()
+                        Text(stringResource(R.string.energy_incomplete), color = Huis.colors.muted, style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
         }
 
         val meters = summary.meters.filter { it.role != "grid_export" || (it.kwh ?: 0.0) > 0 }
         if (meters.isNotEmpty() || summary.gas != null) {
-            HuisCard(Modifier.alpha(dim), radius = 20) {
+            HuisCard(verouderd = stale) {
                 meters.forEachIndexed { i, m ->
                     MeterRow(
                         label = m.label.ifBlank { m.role },
                         value = NlFormat.kwh(m.kwh),
                         cost = m.cost,
-                        color = roleColor(m.role),
+                        role = m.role,
                         quality = { QualityLabel(m.quality, m.note ?: m.notes.firstOrNull()) },
                     )
-                    if (i < meters.lastIndex || summary.gas != null) HorizontalDivider(color = Huis.colors.outline)
+                    if (i < meters.lastIndex || summary.gas != null) HorizontalDivider(color = Huis.peil.border)
                 }
                 summary.gas?.let { gas ->
                     MeterRow(
                         label = stringResource(R.string.gas),
                         value = gas.m3?.let { stringResource(R.string.gas_m3, cubicMeters(it)) } ?: "–",
                         cost = gas.cost,
-                        color = null,
+                        role = null,
                         quality = { QualityLabel(gas.quality, gas.note) },
                     )
                 }
@@ -179,13 +190,13 @@ fun EnergyScreen(state: HomeState, vm: MainViewModel) {
 }
 
 @Composable
-private fun MeterRow(label: String, value: String, cost: Double?, color: Color?, quality: @Composable () -> Unit) {
+private fun MeterRow(label: String, value: String, cost: Double?, role: String?, quality: @Composable () -> Unit) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        if (color != null) Box(Modifier.size(10.dp).clip(RoundedCornerShape(3.dp)).background(color))
+        if (role != null) RoleSwatch(role)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(label, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold))
             quality()
@@ -213,7 +224,7 @@ private fun Legend(summary: EnergySummary) {
                 },
             )
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(Modifier.size(10.dp).clip(RoundedCornerShape(3.dp)).background(roleColor(role)))
+                RoleSwatch(role)
                 Text(labels[role]?.ifBlank { null } ?: fallback, color = Huis.colors.muted, style = MaterialTheme.typography.bodySmall)
             }
         }
@@ -231,11 +242,32 @@ private fun cubicMeters(v: Double): String =
         maximumFractionDigits = 2
     }.format(v)
 
-/** Stacked bars per hour. Incomplete hours get a dashed outline. Described for TalkBack. */
+/** Hatched square with a dashed outline: the legend for an incomplete hour. */
+@Composable
+private fun IncompleteSwatch() {
+    val p = Huis.peil
+    Box(
+        Modifier
+            .size(12.dp)
+            .clip(RoundedCornerShape(2.dp))
+            .arcering(p.staleHatch, spacing = 3.dp)
+            .stippelRand(p.stale, width = 1.dp, radius = 2.dp),
+    )
+}
+
+/**
+ * Stacked bars per hour (Peil chart colours: airco chart-1, boiler chart-3, overig chart-other with
+ * hatching). Bars are rounded at the top only, with a 2 dp card-coloured gap between the parts.
+ * Incomplete hours are hatched with a dashed outline. Described for TalkBack.
+ */
 @Composable
 private fun HourBars(summary: EnergySummary, zone: ZoneId) {
-    val colors = mapOf("airco" to Huis.colors.cool, "boiler" to Huis.colors.boiler, "rest" to Huis.colors.rest)
-    val warn = Huis.colors.warn
+    val p = Huis.peil
+    val colors = mapOf("airco" to p.chart1, "boiler" to p.chart3, "rest" to p.chartOther)
+    val stale = p.stale
+    val hatch = p.staleHatch
+    val card = p.card
+    val grid = p.chartGrid
     val buckets = summary.buckets
     val totals = buckets.map { b -> consumptionRoles.sumOf { b.values[it] ?: 0.0 } }
     val max = (totals.maxOrNull() ?: 0.0).takeIf { it > 0 } ?: 1.0
@@ -253,31 +285,37 @@ private fun HourBars(summary: EnergySummary, zone: ZoneId) {
     ) {
         val slots = maxOf(buckets.size, 24)
         val slot = size.width / slots
-        val barW = slot * 0.72f
-        val gap = 1.5.dp.toPx()
+        val barW = minOf(slot * 0.72f, 24.dp.toPx())
+        val gap = 2.dp.toPx()
+        val radius = 2.dp.toPx()
+        drawLine(grid, Offset(0f, size.height - 0.5f), Offset(size.width, size.height - 0.5f), strokeWidth = 1.dp.toPx())
         buckets.forEachIndexed { i, b ->
             val x = i * slot + (slot - barW) / 2
             var y = size.height
             if (!b.complete) {
+                val top = size.height * 0.55f
+                val area = Size(barW, size.height * 0.45f)
+                arceer(hatch, 3.dp.toPx(), 1.dp.toPx(), Offset(x, top), area)
                 drawRoundRect(
-                    color = warn,
-                    topLeft = Offset(x, size.height * 0.55f),
-                    size = Size(barW, size.height * 0.45f),
-                    cornerRadius = CornerRadius(3.dp.toPx()),
-                    style = Stroke(1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 4f))),
+                    color = stale,
+                    topLeft = Offset(x, top),
+                    size = area,
+                    cornerRadius = CornerRadius(radius),
+                    style = Stroke(1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx()))),
                 )
                 return@forEachIndexed
             }
-            consumptionRoles.forEach { role ->
+            val parts = consumptionRoles.filter { (b.values[it] ?: 0.0) > 0 }
+            parts.forEachIndexed { j, role ->
                 val v = b.values[role] ?: 0.0
-                if (v <= 0) return@forEach
                 val h = (v / max * size.height).toFloat()
-                drawRoundRect(
-                    color = colors[role] ?: Color.Gray,
-                    topLeft = Offset(x, y - h),
-                    size = Size(barW, (h - gap).coerceAtLeast(1f)),
-                    cornerRadius = CornerRadius(2.dp.toPx()),
-                )
+                val top = j == parts.lastIndex
+                val partH = (h - if (top) 0f else gap).coerceAtLeast(1f)
+                val topLeft = Offset(x, y - h)
+                // Rounded only at the top of the stack.
+                drawRoundRect(colors[role] ?: Color.Gray, topLeft, Size(barW, partH), CornerRadius(if (top) radius else 0f))
+                if (top && partH > radius) drawRect(colors[role] ?: Color.Gray, Offset(x, y - h + radius), Size(barW, partH - radius))
+                if (role == "rest") arceer(card, 3.dp.toPx(), 1.dp.toPx(), topLeft, Size(barW, partH))
                 y -= h
             }
         }
