@@ -9,7 +9,7 @@ Smart Home Control: één lokale app voor Hue, Gree-airco, HomeWizard en Zigbee,
 - **Eerst de server, dan de app.** De nieuwe Android-app herkent een oudere server niet op het thuisadres (de tunnel blijft werken).
 - **Android:** download de APK hieronder en installeer (toestaan: *installeren uit onbekende bron*). Koppel via **Account › Telefoons** in de web-app. Had je de testversie 0.1.0 met de tijdelijke sleutel? Verwijder die eerst en koppel opnieuw.
 
-## Wat is er nieuw (verbeterronde)
+## Wat is er nieuw in 0.2.0
 
 - **Installatie:** installatiewizard (`/installatie`) met controles vooraf, een helppagina per fabrikant (`/help`), en een formulier *Woning aanmaken* als er nog geen woning is. Thuis inloggen en live-updates werken ook met de tunnel aan.
 - **Klimaat:** weekschema's met modus per blok (een blok zonder modus zet nooit een uitgeschakelde unit aan), comfortprofielen, een waakhond per zone, en experimenten die zelf van profiel wisselen. Commando's zijn pas "bevestigd" na uitlezing van de unit; een mislukt commando wordt opnieuw geprobeerd en zet nooit de verwarming uit.
