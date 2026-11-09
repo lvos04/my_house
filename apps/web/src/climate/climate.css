@@ -67,8 +67,7 @@ fieldset.c-fieldset > legend { font-size: 14px; color: var(--muted-foreground); 
 .week-bar .carried { background-image: repeating-linear-gradient(135deg, var(--card) 0 1.5px, transparent 1.5px 7px); }
 .week-axis { display: grid; grid-template-columns: 2.4em minmax(0, 1fr); gap: 8px; font-size: 14px; color: var(--muted-foreground); }
 .week-axis > div { display: flex; justify-content: space-between; }
-.day-tabs { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
-.day-tabs [role='tab'] { padding: 0 4px; min-width: 0; }
+/* .day-tabs: de Peil-tabs (src/peil/componenten.css) lopen om onder 768 px; elke dag minstens 44 × 44 px. */
 .sched-blocks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .sched-block {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: end;

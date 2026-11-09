@@ -192,7 +192,7 @@
   /* ── Tabs (§21): < 768 omlopende knoppen, ≥ 768 rij met onderstreping ───────────────────────────── */
   .tabs { @apply flex flex-wrap gap-2 rounded-none bg-transparent p-0; }
   .tabs [role='tab'] {
-    @apply inline-flex min-h-touch cursor-pointer items-center justify-center rounded-lg border border-border-strong bg-card px-3.5 text-base font-semibold text-foreground;
+    @apply inline-flex min-h-touch min-w-touch cursor-pointer items-center justify-center rounded-lg border border-border-strong bg-card px-3.5 text-base font-semibold text-foreground;
     box-shadow: none;
   }
   .tabs [role='tab']:hover:not([aria-selected='true']) { @apply bg-accent; }
