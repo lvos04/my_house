@@ -149,6 +149,16 @@ describe('Terug naar de Hub (O-11)', () => {
       'http://[::]',
       'http://[fe80::1]',
       'http://[::ffff:127.0.0.1]',
+      // Andere schrijfwijzen van dezelfde adressen: de URL-parser maakt er 127.0.0.1, ::1 of :: van.
+      'http://0177.0.0.1:8443',
+      'http://2130706433',
+      'http://0x7f.1',
+      'http://127.1',
+      'http://169.254.0x1.1',
+      'http://[0::1]',
+      'http://[0:0:0:0:0:0:0:1]',
+      'http://[0::]',
+      'http://[0:0:0:0:0:ffff:7f00:1]',
     ]) {
       expect(geldigHubAdres(bad), String(bad)).toBeNull();
     }

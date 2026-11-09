@@ -188,6 +188,10 @@ class WebConfigScript(unittest.TestCase):
             ("https://hub.thuis:8443/", "https://hub.thuis:8443"),
             ("http://192.168.1.5", "http://192.168.1.5"),
             ("https://[2001:db8::1]:8443", "https://[2001:db8::1]:8443"),
+            ("https://[1::]", "https://[1::]"),
+            ("https://[::10]", "https://[::10]"),
+            ("http://10.0.0.1:8088", "http://10.0.0.1:8088"),
+            ("https://hub-1.thuis", "https://hub-1.thuis"),
         ):
             with self.subTest(hub=hub):
                 self.assertEqual(self.config(hub)[0], {"hub_url": origin})
@@ -205,6 +209,20 @@ class WebConfigScript(unittest.TestCase):
             "http://169.254.10.1",
             "https://[::1]",
             "https://[fe80::1]",
+            # other spellings of the same loopback/unspecified addresses (the browser normalises them)
+            "http://0177.0.0.1:8443",
+            "http://2130706433",
+            "http://0x7f.1",
+            "http://127.1",
+            "http://1.2.3",
+            "http://169.254.0x1.1",
+            "http://010.0.0.1",
+            "https://[0::1]",
+            "https://[::0001]",
+            "https://[0:0:0:0:0:0:0:1]",
+            "https://[0::]",
+            "https://[::ffff:127.0.0.1]",
+            "https://[0:0:0:0:0:ffff:7f00:1]",
             "https://user:pass@hub.thuis",
             "https://hub.thuis/pad",
             "https://hub.thuis?x=1",

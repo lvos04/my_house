@@ -4,7 +4,7 @@
    Zet ALTIJD het opgeloste thema op <html>: data-theme="dark|light" en de klasse "dark" bij donker,
    ook bij "systeem" (volgt prefers-color-scheme en luistert naar wijzigingen). Peil kent geen
    prefers-color-scheme-terugval in ontwerptaal.css: zonder dit script is de app altijd licht.
-   Dezelfde regels staan in src/theme.ts (de knop in de app); src/test/thema.test.tsx houdt ze gelijk. */
+   Dezelfde regels staan in src/theme.ts (de knop in de app); src/test/peil-toevoegingen.test.tsx houdt ze gelijk. */
 (function () {
   var KEY = 'shc.thema';
   var KLEUR = { light: '#EEF1F5', dark: '#0A0D12' };

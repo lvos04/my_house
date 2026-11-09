@@ -15,6 +15,21 @@ ongeldig() {
   echo "15-shc-config: HUB_URL genegeerd ($1); de link 'Terug naar de Hub' blijft verborgen." >&2
 }
 
+# Een host waarvan het laatste deel een getal is, leest de browser als IPv4-adres, ook in verkorte, octale of
+# hexadecimale vorm: 127.1, 0177.0.0.1, 2130706433 en 0x7f.1 zijn allemaal 127.0.0.1. Alleen de gewone vorm
+# a.b.c.d (0-255, zonder voorloopnullen) mag, zodat de controle op loopback en link-local hieronder klopt.
+ipv4_vorm_ok() {
+  case "$1" in \[*) return 0 ;; esac
+  printf '%s' "${1##*.}" | grep -Eq '^([0-9]+|0x[0-9a-f]*)$' || return 0
+  printf '%s' "$1" | grep -Eq '^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$'
+}
+
+# IPv6 loopback (::1) en "geen adres" (::) in elke schrijfwijze ([0::1], [0:0:0:0:0:0:0:1], [::0001]) en elk
+# IPv4-gemapt adres ([::ffff:…], ook uitgeschreven als [0:0:0:0:0:ffff:…]).
+ipv6_loopback() {
+  printf '%s' "$1" | grep -Eq '^\[[0:]*1?\]$|^\[[0:]*ffff:'
+}
+
 if [ -n "$hub" ]; then
   # Alleen schema + host (naam, IPv4 of [IPv6]) + optionele poort, hooguit één afsluitende "/". Daardoor
   # kunnen er ook geen aanhalingstekens of andere tekens in de JSON komen.
@@ -31,9 +46,13 @@ if [ -n "$hub" ]; then
     lower="$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')"
     if [ -n "$port" ] && { [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; }; then
       ongeldig "poort buiten 1-65535"
+    elif ! ipv4_vorm_ok "$lower"; then
+      ongeldig "IPv4-adres niet in de gewone vorm a.b.c.d"
+    elif ipv6_loopback "$lower"; then
+      ongeldig "loopback of link-local adres"
     else
       case "$lower" in
-        localhost | *.localhost | 127.* | 0.* | 169.254.* | '[::]' | '[::1]' | '[0:0:0:0:0:0:0:1]' | '[fe8'* | '[fe9'* | '[fea'* | '[feb'* | '[::ffff:'*)
+        localhost | *.localhost | 127.* | 0.* | 169.254.* | '[fe8'* | '[fe9'* | '[fea'* | '[feb'*)
           ongeldig "loopback of link-local adres"
           ;;
         *)
