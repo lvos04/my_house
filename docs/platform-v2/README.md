@@ -8,6 +8,15 @@ Hier staan alleen de eigen B-, I-, A- en promptdocumenten plus de gedeelde archi
 
 Onbekende NAS-gegevens (D01–D18) worden nooit met voorbeeldwaarden ingevuld; ze worden via de onboarding-wizard in de web-UI vastgelegd.
 
+## Fase P0 (deze repo)
+
+- `INVENTARIS.md` — wat er in my_house 0.2.0 staat (routes, migraties, auth, events, back-up/herstel, monitoring,
+  veiligheidsinvarianten, CI, images, installatiewijze) en de baselinetestrun.
+- `DELTA_MATRIX.md` — elke B06-eis plus de relevante I05/A20-stappen en EX-scenario's als bestaand / onvolledig /
+  ontbrekend, met bewijs en de geprioriteerde bouwlijst voor fase P3.
+- `EVIDENCE.json` — status en validatie per Excel-ID (B06-001…B06-009) volgens §11 van de contracten.
+- Keuzes: `docs/adr/ADR-0001` … `ADR-0005`; OpenAPI-momentopname: `docs/openapi/my_house.openapi.json`.
+
 ## Bestanden
 
 - `00_START/BESLUITEN_EN_ONBEKENDEN.md`
