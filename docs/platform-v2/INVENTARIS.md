@@ -14,6 +14,11 @@ Methode: statische inspectie van de code (AST-extractie van alle FastAPI-routes 
 GHCR (`docker buildx imagetools inspect`), een OpenAPI-export van HEAD (`docs/openapi/my_house.openapi.json`) en een
 echte testrun van de bestaande suites zoals de CI ze draait (§15). In deze fase is **geen productcode** gewijzigd.
 
+> **Tweede lezing (2026-11-09):** een paar uitspraken hieronder zijn gecorrigeerd of aangevuld in
+> `DELTA_MATRIX.md` §11. Het gaat om de commando-TTL, `updated_at` per tabel, alembic up/down, het
+> wachtwoordherstel via de web-app, EX15 (dump bij elke start) en de testmarkering per apparaat. Bij verschil gaat
+> §11 voor.
+
 Markeringen: **[INTEGRITEIT]**, **[ROLLBACK]** en **[MONITORING]** = bestaande voorzieningen die volgens
 `PLATFORM_CONTRACTEN.md` §12 **nooit dubbel gebouwd, vervangen of uitgeschakeld** mogen worden (samenvatting §13).
 

@@ -15,6 +15,9 @@ my_house (eigenaar staat erbij). "Niet doen" = grens uit `02_DATA_EIGENAARSCHAP`
 In fase P0 is **geen productcode** gewijzigd. Alle "minimale wijzigingen" zijn voorstellen voor P3 (nummers P3-xx
 verwijzen naar §9).
 
+> **Tweede lezing (onafhankelijke controle, 2026-11-09):** zie **§11** onderaan. Daar staan de weerlegde en
+> aangevulde rijen en de bijgestelde bouwlijst; bij verschil gaat §11 vóór §0–§10.
+
 ---
 
 ## 0. Samenvatting
@@ -307,3 +310,163 @@ Ed25519-verificatie van `ExecutionRequest`, nonce- en idempotency-tabellen, back
 - Back-up/herstel, pre-migratiedump, veilige modus, waakhond of `StatusWatch` vervangen of uitschakelen.
 - Installatie via YAML/compose/shell aanbieden; `latest`-tags; geheimen in het formulier, Git of logs.
 - Apparaten automatisch op `tested` zetten of iets `Gereed`/`Geslaagd` noemen zonder echte hardware-/NAS-test.
+
+---
+
+## 11. Controle (tweede lezing)
+
+Onafhankelijke, sceptische controle van §0–§10 en `INVENTARIS.md` op dezelfde code-HEAD **`b0a6a98`** (VERSION 0.2.0).
+Doel: geen bestaande functie later dubbel bouwen en geen echt hiaat missen. **Geen productcode gewijzigd.** Bij verschil
+gaat deze sectie vóór §0–§10. Alles hieronder is code-, test- of simulatorbewijs — **NIET GEVALIDEERD (hardware / echte
+NAS)**.
+
+### 11.1 Methode
+
+- **Testverwijzingen:** alle 76 in `DELTA_MATRIX.md`, `INVENTARIS.md` en `EVIDENCE.json` genoemde testfuncties bestaan
+  (script over `apps/api/tests` en `integrations/tests`).
+- **Bestand:regel:** de kernverwijzingen (policy, commanding, worker, climate, adapters, routers, docs/api.md, compose,
+  nginx, web) nagelezen; alleen twee kleine regelverschuivingen (11.4).
+- **OpenAPI:** opnieuw gegenereerd uit HEAD (`create_app().openapi()`) → **identiek** aan
+  `docs/openapi/my_house.openapi.json` (91 paden, 116 operaties).
+- **Weerleggen:** voor elke *ontbrekend/onvolledig*-claim `git grep` in code, tests, migraties en docs op NL- en
+  EN-synoniemen (o.a. connector, healthz/readyz, idempotency, etag, outbox, nonce, ed25519, ttl/expires/max_age/"te oud",
+  cursor/before/limit, compatibility/tested, rekey/drill/maintenance/safe-mode, dubbel/duplicate, draft/concept,
+  metrics, tunnel/forwarded, downgrade).
+- **Gedraaid** (venv, gedeelde PostgreSQL 16): 18 API-tests (22 incl. parametrisatie) en 10 adaptertests — alle
+  geslaagd (11.8).
+- **Wegwerp-probes** buiten de repo (scratchpad, niet gecommit; databases opgeruimd) tegen de echte API-code:
+  (a) boilerstekker als zone-unit, (b) commando-TTL, (c) oudere image op een nieuwer schema (drie starts).
+- **GitHub (alleen lezen):** CI-run 42587407462 (`9c9d02f`) en 42596867348 (`cc23737`, de P0-docs) geslaagd;
+  release-run 42580532662: `apk` failure, `images`/`publish` skipped; alleen tag/release `v0.1.0` met
+  `huis-v0.1.0.apk` — alles **bevestigd**.
+
+### 11.2 Telling
+
+| Sectie | Claims | Bevestigd | Weerlegd (volledig) | Weerlegd (gedeeltelijk) | Niet herhaald |
+|---|---|---|---|---|---|
+| §1 B06-taken | 61 | 51 | 4 | 5 | 1 |
+| §2 Algemene B06-eisen | 15 | 13 | 0 | 2 | 0 |
+| §3 I05/A20 | 12 | 11 | 1 | 0 | 0 |
+| §4 E2E-scenario's | 13 | 13 | 0 | 0 | 0 |
+| §5 Contract (18 rijen) + "overige punten" (4) | 22 | 20 | 1 | 1 | 0 |
+| `INVENTARIS.md` (§4 startweigering, §10 alembic) | 2 | 1 | 0 | 1 | 0 |
+| **Totaal** | **125** | **109** | **6** | **9** | **1** |
+
+"Volledig weerlegd" = de klasse verandert (bijv. *ontbrekend* → *bestaand*). "Gedeeltelijk" = de klasse blijft, maar
+het genoemde hiaat is kleiner of het bewijs klopte niet. "Niet herhaald": de flaky
+`test_ws_devices_core.py::test_push_stream_batches_and_restarts` is niet opnieuw gedraaid (gedeelde machine).
+Daarnaast **14 aangevulde rijen** (11.5) voor eisen zonder rij.
+
+### 11.3 Gecorrigeerde rijen
+
+**Volledig weerlegd**
+
+| # | Rij | Was | Wordt | Bewijs | Gevolg P3 |
+|---|---|---|---|---|---|
+| W1 | §1 B06-005 "Energie naar de Hub (B14)" | Ontbrekend | **Bestaand** via bestaande leesroutes (viewer-token) | `GET /homes/{id}/energy/summary`, `…/energy/live`, `…/energy/export?format=json` (`routers/energy.py:32,45,265`, niveau `auth`), elk met `quality`; §6 van deze matrix zegt zelf "ja" | Geen `items?type=energy_total` in my_house; B14/Hub-adapter leest de bestaande routes. Push-event alleen op verzoek (P3-04, optioneel) |
+| W2 | §1 B06-006 "Hub toont woning, zones, meldingen, energie, metingen" | Onvolledig | **Bestaand** (bron, via bestaande routes); kaart = Hub (N.v.t.) | §6-tabel (alles "ja"); `PLATFORM_CONTRACTEN.md` §6, laatste alinea: "Bestaande apps … krijgen in de Hub een adapter die hun **bestaande** routes gebruikt; nieuwe routes in die apps alleen als hun delta-matrix ze als ontbrekend markeert" | Leesdeel van P3-03 vervalt in my_house (11.6, ADR-0006) |
+| W3 | §1 B06-006 "Acceptatie: Hub kan niet schakelen" | Onvolledig | **Bestaand** (Sim-getest) | viewer-**token** → 403 op `/zones/{id}/resume`: `test_ws_security_pairing.py::test_pairing_roles` (gedraaid: geslaagd); sessie: `test_foundation.py::test_viewer_cannot_resume_or_control`; de rol van een gekoppelde client is achteraf niet te wijzigen (`routers/pairing.py`: alleen `POST /pairing/codes`, `/pairing/redeem`, `/clients/self/refresh`) | `api_clients.kind=service` is voor deze eis niet nodig → laag/optioneel |
+| W4 | §1 B06-009 "Cloudflared access scope" | Onvolledig | **Bestaand** (compose-stack, Unit-getest) / **Geblokkeerd** (echt Cloudflare-account) | tunnel bereikt alleen `web:8080`; nginx vertrouwt `CF-Connecting-IP`/`X-Forwarded-Proto` alleen van `TUNNEL_IP` (`apps/web/nginx.conf.template:6-10, 19-21, 68-70`); Access-beleid e-mail-OTP + service-token (`docs/buiten-huis.md:20-24`); `test_ws_security_auth.py::test_https_from_trusted_proxy_sets_secure_cookie_and_real_ip` (gedraaid: geslaagd) | Alleen nog: tunnel in de alles-in-één image (open punt ADR-0004); geen nieuw toegangsmodel bouwen |
+| W5 | §3 A20-A1 "Niet-mutatief integreren: catalogusitem, status, deep-link" | Onvolledig | my_house-kant **Bestaand**; catalogusitem = manifest (P3-01) | status + versie publiek: `GET /api/v1/health` (`routers/system.py:56-59`); checks: `GET /system/status` (viewer); deep-link: `lan_url`/`remote_url` in `GET /system/settings` | Geen `discover`/`health`-route nodig voor A1 |
+| W6 | §5 contract §6 "Connectorcontract: Nee" | Nee (P3-03 + P3-05) | **Leesdeel N.v.t. in my_house** (Hub-adapter op bestaande routes); **schrijfdeel blijft Ontbrekend** | contract §6, laatste alinea | P3-03 inkrimpen; P3-05 blijft P0 |
+
+**Gedeeltelijk weerlegd** (klasse blijft; hiaat kleiner of bewijs onjuist)
+
+| # | Rij | Correctie | Bewijs | Gevolg P3 |
+|---|---|---|---|---|
+| G1 | §1 B06-001 "Testmatrix … LAN-IP, protocolversie …" | LAN-IP, protocolversie, model en firmware **worden al per koppeling/apparaat vastgelegd**; alleen het samenbrengen in de matrix, de detectiemethode (scan/handmatig) en een terugvalkolom ontbreken | `integration_view` geeft `host` (`routers/devices.py:739`); Gree onthoudt `encryption` v1/v2 (`gree/adapter.py:397`, ook in diagnose); HomeWizard `api_version`/`api_version_used` (`homewizard/adapter.py:435-442`, opgeslagen via `routers/devices.py:1261-1268`); `device_view` geeft `model`, `firmware` (`routers/devices.py:154-155`) | P3-07: **geen nieuwe velden** voor host/protocolversie/firmware; alleen tonen in `/integrations/compatibility` |
+| G2 | §1 B06-006 "Commando's … TTL … ontbreken" | Een **TTL bestaat**: een commando dat niet binnen 2 min (herhaling 5 min) start, wordt `failed` "Commando te oud" | `worker/commands.py:39-40, 148-149`; `docs/api.md:338`; probe (b): commando van 3 min oud → `failed` / "Commando te oud; niet meer uitgevoerd". **Geen eigen test** | P3-05 hergebruikt deze TTL en voegt alleen de vervaltijd van het `ExecutionRequest` toe; test in P3-08 |
+| G3 | §1 B06-006 "my_house offline → stale (bron)" | Bron-kant **Bestaand** | `Measurement {at, stale, quality}` (`docs/api.md:226`); `GET /system/status` met `unknown`; publieke `/api/v1/health` | Stale-markering is Hub-cache; geen `/connector/v1/health` nodig |
+| G4 | §1 B06-007 "Tool-schema's per zone-ID, gebruikersrol" | Ontbrekend → **Onvolledig**: de parametergrenzen per zone bestaan als data | `Zone.capabilities {modes, fan, swing, min_c, max_c, step_c}` + `blocked_modes` (`views/zones.py:103-111`, `docs/api.md:242-243`); rol en `can_control` via `GET /auth/me` | P3-05: allowlist + JSON-schema **afleiden** uit deze velden |
+| G5 | §1 B06-009 "Scherm: testlog met echte apparaatmodellen" | Per apparaat **bestaat** de laatste test (wie/wanneer/notitie) en de volledige historie met model en firmware in het logboek | `POST /devices/{id}/tested` schrijft `diagnostics.tested {at, by, note}` + audit `device_marked_tested` met `model`, `firmware` (`routers/devices.py:649-662`); historie: `GET /audit?action=device_marked_tested` (`routers/users.py:202-219`); UI "Getest in dit huis op …" (`apps/web/src/devices/DeviceTools.tsx:67-68`) | P3-07: geen nieuwe testlogtabel; historie tonen, scenario in `note` |
+| G6 | §2 "§2 Stabiele ID, versie, … timestamps" | **Bewijs onjuist**: niet "created_at/updated_at op de meeste tabellen" maar `created_at` op 10 van 26 tabellen en `updated_at` op 2 (`commands`, `energy_hourly`); `climate_zones` en `devices` hebben geen van beide (wel `discovered_at`, `last_seen`) | `models.py` (telling per `__tablename__`) | ETag op zone/lichtgroep vraagt een **versiekolom** (migratie 0005) — meer werk dan §9 aangaf |
+| G7 | §2 "§3 … idempotency, cursors en capability-detectie niet" | Versie-detectie (`/api/v1/health` → `version`), capability per apparaat/zone (`capabilities`) en een cursor op het logboek (`/audit?before=&limit=`) **bestaan**; uitgaande time-outs/retry conform contract (A14) | `routers/system.py:56-59`; `routers/users.py:202-219`; `views/zones.py:103-111` | Alleen idempotency ontbreekt echt (P3-05) |
+| G8 | §5 "overige": `reset-password` alleen CLI (ook `INVENTARIS.md` §14) | Een beheerder kan in de web-app het wachtwoord van een **ander** account resetten | `POST /users/{id}/password` (web-admin, `routers/users.py:166-180`) | P3-11 alleen voor de enige/laatste beheerder |
+| G9 | `INVENTARIS.md` §10 + §9 P3-10 "alembic up/down ontbreekt" | Per migratie **wel** up/down getest, en die tests draaien in CI | `test_ws_followups.py::test_migration_0003_upgrade_and_downgrade` (0002↔0003) en `test_gapfix_security.py::test_migration_0004_limits_legacy_phone_tokens` (0003↔0004) — beide gedraaid: geslaagd | P3-10: alleen één test `head → base → head`; geen aparte CI-job |
+
+### 11.4 Bevestigd, met aanscherping
+
+- **B06-003 / EX27 "altijd `policy_denied`" (Onvolledig, bevestigd).** Geen enkele API-test controleert de foutcode
+  `policy_denied` (`grep -rn policy_denied apps/api/tests` → niets); de 409 voor een boiler als zone-unit stond alleen op
+  codelezing. Probe (a): `PATCH /zones/{id}` met de boilerstekker als `unit_device_id` → **200** (geaccepteerd);
+  `POST /zones/{id}/command` → **409 `policy_denied`**; `POST /lights/groups/{boiler}` → **404 `not_found`**.
+  `PATCH /zones/{id}` accepteert elk apparaat van de woning, ook als `sensor_device_id` (`routers/zones.py:278-282`).
+  Voor P3-06: `test_api.py::test_boiler_socket_can_never_switch` verwacht nu expliciet 404 op de lichtroute
+  (regel 153-154) — **aanpassen, niet verwijderen**.
+- **EX15 / §7 (Onvolledig, bevestigd) — ernstiger dan gemeld.** Probe (c) op een wegwerpdatabase met
+  `alembic_version = '0099_toekomst'`: `cli.migrate` maakt **bij elke start eerst een volledige `pg_dump`** (`cli.py:154`:
+  `current != head`) en stopt dan met alembic `CommandError "Can't locate revision"` — niet met de nette
+  `MigrationError` / "Database-update geweigerd" (`cli.py:751` vangt alleen die). Drie starts = drie dumps. In een
+  herstartlus van een Custom App loopt de opslag vol. → **P3-09 naar P0**.
+- **B06-004 / EX29 (bevestigd):** `sensor_round` (`worker/health.py:232-264`) wordt door geen enkele test aangeroepen
+  (tests roepen alleen `integration_health_round` en `clock_round` aan).
+- **B06-001 "geen ongeteste Gree-bediening" (bevestigd):** `compatibility` wordt alleen gelezen in `routers/devices.py`
+  (weergave, koppelen), nooit in `policy.py`, `commanding.py` of de worker.
+- **B06-006 (bevestigd):** geen `/connector`, outbox, Ed25519, `Idempotency-Key`, ETag of Hub-nonce in de code (alleen
+  niet-gerelateerde treffers: back-up-nonces en de telefoon-identiteitscontrole).
+- **§5 noodstop (bevestigd):** `safe_mode=True` alleen na herstel (`backup.py:1529`), `maintenance=True` alleen tijdens
+  herstel (`routers/system.py:792`) of via CLI; geen route om ze aan te zetten.
+- **Regelverschuivingen (geen inhoudelijke fout):** `commanding.py:175-177` is `:172-174`; `climate.py:492` is `:491`.
+
+### 11.5 Aangevulde rijen (eisen zonder rij)
+
+| # | Eis (bron) | Klasse | Bewijs | Wat mist → P3 |
+|---|---|---|---|---|
+| A1 | Fase-exit F0–F4: gebruikersreis op mobiel (B06 §4) | **Bestaand** (Sim) | `apps/web/e2e/10-mobile.e2e.ts` (320/360 px; CI-job `e2e`) | 390/768/1440 (P3-13); echte telefoon **Geblokkeerd** |
+| A2 | Fase-exit: negatieve permissietest | **Bestaand** | `test_foundation.py::test_viewer_cannot_resume_or_control`, `test_ws_security_pairing.py::test_pairing_roles`, `apps/web/e2e/09-viewer.e2e.ts` | Elke nieuwe P3-route krijgt een eigen negatieve test |
+| A3 | Fase-exit: back-up-/rollback-gate en code review | back-up/rollback **Bestaand**; review als bewijs **Ontbrekend** | pre-migratiedump (`cli.py:95-157`), `backup.py` | Review per P3-commit vastleggen |
+| A4 | B06-008 "apparaten vervangen zonder meters/geschiedenis te verliezen" | **Bestaand** (Sim) | `POST /devices/{id}/replace` (`routers/devices.py:395`); `test_ws_devices_api.py::test_archive_restore_and_replace` (gedraaid: geslaagd); `test_api.py::test_energy_summary_no_double_count_and_replacement` | — (niet dubbel bouwen) |
+| A5 | 03_RISICO: "bij twijfel sensor-/adapterstatus `unknown` en geen aansturing" | adapter **Bestaand**; sensor **Bestaand** volgens lezing ADR-0006 | offline unit → 503 `device_offline` (`commanding.py:148-149`); na herstart niets tot uitlezing (`test_core_logic.py::test_offline_unit_does_nothing`); verouderde sensor → `oem_fallback`, correctie 0 (`climate.py:438, 491`) | Interpretatie vastgelegd in ADR-0006 (contract_issue) |
+| A6 | 03_RISICO faalproef "reboot tijdens apply" | **Bestaand in code, ongetest** | `worker/commands.py:78-91`: `sending` ouder dan 2 min → `failed` "Onderbroken (worker herstart); uitkomst onbekend" | Test (P3-08) |
+| A7 | 03_RISICO faalproef "dubbele event delivery" / EX46 | apparaat-events **Bestaand** (Sim); Hub-verzoeken **Ontbrekend** | `processed_events` (`models.py:372-378`); `test_ws_devices_worker.py::test_button_press_dedupe_age_and_climate_step_via_zone_command` (gedraaid: geslaagd) | `Idempotency-Key` op apply (P3-05) |
+| A8 | EX19 approval drift (stand gewijzigd na preview) | **Ontbrekend** | — | P3-05: `resource_etag`/`preview_hash`; vraagt versiekolom (G6) |
+| A9 | EX22 Hub offline | **Bestaand** (ontwerp) | my_house heeft geen Hub-afhankelijkheid; eigen push (ntfy/webhook) via `watch.py`/`notify.py` | Nooit afhankelijk maken van de Hub |
+| A10 | EX14 herstel naar sandbox (my_house-kant) | **Bestaand** (Sim), alleen CLI | `shc-api restore-drill` in tijdelijke database; `test_ws_backup_restore.py::test_restore_drill_compares_counts_and_checks_the_current_key` (gedraaid: geslaagd) | Starten zonder terminal (P3-11) |
+| A11 | EX34 tunnel ingetrokken → lokaal werkt | **Bestaand** (ontwerp) / **Geblokkeerd** (account) | thuisadres `http://<NAS-IP>:8088` staat los van de tunnel (`docs/buiten-huis.md:43, 71`) | Echte intrekking testen (account) |
+| A12 | I05 §3 acceptatie (start, auth, data na herstart, poort, metrics, back-up+herstel, rolrechten) | **Bestaand** (Sim) / **Geblokkeerd** (NAS) | CI-job `stack` (rooktest, `verify-backup`, API-uitval); "metrics" = `GET /system/status` (`views/status.py:438`, hartslag, lussen, schijf, back-up, klok); geen Prometheus-endpoint | Geen metrics-endpoint bouwen zolang geen contract erom vraagt; echte run **Geblokkeerd** (D01) |
+| A13 | I05 §4 terugdraaien (6 stappen) | **Onvolledig** | stap 2 audit/logs (`audit_log`), stap 4 credentials/clients (`GET /system/restore/compare`, `GET /clients`), stap 6 data apart (`POST /homes/{id}/archive`) bestaan; stap 1 (ingest uit) = onderhoudsmodus alleen via CLI; stap 3 (oude image + passende dump) vraagt `docker exec … psql` (`docs/onderhoud.md:25-38`) | P3-09 + P3-11 (zonder terminal) |
+| A14 | Contract §5 time-outs/retry van uitgaande calls | **Bestaand** | `resilience.py:24-48` (max. 3 pogingen, exponentiële backoff + full jitter), `test_resilience.py` (gedraaid: geslaagd); Hue-eventstream bewust 100 s lange poll (`hue/adapter.py:56`) | Niets; niet vervangen door een generieke 5/15 s-client |
+
+### 11.6 Bijgestelde bouwlijst (vervangt de genoemde regels van §9)
+
+| Nr | Was | Wordt |
+|---|---|---|
+| P3-01 | P0 alles-in-één | Ongewijzigd, plus `/healthz` (proces leeft) en `/readyz` (afgeleid van `/api/v1/health` + kritieke checks uit `views.system_checks`) als healthcheck van de container — overgeheveld uit P3-03 |
+| P3-03 | P0: `/connector/v1/discover\|health\|items\|evidence` + healthz/readyz | **Vervalt in my_house** (W2, W6, ADR-0006): de leesadapter is van de Hub. Alleen bouwen als de eigenaar van de Hub-adapter (ai-server-manager) daar expliciet om vraagt. `evidence/{id}` → P3-05; healthz/readyz → P3-01 |
+| P3-04 | P0: `api_clients.kind=service` + outbox + events | **P2, optioneel** (W3): een viewer-token volstaat voor "Hub kan niet schakelen"; meldingen en status zijn te pollen. Alleen bouwen als de Hub-adapter replay/push nodig heeft |
+| P3-05 | P0 | **Blijft P0** — het enige echte Hub-hiaat: ondertekende `propose`/`apply`/`evidence`. Hergebruik de bestaande TTL (G2), zone-capabilities als parameterschema (G4); nieuw: versiekolom voor ETag (G6, migratie 0005), nonce, `Idempotency-Key`, vervaltijd uit het `ExecutionRequest` |
+| P3-06 | P0 | Plus: `PATCH /zones/{id}` accepteert als unit alleen `ac_unit` en als sensor alleen een sensor; tests met `detail.code == "policy_denied"` voor zone-route, lichtroute, knop en (later) connector; de bestaande 404-assert aanpassen |
+| P3-07 | P0 | Geen nieuwe velden voor host/protocolversie/firmware/testlog (G1, G5). Wel: gate `untested` → 409, detectiemethode + terugvalkolom, historie van `device_marked_tested` tonen |
+| P3-08 | P1 | Plus tests voor de commando-TTL (G2) en `_recover_interrupted` (A6) |
+| P3-09 | P1 | **P0** (11.4): onbekende (nieuwere) revisie herkennen **vóór** de dump; geen dump; nette weigering + herstelpagina |
+| P3-10 | P1 | alembic: alleen één test `head → base → head` (G9); OpenAPI-drift en EX50 blijven |
+| P3-11 | P1 | Wachtwoordherstel alleen voor de enige beheerder (G8); rest ongewijzigd |
+
+### 11.7 Ook nooit dubbel bouwen (aanvulling op §10)
+
+Commando-TTL (`worker/commands.py:39-40`), herstel na onderbroken verzenden (`:78-91`), event-dedupe
+(`processed_events`), retry/backoff (`resilience.py`), host/protocolversie per koppeling, testmarkering + audit,
+zone-capabilities, de tunnel-vertrouwensgrens in nginx.
+
+### 11.8 Gedraaide controles (deze sessie)
+
+| Commando | Uitkomst |
+|---|---|
+| Script: alle `test_*.py::test_*`-verwijzingen uit DELTA_MATRIX/INVENTARIS/EVIDENCE tegen `apps/api/tests` + `integrations/tests` | 76/76 gevonden |
+| `create_app().openapi()` vergeleken met `docs/openapi/my_house.openapi.json` | identiek (91 paden) |
+| `SHC_TEST_PG=postgresql://postgres@127.0.0.1:5432 nice -n 10 pytest -q` (in `apps/api`) op 18 tests: `test_api.py::test_boiler_socket_can_never_switch`, `::test_zone_command_policy_and_execution`, `test_core_logic.py::test_boiler_never_switchable`, `::test_energy_socket_relay_blocked_even_without_role`, `::test_stale_sensor_falls_back_to_oem_and_no_correction`, `::test_remote_off_is_never_reactivated`, `::test_shared_outdoor_conflict_blocks_cooling`, `test_foundation.py::test_viewer_cannot_resume_or_control`, `test_ws_security_pairing.py::test_pairing_roles`, `test_ws_followups.py::test_migration_0003_upgrade_and_downgrade`, `test_gapfix_security.py::test_migration_0004_limits_legacy_phone_tokens`, `test_ws_security_auth.py::test_https_from_trusted_proxy_sets_secure_cookie_and_real_ip`, `test_ws_devices_worker.py::test_button_press_dedupe_age_and_climate_step_via_zone_command`, `test_ws_devices_api.py::test_compatibility_matrix_as_data`, `::test_device_test_probe_tested_and_diagnostics`, `::test_archive_restore_and_replace`, `test_ws_backup_restore.py::test_restore_drill_compares_counts_and_checks_the_current_key`, `test_ws_climate_worker.py::test_failed_command_retries_alerts_and_keeps_control` | **22 geslaagd** (7,5 s) |
+| `nice -n 10 pytest -q` op `integrations/tests/test_homewizard.py::test_v1_socket_poll_and_relay_blocked_by_default`, `::test_relay_allowed_only_via_policy_hook`, `::test_pair_falls_back_to_v1_on_old_firmware`, `test_gree.py::test_readback_mismatch_not_confirmed`, `test_gree_bind.py::test_bind_failure_is_unsupported_with_scan_diagnostics`, `::test_status_failure_after_bind_is_unsupported`, `test_resilience.py` | **10 geslaagd** (1,4 s) |
+| Probe (a)+(b) (scratchpad, met de fixtures uit `apps/api/tests/conftest.py`) | PATCH zone met boiler = 200; zone-commando = 409 `policy_denied`; lichtroute = 404; commando 3 min oud = `failed` "Commando te oud" |
+| Probe (c): `cli.migrate()` drie keer op een database met revisie `0099_toekomst` | 3× `CommandError`, **3 dumps** `pre-migrate-0099_toekomst-*.sql.gz` |
+| `gh api …/actions/runs/{42587407462,42596867348,42580532662}`, `git ls-remote --tags origin`, `gh api …/releases` | zoals in 11.1 |
+| Volledige suites, browsertests, Android | **niet opnieuw gedraaid** (de baseline van §15 van `INVENTARIS.md` geldt) |
+
+### 11.9 EVIDENCE.json
+
+Bijgewerkt volgens 11.3–11.6: **B06-006** van *Niet gestart* naar **Bezig** (leesdeel en "Hub kan niet schakelen"
+bestaan en zijn Sim-getest; regel contract §11) met *NIET GEVALIDEERD (echte NAS)*; **B06-007** krijgt
+*NIET GEVALIDEERD (hardware)* in `validatie`; B06-005 `validatie` zegt nu dat levering aan de Hub via bestaande
+leesroutes kan; bewijs- en blokkadeteksten van B06-001, -003, -004, -005, -006, -007, -008 en -009 verwijzen naar deze
+sectie. B06-002 is ongewijzigd. Geen enkele status `Gereed` of `Geslaagd`; verder geen statuswijziging. Eerlijkheid
+gecontroleerd: elke rij met hardware-, NAS- of accountafhankelijkheid draagt *NIET GEVALIDEERD*; B06-009 blijft
+**Geblokkeerd**.
