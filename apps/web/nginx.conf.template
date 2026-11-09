@@ -41,6 +41,7 @@ map $uri $cache_control {
     default    "no-cache";
     ~^/assets/ "public, max-age=31536000, immutable";
     ~^/api/    "";
+    ~^/_shc/   "";
 }
 
 map $uri $error_cache_control {
