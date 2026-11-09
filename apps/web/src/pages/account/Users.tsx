@@ -32,7 +32,7 @@ function AddUser() {
   };
   return (
     <form className="stack" onSubmit={submit} aria-labelledby="adduser-h">
-      <h3 id="adduser-h">Gebruiker toevoegen</h3>
+      <h2 id="adduser-h" className="text-lg font-semibold">Gebruiker toevoegen</h2>
       <div className="form-grid">
         <label className="field">Gebruikersnaam<input autoComplete="off" required value={username} onChange={(e) => setUsername(e.target.value)} /></label>
         <label className="field">Wachtwoord (min. 12 tekens)<input type="password" autoComplete="new-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></label>
@@ -92,7 +92,7 @@ export function UsersPanel() {
   const list = Array.isArray(users.data) ? users.data : [];
   return (
     <div className="stack">
-      <h3>Gebruikers</h3>
+      <h2 className="text-lg font-semibold">Gebruikers</h2>
       <p className="small muted" style={{ margin: 0 }}>
         Een kijker ziet alles maar kan niets bedienen of instellen. Uitschakelen of een nieuw wachtwoord instellen meldt die gebruiker overal af, ook op gekoppelde telefoons.
       </p>

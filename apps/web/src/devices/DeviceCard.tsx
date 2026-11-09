@@ -136,7 +136,7 @@ export function DeviceCard({ d, all, homeId, admin, rooms, onNotice }: { d: Devi
       {relay && <RelayStatus relay={relay} protectedDevice={d.protected} />}
       {admin && (
         <div>
-          <button type="button" className="btn small" aria-expanded={open} aria-controls={panelId} aria-label={`${open ? 'Beheren sluiten' : 'Beheren'}: ${d.name}`} onClick={() => setOpen(!open)}>
+          <button type="button" className="btn small" aria-expanded={open} aria-controls={open ? panelId : undefined} aria-label={`${open ? 'Beheren sluiten' : 'Beheren'}: ${d.name}`} onClick={() => setOpen(!open)}>
             {open ? 'Beheren sluiten' : 'Beheren'}
           </button>
         </div>

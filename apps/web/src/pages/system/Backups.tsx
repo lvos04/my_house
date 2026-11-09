@@ -220,7 +220,7 @@ export function BackupList() {
                     <div className={`small${isDump(b) ? '' : ' muted'}`} style={isDump(b) ? { fontWeight: 600 } : undefined}>{t(BACKUP_KIND_LABEL, b.kind, b.kind)}</div>
                   </td>
                   <td data-label="Status">
-                    {/* Gelukt = neutraal met vinkje (klaar ≠ gezond); Mislukt = Storing; Bezig = info. */}
+                    {/* Gemaakt = neutraal met vinkje (klaar ≠ gezond); Mislukt = Storing; Bezig = info. */}
                     {b.status === 'failed' ? (
                       <span className="state-line error"><StatusBadge status="down" label={t(BACKUP_STATUS_LABEL, b.status)} /></span>
                     ) : (

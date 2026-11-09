@@ -35,7 +35,7 @@ export function PasswordForm() {
   };
   return (
     <form className="stack" onSubmit={submit} aria-labelledby="pw-h">
-      <h3 id="pw-h">Wachtwoord wijzigen</h3>
+      <h2 id="pw-h" className="text-lg font-semibold">Wachtwoord wijzigen</h2>
       <div className="form-grid">
         <label className="field">Huidig wachtwoord<input type="password" autoComplete="current-password" required value={oldPw} onChange={(e) => setOldPw(e.target.value)} /></label>
         <label className="field">Nieuw wachtwoord (min. 12 tekens)<input type="password" autoComplete="new-password" required value={newPw} onChange={(e) => setNewPw(e.target.value)} /></label>

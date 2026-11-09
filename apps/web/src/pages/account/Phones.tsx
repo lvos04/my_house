@@ -59,7 +59,7 @@ export function PairPhone() {
   const addressProblem = isApiError(create.error) && ['lan_url_required', 'lan_url_invalid', 'remote_url_invalid'].includes(create.error.code);
   return (
     <div className="stack">
-      <h3>Telefoon koppelen</h3>
+      <h2 className="text-lg font-semibold">Telefoon koppelen</h2>
       <p className="small muted" style={{ margin: 0 }}>
         Open de Android-app en scan de QR-code. Elke telefoon krijgt een eigen sleutel die 180 dagen geldig is (de app vernieuwt hem zelf) en die je hier kunt intrekken.
       </p>
@@ -111,7 +111,7 @@ export function PhoneList() {
   const list = Array.isArray(clients.data) ? clients.data : [];
   return (
     <div className="stack">
-      <h3>Gekoppelde telefoons</h3>
+      <h2 className="text-lg font-semibold">Gekoppelde telefoons</h2>
       {clients.isLoading && <Loading />}
       {clients.error && <ErrorNote error={clients.error} />}
       {clients.data && list.length === 0 && <Empty>Nog geen telefoons gekoppeld.</Empty>}

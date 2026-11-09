@@ -29,7 +29,7 @@ export function AuditPanel() {
   const [cursors, setCursors] = useState<(number | undefined)[]>([undefined]);
   return (
     <div className="stack">
-      <h3>Logboek</h3>
+      <h2 className="text-lg font-semibold">Logboek</h2>
       <p className="small muted" style={{ margin: 0 }}>Wie wat wanneer heeft gewijzigd, nieuwste eerst. Wachtwoorden en verzoekinhoud worden nooit vastgelegd.</p>
       <form
         className="form-grid"

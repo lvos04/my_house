@@ -131,7 +131,8 @@ export const CLIENT_ROLE_HELP: Dict = {
   admin: "Klimaat en licht bedienen, en apparaten, zones, schema's, profielen, instellingen en het logboek beheren. Gebruikers, telefoons, back-ups, adressen en pushmeldingen alleen in de web-app. Vraagt je wachtwoord.",
 };
 
-export const BACKUP_STATUS_LABEL: Dict = { running: 'Bezig', ok: 'Gelukt', failed: 'Mislukt' };
+/** Peil §11.1: geen "Gelukt" (een back-up die er staat is nog niet teruggezet of gecontroleerd): "Gemaakt". */
+export const BACKUP_STATUS_LABEL: Dict = { running: 'Bezig', ok: 'Gemaakt', failed: 'Mislukt' };
 /** Backup.kind: a full export (.shcbak) or an encrypted database dump (.shcdump). */
 export const BACKUP_KIND_LABEL: Dict = { export: 'Volledige export', db_dump: 'Database-dump' };
 /** BackupSettings.schedule. */

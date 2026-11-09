@@ -67,9 +67,12 @@ export function LightsPage() {
         </p>
       )}
       {rooms.length ? (
-        <div className="grid-auto">
-          {rooms.map((g) => <GroupCard key={g.id} group={g} scenes={scenesOf(g.id)} control={can.control} />)}
-        </div>
+        <section aria-labelledby="kamers-h">
+          <h2 id="kamers-h" className="sr-only">Kamers</h2>
+          <div className="grid-auto">
+            {rooms.map((g) => <GroupCard key={g.id} group={g} scenes={scenesOf(g.id)} control={can.control} />)}
+          </div>
+        </section>
       ) : (
         <Empty>Geen Hue-kamers gevonden. Koppel de Hue Bridge via Apparaten.</Empty>
       )}

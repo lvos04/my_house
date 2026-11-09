@@ -215,7 +215,7 @@ function CopyTool({ day, onCopy }: { day: number; onCopy: (to: number[]) => void
   return (
     <fieldset className="sched-tool">
       <legend className="sr-only">Dag kopiëren</legend>
-      <h4 aria-hidden="true">Dag kopiëren</h4>
+      <h3 aria-hidden="true" className="m-0 text-sm font-semibold">Dag kopiëren</h3>
       <span className="small muted">Kopieer de blokken van {DAY_LABEL[day]} naar (vervangt die dagen):</span>
       <div className="day-checks">
         {others.map((d) => (
@@ -261,7 +261,7 @@ function TemplateTool({ range, modes, onApply }: { range?: Range | null; modes: 
   };
   return (
     <div className="sched-tool" role="group" aria-labelledby="tpl-h">
-      <h4 id="tpl-h">Sjabloon</h4>
+      <h3 id="tpl-h" className="m-0 text-sm font-semibold">Sjabloon</h3>
       <label className="field">Sjabloon kiezen
         <select value={kind} onChange={(e) => setKind(e.target.value as TemplateKind)}>
           {(Object.keys(TEMPLATE_LABEL) as TemplateKind[]).map((k) => <option key={k} value={k}>{TEMPLATE_LABEL[k]}</option>)}
