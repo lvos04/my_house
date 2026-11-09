@@ -35,6 +35,7 @@ Rapporten en traces komen in `e2e/.output/` (niet in git). In CI draait de job `
 | `08-offline` | API stoppen → banner na de drempel, bediening uit, laatste gegevens zichtbaar; herstart → herstelt vanzelf |
 | `09-viewer` | kijk-account ziet nergens bediening of beheer; de server weigert een commando |
 | `10-mobile` | 360 en 320 px: knoppen minstens 44 × 44 px, thermostaat (−/+ en draaiknop) en kaarten blijven binnen hun kaart/de pagina, geen zijwaartse scroll, uitloggen via "Meer" |
+| `11-peil` | ontwerptaal Peil: axe-core (WCAG 2.0/2.1/2.2 A+AA) = 0 op de hoofdschermen, de Meer-sheet en inloggen in licht en donker op 390 en 1440 px; Peil-matrix 320–1440 px (geen zijwaartse scroll, geen tekst < 14 px, doelen ≥ 44 px); themaknop (Donker blijft na herladen, Systeem volgt het apparaat); "Terug naar de Hub" alleen met een geldig adres uit `/_shc/config.json` (in de test nagespeeld met `page.route`) |
 
 `01-onboarding` draait als eerste (project `onboarding`); de andere tests bouwen voort op die
 beheerder en woning en draaien na elkaar (één stack, en `08-offline` stopt de API).
