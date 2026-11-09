@@ -3,9 +3,17 @@
 // Gestart door run_shots.sh met PEIL_SCRIPT=axe.mjs; zelfde testgegevens als shots.mjs.
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { chromium, request as pwRequest } from '/home/transcode/truenas-v2/.lokaal/ontwerp-tools/node_modules/playwright/index.mjs';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 
-const AXE = readFileSync('/home/transcode/truenas-v2/.lokaal/ontwerptaal/.review-tools/node_modules/axe-core/axe.min.js', 'utf8');
+// Playwright en axe-core: paden uit PEIL_PLAYWRIGHT en PEIL_AXE (run_shots.sh kiest standaard die van apps/web);
+// zonder die variabelen de pakketten 'playwright' en 'axe-core' die Node vanaf deze map vindt.
+const { chromium, request: pwRequest } = await import(
+  process.env.PEIL_PLAYWRIGHT ? pathToFileURL(process.env.PEIL_PLAYWRIGHT).href : 'playwright'
+);
+const AXE_PAD = process.env.PEIL_AXE || createRequire(import.meta.url).resolve('axe-core/axe.min.js');
+
+const AXE = readFileSync(AXE_PAD, 'utf8');
 const BASE = process.env.E2E_BASE_URL;
 const seed = (cmd, data) => JSON.parse(execFileSync(process.env.E2E_PYTHON, [process.env.PEIL_SEED, cmd, JSON.stringify(data)], { encoding: 'utf8', env: process.env }).trim().split('\n').at(-1));
 const api = await pwRequest.newContext({ baseURL: BASE });

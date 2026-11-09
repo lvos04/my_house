@@ -20,10 +20,19 @@ maakt een `tmp/`-map naast zichzelf.
 | `android/PeilVoorShots.kt` | Paparazzi-test voor de Android-afdrukken van de nulmeting (alleen in een kopie van `apps/android`) |
 | `android/verzamel.py` | Android ná de omzetting: afdrukken uit het Paparazzi-rapport halen en de `-volledig`-delen samenvoegen |
 
-**Vereist (deze machine, 9 nov 2026):** Python 3.12-venv met `pip install -e integrations -e apps/api` (pad staat
-bovenin `run_shots.sh` als `PY`), PostgreSQL 16 op 127.0.0.1:5432 waarin de rol databases mag maken, een gebouwde
-web-app (`npm run build`, of laat het script bouwen), Playwright met Chromium (pad bovenin de `.mjs`-bestanden),
-axe-core (pad in `axe.mjs`), Pillow + numpy voor `nabewerk.py`. Pas de absolute paden aan je eigen opzet aan.
+**Vereist:** Python 3.12 met `pip install -e integrations -e apps/api` (`PEIL_PYTHON`, standaard `python3`),
+PostgreSQL 16 waarin de rol databases mag maken (`PEIL_PG`, standaard `postgresql://postgres@127.0.0.1:5432`), een
+gebouwde web-app (`npm run build`, of laat het script bouwen), Playwright met Chromium en axe-core (standaard die van
+`apps/web` na `npm ci` en `npx playwright install chromium`; anders `PEIL_PLAYWRIGHT=<pad>/playwright/index.mjs` en
+`PEIL_AXE=<pad>/axe-core/axe.min.js`), Pillow + numpy voor `nabewerk.py`. Na het kopiëren van deze map wijst
+`PEIL_REPO` naar de repo:
+
+```sh
+cp -r docs/screenshots/peil/werkwijze /tmp/werkwijze
+PEIL_REPO=<pad naar my_house> PEIL_PYTHON=<venv>/bin/python /tmp/werkwijze/run_shots.sh /tmp/afdrukken
+```
+
+Er staan geen absolute paden in de scripts; alles komt uit deze variabelen.
 
 ## Android (Paparazzi in een kopie)
 
@@ -34,8 +43,8 @@ axe-core (pad in `axe.mjs`), Pillow + numpy voor `nabewerk.py`. Pas de absolute 
    `testImplementation("org.mockito:mockito-core:5.14.2")`.
 3. Zet `android/PeilVoorShots.kt` in `app/src/test/java/nl/huis/smarthome/peil/` en de JSON van `fixtures.mjs` in
    `app/src/test/resources/peil/`.
-4. `JAVA_HOME=<JDK 17> ANDROID_HOME=<sdk> flock …/gradle.lock ./gradlew --no-daemon --max-workers=4
-   -Dorg.gradle.jvmargs=-Xmx2g :app:recordPaparazziDebug --tests 'nl.huis.smarthome.peil.*'`
+4. `JAVA_HOME=<JDK 17> ANDROID_HOME=<sdk> ./gradlew --no-daemon :app:recordPaparazziDebug
+   --tests 'nl.huis.smarthome.peil.*'` (met weinig geheugen eventueel `--max-workers=4 -Dorg.gradle.jvmargs=-Xmx2g`)
 5. Afdrukken staan in `app/src/test/snapshots/images/`; hernoemen naar `<scherm>-<thema>-<breedte>.png` en de drie
    delen van `-volledig` onder elkaar zetten (zie de README een map hoger), daarna `nabewerk.py`.
 
@@ -45,8 +54,8 @@ vervalt de kopie.
 ## Android ná de omzetting (stap 4, Paparazzi in de repo)
 
 Sinds stap 4 staat de test in de repo (`apps/android/app/src/test/java/nl/huis/smarthome/peil/PeilAfdrukken.kt`,
-ADR-0010); er is geen kopie meer nodig. Vanuit `apps/android` (JDK 17, Android SDK 35; op deze machine onder
-`flock …/gradle.lock` met `--max-workers=4` en `-Dorg.gradle.jvmargs=-Xmx2g`):
+ADR-0010); er is geen kopie meer nodig. Vanuit `apps/android` (JDK 17, Android SDK 35; met weinig geheugen
+eventueel `--max-workers=4` en `-Dorg.gradle.jvmargs=-Xmx2g`):
 
 ```sh
 ./gradlew :app:recordPaparazziDebug                                        # referentiebeelden (56) vastleggen

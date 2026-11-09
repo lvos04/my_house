@@ -7,9 +7,17 @@
 // Uitvoer: <PEIL_OUT>/review.json + <PEIL_OUT>/shots/<scherm>-<thema>-<breedte>.png
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { chromium, request as pwRequest } from '/home/transcode/truenas-v2/.lokaal/ontwerp-tools/node_modules/playwright/index.mjs';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 
-const AXE = '/home/transcode/truenas-v2/.lokaal/ontwerptaal/.review-tools/node_modules/axe-core/axe.min.js';
+// Playwright en axe-core: paden uit PEIL_PLAYWRIGHT en PEIL_AXE (run_shots.sh kiest standaard die van apps/web);
+// zonder die variabelen de pakketten 'playwright' en 'axe-core' die Node vanaf deze map vindt.
+const { chromium, request: pwRequest } = await import(
+  process.env.PEIL_PLAYWRIGHT ? pathToFileURL(process.env.PEIL_PLAYWRIGHT).href : 'playwright'
+);
+const AXE_PAD = process.env.PEIL_AXE || createRequire(import.meta.url).resolve('axe-core/axe.min.js');
+
+const AXE = AXE_PAD;
 const BASE = process.env.E2E_BASE_URL;
 const OUT = process.env.PEIL_OUT;
 const SHOTS = `${OUT}/shots`;

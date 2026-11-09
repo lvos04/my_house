@@ -4,16 +4,27 @@
 # (zelfde opzet als apps/web/e2e/run-stack.sh). Buiten de repo; niets wordt gecommit behalve de PNG's.
 #
 #   run_shots.sh <uitvoermap>
+#
+# Omgevingsvariabelen (alle optioneel):
+#   PEIL_REPO        my_house-repo; standaard vier mappen boven dit script (zet hem als je deze map kopieert)
+#   PEIL_PYTHON      Python met `pip install -e integrations -e apps/api`; standaard python3
+#   PEIL_PG          PostgreSQL 16 waarin de rol databases mag maken; standaard postgresql://postgres@127.0.0.1:5432
+#   PEIL_PLAYWRIGHT  pad naar playwright/index.mjs; standaard die van apps/web (npm ci)
+#   PEIL_AXE         pad naar axe-core/axe.min.js; standaard die van apps/web (npm ci)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="/home/transcode/truenas-v2/my_house"
+REPO="$(cd "${PEIL_REPO:-$HERE/../../../..}" && pwd)"
 WEB="$REPO/apps/web"
 OUT="${1:?uitvoermap}"
-PY="/home/transcode/truenas-v2/.lokaal/my_house-ci/venv/bin/python"
-PG="postgresql://postgres@127.0.0.1:5432"
+PY="${PEIL_PYTHON:-python3}"
+PG="${PEIL_PG:-postgresql://postgres@127.0.0.1:5432}"
+export PEIL_PLAYWRIGHT="${PEIL_PLAYWRIGHT:-$WEB/node_modules/playwright/index.mjs}"
+export PEIL_AXE="${PEIL_AXE:-$WEB/node_modules/axe-core/axe.min.js}"
 
 log() { printf '[shots] %s\n' "$*" >&2; }
+[[ -f "$WEB/package.json" && -f "$REPO/apps/api/pyproject.toml" ]] \
+  || { log "geen my_house-repo in $REPO; zet PEIL_REPO=<pad naar de repo>"; exit 2; }
 wait_http() { local url="$1" limit="$2" i; for ((i = 0; i < limit * 4; i++)); do curl -fsS -o /dev/null --max-time 2 "$url" 2>/dev/null && return 0; sleep 0.25; done; log "geen antwoord: $url"; return 1; }
 free_port() { "$PY" -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()'; }
 pg_admin() { PG_URL="$PG/postgres" SQL="$1" "$PY" - <<'EOF'
@@ -26,6 +37,7 @@ asyncio.run(main())
 EOF
 }
 
+mkdir -p "$HERE/tmp"
 STATE_DIR="$(mktemp -d "$HERE/tmp/state.XXXXXX")"
 DB_NAME="my_house_peil_$(basename "$STATE_DIR" | tr -dc '[:alnum:]' | tr '[:upper:]' '[:lower:]')"
 API_PORT="$(free_port)"; WEB_PORT="$(free_port)"
@@ -44,7 +56,7 @@ cleanup() {
 trap cleanup EXIT
 
 pg_admin "CREATE DATABASE $DB_NAME"
-export SHC_DATABASE_URL="postgresql+asyncpg://postgres@127.0.0.1:5432/$DB_NAME"
+export SHC_DATABASE_URL="postgresql+asyncpg://${PG#postgresql://}/$DB_NAME"
 SHC_SECRET_KEY="$("$PY" -c 'import secrets; print(secrets.token_urlsafe(48))')"; export SHC_SECRET_KEY
 export SHC_BACKUP_DIR="$STATE_DIR/backups" SHC_DATA_DIR="$STATE_DIR/data" SHC_COOKIE_SECURE=auto SHC_FORWARDED_ALLOW_IPS=127.0.0.1 SHC_LOG_LEVEL=INFO
 unset SHC_LAN_URL SHC_REMOTE_URL SHC_PAIRING_ALLOWED_HOSTS SHC_NOTIFY_URL

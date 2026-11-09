@@ -20,9 +20,9 @@ vastgelegd).
 
 Namen: `<scherm>-<licht|donker>-<breedte>.png`, dezelfde vorm als de Peil-prototypes (`definitief/shots/`).
 
-## Hoe gemaakt (9 november 2026, deze machine)
+## Hoe gemaakt (9 november 2026, ontwikkelmachine)
 
-**Web — tegen de echte app, niet tegen een mock.** Een wegwerp-database in de gedeelde PostgreSQL 16, de echte API
+**Web — tegen de echte app, niet tegen een mock.** Een wegwerp-database in een lokale PostgreSQL 16, de echte API
 (`shc-api serve`) en de gebouwde web-app achter `vite preview` met `e2e/vite.preview.config.ts`, net als
 `apps/web/e2e/run-stack.sh`. Chromium (Playwright 1.65), `deviceScaleFactor` 1, `locale` nl-NL, tijdzone
 Europe/Amsterdam, `prefers-color-scheme` licht of donker (de app kent geen eigen themaknop), service worker uit,

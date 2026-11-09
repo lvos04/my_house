@@ -3,7 +3,13 @@
 // Uitvoer: <PEIL_OUT>/<scherm>-<licht|donker>-<breedte>.png (volledige pagina) + index.json.
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { chromium, request as pwRequest } from '/home/transcode/truenas-v2/.lokaal/ontwerp-tools/node_modules/playwright/index.mjs';
+import { pathToFileURL } from 'node:url';
+
+// Playwright: pad uit PEIL_PLAYWRIGHT (run_shots.sh kiest standaard die van apps/web); zonder die variabele
+// het pakket 'playwright' dat Node vanaf deze map vindt.
+const { chromium, request: pwRequest } = await import(
+  process.env.PEIL_PLAYWRIGHT ? pathToFileURL(process.env.PEIL_PLAYWRIGHT).href : 'playwright'
+);
 
 const BASE = process.env.E2E_BASE_URL;
 const OUT = process.env.PEIL_OUT;

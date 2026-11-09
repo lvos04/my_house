@@ -79,7 +79,7 @@ API-aanroepen, datamodel, rechten en de installatie blijven. De app had geen sch
   systeem" (zelfde woorden als de web-app). Teksten met domeinbetekenis zijn gelijk gebleven; de bestaande 118
   unit-tests (core 82, app 36) zijn ongewijzigd groen.
 - **NIET GEVALIDEERD (hardware):** geen echte telefoon, geen emulator, geen TalkBack. Een rooktest op een headless
-  emulator was hier niet mogelijk: `/dev/kvm` is alleen voor root en de groep `kvm`, en deze gebruiker zit niet in die
-  groep; zonder KVM is een emulator met API 35 op deze gedeelde machine (14,5 GiB) niet bruikbaar. Herstel buiten deze
-  repo: de gebruiker in de groep `kvm` (eenmalig, door de beheerder van de machine) en dan een rooktest met
+  emulator was op de ontwikkelmachine niet mogelijk: de bouwgebruiker had geen toegang tot `/dev/kvm`, en zonder KVM
+  is een emulator met API 35 niet bruikbaar. Herstel buiten deze repo: KVM-toegang voor de bouwgebruiker (eenmalig,
+  door de beheerder van de machine) en dan een rooktest met
   `uiautomator dump` op aanraakdoelen ≥ 48 dp.
