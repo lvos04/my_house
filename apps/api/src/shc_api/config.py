@@ -3,13 +3,36 @@ or Docker secrets files, so the same image runs on TrueNAS or any Linux host."""
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-VERSION = "0.1.0"
+_VERSION_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z.+_-]{0,31}$")
+
+
+def _read_version() -> str:
+    """App version from the single source of truth: the repository's VERSION file (contract C9).
+
+    Looked up upward from this package (development checkout) and at /app/VERSION (container).
+    This is the only runtime version: /health, backups and the API docs use ``VERSION``. The
+    ``version`` in apps/api/pyproject.toml is static package metadata and deliberately not used
+    (it is not kept in step with VERSION); without a VERSION file the result is "0.0.0".
+    """
+    here = Path(__file__).resolve().parent
+    for candidate in [*(d / "VERSION" for d in (here, *here.parents)), Path("/app/VERSION")]:
+        try:
+            value = candidate.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeDecodeError):
+            continue
+        if _VERSION_RE.match(value):
+            return value
+    return "0.0.0"
+
+
+VERSION = _read_version()
 
 
 class Settings(BaseSettings):
@@ -30,11 +53,17 @@ class Settings(BaseSettings):
     lan_url: str | None = None
     remote_url: str | None = None  # Cloudflare tunnel hostname, optional
 
-    # Cookie "Secure" flag: on when served over HTTPS (tunnel or reverse proxy).
-    cookie_secure: bool = True
+    # Cookie "Secure" flag: "auto" (per request: only when it arrived over https, as seen
+    # after trusted proxy headers), "true" or "false". Old boolean values keep working.
+    cookie_secure: str = "auto"
     session_hours: int = 24 * 14
     login_max_attempts: int = 5
     login_window_s: int = 300
+    # Peers whose X-Forwarded-* headers uvicorn trusts (comma-separated IPs/CIDRs, or "*").
+    forwarded_allow_ips: str = "127.0.0.1"
+    # Request size limits: regular API bodies, and the backup-restore upload.
+    max_body_bytes: int = 262_144
+    max_upload_bytes: int = 2_147_483_648
 
     worker_poll_interval_s: int = 15
     climate_interval_s: int = 60
@@ -43,8 +72,73 @@ class Settings(BaseSettings):
     mqtt_username: str | None = None
     mqtt_password_file: Path | None = None
 
+    # Raw data retention (days); hourly energy totals are kept forever.
+    retention_power_days: int = 30
+    retention_counter_days: int = 365
+    retention_log_days: int = 90
+    # Other raw readings (temperature, humidity, target_c, battery, ...): at least 30 days, see aggregates.
+    retention_sensor_days: int = 400
+
+    # Automatic backups: hour of day (local time) to run, and how many automatic backups to keep.
+    backup_hour_local: int = 3
+    backup_keep: int = 14
+
+    # Reference clock for the time check ("host" or "host:port"); None disables the NTP comparison.
+    ntp_server: str | None = "pool.ntp.org"
+
+    # Extra device addresses pairing accepts although they are not on the home network (comma-separated
+    # host names or IPs, e.g. for a test setup). Empty: only private IPs and LAN names.
+    pairing_allowed_hosts: str = ""
+    # First two octets of the stack's own Docker networks (compose.yaml: edge .250.0/29, app .251.0/28,
+    # data .252.0/27). Unset: taken from SHC_FORWARDED_ALLOW_IPS (<prefix>.251.2), else 172.30.
+    net_prefix: str | None = None
+
+    # Optional push address outside the app (ntfy topic URL or another webhook) for "worker stopped"
+    # and "backups stopped"; the value set in the app (Systeem) wins. Verbeterlijst 28.
+    notify_url: str | None = None
+
     log_level: str = "INFO"
-    trusted_proxies: list[str] = Field(default_factory=lambda: ["127.0.0.1", "172.16.0.0/12", "10.0.0.0/8"])
+
+    @field_validator("cookie_secure", mode="before")
+    @classmethod
+    def _cookie_secure(cls, v: object) -> str:
+        if isinstance(v, bool):
+            return "true" if v else "false"
+        s = str(v).strip().lower()
+        if s in ("auto", ""):
+            return "auto"
+        if s in ("1", "true", "yes", "on"):
+            return "true"
+        if s in ("0", "false", "no", "off"):
+            return "false"
+        raise ValueError("cookie_secure moet auto, true of false zijn")
+
+    def cookie_secure_for(self, scheme: str) -> bool:
+        """Whether to set the cookie Secure flag for a request that arrived with this URL scheme."""
+        if self.cookie_secure == "auto":
+            return scheme == "https"
+        return self.cookie_secure == "true"
+
+    def pairing_allowed_host_set(self) -> set[str]:
+        return {h.strip().lower() for h in self.pairing_allowed_hosts.split(",") if h.strip()}
+
+    def stack_networks(self) -> list:
+        """The stack's own Docker subnets (database, MQTT, nginx, tunnel live there): never a device."""
+        import ipaddress
+        import re
+
+        prefix = (self.net_prefix or "").strip()
+        if not re.fullmatch(r"\d{1,3}\.\d{1,3}", prefix):
+            first = self.forwarded_allow_ips.split(",")[0].strip()
+            m = re.fullmatch(r"(\d{1,3}\.\d{1,3})\.251\.2", first)
+            prefix = m.group(1) if m else "172.30"
+        nets = []
+        for suffix in ("250.0/29", "251.0/28", "252.0/27"):
+            try:
+                nets.append(ipaddress.ip_network(f"{prefix}.{suffix}"))
+            except ValueError:
+                continue
+        return nets
 
     def model_post_init(self, _ctx) -> None:
         if self.database_password_file and self.database_password_file.exists():

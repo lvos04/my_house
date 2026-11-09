@@ -85,12 +85,13 @@ def test_implausible_sensor():
 
 
 def test_remote_control_change_becomes_override():
-    d = c.decide(zone(unit=c.UnitState(True, "heat", 24.0)))
+    # A difference must be seen in two consecutive readbacks (verbeterlijst 11): this is the second.
+    d = c.decide(zone(unit=c.UnitState(True, "heat", 24.0), mismatch_count=1))
     assert d.control == "manual" and d.override_source == "remote_control" and d.send is None
 
 
 def test_remote_off_is_never_reactivated():
-    d = c.decide(zone(unit=c.UnitState(True, "off", 21.0)))
+    d = c.decide(zone(unit=c.UnitState(True, "off", 21.0), mismatch_count=1))
     assert d.control == "off" and d.send is None
     d2 = c.decide(zone(control="off", unit=c.UnitState(True, "off", 21.0)))
     assert d2.send is None

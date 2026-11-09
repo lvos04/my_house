@@ -38,8 +38,8 @@ def check_command(device: DeviceFacts, action: str, params: dict) -> None:
     """Raise PolicyDenied if the command must not be sent."""
     if device.safe_mode:
         raise PolicyDenied(
-            "Veilige modus actief (na herstel of herstart). Bevestig eerst de apparaatkoppelingen in "
-            "Systeem › Verhuisassistent."
+            "Veilige modus actief (na herstel). Controleer de apparaten en kies daarna op de pagina "
+            "Systeem 'Veilige modus opheffen'."
         )
     protected = device.roles & (device.protected_roles | DEFAULT_PROTECTED_ROLES)
     if protected:

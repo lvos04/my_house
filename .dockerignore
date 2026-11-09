@@ -1,9 +1,21 @@
+# Build context of the API image is the repository root (apps/api/Dockerfile).
+# It needs integrations/, apps/api/ and VERSION; everything else stays out.
 **/.venv
 **/node_modules
 **/__pycache__
 **/.pytest_cache
 **/.ruff_cache
 **/dist
+**/*.egg-info
+# setuptools output of local builds: stale files there would end up in the image's packages.
+**/build
+**/*.shcbak
+**/.env
+**/secrets
 apps/android
-.git
+apps/web
+infra
+services
 docs
+.git
+.github

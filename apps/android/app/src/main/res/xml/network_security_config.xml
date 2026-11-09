@@ -1,7 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The LAN address of the NAS is usually plain http (http://192.168.x.x:8080).
-     Cleartext is allowed for that; the remote (Cloudflare) URL must be https,
-     which the app enforces when pairing. -->
+<!-- Thuis is de server meestal gewoon http (http://192.168.x.x:8088).
+     Android kan "onversleuteld alleen naar privé-IP-adressen" niet uitdrukken: een
+     domain-config werkt alleen met namen, en IP-bereiken kun je er niet in opgeven. Daarom
+     staat onversleuteld verkeer hier aan, en dwingt de app de regel zelf af (core: HostRules,
+     ServerUrls en ApiClient):
+       - http alleen naar een thuisadres: 10/8, 172.16/12, 192.168/16, 169.254/16, IPv6 fc00::/7 en
+         fe80::/10, of een naam op .local/.lan/.home.arpa/.internal/.localdomain of zonder punt;
+       - het externe adres moet https zijn (QR-code, handmatig invoeren en Adressen worden geweigerd);
+       - het token gaat alleen naar een adres dat zich met de server-id van de koppeling meldt
+         (GET /api/v1/pairing/identity), en de Cloudflare-headers alleen naar het externe adres;
+       - redirects worden niet gevolgd.
+     Alleen systeemcertificaten worden vertrouwd (geen gebruikerscertificaten). -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>

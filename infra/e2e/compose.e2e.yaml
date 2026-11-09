@@ -1,0 +1,50 @@
+# Test-only additions to infra/compose/compose.yaml for the browser tests against the stack
+# (infra/scripts/e2e_compose.sh). Never use this for an installation.
+#
+#   docker compose -f infra/compose/compose.yaml -f infra/e2e/compose.e2e.yaml up -d --wait
+#
+# A small "home network" (lan) with a fake Gree airco unit on it: the API pairs it over UDP like a
+# real unit and the worker polls it and sends it commands, so a command from the browser is confirmed
+# by the worker (readback), not just queued. The address (SHC_E2E_LAN_PREFIX, default 192.168.77) is
+# outside the stack's own subnets, which the API refuses as a device address.
+# Relative paths are relative to infra/compose/ (the directory of the first compose file).
+
+networks:
+  lan:
+    ipam:
+      config:
+        - subnet: ${SHC_E2E_LAN_PREFIX:-192.168.77}.0/24
+
+services:
+  api:
+    networks:
+      lan: {}
+
+  worker:
+    networks:
+      lan: {}
+
+  fake-gree:
+    image: ${SHC_IMAGE_PREFIX:-ghcr.io/lvos04/my_house}-api:${SHC_VERSION:-latest}
+    entrypoint: ["python", "/e2e/fake_gree_unit.py"]
+    user: "10001:10001"
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    volumes:
+      - ../e2e/fake_gree_unit.py:/e2e/fake_gree_unit.py:ro
+      - ../../integrations/tests/fake_gree.py:/e2e/fake_gree.py:ro
+    networks:
+      lan: { ipv4_address: "${SHC_E2E_LAN_PREFIX:-192.168.77}.10" }
+    # The image's own healthcheck asks the API on :8000, which this container does not run.
+    # Instead: a Gree scan over UDP must get an answer (compose --wait needs a healthcheck).
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(2); s.sendto(b'{\"t\":\"scan\"}', ('127.0.0.1', 7000)); s.recvfrom(4096)"
+      interval: 5s
+      timeout: 4s
+      retries: 10
+      start_period: 5s

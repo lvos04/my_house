@@ -6,6 +6,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -16,13 +17,18 @@ class ApiClientTest {
     private lateinit var server: MockWebServer
     private lateinit var api: ApiClient
     private var creds = Credentials(token = "shc_abc")
+    private lateinit var base: String
+    private lateinit var lan: Route
+    private lateinit var remote: Route
 
     @Before
     fun setUp() {
         server = MockWebServer()
         server.start()
-        val base = server.url("/").toString().trimEnd('/')
-        api = ApiClient(OkHttpClient(), { base }, { creds })
+        base = server.url("/").toString().trimEnd('/')
+        lan = Route(RouteKind.LAN, base, SID)
+        remote = Route(RouteKind.REMOTE, base, SID)
+        api = ApiClient(OkHttpClient.Builder().followRedirects(false).build(), { creds }, cleartextAllowed = { true })
     }
 
     @After
@@ -30,10 +36,13 @@ class ApiClientTest {
 
     @Test
     fun redeemSendsCodeWithoutBearer() = runTest {
-        server.enqueue(MockResponse().setBody("""{"token":"shc_new","user":{"id":"u1","username":"telefoon","role":"admin"},"server":{"lan_url":"http://192.168.1.20:8080","remote_url":null,"home_id":"h1","home_name":"Thuis"}}"""))
-        val r = api.redeem(server.url("/").toString().trimEnd('/'), "K7Q4-9XPM", "Pixel 8")
+        server.enqueue(MockResponse().setBody("""{"token":"shc_new","user":{"id":"u1","username":"telefoon","role":"admin"},"client":{"id":"c1","role":"control","expires_at":"2027-05-07T10:00:00Z"},"server":{"server_id":"$SID","lan_url":"http://192.168.1.20:8080","remote_url":null,"home_id":"h1","home_name":"Thuis"}}"""))
+        val r = api.redeem(base, RouteKind.LAN, "K7Q4-9XPM", "Pixel 8")
         assertEquals("shc_new", r.token)
         assertEquals("h1", r.server.homeId)
+        assertEquals(SID, r.server.serverId)
+        assertEquals("control", r.client!!.role)
+        assertEquals("2027-05-07T10:00:00Z", r.client!!.expiresAt)
         assertNull(r.server.remoteUrl)
         val req = server.takeRequest()
         assertEquals("/api/v1/pairing/redeem", req.path)
@@ -42,21 +51,154 @@ class ApiClientTest {
     }
 
     @Test
-    fun sendsBearerAndCloudflareHeaders() = runTest {
+    fun sendsBearerAndCloudflareHeadersOnlyToRemote() = runTest {
         creds = Credentials("shc_abc", "id.access", "secret")
         server.enqueue(MockResponse().setBody("[]"))
-        api.zones("h1")
+        api.zones(remote, "h1")
         val req = server.takeRequest()
         assertEquals("/api/v1/homes/h1/zones", req.path)
         assertEquals("Bearer shc_abc", req.getHeader("Authorization"))
         assertEquals("id.access", req.getHeader("CF-Access-Client-Id"))
         assertEquals("secret", req.getHeader("CF-Access-Client-Secret"))
+
+        // The home address never gets the Cloudflare secret.
+        server.enqueue(MockResponse().setBody("[]"))
+        api.zones(lan, "h1")
+        val lanReq = server.takeRequest()
+        assertEquals("Bearer shc_abc", lanReq.getHeader("Authorization"))
+        assertNull(lanReq.getHeader("CF-Access-Client-Id"))
+        assertNull(lanReq.getHeader("CF-Access-Client-Secret"))
+    }
+
+    @Test
+    fun neverSendsTokenToUnverifiedRoute() = runTest {
+        try {
+            api.zones(Route(RouteKind.LAN, base), "h1")
+            fail("expected exception")
+        } catch (e: ApiException) {
+            assertEquals("unverified_route", e.code)
+            assertEquals(ApiProblem.UNVERIFIED_ROUTE, e.problem)
+        }
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun refusesTokenOverCleartextToPublicHost() = runTest {
+        val strict = ApiClient(OkHttpClient(), { creds })
+        try {
+            strict.zones(Route(RouteKind.LAN, "http://example.com", SID), "h1")
+            fail("expected exception")
+        } catch (e: ApiException) {
+            assertEquals("cleartext_refused", e.code)
+            assertEquals(ApiProblem.CLEARTEXT_REFUSED, e.problem)
+        }
+    }
+
+    @Test
+    fun identityIsUnauthenticated() = runTest {
+        creds = Credentials("shc_abc", "id.access", "secret")
+        server.enqueue(MockResponse().setBody("""{"server_id":"$SID","name":"Thuis"}"""))
+        val id = api.identity(base, RouteKind.LAN)
+        assertEquals(SID, id.serverId)
+        val req = server.takeRequest()
+        assertEquals("/api/v1/pairing/identity", req.path)
+        assertNull(req.getHeader("Authorization"))
+        assertNull(req.getHeader("CF-Access-Client-Id"))
+
+        server.enqueue(MockResponse().setBody("""{"server_id":"$SID","name":"Thuis"}"""))
+        api.identity(base, RouteKind.REMOTE)
+        val r2 = server.takeRequest()
+        assertNull(r2.getHeader("Authorization"))
+        assertEquals("id.access", r2.getHeader("CF-Access-Client-Id"))
+    }
+
+    @Test
+    fun identityChallengeSendsNonceAndClientIdButNoToken() = runTest {
+        val ch = IdentityChallenge.of("AbCdEfGhIjKlMnOpQrStUv_-0123456789", "0b7e5a3c-9d21-4f6e-8a10-5c2d3e4f5a6b")
+        val proof = IdentityProof.expected("shc_abc", SID, ch.nonce)
+        server.enqueue(MockResponse().setBody("""{"server_id":"$SID","name":"Thuis","proof":"$proof","proof_alg":"hmac-sha256-v1"}"""))
+        val id = api.identity(base, RouteKind.LAN, challenge = ch)
+        assertEquals(ProofState.VALID, IdentityProof.check(ch, creds.token, id))
+        val req = server.takeRequest()
+        assertEquals("/api/v1/pairing/identity?nonce=${ch.nonce}&client_id=${ch.clientId}", req.path)
+        assertNull(req.getHeader("Authorization"))
+    }
+
+    @Test
+    fun scheduleIsReadWithTheToken() = runTest {
+        server.enqueue(MockResponse().setBody("""{"blocks":[{"days":[0,1,2,3,4],"start":"07:00","target_c":21.0,"mode":"heat","label":"Ochtend"}],"profile_id":null,"profile":null}"""))
+        val s = api.schedule(lan, "z1")
+        assertEquals("07:00", s.blocks.single().start)
+        val req = server.takeRequest()
+        assertEquals("/api/v1/zones/z1/schedule", req.path)
+        assertEquals("Bearer shc_abc", req.getHeader("Authorization"))
+    }
+
+    @Test
+    fun phoneEndpoints() = runTest {
+        server.enqueue(MockResponse().setBody("""{"token":"shc_fresh","expires_at":"2027-05-07T10:00:00Z"}"""))
+        assertEquals("shc_fresh", api.refreshToken(lan).token)
+        assertEquals("/api/v1/clients/self/refresh", server.takeRequest().path)
+
+        server.enqueue(MockResponse().setResponseCode(204))
+        api.unpairSelf(lan)
+        val del = server.takeRequest()
+        assertEquals("DELETE", del.method)
+        assertEquals("/api/v1/clients/self", del.path)
+
+        server.enqueue(MockResponse().setBody("""{"lan_url":"http://192.168.1.30:8088","remote_url":"https://huis.voorbeeld.nl","safe_mode":false,"maintenance":false}"""))
+        assertEquals("http://192.168.1.30:8088", api.settings(lan).lanUrl)
+
+        server.enqueue(MockResponse().setBody("""{"id":"u1","username":"anna","role":"admin","via":"token","client_role":"viewer","is_admin":false,"can_control":false}"""))
+        val me = api.me(lan)
+        assertEquals(false, me.canControl)
+        assertFalse(me.isAdmin)
+    }
+
+    @Test
+    fun revokedTokenMeansUnpaired() = runTest {
+        server.enqueue(MockResponse().setResponseCode(401).setBody("""{"detail":{"code":"token_revoked","message":"Deze telefoon is niet meer gekoppeld."}}"""))
+        try {
+            api.overview(lan, "h1")
+            fail("expected exception")
+        } catch (e: ApiException) {
+            assertEquals(UnpairReason.REVOKED, e.unpairReason)
+            assertEquals(FailureKind.UNPAIRED, Failures.classify(e))
+        }
+    }
+
+    @Test
+    fun htmlPageIsNotTheApi() = runTest {
+        server.enqueue(MockResponse().setBody("<html>Wifi-login</html>"))
+        try {
+            api.overview(lan, "h1")
+            fail("expected exception")
+        } catch (e: ApiException) {
+            assertEquals("not_api", e.code)
+            assertEquals(ApiProblem.NOT_API, e.problem)
+            assertTrue(e.routeProblem)
+            assertEquals(FailureKind.SERVER_DOWN, Failures.classify(e))
+        }
+    }
+
+    @Test
+    fun cloudflareAccessRedirectIsReported() = runTest {
+        server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "https://team.cloudflareaccess.com/cdn-cgi/access/login"))
+        try {
+            api.overview(remote, "h1")
+            fail("expected exception")
+        } catch (e: ApiException) {
+            assertEquals("cf_access_login", e.code)
+            assertEquals(ApiProblem.CF_ACCESS_LOGIN, e.problem)
+            assertTrue(e.routeProblem)
+            assertTrue(Probe.fromFailure(e) is Probe.Blocked)
+        }
     }
 
     @Test
     fun parsesOverviewWithUnknownFields() = runTest {
         server.enqueue(MockResponse().setBody(OVERVIEW))
-        val o = api.overview("h1")
+        val o = api.overview(lan, "h1")
         assertEquals("Thuis", o.home.name)
         assertEquals(2, o.zones.size)
         val w = o.zones[0]
@@ -71,7 +213,7 @@ class ApiClientTest {
     @Test
     fun commandEncodesOnlySetFields() = runTest {
         server.enqueue(MockResponse().setResponseCode(202).setBody("""{"command_id":"c1","status":"queued"}"""))
-        val r = api.command("z1", ZoneCommand(targetC = 21.5))
+        val r = api.command(lan, "z1", ZoneCommand(targetC = 21.5))
         assertEquals("c1", r.commandId)
         val body = server.takeRequest().body.readUtf8()
         assertEquals("""{"target_c":21.5}""", body)
@@ -81,13 +223,51 @@ class ApiClientTest {
     fun mapsPolicyErrorToApiException() = runTest {
         server.enqueue(MockResponse().setResponseCode(409).setBody("""{"detail":{"code":"policy_denied","message":"Koelen kan niet terwijl een andere unit verwarmt."}}"""))
         try {
-            api.command("z1", ZoneCommand(mode = "cool"))
+            api.command(lan, "z1", ZoneCommand(mode = "cool"))
             fail("expected exception")
         } catch (e: ApiException) {
             assertEquals(409, e.status)
             assertEquals("policy_denied", e.code)
             assertEquals("Koelen kan niet terwijl een andere unit verwarmt.", e.message)
+            // The server's own text: no client code, the app shows the message as is.
+            assertNull(e.problem)
         }
+    }
+
+    @Test
+    fun clientTextsAreReportedAsCodes() {
+        // Texts the client builds itself carry a code for the app's strings.xml (verbeterlijst,
+        // kleine punten "Toegankelijkheid Android"); [message] keeps the same Dutch text.
+        val cases = listOf(
+            ApiClient.parseError(530, "<html>error code: 1033</html>") to ApiProblem.TUNNEL_UNAVAILABLE,
+            ApiClient.parseError(502, "<html>Bad gateway</html>") to ApiProblem.SERVER_UNAVAILABLE,
+            ApiClient.parseError(302, "", "https://team.cloudflareaccess.com/cdn-cgi/access/login") to ApiProblem.CF_ACCESS_LOGIN,
+            ApiClient.parseError(302, "", "http://wifi.login/portal") to ApiProblem.REDIRECT,
+            ApiClient.parseError(403, "<html>Forbidden</html>") to ApiProblem.CF_FORBIDDEN,
+            ApiClient.parseError(401, "") to ApiProblem.REPAIR_NEEDED,
+            ApiClient.parseError(404, "") to ApiProblem.NOT_FOUND,
+            ApiClient.parseError(409, "") to ApiProblem.CONFLICT,
+            ApiClient.parseError(413, "") to ApiProblem.TOO_LARGE,
+            ApiClient.parseError(429, "") to ApiProblem.TOO_MANY_REQUESTS,
+            ApiClient.parseError(418, "") to ApiProblem.SERVER_ERROR,
+        )
+        for ((e, problem) in cases) {
+            assertEquals(problem, e.problem)
+            assertEquals(problem.dutch(e.status), e.message)
+            assertFalse(e.fromApi)
+        }
+        assertEquals("Serverfout (418).", ApiClient.parseError(418, "").message)
+        // The API's own error without a usable message: the client's text, still from the API.
+        val empty = ApiClient.parseError(403, """{"detail":{"code":"forbidden","message":""}}""")
+        assertEquals(ApiProblem.NO_RIGHTS, empty.problem)
+        assertEquals("forbidden", empty.code)
+        assertTrue(empty.fromApi)
+        assertEquals(ApiProblem.CONFLICT, ApiClient.parseError(409, """{"detail":""}""").problem)
+        // With a message from the server there is no code.
+        assertNull(ApiClient.parseError(404, """{"detail":"Zone niet gevonden."}""").problem)
+        assertNull(ApiClient.parseError(409, """{"detail":{"code":"mode_required","message":"Kies eerst een modus."}}""").problem)
+        // Every code has a distinct text.
+        assertEquals(ApiProblem.entries.size, ApiProblem.entries.map { it.dutch }.toSet().size)
     }
 
     @Test
@@ -95,14 +275,43 @@ class ApiClientTest {
         assertEquals("auth_required", ApiClient.parseError(401, """{"detail":{"code":"auth_required","message":""}}""").code)
         assertEquals("Opnieuw koppelen nodig.", ApiClient.parseError(401, "").message)
         assertEquals("Not Found", ApiClient.parseError(404, """{"detail":"Not Found"}""").message)
-        assertTrue(ApiClient.parseError(401, "").isAuthError)
+        // A bare 401 from a proxy is not the server revoking us.
+        assertNull(ApiClient.parseError(401, "").unpairReason)
+        assertEquals(UnpairReason.UNKNOWN_TOKEN, ApiClient.parseError(401, """{"detail":{"code":"auth_required","message":"Log in"}}""").unpairReason)
+        assertEquals(UnpairReason.EXPIRED, ApiClient.parseError(401, """{"detail":{"code":"token_expired","message":"x"}}""").unpairReason)
+        assertEquals(UnpairReason.REVOKED, ApiClient.parseError(403, """{"detail":{"code":"token_revoked","message":"x"}}""").unpairReason)
+        assertNull(ApiClient.parseError(403, """{"detail":{"code":"forbidden","message":"Alleen-lezen toegang."}}""").unpairReason)
+    }
+
+    @Test
+    fun classifiesServerAndCloudflareErrorsAsOffline() {
+        val cf530 = ApiClient.parseError(530, "<html>error code: 1033</html>")
+        assertEquals("tunnel_unavailable", cf530.code)
+        assertEquals(FailureKind.SERVER_DOWN, Failures.classify(cf530))
+        assertEquals(FailureKind.SERVER_DOWN, Failures.classify(ApiClient.parseError(502, "<html>Bad gateway</html>")))
+        assertEquals(FailureKind.SERVER_DOWN, Failures.classify(ApiClient.parseError(522, "")))
+        val starting = ApiClient.parseError(503, """{"detail":{"code":"api_unavailable","message":"De app start op of wordt bijgewerkt."}}""")
+        assertEquals(FailureKind.STARTING, Failures.classify(starting))
+        assertEquals("De app start op of wordt bijgewerkt.", starting.message)
+        assertEquals(FailureKind.SERVER_DOWN, Failures.classify(ApiClient.parseError(500, """{"detail":"Internal Server Error"}""")))
+        assertEquals(FailureKind.FORBIDDEN, Failures.classify(ApiClient.parseError(403, """{"detail":{"code":"forbidden","message":"Alleen-lezen toegang."}}""")))
+        val modeRequired = ApiClient.parseError(409, """{"detail":{"code":"mode_required","message":"Kies eerst een modus."}}""")
+        assertEquals(FailureKind.APP_ERROR, Failures.classify(modeRequired))
+        assertEquals("Kies eerst een modus.", modeRequired.message)
+        assertEquals(FailureKind.NETWORK, Failures.classify(java.net.SocketTimeoutException("timeout")))
+        assertTrue(FailureKind.SERVER_DOWN.repick && FailureKind.NETWORK.repick && FailureKind.STARTING.repick)
+        assertFalse(FailureKind.APP_ERROR.repick || FailureKind.UNPAIRED.repick || FailureKind.FORBIDDEN.repick)
     }
 
     @Test
     fun parsesRealtimeFrames() {
-        val z = RealtimeEvent.parse("""{"type":"zone.updated","data":{"id":"z1","name":"Woonkamer","mode":"heat","target_c":21.5}}""")
+        val z = RealtimeEvent.parse("""{"type":"zone.updated","data":{"id":"z1","name":"Woonkamer","mode":"heat","target_c":21.5,"unit_linked":true,"unit_status":"online","can_resume":true,"setpoint_adjustable":false,"notice_level":"info","pending_command":{"id":"c9","status":"sent","since":"2026-11-08T13:40:00Z"}}}""")
         assertTrue(z is RealtimeEvent.ZoneUpdated)
-        assertEquals(21.5, (z as RealtimeEvent.ZoneUpdated).zone.targetC!!, 0.0)
+        val zone = (z as RealtimeEvent.ZoneUpdated).zone
+        assertEquals(21.5, zone.targetC!!, 0.0)
+        assertTrue(zone.resumable)
+        assertFalse(zone.adjustable)
+        assertEquals("c9", zone.pendingCommand!!.id)
         val p = RealtimeEvent.parse("""{"type":"energy.live","data":{"at":"2026-11-08T13:40:00Z","total_w":900,"parts":[]}}""")
         assertTrue(p is RealtimeEvent.EnergyLive)
         assertNull(RealtimeEvent.parse("""{"type":"something.new","data":{}}"""))
@@ -111,6 +320,8 @@ class ApiClientTest {
     }
 
     companion object {
+        const val SID = "6f1c2e8a-1b2c-4d5e-8f90-123456789abc"
+
         val OVERVIEW = """
         {"home":{"id":"h1","name":"Thuis","timezone":"Europe/Amsterdam","currency":"EUR","active":true,"extra":1},
          "status":[{"key":"hue","label":"Hue Bridge","state":"ok","detail":"Verbonden"}],

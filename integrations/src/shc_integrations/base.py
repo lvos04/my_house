@@ -109,14 +109,45 @@ class StateUpdate:
 
 @dataclass(slots=True)
 class ButtonEvent:
-    device_identity: str
-    button: str
-    event: str  # "initial_press", "short_release", "long_press", ...
+    device_identity: str  # the physical button device (Hue: device rid, 36 chars)
+    button: str  # the button resource (Hue: button / relative_rotary rid, 36 chars)
+    event: str  # "initial_press", "short_release", "long_press", "rotate_clock_wise", ...
     observed_at: datetime
+    # Stable id for de-duplication. Hue eventstream: "<event id>:<resource id>".
     event_id: str | None = None
 
 
-Event = Reading | StateUpdate | ButtonEvent
+@dataclass(slots=True)
+class DeviceInfo:
+    """Inventory/metadata of one device; carries no measurement and no online state.
+
+    Lets the worker create a device with the right kind and name straight away, or upgrade a
+    device it created earlier with a generic kind (see `should_upgrade_kind`). `removed=True`
+    means the device or resource no longer exists on the hub/bridge.
+    """
+
+    device_identity: str
+    kind: str  # "zigbee_sensor", "zigbee_device", "zigbee_bridge", "light", "light_group", "scene", "button", ...
+    name: str | None  # None = adapter does not know a better name; keep the current one
+    observed_at: datetime
+    model: str | None = None
+    firmware: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+    removed: bool = False
+
+
+Event = Reading | StateUpdate | ButtonEvent | DeviceInfo
+
+# Kinds a device can get before the adapter knows what it is. The worker may replace these
+# with the kind from a later DeviceInfo; a specific kind is never downgraded.
+GENERIC_KINDS = frozenset({"device", "hue_device", "meter", "zigbee_device", "unknown"})
+
+
+def should_upgrade_kind(current: str | None, new: str | None) -> bool:
+    """True when a device of kind `current` should become `new` (generic -> specific only)."""
+    if not new or new == current or new in GENERIC_KINDS:
+        return False
+    return current is None or current in GENERIC_KINDS
 
 
 @dataclass(slots=True)
@@ -132,23 +163,61 @@ class CommandResult:
     confirmed: bool  # True only after readback showed the requested state
     detail: str = ""
     state: dict[str, Any] | None = None
+    # The device/hub received the command but reported an error for it (e.g. a Hue Bridge
+    # "errors" list). Never confirmed; the API stores such a command as "failed" with `detail`.
+    rejected: bool = False
 
 
 @dataclass(slots=True)
 class Health:
     state: HealthState
-    detail: str = ""
+    detail: str = ""  # Dutch, plain language, shown to the user
     checked_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    # Machine-readable error code when not ok (same codes as AdapterError.code), e.g.
+    # "device_offline", "identity_mismatch", "certificate_mismatch", "pairing_required",
+    # "mqtt_disconnected", "bridge_offline", "eventstream_disconnected".
+    code: str | None = None
+    # Provider-specific, JSON-serialisable fields (timestamps as ISO strings). See docs per adapter.
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 class AdapterError(Exception):
-    """Base error. `code` maps to API error codes."""
+    """Base error. `code` maps to API error codes.
+
+    `diagnostics` is a JSON-serialisable dict the API may store (e.g. Gree scan answer when
+    pairing fails); it never contains secrets.
+    """
 
     code = "adapter_error"
+
+    def __init__(self, message: str = "", *, diagnostics: dict[str, Any] | None = None):
+        super().__init__(message)
+        self.diagnostics: dict[str, Any] = dict(diagnostics or {})
 
 
 class DeviceOffline(AdapterError):
     code = "device_offline"
+
+
+def network_reason(exc: BaseException) -> str:
+    """Plain Dutch reason for a network error, for messages shown to the user (the technical text
+    belongs in ``diagnostics``)."""
+    import ssl
+
+    import httpx
+
+    if isinstance(exc, httpx.TimeoutException | TimeoutError):
+        return "geen antwoord binnen de tijd"
+    if isinstance(exc, ssl.SSLError):
+        return "beveiligde verbinding mislukt"
+    if isinstance(exc, httpx.ConnectError | ConnectionRefusedError):
+        cause = exc.__cause__ or exc.__context__
+        if isinstance(cause, ssl.SSLError):
+            return "beveiligde verbinding mislukt"
+        return "geen verbinding (staat het apparaat aan en klopt het adres?)"
+    if isinstance(exc, httpx.RemoteProtocolError | httpx.ReadError | httpx.WriteError | ConnectionResetError):
+        return "de verbinding werd onverwacht verbroken"
+    return "netwerkfout"
 
 
 class Unsupported(AdapterError):
@@ -163,6 +232,12 @@ class PolicyDenied(AdapterError):
     """The command is forbidden by a safety policy (e.g. protected boiler socket)."""
 
     code = "policy_denied"
+
+
+class IdentityMismatch(AdapterError):
+    """Another device answers on the configured address (e.g. after a DHCP change)."""
+
+    code = "identity_mismatch"
 
 
 class Adapter(abc.ABC):
@@ -201,6 +276,22 @@ class Adapter(abc.ABC):
 
     @abc.abstractmethod
     async def health(self) -> Health: ...
+
+    def device_info(self, device_identity: str) -> DeviceInfo | None:
+        """What the adapter knows about a device (kind, name, model). None when unknown."""
+        return None
+
+    def inventory(self) -> list[DeviceInfo]:
+        """All devices the adapter currently knows about (from the hub/bridge inventory)."""
+        return []
+
+    def climate_capabilities(self, device_identity: str) -> dict[str, Any] | None:
+        """For AC units: {"modes", "min_c", "max_c", "step_c", "fan", "swing"} (contract C1); else None."""
+        return None
+
+    def diagnostics(self) -> dict[str, Any]:
+        """JSON-serialisable support information without secrets."""
+        return {}
 
     async def unpair(self, device_identity: str) -> None:  # noqa: B027
         """Forget credentials/remote state where the device supports it."""

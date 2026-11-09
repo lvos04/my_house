@@ -4,38 +4,17 @@ import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.roundToLong
 import kotlin.random.Random
-
-// ---------------------------------------------------------------------------
-// Connection route: LAN first, then the Cloudflare tunnel.
-// ---------------------------------------------------------------------------
-
-enum class RouteKind { LAN, REMOTE }
-
-data class Route(val kind: RouteKind, val baseUrl: String)
-
-object RouteSelector {
-    /**
-     * Probes the LAN address first (the caller uses a short timeout for it) and
-     * falls back to the remote address. Returns null when neither answers.
-     */
-    suspend fun select(
-        lanUrl: String?,
-        remoteUrl: String?,
-        probe: suspend (baseUrl: String, kind: RouteKind) -> Boolean,
-    ): Route? {
-        if (lanUrl != null && probe(lanUrl, RouteKind.LAN)) return Route(RouteKind.LAN, lanUrl)
-        if (remoteUrl != null && probe(remoteUrl, RouteKind.REMOTE)) return Route(RouteKind.REMOTE, remoteUrl)
-        return null
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Dutch number/time formatting.
@@ -70,30 +49,11 @@ object NlFormat {
         null
     }
 
-    /** "zojuist", "3 min geleden", "2 uur geleden", "gisteren 14:05", "3 nov 09:12". */
-    fun relative(iso: String?, now: Instant = Instant.now(), zone: ZoneId = ZoneId.of("Europe/Amsterdam")): String {
-        val at = parseInstant(iso) ?: return "onbekend"
-        val d = Duration.between(at, now)
-        val secs = d.seconds
-        return when {
-            secs < 45 -> "zojuist"
-            secs < 3600 -> "${(secs + 30) / 60} min geleden"
-            secs < 6 * 3600 -> "${secs / 3600} uur geleden"
-            else -> {
-                val local = at.atZone(zone)
-                val today = now.atZone(zone).toLocalDate()
-                val time = local.format(DateTimeFormatter.ofPattern("HH:mm", nl))
-                when (local.toLocalDate()) {
-                    today -> "vandaag $time"
-                    today.minusDays(1) -> "gisteren $time"
-                    else -> local.format(DateTimeFormatter.ofPattern("d MMM HH:mm", nl))
-                }
-            }
-        }
-    }
-
     fun clock(iso: String?, zone: ZoneId = ZoneId.of("Europe/Amsterdam")): String =
         parseInstant(iso)?.atZone(zone)?.format(DateTimeFormatter.ofPattern("HH:mm", nl)) ?: "–"
+
+    /** "09:05": a 24-hour clock time, the same in every language. */
+    fun hhmm(time: LocalTime): String = String.format(Locale.ROOT, "%02d:%02d", time.hour, time.minute)
 
     fun quality(q: Quality): String = when (q) {
         Quality.MEASURED -> "gemeten"
@@ -122,6 +82,81 @@ object NlFormat {
 }
 
 // ---------------------------------------------------------------------------
+// Relative time: :core decides how long ago, the app words it from strings.xml ("zojuist",
+// "3 min geleden", "gisteren 14:05", "3 nov 09:12"), so no Dutch text lives here.
+// ---------------------------------------------------------------------------
+
+/** How long ago something happened, as numbers; the app turns it into text (strings.xml, plurals). */
+sealed interface RelativeTime {
+    /** No time, or one that cannot be read ("onbekend"). */
+    data object Unknown : RelativeTime
+
+    /** Just now, or a clock running slightly ahead ("zojuist"). */
+    data object JustNow : RelativeTime
+
+    /** "3 min geleden". */
+    data class MinutesAgo(val minutes: Int) : RelativeTime
+
+    /** "2 uur geleden". */
+    data class HoursAgo(val hours: Int) : RelativeTime
+
+    /** "3 dagen geleden"; only for an age without a moment ([ofAge]). */
+    data class DaysAgo(val days: Int) : RelativeTime
+
+    /** Earlier today, 6 hours or more ago ("vandaag 08:05"). [time] is in the home's time zone. */
+    data class Today(val time: LocalTime) : RelativeTime
+
+    /** "gisteren 14:05". */
+    data class Yesterday(val time: LocalTime) : RelativeTime
+
+    /** Before yesterday ("3 nov 09:12"). */
+    data class OnDate(val date: LocalDate, val time: LocalTime) : RelativeTime
+
+    companion object {
+        private val AMSTERDAM: ZoneId = ZoneId.of("Europe/Amsterdam")
+
+        /**
+         * The moment [iso] (ISO 8601) seen from [now]: under 45 s just now, then minutes, then
+         * whole hours up to 6 hours, then today / yesterday / a date with the time in [zone].
+         */
+        fun of(iso: String?, now: Instant = Instant.now(), zone: ZoneId = AMSTERDAM): RelativeTime {
+            val at = NlFormat.parseInstant(iso) ?: return Unknown
+            val secs = Duration.between(at, now).seconds
+            return when {
+                secs < 45 -> JustNow
+                secs < 3600 -> MinutesAgo(((secs + 30) / 60).toInt())
+                secs < 6 * 3600 -> HoursAgo((secs / 3600).toInt())
+                else -> {
+                    val local = at.atZone(zone)
+                    val today = now.atZone(zone).toLocalDate()
+                    val time = local.toLocalTime().truncatedTo(ChronoUnit.MINUTES)
+                    when (val date = local.toLocalDate()) {
+                        today -> Today(time)
+                        today.minusDays(1) -> Yesterday(time)
+                        else -> OnDate(date, time)
+                    }
+                }
+            }
+        }
+
+        /**
+         * An age without a moment, such as the server's "last backup 5.2 hours ago". Rounded as
+         * the web app's ago(): under a minute just now, then minutes, hours (under 48), days.
+         */
+        fun ofAge(age: Duration?): RelativeTime {
+            if (age == null) return Unknown
+            val secs = age.seconds.coerceAtLeast(0)
+            if (secs < 60) return JustNow
+            val minutes = (secs / 60.0).roundToLong()
+            if (minutes < 60) return MinutesAgo(minutes.toInt())
+            val hours = (minutes / 60.0).roundToLong()
+            if (hours < 48) return HoursAgo(hours.toInt())
+            return DaysAgo((hours / 24.0).roundToLong().toInt())
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Setpoint handling.
 // ---------------------------------------------------------------------------
 
@@ -133,49 +168,6 @@ object Setpoint {
         val raw = base + delta
         val rounded = (raw / step).roundToLong() * step
         return rounded.coerceIn(caps.minC, caps.maxC)
-    }
-}
-
-/**
- * Tracks commands that were sent but not yet confirmed by a readback
- * (`zone.updated` with the requested values). The UI shows "Verzonden…" meanwhile.
- */
-class PendingCommands(private val timeout: Duration = Duration.ofSeconds(30)) {
-    data class Pending(val target: Double?, val mode: String?, val sentAt: Instant)
-
-    private val pending = mutableMapOf<String, Pending>()
-
-    @Synchronized
-    fun sent(zoneId: String, target: Double?, mode: String?, now: Instant = Instant.now()) {
-        pending[zoneId] = Pending(target, mode, now)
-    }
-
-    /** Returns true when the update confirms the pending command (which is then cleared). */
-    @Synchronized
-    fun onZoneUpdate(zone: Zone): Boolean {
-        val p = pending[zone.id] ?: return false
-        val targetOk = p.target == null || (zone.targetC != null && abs(zone.targetC - p.target) < 0.01)
-        val modeOk = p.mode == null || zone.mode == p.mode
-        if (targetOk && modeOk) {
-            pending.remove(zone.id)
-            return true
-        }
-        return false
-    }
-
-    @Synchronized
-    fun isPending(zoneId: String, now: Instant = Instant.now()): Boolean {
-        val p = pending[zoneId] ?: return false
-        if (Duration.between(p.sentAt, now) > timeout) {
-            pending.remove(zoneId)
-            return false
-        }
-        return true
-    }
-
-    @Synchronized
-    fun clear(zoneId: String) {
-        pending.remove(zoneId)
     }
 }
 
@@ -213,4 +205,86 @@ object AlertFilter {
 
     fun toNotify(alerts: List<Alert>, alreadyNotified: Set<String>): List<Alert> =
         alerts.filter { it.severity in notifySeverities && !it.acknowledged && it.id !in alreadyNotified }
+}
+
+/** What to do with phone notifications after fetching the open alerts. */
+data class NotifyPlan(
+    /** New warnings/errors to show now. */
+    val post: List<Alert>,
+    /** Alert ids whose notification must disappear (resolved or acknowledged). */
+    val cancel: Set<String>,
+    /** Ids shown as a notification and still open: store this set. */
+    val notified: Set<String>,
+    /** Waiting until notifications are allowed; not lost, shown on a later run. */
+    val pending: Set<String>,
+)
+
+object AlertNotifications {
+    /**
+     * An alert counts as notified only once it was really posted. Without permission it stays
+     * pending and is shown on a later run as long as it is still open.
+     */
+    fun plan(open: List<Alert>, notified: Set<String>, canPost: Boolean): NotifyPlan {
+        val openIds = open.filterNot { it.acknowledged }.map { it.id }.toSet()
+        val candidates = AlertFilter.toNotify(open, notified)
+        val post = if (canPost) candidates else emptyList()
+        val pending = if (canPost) emptySet() else candidates.map { it.id }.toSet()
+        return NotifyPlan(
+            post = post,
+            cancel = notified - openIds,
+            notified = (notified intersect openIds) + post.map { it.id },
+            pending = pending,
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phone token lifetime (verbeterlijst 18): tokens expire after 180 days unless refreshed.
+// ---------------------------------------------------------------------------
+
+object TokenLifetime {
+    val REFRESH_WINDOW: Duration = Duration.ofDays(30)
+    val MIN_GAP: Duration = Duration.ofHours(6)
+
+    /**
+     * Refresh when the token expires within [REFRESH_WINDOW] (and has not expired yet: the server
+     * would refuse). [lastAttempt] keeps a failing refresh from being retried on every request.
+     */
+    fun shouldRefresh(expiresAt: Instant?, now: Instant, lastAttempt: Instant? = null): Boolean {
+        if (expiresAt == null || !expiresAt.isAfter(now)) return false
+        if (Duration.between(now, expiresAt) > REFRESH_WINDOW) return false
+        if (lastAttempt != null && Duration.between(lastAttempt, now) < MIN_GAP) return false
+        return true
+    }
+
+    /** Read-only phone: not allowed to operate climate or lights. */
+    fun canControl(userRole: String?, clientRole: String?): Boolean =
+        (userRole == null || userRole == "admin") && (clientRole == null || clientRole == "admin" || clientRole == "control")
+}
+
+// ---------------------------------------------------------------------------
+// Age of cached data (widget, offline view).
+// ---------------------------------------------------------------------------
+
+object Freshness {
+    val STALE_AFTER: Duration = Duration.ofMinutes(30)
+
+    /** Unknown or unreadable times count as stale. */
+    fun isStale(savedAt: String?, now: Instant = Instant.now(), after: Duration = STALE_AFTER): Boolean {
+        val at = NlFormat.parseInstant(savedAt) ?: return true
+        return Duration.between(at, now) > after
+    }
+
+    /** How old [savedAt] is; the widget words it ("Bijgewerkt 3 min geleden", "Nog niet bijgewerkt"). */
+    fun age(savedAt: String?, now: Instant = Instant.now(), zone: ZoneId = ZoneId.of("Europe/Amsterdam")): DataAge =
+        if (NlFormat.parseInstant(savedAt) == null) DataAge.Never else DataAge.Updated(RelativeTime.of(savedAt, now, zone))
+}
+
+/** The age of cached data (widget footer), for the app to word from strings.xml. */
+sealed interface DataAge {
+    /** Nothing saved yet, or an unreadable time ("Nog niet bijgewerkt"). */
+    data object Never : DataAge
+
+    /** "Bijgewerkt 3 min geleden"; [ago] is never [RelativeTime.Unknown]. */
+    data class Updated(val ago: RelativeTime) : DataAge
 }

@@ -11,28 +11,31 @@ on:
       - ".github/workflows/android.yml"
   workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   build:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: apps/android
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3.2.1
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
           packages: "platform-tools platforms;android-35 build-tools;35.0.0"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
 
       - name: Unit tests
         run: ./gradlew --no-daemon :core:test :app:testDebugUnitTest
@@ -40,13 +43,18 @@ jobs:
       - name: Build debug APK
         run: ./gradlew --no-daemon :app:assembleDebug
 
-      - uses: actions/upload-artifact@v4
+      # Same minified (R8) release build as release.yml, but unsigned: catches missing keep rules
+      # on every change instead of only when a version is released.
+      - name: Build minified release APK (unsigned)
+        run: ./gradlew --no-daemon :app:assembleRelease
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: huis-debug-apk
           path: apps/android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: test-reports
@@ -54,4 +62,3 @@ jobs:
             apps/android/core/build/reports/tests/
             apps/android/app/build/reports/tests/
           if-no-files-found: ignore
-

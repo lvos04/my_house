@@ -1,17 +1,29 @@
 # Smart Home Control — complete stack.
 #
-# Linux:   cd infra/compose && ./../scripts/install.sh && docker compose up -d
-#          optional parts: docker compose --profile zigbee --profile tunnel up -d
-# TrueNAS: render a single YAML for Apps › Discover › Custom App with
+# Linux:   sudo infra/scripts/install.sh /srv/smart-home
+#          SHC_ROOT=/srv/smart-home SHC_VERSION=$(cat VERSION) docker compose -f infra/compose/compose.yaml up -d
+#          optional parts: add --profile zigbee and/or --profile tunnel
+# TrueNAS: render one YAML for Apps › Discover › Install via YAML with
 #          python3 infra/scripts/render_truenas.py --root /mnt/<pool>/apps/smart-home [--with zigbee,tunnel]
 #
 # Everything persistent lives under ${SHC_ROOT}; nothing depends on this host, IP or NAS path.
+#
+# Networks (verbeterlijst 16 + "één netwerk"):
+#   edge  cloudflared ↔ web only. The tunnel can reach nothing but nginx.
+#   app   web ↔ api/worker; also the way out to your LAN devices (Hue, Gree, HomeWizard) and NTP.
+#   data  api/worker ↔ db, mosquitto, zigbee2mqtt. Internal: no route to the outside at all.
+# The fixed addresses below are a contract: nginx trusts CF-Connecting-IP / X-Forwarded-Proto only
+# from cloudflared (.250.2) and the API trusts X-Forwarded-* only from nginx (.251.2).
+# SHC_NET_PREFIX (default 172.30) only needs changing when those subnets clash with another app.
+#
+# Lines ending in "# only:tunnel" are removed by render_truenas.py unless the tunnel is enabled.
 
 name: smart-home-control
 
 x-common: &common
   restart: unless-stopped
   security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
   logging:
     driver: json-file
     options: { max-size: "10m", max-file: "3" }
@@ -23,21 +35,64 @@ x-app-env: &app-env
   SHC_MQTT_HOST: mosquitto
   SHC_MQTT_USERNAME: shc
   SHC_MQTT_PASSWORD_FILE: /run/secrets/mqtt_shc_password
-  SHC_LAN_URL: ${SHC_LAN_URL:-}
-  SHC_REMOTE_URL: ${SHC_REMOTE_URL:-}
-  SHC_COOKIE_SECURE: ${SHC_COOKIE_SECURE:-false}
-  SHC_FORWARDED_ALLOW_IPS: "*"
+  SHC_LAN_URL: "${SHC_LAN_URL:-}"
+  SHC_REMOTE_URL: "${SHC_REMOTE_URL:-}"
+  # auto: the session cookie is "Secure" exactly when the request arrived over https (the tunnel),
+  # so logging in at home over http://NAS:8088 keeps working with a tunnel configured.
+  SHC_COOKIE_SECURE: ${SHC_COOKIE_SECURE:-auto}
+  SHC_FORWARDED_ALLOW_IPS: ${SHC_NET_PREFIX:-172.30}.251.2
+  # Optional push address outside the app (ntfy topic URL or another webhook) for "worker stopped"
+  # and "backups stopped" (verbeterlijst 28). Only a fallback: an address set in the app (Systeem)
+  # wins and is stored encrypted, which is why render_truenas.py leaves this empty.
+  SHC_NOTIFY_URL: "${SHC_NOTIFY_URL:-}"
+  # Reference clock for the worker's time check ("host" or "host:port", UDP 123). Point it at your
+  # router or NAS when outbound NTP to the internet is blocked. render_truenas.py: --ntp-server.
+  SHC_NTP_SERVER: "${SHC_NTP_SERVER:-pool.ntp.org}"
   TZ: ${TZ:-Europe/Amsterdam}
+
+# api and worker run the same image as uid 10001 (owner of app/ and backups/).
+x-app: &app
+  <<: *common
+  image: ${SHC_IMAGE_PREFIX:-ghcr.io/lvos04/my_house}-api:${SHC_VERSION:-latest}
+  environment: *app-env
+  secrets: [db_password, secret_key, mqtt_shc_password]
+  volumes:
+    - ${SHC_ROOT:-./data}/app:/data
+    - ${SHC_ROOT:-./data}/backups:/backups
+    - ${SHC_ROOT:-./data}/zigbee2mqtt:/data/zigbee2mqtt:ro
+  read_only: true
+  # Small on purpose: tmpfs counts towards the memory limit. Backups and restore uploads go to /backups.
+  tmpfs: ["/tmp:size=64m,mode=1777"]
+  user: "10001:10001"
 
 secrets:
   db_password: { file: "${SHC_ROOT:-./data}/secrets/db_password" }
   secret_key: { file: "${SHC_ROOT:-./data}/secrets/secret_key" }
   mqtt_shc_password: { file: "${SHC_ROOT:-./data}/secrets/mqtt_shc_password" }
+  tunnel_token: { file: "${SHC_ROOT:-./data}/secrets/tunnel_token" }  # only:tunnel
+
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: ${SHC_NET_PREFIX:-172.30}.250.0/29
+  app:
+    ipam:
+      config:
+        - subnet: ${SHC_NET_PREFIX:-172.30}.251.0/28
+  data:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${SHC_NET_PREFIX:-172.30}.252.0/27
 
 services:
   db:
     <<: *common
-    image: postgres:16.6-alpine3.21
+    image: postgres:16.15-alpine3.24
+    # Runs directly as the image's postgres user (uid 70): no root step, no capabilities needed.
+    # install.sh gives postgres/ to 70:70 (mode 0700) and makes secrets/db_password readable for it.
+    user: "70:70"
     environment:
       POSTGRES_USER: shc
       POSTGRES_DB: shc
@@ -46,6 +101,11 @@ services:
     secrets: [db_password]
     volumes:
       - ${SHC_ROOT:-./data}/postgres:/var/lib/postgresql/data
+    read_only: true
+    tmpfs:
+      - /var/run/postgresql:uid=70,gid=70,mode=2775
+      - /tmp:uid=70,gid=70,mode=1777,size=64m
+    networks: [data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U shc -d shc"]
       interval: 10s
@@ -56,67 +116,72 @@ services:
       resources: { limits: { memory: 1g } }
 
   api:
-    <<: *common
-    image: ${SHC_IMAGE_PREFIX:-ghcr.io/lvos04/my_house}-api:${SHC_VERSION:-0.1.0}
+    <<: *app
     command: ["serve"]
-    environment: *app-env
-    secrets: [db_password, secret_key, mqtt_shc_password]
-    volumes:
-      - ${SHC_ROOT:-./data}/app:/data
-      - ${SHC_ROOT:-./data}/backups:/backups
-      - ${SHC_ROOT:-./data}/zigbee2mqtt:/data/zigbee2mqtt:ro
-    read_only: true
-    tmpfs: ["/tmp"]
-    user: "10001:10001"
+    networks:
+      app: { ipv4_address: "${SHC_NET_PREFIX:-172.30}.251.3" }
+      data: {}
     depends_on:
       db: { condition: service_healthy }
+    # The API itself stays small; manual backups and restores run in a child process with
+    # constant memory (streamed), which counts towards this limit too.
     deploy:
-      resources: { limits: { memory: 512m } }
+      resources: { limits: { memory: 768m } }
 
   worker:
-    <<: *common
-    image: ${SHC_IMAGE_PREFIX:-ghcr.io/lvos04/my_house}-api:${SHC_VERSION:-0.1.0}
+    <<: *app
     command: ["worker"]
-    environment: *app-env
-    secrets: [db_password, secret_key, mqtt_shc_password]
-    volumes:
-      - ${SHC_ROOT:-./data}/app:/data
-      - ${SHC_ROOT:-./data}/backups:/backups
-      - ${SHC_ROOT:-./data}/zigbee2mqtt:/data/zigbee2mqtt:ro
-    read_only: true
-    tmpfs: ["/tmp"]
-    user: "10001:10001"
+    networks:
+      app: { ipv4_address: "${SHC_NET_PREFIX:-172.30}.251.4" }
+      data: {}
+    # The worker writes the time to /tmp/shc-worker-alive on every heartbeat, and stops doing so
+    # when one of its loops is stuck (contract C3). Older than 180 s = unhealthy.
     healthcheck:
-      disable: true
+      test: ["CMD", "python", "-c", "import os,sys,time; sys.exit(0 if time.time() - os.path.getmtime('/tmp/shc-worker-alive') < 180 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
+    # Starts after the API is healthy: the API runs the database migrations first.
     depends_on:
       api: { condition: service_healthy }
+    # Polling, climate loop and aggregates are light; the nightly backup runs as a child process
+    # that streams to disk (flat memory), so this limit leaves ample headroom for both.
     deploy:
-      resources: { limits: { memory: 384m } }
+      resources: { limits: { memory: 768m } }
 
   web:
     <<: *common
-    image: ${SHC_IMAGE_PREFIX:-ghcr.io/lvos04/my_house}-web:${SHC_VERSION:-0.1.0}
+    image: ${SHC_IMAGE_PREFIX:-ghcr.io/lvos04/my_house}-web:${SHC_VERSION:-latest}
     environment:
       API_UPSTREAM: api:8000
+      TUNNEL_IP: ${SHC_NET_PREFIX:-172.30}.250.2
     ports:
       - "${SHC_HTTP_PORT:-8088}:8080"
     read_only: true
     tmpfs:
-      - /tmp:uid=101,gid=101,mode=0755
-      - /var/cache/nginx:uid=101,gid=101,mode=0755
-      - /etc/nginx/conf.d:uid=101,gid=101,mode=0755
+      - /tmp:uid=101,gid=101,mode=0755,size=16m
+      - /var/cache/nginx:uid=101,gid=101,mode=0755,size=32m
+      - /etc/nginx/conf.d:uid=101,gid=101,mode=0755,size=1m
+    networks:
+      edge: { ipv4_address: "${SHC_NET_PREFIX:-172.30}.250.3" }
+      app: { ipv4_address: "${SHC_NET_PREFIX:-172.30}.251.2" }
+    # Not "healthy": nginx serves the app (and a Dutch "starting/updating" answer for /api) while
+    # the API is still starting or migrating.
     depends_on:
-      api: { condition: service_healthy }
+      api: { condition: service_started }
     deploy:
       resources: { limits: { memory: 128m } }
 
   mosquitto:
     <<: *common
-    image: eclipse-mosquitto:2.0.20
+    image: eclipse-mosquitto:2.0.22
     user: "1883:1883"
     volumes:
       - ${SHC_ROOT:-./data}/mosquitto/config:/mosquitto/config:ro
       - ${SHC_ROOT:-./data}/mosquitto/data:/mosquitto/data
+    read_only: true
+    networks: [data]
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 1883 || exit 1"]
       interval: 15s
@@ -130,30 +195,47 @@ services:
   zigbee2mqtt:
     <<: *common
     profiles: ["zigbee"]
-    image: koenkk/zigbee2mqtt:2.0.0
+    image: koenkk/zigbee2mqtt:2.14.3
+    # Plain user 1000; the serial device is reachable through the dialout group.
+    user: "1000:1000"
+    group_add: ["dialout"]
     environment:
       TZ: ${TZ:-Europe/Amsterdam}
+      # Never start the web onboarding/failure page: fail fast and show the reason in the log.
+      Z2M_ONBOARD_NO_SERVER: "1"
     volumes:
       - ${SHC_ROOT:-./data}/zigbee2mqtt:/app/data
       - /run/udev:/run/udev:ro
     devices:
       - "${SHC_ZIGBEE_DEVICE:-/dev/serial/by-id/CHANGE-ME}:/dev/zigbee"
-    group_add: ["dialout"]
+    read_only: true
+    tmpfs: ["/tmp:size=16m"]
+    networks: [data]
     depends_on:
       mosquitto: { condition: service_healthy }
     deploy:
       resources: { limits: { memory: 256m } }
 
   # Optional: reach the app from outside via Cloudflare Tunnel (no port forwarding).
-  # Put Cloudflare Access in front of it; see docs/buiten-huis.md.
+  # Put Cloudflare Access in front of it; see docs/buiten-huis.md. The token is read from a file
+  # (secrets/tunnel_token, owner 65532, mode 0400), never from the environment.
   cloudflared:
     <<: *common
     profiles: ["tunnel"]
-    image: cloudflare/cloudflared:2024.12.2
-    command: ["tunnel", "--no-autoupdate", "run"]
+    image: cloudflare/cloudflared:2026.10.7
+    command: ["tunnel", "--no-autoupdate", "run", "--token-file", "/run/secrets/tunnel_token"]
     environment:
-      TUNNEL_TOKEN: ${SHC_TUNNEL_TOKEN:-}
+      TUNNEL_METRICS: 127.0.0.1:20241
+    secrets: [tunnel_token]
     read_only: true
+    networks:
+      edge: { ipv4_address: "${SHC_NET_PREFIX:-172.30}.250.2" }
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "127.0.0.1:20241", "ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     depends_on:
       web: { condition: service_healthy }
     deploy:

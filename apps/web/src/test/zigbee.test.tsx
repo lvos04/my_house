@@ -8,7 +8,7 @@ import { UserContext } from '../user';
 import { DevicesPage } from '../pages/Devices';
 import { ZoneSettings } from '../pages/Climate';
 import type { Device } from '../api/types';
-import { zone } from './fixtures';
+import { device, zone } from './fixtures';
 
 function wrap(children: ReactNode) {
   localStorage.setItem('shc.home', 'h1');
@@ -25,10 +25,7 @@ function wrap(children: ReactNode) {
   );
 }
 
-const dev = (over: Partial<Device>): Device => ({
-  id: 'x', provider: 'zigbee', kind: 'zigbee_sensor', name: 'Sensor', stable_identity: '0x00', room: null, roles: [],
-  online: true, last_seen: null, capabilities: [], protected: false, compatibility: 'untested', ...over,
-});
+const dev = (over: Partial<Device>): Device => device({ id: 'x', ...over });
 
 function mockApi(route: (method: string, url: string, body: unknown) => unknown) {
   const calls: { method: string; url: string; body: unknown }[] = [];

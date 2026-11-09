@@ -1,23 +1,30 @@
 [project]
 name = "shc-api"
-version = "0.1.0"
+# Placeholder, never bumped (verbeterlijst 41): the app version comes only from the repository's
+# VERSION file (shc_api.config.VERSION, contract C9: /app/VERSION in the image). A dynamic version
+# would need a setup hook that reads ../../VERSION, which is outside this package and missing from
+# an sdist build; nothing reads the package metadata version.
+version = "0.0.0"
 description = "Smart Home Control API, worker en klimaat/energie-engine"
 requires-python = ">=3.12"
+# Floors are the first releases without known vulnerabilities (pip-audit gate in CI, item 41).
 dependencies = [
-  "fastapi>=0.115,<0.116",
-  "uvicorn[standard]>=0.32,<0.33",
-  "sqlalchemy[asyncio]>=2.0.36,<2.1",
+  "fastapi>=0.162.2,<0.163",
+  "starlette>=1.3.1,<2",
+  "uvicorn[standard]>=0.32.1,<0.33",
+  "sqlalchemy[asyncio]>=2.0.57,<2.1",
   "asyncpg>=0.30,<0.31",
-  "alembic>=1.14,<1.15",
-  "pydantic-settings>=2.6,<2.7",
+  "alembic>=1.14.1,<1.15",
+  "pydantic-settings>=2.6.1,<2.7",
   "argon2-cffi>=23.1,<24",
-  "cryptography>=43,<46",
-  "httpx>=0.28,<0.29",
+  "cryptography>=50.0.2,<51",
+  "httpx>=0.28.1,<0.29",
+  "h11>=0.16",
   "shc-integrations",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.3,<9", "pytest-asyncio>=0.24,<0.25", "ruff>=0.8,<0.9"]
+dev = ["pytest>=9.0.3,<10", "pytest-asyncio>=1.3,<2", "ruff>=0.17.4,<0.18"]
 
 [project.scripts]
 shc-api = "shc_api.cli:main"

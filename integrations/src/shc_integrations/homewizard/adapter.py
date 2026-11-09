@@ -7,6 +7,16 @@ HomeWizard cloud.
 The relay of an Energy Socket is NEVER switched unless the injected
 `relay_allowed` policy hook explicitly allows it for that device. The default
 denies everything, so a protected boiler socket can not be switched from here.
+Its relay state (`relay_on`) and `switch_lock` are read and reported every poll.
+
+Identity: the serial number is checked on every poll and health check; when another
+HomeWizard device answers on the configured address (DHCP change) the adapter raises
+`IdentityMismatch` ("identity_mismatch") and emits no readings.
+
+Time: API v2 sends local timestamps without a time zone. They are resolved to the
+UTC candidate closest to the moment we received them (the autumn double hour has two
+candidates, the spring gap none that exists), and replaced by the receive time when
+even the best candidate is more than an hour off.
 """
 
 from __future__ import annotations
@@ -14,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -31,6 +41,7 @@ from ..base import (
     Event,
     Health,
     HealthState,
+    IdentityMismatch,
     PairingInstructions,
     PairingRequired,
     PairResult,
@@ -39,6 +50,7 @@ from ..base import (
     Reading,
     StateUpdate,
     Unsupported,
+    network_reason,
 )
 from ..resilience import CircuitBreaker, RateLimiter
 from ..tls import client_for, fetch_fingerprint
@@ -119,30 +131,68 @@ def capabilities_for(product_type: str | None) -> set[Cap]:
     return caps
 
 
-def parse_gas_timestamp_v1(value: int | str | None, tz: ZoneInfo) -> datetime | None:
-    """v1 gas_timestamp is YYMMDDhhmmss in local time."""
+MAX_CLOCK_SKEW = timedelta(hours=1)
+
+
+def local_candidates(naive: datetime, tz: ZoneInfo) -> list[datetime]:
+    """UTC instants a zone-less local time can mean (two in the autumn double hour)."""
+    out: list[datetime] = []
+    for fold in (0, 1):
+        c = naive.replace(tzinfo=tz, fold=fold).astimezone(UTC)
+        if c not in out:
+            out.append(c)
+    return out
+
+
+def resolve_device_time(
+    value: datetime,
+    tz: ZoneInfo,
+    received_at: datetime | None,
+    *,
+    fallback: bool = True,
+    max_skew: timedelta = MAX_CLOCK_SKEW,
+) -> datetime:
+    """UTC time for a device timestamp.
+
+    Zone-less values: the candidate closest to `received_at`. With `fallback`, a result more than
+    `max_skew` away from `received_at` is replaced by `received_at` (device clock wrong or
+    ambiguous beyond repair). Without `fallback` (meter readings that are legitimately old, such
+    as gas) only a timestamp in the future beyond `max_skew` is replaced.
+    """
+    cands = [value.astimezone(UTC)] if value.tzinfo else local_candidates(value, tz)
+    if received_at is None:
+        return cands[0]
+    best = min(cands, key=lambda c: abs(c - received_at))
+    off = best - received_at
+    if (fallback and abs(off) > max_skew) or off > max_skew:
+        return received_at
+    return best
+
+
+def parse_gas_timestamp_v1(
+    value: int | str | None, tz: ZoneInfo, received_at: datetime | None = None
+) -> datetime | None:
+    """v1 gas_timestamp is YYMMDDhhmmss in local time (no zone)."""
     if value is None:
         return None
     s = str(value).zfill(12)
     try:
-        local = datetime(
-            2000 + int(s[0:2]), int(s[2:4]), int(s[4:6]), int(s[6:8]), int(s[8:10]), int(s[10:12]), tzinfo=tz
-        )
+        local = datetime(2000 + int(s[0:2]), int(s[2:4]), int(s[4:6]), int(s[6:8]), int(s[8:10]), int(s[10:12]))
     except ValueError:
         return None
-    return local.astimezone(UTC)
+    return resolve_device_time(local, tz, received_at, fallback=False)
 
 
-def _parse_local_iso(value: str | None, tz: ZoneInfo) -> datetime | None:
+def _parse_device_iso(
+    value: str | None, tz: ZoneInfo, received_at: datetime | None, *, fallback: bool = True
+) -> datetime | None:
     if not value:
         return None
     try:
         dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=tz)
-    return dt.astimezone(UTC)
+    return resolve_device_time(dt, tz, received_at, fallback=fallback)
 
 
 def _reading(serial: str, metric: str, value: Any, unit: str, at: datetime, raw: dict | None = None) -> Reading:
@@ -162,17 +212,18 @@ def _reading(serial: str, metric: str, value: Any, unit: str, at: datetime, raw:
 def normalize_v1(serial: str, data: dict[str, Any], at: datetime, tz: ZoneInfo) -> list[Reading]:
     out = [_reading(serial, m, data[f], u, at) for f, (m, u) in V1_FIELDS.items() if f in data]
     if "total_gas_m3" in data:
-        gas_at = parse_gas_timestamp_v1(data.get("gas_timestamp"), tz) or at
+        gas_at = parse_gas_timestamp_v1(data.get("gas_timestamp"), tz, at) or at
         out.append(_reading(serial, "gas_m3", data["total_gas_m3"], "m3", gas_at))
     return out
 
 
 def normalize_v2(serial: str, data: dict[str, Any], polled_at: datetime, tz: ZoneInfo) -> list[Reading]:
-    at = _parse_local_iso(data.get("timestamp"), tz) or polled_at
+    """`polled_at` is the receive time (UTC); it resolves zone-less device timestamps."""
+    at = _parse_device_iso(data.get("timestamp"), tz, polled_at) or polled_at
     out = [_reading(serial, m, data[f], u, at) for f, (m, u) in V2_FIELDS.items() if f in data]
     for ext in data.get("external", []) or []:
         if ext.get("type") == "gas_meter":
-            ext_at = _parse_local_iso(ext.get("timestamp"), tz) or at
+            ext_at = _parse_device_iso(ext.get("timestamp"), tz, polled_at, fallback=False) or at
             out.append(_reading(serial, "gas_m3", ext.get("value"), "m3", ext_at))
     return out
 
@@ -200,6 +251,11 @@ class HomeWizardAdapter(Adapter):
         self._breaker = CircuitBreaker(threshold=5, reset_after=30)
         self._poll_limiter = RateLimiter(float(self.config.get("min_poll_interval_s", 1.0)))
         self._cmd_limiter = RateLimiter(2.0)
+        self._identity_ok: bool | None = None
+        self._identity_checked_at: datetime | None = None
+        self._found_serial: str | None = None
+        self._last_ok_at: datetime | None = None
+        self._last_error: str | None = None
 
     @property
     def host(self) -> str:
@@ -237,7 +293,10 @@ class HomeWizardAdapter(Adapter):
             try:
                 r = await self._http().request(method, path, headers=self._headers(), **kw)
             except httpx.TransportError as exc:
-                raise DeviceOffline(f"HomeWizard {self.host} niet bereikbaar: {exc}") from exc
+                raise DeviceOffline(
+                    f"HomeWizard {self.host} niet bereikbaar: {network_reason(exc)}",
+                    diagnostics={"host": self.host, "error": f"{type(exc).__name__}: {exc}"[:300]},
+                ) from exc
             if r.status_code == 401:
                 raise PairingRequired("HomeWizard weigert de token; koppel opnieuw")
             if r.status_code == 403:
@@ -312,8 +371,49 @@ class HomeWizardAdapter(Adapter):
             extra={"api_version": info.get("api_version"), "v2_capable": pinfo["v2"]},
         )
 
+    async def verify_identity(self) -> dict[str, Any]:
+        """GET /api and compare the serial with the paired one. Raises IdentityMismatch."""
+        info = await self._request("GET", "/api")
+        found = str(info.get("serial") or "")
+        expected = str(self.config.get("serial") or "")
+        self._found_serial = found or None
+        self._identity_checked_at = datetime.now(UTC)
+        if not expected:
+            self._identity_ok = None  # nothing to compare with (legacy configuration)
+            return info
+        if found.lower() != expected.lower():
+            self._identity_ok = False
+            raise IdentityMismatch(
+                f"Op {self.host} antwoordt een ander HomeWizard-apparaat (serienummer {found or 'onbekend'}, "
+                f"verwacht {expected}). Waarschijnlijk is het IP-adres veranderd: stel het juiste adres in "
+                "of koppel opnieuw.",
+                diagnostics={
+                    "host": self.host,
+                    "expected_serial": expected,
+                    "found_serial": found or None,
+                    "found_product_type": info.get("product_type"),
+                },
+            )
+        self._identity_ok = True
+        return info
+
+    async def _identity_due(self) -> None:
+        every = float(self.config.get("identity_check_interval_s", 0))
+        last = self._identity_checked_at
+        if self._identity_ok is not True or last is None or every <= 0:
+            await self.verify_identity()
+        elif (datetime.now(UTC) - last).total_seconds() >= every:
+            await self.verify_identity()
+
     async def pair(self, host: str, **kwargs: Any) -> PairResult | PairingInstructions:
         dev = await self.probe(host)
+        expected = kwargs.get("expected_serial")
+        if expected and str(expected).lower() != dev.stable_identity.lower():
+            raise IdentityMismatch(
+                f"Op {host} antwoordt een ander HomeWizard-apparaat (serienummer {dev.stable_identity}, "
+                f"verwacht {expected}).",
+                diagnostics={"host": host, "expected_serial": expected, "found_serial": dev.stable_identity},
+            )
         base_cfg = {"host": host, "serial": dev.stable_identity, "product_type": dev.model}
         v2_ok = False
         if kwargs.get("prefer_v2", True) and dev.extra.get("v2_capable"):
@@ -348,9 +448,42 @@ class HomeWizardAdapter(Adapter):
     async def get_capabilities(self, device_identity: str) -> set[Cap]:
         return capabilities_for(self.config.get("product_type"))
 
+    async def _relay_state(self) -> dict[str, Any]:
+        """relay_on / switch_lock of an Energy Socket. Read only: switching stays policy-gated."""
+        if self.api_version == "v2":
+            # API v2 has no documented socket-state endpoint yet (Energy Socket v2 is "in development").
+            # The v1 state endpoint stays available while "api_v1_enabled" is on; it needs no token,
+            # so none is sent. Without it the state is reported as unsupported, never guessed.
+            try:
+                async with self._factory(f"http://{self.host}", None) as c:
+                    r = await c.get("/api/v1/state")
+                state = r.json() if r.status_code == 200 else None
+            except (httpx.HTTPError, ValueError):
+                state = None
+            if not isinstance(state, dict):
+                return {"relay_on": None, "switch_lock": None, "relay_state": "unsupported"}
+        else:
+            state = await self._request("GET", "/api/v1/state")
+        out: dict[str, Any] = {
+            "relay_on": state.get("power_on"),
+            "switch_lock": state.get("switch_lock"),
+            "relay_state": "ok",
+        }
+        if "brightness" in state:
+            out["led_brightness"] = state["brightness"]
+        return out
+
     async def poll(self) -> list[Event]:
+        try:
+            return await self._poll()
+        except (AdapterError, httpx.HTTPError) as exc:
+            self._last_error = str(exc)
+            raise
+
+    async def _poll(self) -> list[Event]:
         await self._poll_limiter.wait()
         now = datetime.now(UTC).replace(microsecond=0)
+        await self._identity_due()  # never store readings of another device under this serial
         events: list[Event] = []
         if self.api_version == "v2":
             data = await self._request("GET", "/api/measurement")
@@ -358,13 +491,9 @@ class HomeWizardAdapter(Adapter):
         else:
             data = await self._request("GET", "/api/v1/data")
             events.extend(normalize_v1(self.serial, data, now, self._tz))
-            if product_info(self.config.get("product_type"))["relay"]:
-                state = await self._request("GET", "/api/v1/state")
-                events.append(
-                    StateUpdate(
-                        self.serial, {"relay_on": state.get("power_on"), "switch_lock": state.get("switch_lock")}, now
-                    )
-                )
+        if product_info(self.config.get("product_type"))["relay"]:
+            events.append(StateUpdate(self.serial, await self._relay_state(), now))
+        self._last_ok_at, self._last_error = datetime.now(UTC), None
         return events
 
     async def execute(self, command: Command) -> CommandResult:
@@ -380,19 +509,42 @@ class HomeWizardAdapter(Adapter):
         want = bool(command.params["on"])
         await self._request("PUT", "/api/v1/state", json={"power_on": want})
         back = await self._request("GET", "/api/v1/state")
-        return CommandResult(ok=True, confirmed=back.get("power_on") == want, state=back)
+        confirmed = back.get("power_on") == want
+        detail = "" if confirmed else "Stekker bevestigt de gevraagde stand niet (readback wijkt af)"
+        return CommandResult(ok=True, confirmed=confirmed, detail=detail, state=back)
+
+    def _health_extra(self) -> dict[str, Any]:
+        return {
+            "api_version": self.api_version if self.config.get("host") else None,
+            "serial": self.config.get("serial"),
+            "found_serial": self._found_serial,
+            "product_type": self.config.get("product_type"),
+            "identity_verified": self._identity_ok,
+            "identity_checked_at": self._identity_checked_at.isoformat() if self._identity_checked_at else None,
+            "last_ok_at": self._last_ok_at.isoformat() if self._last_ok_at else None,
+            "last_error": self._last_error,
+            "breaker": self._breaker.state,
+        }
 
     async def health(self) -> Health:
         if not self.config.get("host"):
-            return Health(HealthState.NOT_CONFIGURED, "Geen apparaat ingesteld")
+            return Health(HealthState.NOT_CONFIGURED, "Geen apparaat ingesteld", extra=self._health_extra())
         try:
+            await self.verify_identity()
             path = "/api/measurement" if self.api_version == "v2" else "/api/v1/data"
             await self._request("GET", path)
-        except PairingRequired as exc:
-            return Health(HealthState.ERROR, str(exc))
-        except (AdapterError, httpx.HTTPError) as exc:
-            return Health(HealthState.ERROR, str(exc))
-        return Health(HealthState.OK, f"Verbonden (API {self.api_version})")
+        except AdapterError as exc:
+            self._last_error = str(exc)
+            return Health(HealthState.ERROR, str(exc), code=exc.code, extra=self._health_extra())
+        except httpx.HTTPError as exc:
+            self._last_error = f"HTTP-fout: {exc}"
+            return Health(HealthState.ERROR, self._last_error, code="http_error", extra=self._health_extra())
+        self._last_ok_at, self._last_error = datetime.now(UTC), None
+        checked = ", serienummer gecontroleerd" if self._identity_ok else ""
+        return Health(HealthState.OK, f"Verbonden (API {self.api_version}{checked})", extra=self._health_extra())
+
+    def diagnostics(self) -> dict[str, Any]:
+        return {"host": self.config.get("host"), **self._health_extra()}
 
     async def unpair(self, device_identity: str) -> None:
         if self.api_version == "v2" and self.credentials.get("token"):

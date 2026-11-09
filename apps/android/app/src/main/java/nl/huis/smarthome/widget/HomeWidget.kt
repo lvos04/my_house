@@ -7,10 +7,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
-import androidx.glance.action.actionStartActivity
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
@@ -28,33 +28,67 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import nl.huis.smarthome.MainActivity
 import nl.huis.smarthome.R
+import nl.huis.smarthome.core.Freshness
 import nl.huis.smarthome.core.NlFormat
 import nl.huis.smarthome.data.CachedOverview
+import nl.huis.smarthome.data.CoreTexts
 import nl.huis.smarthome.data.OverviewCache
+import nl.huis.smarthome.data.TextSource
+import nl.huis.smarthome.huisApp
+import nl.huis.smarthome.work.AlertWorker
+import java.time.Instant
 
+// "Rustig huis" colours; muted text keeps ≥ 4.5:1 on the widget background in both themes.
 private val Bg = ColorProvider(day = Color(0xFFF5F4F0), night = Color(0xFF1F1E1B))
 private val Ink = ColorProvider(day = Color(0xFF1C1B19), night = Color(0xFFF2F0EA))
 private val Muted = ColorProvider(day = Color(0xFF5F5C55), night = Color(0xFFB8B4AA))
-private val Warn = ColorProvider(day = Color(0xFF9A5B00), night = Color(0xFFE7B65C))
+private val Warn = ColorProvider(day = Color(0xFF8A5100), night = Color(0xFFE7B65C))
+
+/** Texts the widget needs, read once per update from the string resources. */
+private data class WidgetTexts(
+    val empty: String,
+    val stale: String,
+    val unpaired: String,
+    val powerNow: String,
+    /** "Bijgewerkt 3 min geleden" / "Nog niet bijgewerkt" for the cached data. */
+    val age: String,
+)
 
 /**
- * Home-screen widget: the first two zone temperatures and the current power.
- * Reads only the on-disk cache written by the app, so it never needs network or the token.
+ * Home-screen widget: the first two zone temperatures and the current power, with the age of
+ * the data. Data older than 30 minutes is dimmed and marked "verouderd". It reads only the
+ * on-disk cache; the background worker ([AlertWorker]) refreshes that cache every 15 minutes,
+ * also while the app is closed.
  */
 class HomeWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val cached = OverviewCache.read(context)
-        val empty = context.getString(R.string.widget_empty)
-        provideContent { WidgetContent(cached, empty) }
+        val unpaired = runCatching { context.huisApp.repository.state.value.unpaired != null }.getOrDefault(false)
+        val now = Instant.now()
+        val texts = WidgetTexts(
+            empty = context.getString(R.string.widget_empty),
+            stale = context.getString(R.string.widget_stale),
+            unpaired = context.getString(R.string.widget_unpaired),
+            powerNow = context.getString(R.string.power_now),
+            age = CoreTexts.age(TextSource.of(context), Freshness.age(cached?.savedAt, now)),
+        )
+        provideContent { WidgetContent(cached, unpaired, texts, now) }
     }
 }
 
 class HomeWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = HomeWidget()
+
+    override fun onEnabled(context: Context) {
+        super.onEnabled(context)
+        // First widget placed: make sure the background refresh runs.
+        val s = runCatching { context.huisApp.repository.state.value }.getOrNull() ?: return
+        if (s.paired && s.unpaired == null) AlertWorker.schedule(context)
+    }
 }
 
 @Composable
-private fun WidgetContent(cached: CachedOverview?, emptyText: String) {
+private fun WidgetContent(cached: CachedOverview?, unpaired: Boolean, texts: WidgetTexts, now: Instant) {
     Column(
         GlanceModifier
             .fillMaxSize()
@@ -64,11 +98,14 @@ private fun WidgetContent(cached: CachedOverview?, emptyText: String) {
             .clickable(actionStartActivity<MainActivity>()),
     ) {
         if (cached == null) {
-            Text(emptyText, style = TextStyle(color = Muted, fontSize = 13.sp))
+            Text(if (unpaired) texts.unpaired else texts.empty, style = TextStyle(color = Muted, fontSize = 13.sp))
             return@Column
         }
+        val stale = unpaired || Freshness.isStale(cached.savedAt, now)
+        val valueColor = if (stale) Muted else Ink
         val o = cached.overview
         o.zones.take(2).forEach { z ->
+            val temp = NlFormat.temperature(z.temperature.value)
             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     z.name,
@@ -76,9 +113,9 @@ private fun WidgetContent(cached: CachedOverview?, emptyText: String) {
                     modifier = GlanceModifier.defaultWeight(),
                 )
                 Text(
-                    NlFormat.temperature(z.temperature.value),
+                    temp,
                     style = TextStyle(
-                        color = if (z.temperature.stale) Warn else Ink,
+                        color = if (!stale && z.temperature.stale) Warn else valueColor,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Medium,
                     ),
@@ -89,11 +126,16 @@ private fun WidgetContent(cached: CachedOverview?, emptyText: String) {
         o.powerNow?.let { p ->
             Spacer(GlanceModifier.height(6.dp))
             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Nu", style = TextStyle(color = Muted, fontSize = 13.sp), modifier = GlanceModifier.defaultWeight())
-                Text(NlFormat.watts(p.totalW), style = TextStyle(color = Ink, fontSize = 16.sp, fontWeight = FontWeight.Medium))
+                Text(texts.powerNow, style = TextStyle(color = Muted, fontSize = 13.sp), modifier = GlanceModifier.defaultWeight())
+                Text(NlFormat.watts(p.totalW), style = TextStyle(color = valueColor, fontSize = 16.sp, fontWeight = FontWeight.Medium))
             }
         }
         Spacer(GlanceModifier.height(4.dp))
-        Text(NlFormat.relative(cached.savedAt), style = TextStyle(color = Muted, fontSize = 11.sp))
+        val footer = when {
+            unpaired -> texts.unpaired
+            stale -> "${texts.stale} · ${texts.age}"
+            else -> texts.age
+        }
+        Text(footer, style = TextStyle(color = if (stale) Warn else Muted, fontSize = 11.sp))
     }
 }

@@ -1,0 +1,121 @@
+name: Weekly audit
+
+# Vulnerabilities that became known after the last change (verbeterlijst 41). The audits in ci.yml
+# only run on a push or pull request, so a quiet week would never report a new advisory for a
+# locked package or a base image. Every Monday on main, and by hand:
+#   - pip-audit on the hashed lock apps/api/requirements.txt (every Python package the image
+#     installs, transitive ones included) and npm audit on the web app's runtime dependencies;
+#   - Trivy on the images built from main now, and on the released images (":latest") that run at
+#     home. Red only on the released image: a fresh build has the fix, so release a new version.
+on:
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  python:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      # The lock as the image installs it: path lines (the two local packages) are skipped, see
+      # apps/api/Dockerfile. --disable-pip: the hashed lock is read as-is, nothing is installed.
+      - name: Known vulnerabilities in the Python lock (pip-audit)
+        run: |
+          grep -vE '^[./]' apps/api/requirements.txt > "$RUNNER_TEMP/lock.txt"
+          pipx run pip-audit==2.10.1 --disable-pip --progress-spinner off -r "$RUNNER_TEMP/lock.txt"
+
+  web:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Known vulnerabilities in runtime dependencies (npm audit)
+        working-directory: apps/web
+        run: npm audit --omit=dev --audit-level=high
+
+  images:
+    name: image scan (${{ matrix.image }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # Pull the released image from ghcr.io (also when the package is private).
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: api
+            context: .
+            file: apps/api/Dockerfile
+          - image: web
+            context: apps/web
+            file: apps/web/Dockerfile
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build from main
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          load: true
+          push: false
+          provenance: false
+          tags: shc-${{ matrix.image }}:audit
+      - name: Scan the image built from main (Trivy, fails on CRITICAL with a fix available)
+        id: scan-main
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: shc-${{ matrix.image }}:audit
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+      # The released image is scanned even when the build or the scan above failed.
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        if: ${{ !cancelled() }}
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Released image
+        id: rel
+        if: ${{ !cancelled() }}
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          ref="ghcr.io/${GITHUB_REPOSITORY,,}-$IMAGE:latest"
+          if docker pull -q "$ref"; then
+            echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Geen release::$ref bestaat nog niet; alleen de build van main is gescand."
+          fi
+      - name: Scan the released image (Trivy, fails on CRITICAL with a fix available)
+        if: ${{ !cancelled() && steps.rel.outputs.ref != '' }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.rel.outputs.ref }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+          # Trivy is already installed when the scan above ran (also when it failed).
+          skip-setup-trivy: ${{ steps.scan-main.outcome != 'skipped' }}

@@ -72,9 +72,15 @@ async def test_login_rate_limit(app):
             for _ in range(6)
         ]
     assert codes[:5] == [401] * 5 and codes[5] == 429
+    from sqlalchemy import update
+
+    from shc_api.models import User
     from shc_api.routers import auth
 
     auth._attempts.clear()
+    async with sessionmaker()() as db:  # per-username lockout is stored in the database
+        await db.execute(update(User).where(User.username == "beheer").values(failed_logins=0, locked_until=None))
+        await db.commit()
 
 
 async def test_viewer_is_read_only(admin, home, app):
@@ -100,6 +106,9 @@ async def test_phone_pairing_flow(admin, home, app):
 
     import httpx
 
+    async with sessionmaker()() as db:  # pairing needs a configured home address (verbeterlijst 17)
+        await set_setting(db, "lan_url", "http://192.168.1.20:8088")
+        await db.commit()
     r = await admin.post("/pairing/codes", json={"label": "Pixel"})
     assert r.status_code == 200
     payload = json.loads(r.json()["qr_payload"])
@@ -129,8 +138,8 @@ async def test_phone_pairing_flow(admin, home, app):
 
 
 async def test_boiler_socket_can_never_switch(admin, home):
+    from shc_api.commanding import queue_command
     from shc_api.policy import PolicyDenied
-    from shc_api.routers.zones import queue_command
 
     boiler = await add_device(home["id"], "energy_socket", "Boiler", role="boiler")
     devs = (await admin.get(f"/homes/{home['id']}/devices")).json()
@@ -229,7 +238,8 @@ async def test_zone_command_policy_and_execution(admin, home):
         await db.commit()
     w._adapter_for = lambda d: fake  # type: ignore[method-assign]
     await w.process_commands()
-    assert fake.calls and fake.calls[0].params == {"power": True, "target_c": 22.0}
+    # A temperature change on a running unit is sent without "power" (verbeterlijst 13).
+    assert fake.calls and fake.calls[0].params == {"target_c": 22.0}
     async with sessionmaker()() as db:
         cmd = (await db.execute(select(CommandRecord).where(CommandRecord.device_id == u1))).scalars().all()[-1]
         assert cmd.status == "confirmed"
@@ -300,7 +310,9 @@ async def test_energy_summary_no_double_count_and_replacement(admin, home):
     assert s["total_kwh"] == pytest.approx(24.0)
     meters = {m["role"]: m for m in s["meters"]}
     assert meters["airco"]["kwh"] == pytest.approx(4.8)
-    assert meters["rest"]["quality"] == "derived" and meters["rest"]["kwh"] == pytest.approx(19.2)
+    # "rest" is an estimate when a bound sub-meter has no readings (a boiler socket from an earlier test)
+    rest_quality = "estimated" if "boiler" in meters else "derived"
+    assert meters["rest"]["quality"] == rest_quality and meters["rest"]["kwh"] == pytest.approx(19.2)
     assert meters["grid"]["cost"] is None  # no tariff configured → no cost claim
     r = await admin.post(f"/homes/{home['id']}/tariffs", json={"valid_from": "2026-01-01", "import_per_kwh": 0.25})
     assert r.status_code == 200
@@ -322,7 +334,8 @@ async def test_energy_summary_no_double_count_and_replacement(admin, home):
 async def test_backup_corruption_refused_and_restore_safe_mode(admin, home):
     r = await admin.post("/system/backups", json={"passphrase": "kort"})
     assert r.status_code == 422
-    r = await admin.post("/system/backups", json={"passphrase": "een lange wachtwoordzin", "include_secrets": False})
+    # With secrets: a redacted backup no longer contains password hashes, so logging in after it would fail.
+    r = await admin.post("/system/backups", json={"passphrase": "een lange wachtwoordzin", "include_secrets": True})
     assert r.status_code == 200, r.text
     from shc_api.config import get_settings
 
@@ -334,10 +347,9 @@ async def test_backup_corruption_refused_and_restore_safe_mode(admin, home):
     with pytest.raises(bk.BackupError):
         bk.open_archive(bytes(corrupt), "een lange wachtwoordzin")
     manifest, files = bk.open_archive(blob, "een lange wachtwoordzin")
-    assert manifest["tables"]["homes"]["rows"] >= 1 and manifest["secrets_included"] is False
-    async with sessionmaker()() as db:
-        counts = await bk.restore(db, manifest, files)
-        await db.commit()
+    assert manifest["tables"]["homes"]["rows"] >= 1 and manifest["secrets_included"] is True
+    path = get_settings().backup_dir / r.json()["filename"]
+    counts = (await bk.restore_file(path, "een lange wachtwoordzin")).counts
     assert counts["homes"] == manifest["tables"]["homes"]["rows"]
     # sessions are not part of backups: log in again
     r = await admin.c.post("/api/v1/auth/login", json={"username": "beheer", "password": ADMIN_PW})

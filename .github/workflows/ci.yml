@@ -1,20 +1,27 @@
 name: CI
 
+# Tests, audits, image scan, a smoke test of the whole stack and browser tests against it. Runs on
+# pull requests and on pushes to other branches; main runs it through edge.yml and every release
+# through release.yml (workflow_call), so nothing is published that did not pass exactly these jobs.
 on:
   push:
-    branches: ["**"]
-    tags: ["v*"]
+    branches-ignore: [main]
   pull_request:
+  workflow_call:
 
-permissions:
-  contents: read
+permissions: {}
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
 jobs:
   backend:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     services:
       postgres:
-        image: postgres:16.6-alpine3.21
+        image: postgres:16.15-alpine3.24
         env:
           POSTGRES_HOST_AUTH_METHOD: trust
         ports: ["5432:5432"]
@@ -23,36 +30,55 @@ jobs:
     env:
       SHC_TEST_PG: postgresql://postgres@127.0.0.1:5432
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            apps/api/requirements.txt
+            apps/api/pyproject.toml
+            integrations/pyproject.toml
+      # Runtime dependencies exactly as in the image: the hashed lock apps/api/requirements.txt
+      # (verbeterlijst 41), without the path lines of the two local packages (see apps/api/Dockerfile).
+      # The test tools go on top with every locked version as a constraint, so they cannot change one.
       - name: Install
         run: |
-          python -m pip install --upgrade pip
-          pip install -e "integrations[test]" -e "apps/api[dev]"
+          grep -vE '^[./]' apps/api/requirements.txt > "$RUNNER_TEMP/lock.txt"
+          pip install --require-hashes --only-binary=:all: -r "$RUNNER_TEMP/lock.txt"
+          pip freeze > "$RUNNER_TEMP/locked.txt"
+          pip install -c "$RUNNER_TEMP/locked.txt" -e "integrations[test]" -e "apps/api[dev]"
+          pip check
       - name: Lint
         run: |
           ruff check apps/api/src apps/api/tests
-          pipx run ruff check integrations
+          ruff check --config apps/api/pyproject.toml infra/scripts infra/e2e infra/tests
+          # integrations follows a newer ruff than the API's dev pin
+          pipx run ruff==0.17.4 check integrations
       - name: Adapter contract tests
         run: pytest -q integrations/tests
       - name: API, engine and migration tests
         working-directory: apps/api
         run: pytest -q tests
-      - name: TrueNAS YAML renders and is valid compose
+      - name: Known vulnerabilities in Python dependencies (pip-audit)
         run: |
-          python3 infra/scripts/render_truenas.py --root /mnt/tank/apps/smart-home > /tmp/tn.yaml
-          docker compose -f /tmp/tn.yaml config -q
+          pip freeze --exclude-editable > "$RUNNER_TEMP/requirements.txt"
+          pipx run pip-audit==2.10.1 --no-deps --disable-pip --progress-spinner off -r "$RUNNER_TEMP/requirements.txt"
 
   web:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: apps/web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: npm
@@ -61,40 +87,202 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm test
       - run: npm run build
+      - name: Known vulnerabilities in runtime dependencies (npm audit)
+        run: npm audit --omit=dev --audit-level=high
 
-  images:
-    needs: [backend, web]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+  e2e:
+    name: e2e
+    # Browser tests (Playwright, Chromium) against the real stack: PostgreSQL + API + the built web app
+    # behind `vite preview`. apps/web/e2e/run-stack.sh starts everything on free ports, runs the tests
+    # and cleans up; devices are test data in the database, no hardware and no worker. A subset runs
+    # once more behind nginx with the worker, in the images of the "stack" job (e2e_compose.sh).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16.15-alpine3.24
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      SHC_E2E_PG: postgresql://postgres@127.0.0.1:5432
+      SHC_E2E_PYTHON: python
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            apps/api/requirements.txt
+            apps/api/pyproject.toml
+            integrations/pyproject.toml
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install API and integrations (dependencies from the hashed lock, like the image)
+        run: |
+          grep -vE '^[./]' apps/api/requirements.txt > "$RUNNER_TEMP/lock.txt"
+          pip install --require-hashes --only-binary=:all: -r "$RUNNER_TEMP/lock.txt"
+          pip install --no-deps -e integrations -e apps/api
+          pip check
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm ci
+      - name: Typecheck the browser tests
+        working-directory: apps/web
+        run: npx tsc -p e2e/tsconfig.json
+      - name: Install Chromium for Playwright
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+      - name: Browser tests against the real stack
+        run: apps/web/e2e/run-stack.sh
+      - name: Test report and traces
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-report
+          path: apps/web/e2e/.output/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  compose:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      packages: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Tags
-        id: v
-        run: |
-          prefix="ghcr.io/${GITHUB_REPOSITORY,,}"
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then tag="${GITHUB_REF#refs/tags/v}"; else tag="edge"; fi
-          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@v6
+          persist-credentials: false
+      - name: Shell scripts
+        run: shellcheck infra/scripts/*.sh
+      - name: Infra script tests (render_truenas.py, smoke_test.py; standard library only)
+        run: python3 -m unittest discover -s infra/tests -v
+      - name: compose.yaml for every profile and every TrueNAS render
+        run: bash infra/scripts/validate_compose.sh
+
+  stack:
+    name: images, scan and smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      SHC_IMAGE_PREFIX: shc
+      SHC_VERSION: ci
+      COMPOSE_FILE: infra/compose/compose.yaml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - id: v
+        name: Version
+        run: echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+      - name: Build API image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: apps/api/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.v.outputs.prefix }}-api:${{ steps.v.outputs.tag }}
-      - uses: docker/build-push-action@v6
+          load: true
+          push: false
+          provenance: false
+          build-args: APP_VERSION=${{ steps.v.outputs.version }}
+          tags: shc-api:ci
+      - name: Build web image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: apps/web
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.v.outputs.prefix }}-web:${{ steps.v.outputs.tag }}
+          load: true
+          push: false
+          provenance: false
+          build-args: APP_VERSION=${{ steps.v.outputs.version }}
+          tags: shc-web:ci
+      - name: Image contents
+        run: |
+          docker run --rm --entrypoint sh shc-api:ci -c 'pg_dump --version && cat /app/VERSION' | tee "$RUNNER_TEMP/api.txt"
+          grep -q "PostgreSQL) 16\." "$RUNNER_TEMP/api.txt"
+          grep -qx "${{ steps.v.outputs.version }}" <(tail -n1 "$RUNNER_TEMP/api.txt")
+      - name: Scan API image (Trivy, fails on CRITICAL with a fix available)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: shc-api:ci
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+      - name: Scan web image (Trivy, fails on CRITICAL with a fix available)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: shc-web:ci
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+          skip-setup-trivy: true
+      - name: Prepare data folder (install.sh)
+        run: |
+          echo "SHC_ROOT=$RUNNER_TEMP/shc" >> "$GITHUB_ENV"
+          sudo infra/scripts/install.sh "$RUNNER_TEMP/shc"
+          pass="$(openssl rand -base64 30)"
+          echo "::add-mask::$pass"
+          echo "SHC_SMOKE_PASSPHRASE=$pass" >> "$GITHUB_ENV"
+      - name: Start the stack
+        run: docker compose up -d --wait --wait-timeout 300
+      - name: Smoke test through nginx (port 8088)
+        run: |
+          python3 infra/scripts/smoke_test.py --base http://127.0.0.1:8088 \
+            --edge-network smart-home-control_edge --client-image shc-api:ci \
+            --backup-file-out "$RUNNER_TEMP/backup-name"
+      - name: Verify the backup with shc-api verify-backup
+        run: |
+          printf '%s\n' "$SHC_SMOKE_PASSPHRASE" \
+            | docker compose exec -T api shc-api verify-backup "/backups/$(cat "$RUNNER_TEMP/backup-name")" --passphrase-stdin
+      - name: Answers while the API is down, and recovery
+        run: |
+          docker compose stop api
+          python3 infra/scripts/smoke_test.py --base http://127.0.0.1:8088 --expect-unavailable
+          docker compose start api
+          docker compose up -d --wait --wait-timeout 120
+      # Browser tests against these images as deployed (verbeterlijst 42): nginx, API, worker and a fake
+      # Gree airco on a test network (infra/e2e/compose.e2e.yaml), on a new data folder. A subset of
+      # apps/web/e2e (first start, live updates over the WebSocket through nginx, API stopped and back)
+      # plus a command from the browser that the worker executes and the unit confirms.
+      - name: Stop the smoke-test stack
+        run: docker compose down -v --remove-orphans
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install web dependencies and Chromium for Playwright
+        working-directory: apps/web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Browser tests against the stack (nginx, API, worker)
+        run: infra/scripts/e2e_compose.sh
+      - name: Browser test report, traces and stack logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-compose-report
+          path: infra/e2e/.output/
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: Logs
+        if: failure()
+        run: |
+          docker compose ps -a
+          docker compose logs --no-color --tail 200
+      - name: Stop
+        if: always()
+        run: docker compose down -v --remove-orphans || true

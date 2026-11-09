@@ -31,6 +31,19 @@
     <string name="lights_unreachable">Niet bereikbaar</string>
     <string name="power_now">Nu</string>
     <string name="no_zones">Nog geen klimaatzones ingesteld. Doe dit in de web-app.</string>
+    <string name="attention_title_error">Er is een probleem met het systeem</string>
+    <string name="attention_title_warn">Let op</string>
+    <string name="attention_state_error">fout</string>
+    <string name="attention_state_warn">waarschuwing</string>
+    <string name="attention_more_admin">Details en wat je kunt doen staan in de web-app onder Systeem.</string>
+    <string name="attention_more">Een beheerder ziet de details in de web-app onder Systeem.</string>
+    <!-- Systeemregel op Start, altijd zichtbaar: "Laatste back-up 5 uur geleden · Achtergronddienst actief" -->
+    <string name="system_backup_ago">Laatste back-up %1$s</string>
+    <string name="system_backup_none">Nog geen back-up</string>
+    <string name="system_worker_active">Achtergronddienst actief</string>
+    <string name="system_worker_paused">Achtergronddienst gepauzeerd</string>
+    <string name="system_worker_down">Achtergronddienst reageert niet</string>
+    <string name="system_safe_mode">Veilige modus aan</string>
     <string name="measured_at">%1$s · %2$s</string>
     <string name="stale_sensor">Sensor verouderd</string>
     <string name="unit_offline">Airco offline</string>
@@ -48,6 +61,17 @@
     <string name="override_until">Handmatig tot %1$s</string>
     <string name="humidity">Luchtvochtigheid</string>
     <string name="mode_unavailable">%1$s kan nu niet: %2$s</string>
+    <string name="schedule_title">Weekschema</string>
+    <string name="schedule_loading">Weekschema laden…</string>
+    <string name="schedule_offline">Het weekschema verschijnt zodra er verbinding is met je huis.</string>
+    <string name="schedule_empty">Deze zone heeft nog geen weekschema. Zonder schema verwarmt of koelt de regeling niet uit zichzelf.</string>
+    <string name="schedule_profile">Volgt profiel %1$s</string>
+    <string name="schedule_no_blocks">Geen eigen blokken: het laatste blok van de dag ervoor loopt door.</string>
+    <string name="schedule_keep_mode">modus blijft</string>
+    <string name="schedule_now">nu</string>
+    <string name="schedule_now_spoken">geldt nu</string>
+    <string name="schedule_edit_hint">Het weekschema aanpassen kan in de web-app onder Klimaat.</string>
+    <string name="schedule_edit_hint_other">Een beheerder kan het weekschema aanpassen in de web-app onder Klimaat.</string>
 
     <!-- Energie -->
     <string name="energy_today_until">Vandaag t/m %1$s</string>
@@ -79,14 +103,14 @@
     <string name="notifications_enable">Meldingen op deze telefoon toestaan</string>
     <string name="unpair">Ontkoppelen</string>
     <string name="unpair_title">Telefoon ontkoppelen?</string>
-    <string name="unpair_body">De app vergeet de sleutel. Trek de sleutel ook in via de web-app (Systeem › Telefoon koppelen) als je deze telefoon kwijt bent.</string>
+    <string name="unpair_body">De app trekt de sleutel van deze telefoon in op de server en vergeet daarna alle gegevens. Is de server niet bereikbaar, trek de sleutel dan zelf in via de web-app (Account › Telefoons).</string>
     <string name="cancel">Annuleren</string>
     <string name="version">Versie %1$s</string>
 
     <!-- Koppelen -->
     <string name="pair_step">Stap 1 van 2</string>
     <string name="pair_title">Koppel met je huis</string>
-    <string name="pair_body">Open in de web-app Systeem › Telefoon koppelen en scan de QR-code.</string>
+    <string name="pair_body">Open in de web-app Account › Telefoons en scan de QR-code.</string>
     <string name="pair_camera_needed">Geef toegang tot de camera om de QR-code te scannen.</string>
     <string name="pair_camera_allow">Camera toestaan</string>
     <string name="pair_route_lan">Lokaal adres, het snelst</string>
@@ -115,6 +139,244 @@
     <string name="widget_name">Huis</string>
     <string name="widget_description">Temperatuur van je zones en het huidige verbruik</string>
     <string name="widget_empty">Open de app om te koppelen</string>
+    <string name="widget_stale">Verouderd</string>
+    <string name="widget_unpaired">Niet meer gekoppeld. Open de app.</string>
     <string name="notification_channel">Meldingen van je huis</string>
     <string name="notification_channel_desc">Waarschuwingen en fouten, zoals een offline apparaat of verouderde sensor</string>
+    <string name="notifications_waiting">%1$d meldingen wachten: sta meldingen toe om ze te zien.</string>
+    <string name="notifications_settings">Meldingen instellen</string>
+
+    <!-- Koppeling en verbinding (data-laag; teksten voor de schermen) -->
+    <string name="unpaired_title">Deze telefoon is niet meer gekoppeld</string>
+    <string name="unpaired_repair">Opnieuw koppelen</string>
+    <string name="wrong_server_title">Dit is niet jouw server</string>
+    <string name="wrong_server_body">Op het thuisadres antwoordt een ander apparaat. De app stuurt je sleutel er niet heen.</string>
+    <string name="server_starting">Je huis start op of wordt bijgewerkt. Even geduld.</string>
+    <string name="read_only">Deze telefoon kan alleen meekijken.</string>
+    <string name="unpair_revoked">Ontkoppeld. De sleutel is ook op de server ingetrokken.</string>
+    <string name="unpair_local_only">Ontkoppeld op deze telefoon. De server was niet bereikbaar: trek de sleutel in via de web-app (Account › Telefoons).</string>
+    <string name="store_reset">De beveiligde opslag op deze telefoon was beschadigd en is gewist. Koppel opnieuw.</string>
+    <string name="addresses_edit">Adressen bewerken</string>
+
+    <!-- Schermen (deel B): verbinding, rechten, klimaat, energie, meldingen, koppelen -->
+    <string name="banner_connecting">Verbinden met je huis…</string>
+    <string name="banner_last_known">Je ziet de laatst bekende waarden van %1$s. Bediening is uitgeschakeld.</string>
+    <string name="offline_no_data">Geen verbinding met je huis. Er staan nog geen gegevens op deze telefoon.</string>
+    <string name="read_only_detail">Je ziet alle waarden, maar je kunt niets bedienen. Een beheerder kan deze telefoon opnieuw laten koppelen met de rol Bedienen.</string>
+
+    <string name="zone_open">%1$s openen</string>
+    <string name="zone_no_unit_pill">Geen airco</string>
+    <string name="zone_unreachable_pill">Niet bereikbaar</string>
+    <string name="zone_manual_pill">Handmatig</string>
+    <string name="zone_no_unit_title">Nog geen airco gekoppeld</string>
+    <string name="zone_no_unit_sensor">De sensor meet al. De regeling begint zodra er een airco aan deze zone gekoppeld is.</string>
+    <string name="zone_no_unit_body">Koppel een airco om deze zone te regelen. Tot die tijd gebeurt er niets.</string>
+    <string name="zone_link_hint">Koppel een airco via Apparaten in de web-app.</string>
+    <string name="zone_link_hint_other">Een beheerder kan een airco koppelen via Apparaten in de web-app.</string>
+    <string name="zone_off_short">Staat uit. Kies een modus om hem aan te zetten.</string>
+    <string name="unit_unreachable">Airco niet bereikbaar</string>
+    <string name="hint_choose_mode">Kies eerst een modus. De airco staat uit; temperatuur, ventilator en handmatig bijstellen werken pas als hij aan staat.</string>
+    <string name="hint_unit_offline">De airco is niet bereikbaar. Bedienen kan pas weer als hij reageert; de afstandsbediening werkt wel.</string>
+    <string name="stale_sensor_since">Sensor verouderd (%1$s)</string>
+    <string name="now_short">nu %1$s</string>
+    <string name="target_spoken">Doeltemperatuur %1$s graden</string>
+    <string name="target_unknown_spoken">Doeltemperatuur onbekend</string>
+    <string name="command_sending">Wordt verzonden…</string>
+    <string name="command_elsewhere">Er is een opdracht onderweg naar de airco…</string>
+    <string name="command_elsewhere_sent">Opdracht verzonden naar de airco, nog niet bevestigd</string>
+    <string name="override_for">Handmatig voor %1$s</string>
+    <string name="duration_hours">%1$d uur</string>
+    <string name="duration_minutes">%1$d minuten</string>
+    <string name="duration_hours_minutes">%1$d uur %2$d min</string>
+    <string name="mode_off">Uit</string>
+    <string name="mode_heat">Verwarmen</string>
+    <string name="mode_cool">Koelen</string>
+    <string name="mode_auto">Auto</string>
+    <string name="mode_dry">Drogen</string>
+    <string name="mode_fan">Ventileren</string>
+    <string name="fan_auto">Auto</string>
+    <string name="fan_low">Laag</string>
+    <string name="fan_medium">Middel</string>
+    <string name="fan_high">Hoog</string>
+    <string name="control_schedule">Volgt het schema</string>
+    <string name="control_manual">Handmatig</string>
+    <string name="control_oem">Volgt het schema (airco regelt op eigen sensor)</string>
+    <string name="control_off">Uitgezet, schema gepauzeerd</string>
+
+    <string name="light_on">Aan</string>
+    <string name="lights_partly">%1$d van %2$d aan</string>
+    <string name="power_source">P1 · %1$s · %2$s</string>
+    <string name="power_incomplete">Niet alle meters zijn actueel.</string>
+
+    <string name="energy_today_title">Verbruik vandaag</string>
+    <string name="energy_per_hour_peak">Verbruik per uur vandaag. Het hoogste uur begint om %1$s, met %2$s.</string>
+    <string name="legend_airco">Airco</string>
+    <string name="legend_boiler">Boiler</string>
+    <string name="legend_rest">Overig</string>
+    <string name="gas">Gas</string>
+    <string name="gas_m3">%1$s m³</string>
+
+    <string name="notifications_title">Meldingen op deze telefoon</string>
+    <string name="notifications_on">Meldingen staan aan. Je krijgt een melding bij waarschuwingen en fouten, ook als de app dicht is.</string>
+    <string name="notifications_off">Meldingen staan uit. Je ziet waarschuwingen alleen als je de app opent.</string>
+    <string name="notifications_explain_title">Meldingen van je huis</string>
+    <string name="notifications_explain_body">De app kan je waarschuwen als er thuis iets misgaat, zoals een airco die niet reageert of een sensor die niets meer meldt. Daarvoor vraagt Android om toestemming.</string>
+    <string name="notifications_allow">Meldingen toestaan</string>
+    <string name="not_now">Niet nu</string>
+    <plurals name="notifications_waiting_count">
+        <item quantity="one">%1$d melding wacht. Sta meldingen toe om hem te zien.</item>
+        <item quantity="other">%1$d meldingen wachten. Sta meldingen toe om ze te zien.</item>
+    </plurals>
+
+    <string name="phone_role">Rol van deze telefoon</string>
+    <string name="role_admin">Beheer</string>
+    <string name="role_control">Bedienen</string>
+    <string name="role_viewer">Meekijken</string>
+    <string name="key_valid_until">Sleutel geldig tot</string>
+    <string name="addresses_help">Het thuisadres mag met http beginnen als het in je thuisnetwerk ligt. Het externe adres moet met https:// beginnen. De app stuurt zijn sleutel alleen naar een adres dat zich als jouw server meldt.</string>
+    <string name="addresses_saved">Adressen opgeslagen. De app maakt opnieuw verbinding.</string>
+    <string name="lan_address_hint">bijv. http://192.168.1.20:8088</string>
+    <string name="remote_address_hint">bijv. https://huis.voorbeeld.nl</string>
+    <string name="unpair_busy">Bezig met ontkoppelen…</string>
+
+    <string name="unpaired_home">Woning: %1$s</string>
+    <string name="unpaired_note">De app stuurt de oude sleutel nergens meer heen. Tik op Opnieuw koppelen en scan een nieuwe QR-code uit de web-app (Account › Telefoons).</string>
+    <string name="pair_scan_again">Opnieuw scannen</string>
+    <string name="pair_camera_blocked">De camera staat uit voor deze app. Zet hem aan in de instellingen van Android, of voer het adres handmatig in.</string>
+    <string name="pair_camera_error">De camera kan niet worden gestart. Voer het adres en de koppelcode handmatig in.</string>
+    <string name="pair_camera_in_use">De camera wordt door een andere app gebruikt. Sluit die app en probeer het opnieuw, of voer het adres en de koppelcode handmatig in.</string>
+    <string name="pair_camera_disabled">De camera staat uit op deze telefoon (privacy-instelling of beleid van een beheerder). Zet hem aan en probeer het opnieuw, of voer het adres en de koppelcode handmatig in.</string>
+    <string name="pair_camera_retry">Camera opnieuw proberen</string>
+    <string name="pair_manual_short">Handmatig invoeren</string>
+    <string name="pair_failed">Koppelen lukte niet. Probeer het opnieuw.</string>
+    <string name="pair_address_missing">Vul het adres van je server in.</string>
+    <string name="pair_not_our_code">Dit is geen koppelcode van je Huis-app.</string>
+    <string name="pair_server_too_old">Je server is te oud voor deze app. Werk de server bij en probeer het opnieuw.</string>
+    <string name="pair_other_installation">Dit is niet jouw server: het adres hoort bij een andere installatie.</string>
+    <string name="pair_store_failed">De koppeling kon niet veilig op deze telefoon worden opgeslagen. Probeer het opnieuw.</string>
+    <string name="pair_wrong_server">Dit is niet jouw server: op dit adres antwoordt een ander apparaat. De app stuurt de koppelcode er niet heen.</string>
+
+    <!-- Meldingen uit de data-laag (HomeRepository) -->
+    <string name="msg_no_home">Er is nog geen woning ingesteld. Doe dit in de web-app.</string>
+    <string name="msg_generic_error">Er ging iets mis.</string>
+    <string name="msg_not_sent_offline">Niet verzonden: geen verbinding met je huis.</string>
+    <string name="msg_zone_no_unit">Er is nog geen airco gekoppeld aan %1$s.</string>
+    <string name="msg_zone_unit_offline">De airco van %1$s is niet bereikbaar.</string>
+    <string name="msg_zone_choose_mode">Kies eerst een modus: de airco van %1$s staat uit.</string>
+    <string name="addresses_lan_invalid">Het thuisadres klopt niet.</string>
+    <string name="addresses_remote_invalid">Het externe adres klopt niet.</string>
+    <string name="addresses_none">Vul minstens één adres in.</string>
+    <string name="addresses_not_paired">Deze telefoon is niet gekoppeld.</string>
+    <!-- Adresregels (core: AddressProblem) -->
+    <string name="address_lan_invalid">Het thuisadres is geen geldig adres.</string>
+    <string name="address_lan_scheme">Het thuisadres moet met http:// of https:// beginnen.</string>
+    <string name="address_lan_not_home">Het thuisadres moet een adres in je thuisnetwerk zijn (bijvoorbeeld http://192.168.1.20:8088 of http://nas.local:8088), geen internetadres.</string>
+    <string name="address_remote_invalid">Het externe adres is geen geldig adres.</string>
+    <string name="address_remote_not_https">Het externe adres moet met https:// beginnen: je sleutel gaat dan over internet.</string>
+    <string name="address_remote_is_home">Het externe adres is een adres in je thuisnetwerk; vul het adres van je tunnel in.</string>
+    <!-- Eenmalige meldingen bij een andere verbindingsstatus (core: ConnectionChange) -->
+    <string name="connection_lost">Verbinding met je huis verbroken.</string>
+    <string name="connection_restarting">Je huis wordt bijgewerkt of start opnieuw op.</string>
+    <string name="connection_wrong_server">Dit is niet jouw server. De app stuurt je sleutel er niet heen.</string>
+    <string name="connection_restored">Weer verbonden met je huis.</string>
+    <!-- Geweigerde QR-code of handmatige invoer (core: PairError) -->
+    <string name="pair_newer_version">Deze koppelcode is van een nieuwere versie. Werk de app bij.</string>
+    <string name="pair_code_missing">De koppelcode ontbreekt.</string>
+    <string name="pair_qr_lan_invalid">Het thuisadres in de QR-code klopt niet.</string>
+    <string name="pair_qr_remote_invalid">Het externe adres in de QR-code klopt niet.</string>
+    <string name="pair_qr_no_address">De QR-code bevat geen serveradres.</string>
+    <string name="pair_needs_https">Een adres buiten je thuisnetwerk moet met https:// beginnen. Thuis kun je het IP-adres van je server gebruiken (bijvoorbeeld 192.168.1.20:8088).</string>
+    <string name="pair_address_rule">Dit adres kan de app niet gebruiken.</string>
+    <!-- Statusregel van een opdracht van deze telefoon (core: CommandLabel) -->
+    <string name="command_queued">Verzonden · wacht op bevestiging…</string>
+    <string name="command_retrying">Lukte niet, opnieuw proberen…</string>
+    <string name="command_sent">Verzonden</string>
+    <string name="command_sent_unconfirmed">Verzonden, nog niet bevestigd</string>
+    <string name="command_confirmed">Bevestigd</string>
+    <string name="command_failed">Mislukt</string>
+    <string name="command_denied">Geweigerd</string>
+    <string name="command_cancelled">Vervangen door een nieuwere opdracht</string>
+    <string name="command_timeout">Geen bevestiging ontvangen. Controleer de stand.</string>
+    <!-- "Mislukt: <reden van de server>" -->
+    <string name="command_with_reason">%1$s: %2$s</string>
+    <!-- Melding na een mislukte opdracht: "<zone of lampgroep>: <statusregel>" -->
+    <string name="command_for_target">%1$s: %2$s</string>
+    <!-- Fouten die de app zelf beschrijft, zonder tekst van de server (core: ApiProblem) -->
+    <string name="api_unverified_route">Dit adres is niet als jouw server herkend; de app stuurt er geen sleutel heen.</string>
+    <string name="api_cleartext_refused">Onversleuteld verbinden kan alleen met een adres in je thuisnetwerk.</string>
+    <string name="api_bad_response">Onverwacht antwoord van de server.</string>
+    <string name="api_not_api">Dit adres geeft geen antwoord van je huis.</string>
+    <string name="api_cf_access_login">Cloudflare Access laat de app niet door. Vul de service token in onder Meer › Cloudflare Access.</string>
+    <string name="api_cf_forbidden">Toegang geweigerd onderweg (Cloudflare). Controleer Meer › Cloudflare Access.</string>
+    <string name="api_redirect">Dit adres stuurt door naar een andere pagina; het lijkt niet je huis.</string>
+    <string name="api_tunnel_unavailable">De tunnel naar je huis werkt nu niet.</string>
+    <string name="api_server_unavailable">Je huis is nu niet bereikbaar.</string>
+    <string name="api_repair_needed">Opnieuw koppelen nodig.</string>
+    <string name="api_no_rights">Je hebt hier geen rechten voor.</string>
+    <string name="api_not_found">Niet gevonden.</string>
+    <string name="api_conflict">Dit kan nu niet.</string>
+    <string name="api_too_large">Het verzoek is te groot.</string>
+    <string name="api_too_many_requests">Te veel verzoeken, probeer het zo opnieuw.</string>
+    <string name="api_server_error">Serverfout (%1$d).</string>
+    <!-- Waarom deze telefoon niet meer gekoppeld is (core: UnpairReason) -->
+    <string name="unpaired_reason_revoked">De koppeling is ingetrokken. Koppel opnieuw met een QR-code uit de web-app (Account › Telefoons).</string>
+    <string name="unpaired_reason_expired">De koppeling is verlopen. Koppel opnieuw met een QR-code uit de web-app (Account › Telefoons).</string>
+    <string name="unpaired_reason_unknown_token">De server kent deze telefoon niet (meer), bijvoorbeeld na een herstel. Koppel opnieuw met een QR-code uit de web-app.</string>
+    <string name="unpaired_reason_store_reset">De beveiligde opslag op deze telefoon was beschadigd en is gewist. Koppel opnieuw met een QR-code uit de web-app.</string>
+    <string name="unpaired_reason_upgrade">Koppel deze telefoon opnieuw, zodat de app je server kan herkennen voordat hij je sleutel stuurt.</string>
+    <!-- Relatieve tijd (core: RelativeTime): "zojuist", "3 min geleden", "gisteren 14:05", "3 nov 09:12" -->
+    <string name="time_unknown">onbekend</string>
+    <string name="time_just_now">zojuist</string>
+    <plurals name="time_minutes_ago">
+        <item quantity="one">%1$d min geleden</item>
+        <item quantity="other">%1$d min geleden</item>
+    </plurals>
+    <plurals name="time_hours_ago">
+        <item quantity="one">%1$d uur geleden</item>
+        <item quantity="other">%1$d uur geleden</item>
+    </plurals>
+    <plurals name="time_days_ago">
+        <item quantity="one">%1$d dag geleden</item>
+        <item quantity="other">%1$d dagen geleden</item>
+    </plurals>
+    <string name="time_today">vandaag %1$s</string>
+    <string name="time_yesterday">gisteren %1$s</string>
+    <!-- dag, maand, tijd: "3 nov 09:12" -->
+    <string name="time_on_date">%1$d %2$s %3$s</string>
+    <string name="month_jan">jan</string>
+    <string name="month_feb">feb</string>
+    <string name="month_mar">mrt</string>
+    <string name="month_apr">apr</string>
+    <string name="month_may">mei</string>
+    <string name="month_jun">jun</string>
+    <string name="month_jul">jul</string>
+    <string name="month_aug">aug</string>
+    <string name="month_sep">sep</string>
+    <string name="month_oct">okt</string>
+    <string name="month_nov">nov</string>
+    <string name="month_dec">dec</string>
+    <!-- Leeftijd van de gegevens in de widget (core: DataAge) -->
+    <string name="updated_ago">Bijgewerkt %1$s</string>
+    <string name="updated_never">Nog niet bijgewerkt</string>
+    <!-- Dagen van het weekschema (core: DayParts): "elke dag", "ma–vr", "za en zo", "ma, wo en vr" -->
+    <string name="days_every_day">elke dag</string>
+    <string name="days_range">%1$s–%2$s</string>
+    <!-- Voor TalkBack: "maandag t/m vrijdag" -->
+    <string name="days_range_spoken">%1$s t/m %2$s</string>
+    <!-- Laatste twee delen van een opsomming: "ma, wo en vr" -->
+    <string name="list_and">%1$s en %2$s</string>
+    <string name="day_mon">ma</string>
+    <string name="day_tue">di</string>
+    <string name="day_wed">wo</string>
+    <string name="day_thu">do</string>
+    <string name="day_fri">vr</string>
+    <string name="day_sat">za</string>
+    <string name="day_sun">zo</string>
+    <string name="day_mon_spoken">maandag</string>
+    <string name="day_tue_spoken">dinsdag</string>
+    <string name="day_wed_spoken">woensdag</string>
+    <string name="day_thu_spoken">donderdag</string>
+    <string name="day_fri_spoken">vrijdag</string>
+    <string name="day_sat_spoken">zaterdag</string>
+    <string name="day_sun_spoken">zondag</string>
 </resources>

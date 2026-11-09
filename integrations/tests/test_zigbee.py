@@ -52,7 +52,9 @@ async def test_devices_and_messages_by_friendly_name():
 
 async def test_bridge_state_health():
     a, _ = make()
-    assert (await a.health()).state.value == "warn"
+    assert (await a.health()).state.value == "warn"  # not connected to MQTT yet
+    a.connected = True
+    assert (await a.health()).state.value == "warn"  # connected, Zigbee2MQTT silent
     a.handle_message("zigbee2mqtt/bridge/state", '{"state":"offline"}', NOW)
     assert (await a.health()).state.value == "error"
     a.handle_message("zigbee2mqtt/bridge/state", "online", NOW)  # legacy plain payload
@@ -72,7 +74,8 @@ async def test_bridge_event_join():
         ),
         NOW,
     )
-    assert ev[0].state["zigbee_event"] == "device_interview"
+    st = next(e for e in ev if isinstance(e, StateUpdate))
+    assert st.state["zigbee_event"] == "device_interview"
 
 
 async def test_permit_join_and_rename_publish():

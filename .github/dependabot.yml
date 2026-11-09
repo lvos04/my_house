@@ -1,0 +1,77 @@
+# Weekly update proposals for every dependency the project pins. Each pull request goes through
+# the full CI (tests, audits, image scan, compose smoke test) before anything can be released.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  # Python runtime (verbeterlijst 41): apps/api/requirements.txt is the hashed lock of every package
+  # the image installs, transitive ones included, compiled with uv from apps/api/requirements.in
+  # ("." and "../../integrations", relative to apps/api). The uv ecosystem reads that .in/.txt pair,
+  # proposes an update for every locked package and recompiles the lock with uv pip compile and the
+  # options in its header (hashes, --universal, --python-version), keeping the header; ranges in
+  # apps/api/pyproject.toml follow when needed. The recompile drops --no-emit-package, so its
+  # lock may gain the path lines "." and "../../integrations": the image and CI skip path lines,
+  # and the next manual regeneration removes them again.
+  - package-ecosystem: uv
+    directory: /apps/api
+    schedule:
+      interval: weekly
+    groups:
+      python-minor-patch:
+        update-types: [minor, patch]
+
+  # The floors in integrations/pyproject.toml (its packages are locked in apps/api/requirements.txt
+  # above). When a floor rises above the lock, "pip check" in the image build and CI and the lock
+  # test in apps/api/tests fail, so regenerate the lock in the same pull request.
+  - package-ecosystem: pip
+    directory: /integrations
+    schedule:
+      interval: weekly
+    groups:
+      python-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /apps/web
+    schedule:
+      interval: weekly
+    groups:
+      web-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: gradle
+    directory: /apps/android
+    schedule:
+      interval: weekly
+    groups:
+      android-minor-patch:
+        update-types: [minor, patch]
+
+  # Base images in the Dockerfiles (python, node, nginx, and the postgres image the API takes
+  # its PostgreSQL client key from).
+  - package-ecosystem: docker
+    directories:
+      - /apps/api
+      - /apps/web
+    schedule:
+      interval: weekly
+    ignore:
+      # PostgreSQL stays on major 16 (a major upgrade needs a dump/restore); the client in the
+      # API image must match the server.
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
+
+  # The stack itself: postgres, mosquitto, zigbee2mqtt, cloudflared.
+  - package-ecosystem: docker-compose
+    directory: /infra/compose
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
