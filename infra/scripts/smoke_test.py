@@ -208,6 +208,14 @@ def run(args) -> str:
     )
     check(headers.get("X-Content-Type-Options") == "nosniff", "beveiligingsheaders aanwezig")
     check("Strict-Transport-Security" not in headers, "geen HSTS via http")
+    # "Terug naar de Hub" (O-11): /_shc/config.json is er altijd (zonder HUB_URL een leeg object) en wordt
+    # nooit bewaard door de browser of de PWA.
+    status, headers, body = c.request("GET", "/_shc/config.json")
+    cache = ", ".join(headers.get_all("Cache-Control") or [])
+    check(
+        status == 200 and isinstance(body, dict) and "no-store" in cache,
+        f"/_shc/config.json: {status} {body!r}, Cache-Control {cache}",
+    )
 
     password = args.password or secrets.token_urlsafe(18)
     # Spoofed proxy headers from the LAN must be ignored: the cookie stays without "Secure".

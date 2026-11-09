@@ -6,6 +6,7 @@ import { browserTimeZone, APP_VERSION } from '../format';
 import type { Home } from '../api/types';
 import { admin, FakeWebSocket, mockApi, Providers, viewer } from './helpers';
 import { overview } from './fixtures';
+import { vergeetHubAdres } from '../hub';
 
 beforeEach(() => vi.stubGlobal('WebSocket', FakeWebSocket));
 afterEach(() => {
@@ -80,6 +81,27 @@ describe('shell (item 40)', () => {
     await user.click(within(bar).getByRole('button', { name: 'Meer' }));
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Uitloggen' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/auth/logout'))).toBe(true));
+  });
+
+  it('Peil-toevoegingen: zijbalk en Meer-sheet tonen "Terug naar de Hub" (alleen met een geldig adres) en de themakeuze', async () => {
+    vergeetHubAdres();
+    mockApi((_m, url) => {
+      if (url === '/_shc/config.json') return { body: { hub_url: 'https://hub.thuis:8443' } };
+      if (url.endsWith('/homes')) return { body: [home] };
+      if (url.endsWith('/overview')) return { body: overview };
+      return undefined;
+    });
+    render(<Providers><AppRoutes user={viewer} /></Providers>);
+    const side = await screen.findByRole('navigation', { name: 'Hoofdmenu' });
+    expect(await within(side).findByRole('link', { name: 'Terug naar de Hub' })).toHaveAttribute('href', 'https://hub.thuis:8443');
+    // Een kijker mag het thema kiezen (alleen uiterlijk, alleen dit apparaat).
+    expect(within(side).getByRole('group', { name: 'Thema' })).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(within(screen.getByRole('navigation', { name: 'Hoofdmenu (mobiel)' })).getByRole('button', { name: 'Meer' }));
+    const sheet = screen.getByRole('dialog', { name: 'Meer' });
+    expect(within(sheet).getByRole('link', { name: 'Terug naar de Hub' })).toHaveAttribute('href', 'https://hub.thuis:8443');
+    expect(within(within(sheet).getByRole('group', { name: 'Thema' })).getAllByRole('button').map((b) => b.textContent)).toEqual(['Systeem', 'Licht', 'Donker']);
+    vergeetHubAdres();
   });
 
   it('opens the live connection for the selected home', async () => {

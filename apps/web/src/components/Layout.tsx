@@ -14,6 +14,8 @@ import { OfflineBanner } from './OfflineBanner';
 import { NextSteps, NoHomeSetup } from './NoHome';
 import { BoltIcon, BulbIcon, DeviceIcon, GearIcon, GridIcon, HelpIcon, HomeIcon, LogOutIcon, MenuIcon, ThermoIcon, TrendIcon, UserIcon } from './Icons';
 import { Button } from './ui/button';
+import { HubLink } from './peil/HubLink';
+import { ThemaKeuze } from './peil/ThemaKeuze';
 
 /** Routes that work without a home (the rest show the "Woning aanmaken" form until there is one). */
 export const HOME_FREE_PATHS = ['/systeem', '/account', '/installatie', '/help'];
@@ -93,7 +95,9 @@ function MoreSheet({ user, onClose, onLogout, busy }: { user: User; onClose: () 
           ))}
         </nav>
         <div className="sheet-foot">
+          <HubLink />
           <span className="small muted">Ingelogd als <strong>{user.username}</strong> ({USER_ROLE_LABEL[user.role] ?? user.role})</span>
+          <ThemaKeuze />
           <Button disabled={busy} onClick={onLogout}><LogOutIcon />Uitloggen</Button>
           <span className="small muted">Versie {APP_VERSION}</span>
         </div>
@@ -165,6 +169,7 @@ export function Layout({ user }: { user: User }) {
           <span className="brand-mark"><HomeIcon width={18} height={18} strokeWidth={2} /></span>
           Huis
         </div>
+        <HubLink />
         {SIDEBAR_NAV.map(({ to, label, icon: Icon, end }) => (
           <NavLink key={to} to={to} end={end} className={navClass}>
             <Icon />
@@ -173,6 +178,7 @@ export function Layout({ user }: { user: User }) {
         ))}
         <div className="sidebar-foot">
           <span>Ingelogd als <strong>{user.username}</strong> ({USER_ROLE_LABEL[user.role] ?? user.role})</span>
+          <ThemaKeuze />
           <div className="row" style={{ gap: 8 }}>
             <Button asChild size="klein"><Link to="/account">Account</Link></Button>
             <Button asChild size="klein"><Link to="/help">Help</Link></Button>

@@ -113,6 +113,14 @@ server {
         return 200 "ok\n";
     }
 
+    # Settings for the web app: only the optional Hub address for the link "Terug naar de Hub" (O-11).
+    # Written at container start by /docker-entrypoint.d/15-shc-config.sh from HUB_URL ({} when empty or
+    # invalid). Never cached (map $error_cache_control above).
+    location = /_shc/config.json {
+        default_type "application/json; charset=utf-8";
+        alias /tmp/shc-config/config.json;
+    }
+
     location = /_shc/unavailable.json {
         internal;
         default_type "application/json; charset=utf-8";

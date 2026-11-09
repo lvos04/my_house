@@ -27,6 +27,9 @@ USER root
 RUN apk upgrade --no-cache \
     && rm -f /etc/nginx/conf.d/default.conf && chown 101:101 /etc/nginx/conf.d
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+# Optional HUB_URL -> /_shc/config.json ("Terug naar de Hub", O-11). Runs as uid 101 before nginx starts;
+# an invalid or empty value only hides the link, it never stops the container.
+COPY --chmod=0755 docker/15-shc-config.sh /docker-entrypoint.d/15-shc-config.sh
 # Site files stay owned by root: nginx (uid 101) can read but never change them.
 COPY --from=build /app/dist /usr/share/nginx/html
 USER 101

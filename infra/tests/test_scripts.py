@@ -11,12 +11,18 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
+import json
+import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 COMPOSE = SCRIPTS.parent / "compose" / "compose.yaml"
+WEB_CONFIG_SCRIPT = SCRIPTS.parent.parent / "apps" / "web" / "docker" / "15-shc-config.sh"
 sys.path.insert(0, str(SCRIPTS))
 
 import render_truenas  # noqa: E402
@@ -160,6 +166,60 @@ class Zigbee2mqttInBackup(unittest.TestCase):
             with self.subTest(rec=rec), self.assertRaises(smoke_test.Fail) as ctx:
                 self.quiet(rec)
             self.assertIn("geen uitleg van de API", str(ctx.exception))
+
+
+@unittest.skipUnless(shutil.which("sh"), "geen sh")
+class WebConfigScript(unittest.TestCase):
+    """apps/web/docker/15-shc-config.sh: HUB_URL -> /_shc/config.json for "Terug naar de Hub" (O-11)."""
+
+    def config(self, hub: str | None) -> tuple[dict, str]:
+        with tempfile.TemporaryDirectory() as d:
+            env = {k: v for k, v in os.environ.items() if k != "HUB_URL"}
+            env["SHC_CONFIG_DIR"] = d
+            if hub is not None:
+                env["HUB_URL"] = hub
+            proc = subprocess.run(["sh", str(WEB_CONFIG_SCRIPT)], env=env, capture_output=True, text=True, check=False)  # noqa: S603, S607
+            self.assertEqual(proc.returncode, 0, proc.stderr)  # an invalid value never stops the container
+            return json.loads(Path(d, "config.json").read_text()), proc.stderr
+
+    def test_valid_addresses_become_an_origin(self) -> None:
+        for hub, origin in (
+            ("https://hub.thuis:8443", "https://hub.thuis:8443"),
+            ("https://hub.thuis:8443/", "https://hub.thuis:8443"),
+            ("http://192.168.1.5", "http://192.168.1.5"),
+            ("https://[2001:db8::1]:8443", "https://[2001:db8::1]:8443"),
+        ):
+            with self.subTest(hub=hub):
+                self.assertEqual(self.config(hub)[0], {"hub_url": origin})
+
+    def test_empty_or_absent_is_no_link(self) -> None:
+        self.assertEqual(self.config(None), ({}, ""))
+        self.assertEqual(self.config(""), ({}, ""))
+
+    def test_invalid_addresses_are_ignored(self) -> None:
+        for hub in (
+            "http://127.0.0.1:8443",
+            "http://localhost",
+            "http://hub.localhost",
+            "http://0.0.0.0",
+            "http://169.254.10.1",
+            "https://[::1]",
+            "https://[fe80::1]",
+            "https://user:pass@hub.thuis",
+            "https://hub.thuis/pad",
+            "https://hub.thuis?x=1",
+            "https://hub.thuis#x",
+            'https://hub"thuis',
+            "https://hub.thuis:0",
+            "https://hub.thuis:70000",
+            "ftp://hub.thuis",
+            "javascript:alert(1)",
+            "hub.thuis",
+        ):
+            with self.subTest(hub=hub):
+                cfg, err = self.config(hub)
+                self.assertEqual(cfg, {})
+                self.assertIn("HUB_URL genegeerd", err)
 
 
 if __name__ == "__main__":
