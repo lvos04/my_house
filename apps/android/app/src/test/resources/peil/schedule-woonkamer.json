@@ -1,0 +1,44 @@
+{
+ "blocks": [
+  {
+   "days": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "start": "06:30",
+   "target_c": 21,
+   "mode": null,
+   "label": "Dag"
+  },
+  {
+   "days": [
+    5,
+    6
+   ],
+   "start": "08:00",
+   "target_c": 21,
+   "mode": null,
+   "label": "Dag"
+  },
+  {
+   "days": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "start": "22:30",
+   "target_c": 18,
+   "mode": null,
+   "label": "Nacht"
+  }
+ ],
+ "profile_id": null,
+ "profile": null
+}

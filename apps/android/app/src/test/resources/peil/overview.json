@@ -1,0 +1,706 @@
+{
+ "home": {
+  "id": "bc2d49b5-eb0e-4d9b-a07d-df9a48ddab8e",
+  "name": "Thuis",
+  "timezone": "Europe/Amsterdam",
+  "currency": "EUR",
+  "active": true
+ },
+ "status": [
+  {
+   "key": "worker",
+   "label": "Achtergronddienst",
+   "state": "ok",
+   "detail": "Laatste hartslag 2 s geleden",
+   "age_s": 2
+  },
+  {
+   "key": "backup",
+   "label": "Back-up",
+   "age_h": null,
+   "app_version": null,
+   "schema_revision": null,
+   "zigbee2mqtt_included": null,
+   "auto_failures": 0,
+   "auto_last_error": null,
+   "state": "warn",
+   "detail": "Nog geen back-up gemaakt"
+  }
+ ],
+ "zones": [
+  {
+   "id": "70ec9ae7-4c57-4090-b94a-8bd5a85a14d0",
+   "name": "Woonkamer",
+   "room": "Woonkamer",
+   "unit_device_id": "dac6d28e-790f-4a0c-8193-ccbc5f32d4e2",
+   "sensor_device_id": "aaf08926-3928-4686-ba96-3abbad234ce3",
+   "unit_linked": true,
+   "unit_status": "online",
+   "online": true,
+   "mode": "heat",
+   "target_c": 21,
+   "fan": "auto",
+   "temperature": {
+    "value": 20.6,
+    "unit": "°C",
+    "quality": "measured",
+    "at": "2026-11-09T15:03:57.799494Z",
+    "stale": false
+   },
+   "humidity": {
+    "value": 48,
+    "unit": "%",
+    "quality": "measured",
+    "at": "2026-11-09T15:03:57.799494Z",
+    "stale": false
+   },
+   "control": "schedule",
+   "profile": "Comfort",
+   "profile_id": null,
+   "override": null,
+   "can_resume": false,
+   "setpoint_adjustable": true,
+   "pending_command": null,
+   "capabilities": {
+    "modes": [
+     "off",
+     "auto",
+     "cool",
+     "dry",
+     "fan",
+     "heat"
+    ],
+    "fan": true,
+    "swing": true,
+    "min_c": 16,
+    "max_c": 30,
+    "step_c": 1
+   },
+   "blocked_modes": [],
+   "next_change": {
+    "at": "2026-11-09T21:30:00Z",
+    "target_c": 18,
+    "mode": null,
+    "label": "Nacht"
+   },
+   "correction_c": 0,
+   "energy_priority": "balanced",
+   "last_decision": null,
+   "watchdog_since": null,
+   "policy": {
+    "band_c": 0.5,
+    "min_interval_s": 900,
+    "max_step_c": 1,
+    "max_starts_per_hour": 3,
+    "stale_after_s": 1800,
+    "plausible_min_c": 5,
+    "plausible_max_c": 40,
+    "max_offset_c": 2,
+    "override_default_minutes": 120,
+    "energy_priority": "balanced",
+    "watchdog_minutes": 60,
+    "watchdog_min_progress_c": 0.3
+   },
+   "notice": null,
+   "notice_level": null
+  },
+  {
+   "id": "5da10046-8bf2-4358-b682-c994b8782e9c",
+   "name": "Slaapkamer",
+   "room": "Slaapkamer",
+   "unit_device_id": "c2deff68-3897-49b1-82b4-959dd91e313d",
+   "sensor_device_id": "34ed85b0-3a19-46fe-99fe-fbc5c2f38847",
+   "unit_linked": true,
+   "unit_status": "online",
+   "online": true,
+   "mode": "off",
+   "target_c": 18,
+   "fan": "auto",
+   "temperature": {
+    "value": 18.4,
+    "unit": "°C",
+    "quality": "measured",
+    "at": "2026-11-09T15:03:57.799494Z",
+    "stale": false
+   },
+   "humidity": {
+    "value": 55,
+    "unit": "%",
+    "quality": "measured",
+    "at": "2026-11-09T15:03:57.799494Z",
+    "stale": false
+   },
+   "control": "schedule",
+   "profile": "Comfort",
+   "profile_id": null,
+   "override": null,
+   "can_resume": false,
+   "setpoint_adjustable": false,
+   "pending_command": null,
+   "capabilities": {
+    "modes": [
+     "off",
+     "auto",
+     "cool",
+     "dry",
+     "fan",
+     "heat"
+    ],
+    "fan": true,
+    "swing": true,
+    "min_c": 16,
+    "max_c": 30,
+    "step_c": 1
+   },
+   "blocked_modes": [
+    {
+     "mode": "auto",
+     "reason": "Een andere ruimte verwarmt; automatisch kan ook gaan koelen. Kies verwarmen."
+    },
+    {
+     "mode": "cool",
+     "reason": "Een andere ruimte verwarmt; de buitenunit kan niet tegelijk koelen."
+    },
+    {
+     "mode": "dry",
+     "reason": "Een andere ruimte verwarmt; de buitenunit kan niet tegelijk koelen."
+    }
+   ],
+   "next_change": null,
+   "correction_c": 0,
+   "energy_priority": "balanced",
+   "last_decision": null,
+   "watchdog_since": null,
+   "policy": {
+    "band_c": 0.5,
+    "min_interval_s": 900,
+    "max_step_c": 1,
+    "max_starts_per_hour": 3,
+    "stale_after_s": 1800,
+    "plausible_min_c": 5,
+    "plausible_max_c": 40,
+    "max_offset_c": 2,
+    "override_default_minutes": 120,
+    "energy_priority": "balanced",
+    "watchdog_minutes": 60,
+    "watchdog_min_progress_c": 0.3
+   },
+   "notice": "Geen schema ingesteld; de airco houdt zijn eigen instelling.",
+   "notice_level": "info"
+  }
+ ],
+ "lights": [
+  {
+   "id": "a98632e6-a569-42f7-b97c-243426b76efc",
+   "name": "Keuken",
+   "on": false,
+   "brightness": 0,
+   "scene": null,
+   "scene_id": null,
+   "reachable": true,
+   "lights_on": 0,
+   "lights_total": 2,
+   "lights_reachable": 2,
+   "owner_type": "room",
+   "all_lights": false,
+   "hidden": false,
+   "last_command": null
+  },
+  {
+   "id": "d50de887-8cf9-4ff1-a2c4-58965c7a4b15",
+   "name": "Tuin",
+   "on": false,
+   "brightness": 0,
+   "scene": null,
+   "scene_id": null,
+   "reachable": false,
+   "lights_on": 0,
+   "lights_total": 1,
+   "lights_reachable": 0,
+   "owner_type": "zone",
+   "all_lights": false,
+   "hidden": false,
+   "last_command": null
+  },
+  {
+   "id": "3999d190-831a-44ae-b5e5-7103763bd1a9",
+   "name": "Woonkamer",
+   "on": true,
+   "brightness": 80,
+   "scene": "Lezen",
+   "scene_id": "447ac249-be6e-45d5-a1cf-c2955239723a",
+   "reachable": true,
+   "lights_on": 3,
+   "lights_total": 3,
+   "lights_reachable": 3,
+   "owner_type": "room",
+   "all_lights": false,
+   "hidden": false,
+   "last_command": null
+  }
+ ],
+ "energy_today": {
+  "period": "day",
+  "start": "2026-11-09T00:00:00+01:00",
+  "end": "2026-11-10T00:00:00+01:00",
+  "timezone": "Europe/Amsterdam",
+  "total_kwh": 13.51,
+  "cost": 4.6,
+  "cost_coverage": 1,
+  "fixed_cost": 0.95,
+  "fixed_days": 1,
+  "cost_note": null,
+  "currency": "EUR",
+  "meters": [
+   {
+    "role": "grid",
+    "label": "Huis totaal (P1)",
+    "kwh": 13.51,
+    "unit": "kWh",
+    "cost": 3.65,
+    "cost_coverage": 1,
+    "quality": "measured",
+    "note": null,
+    "notes": []
+   },
+   {
+    "role": "airco",
+    "label": "Airco (beide units)",
+    "kwh": 3.16,
+    "unit": "kWh",
+    "cost": 0.85,
+    "cost_coverage": 1,
+    "quality": "measured",
+    "note": "Verbruik per binnenunit wordt niet gemeten (gedeelde compressor).",
+    "notes": []
+   },
+   {
+    "role": "boiler",
+    "label": "Boiler",
+    "kwh": 4,
+    "unit": "kWh",
+    "cost": 1.08,
+    "cost_coverage": 1,
+    "quality": "measured",
+    "note": null,
+    "notes": []
+   },
+   {
+    "role": "grid_export",
+    "label": "Teruglevering",
+    "kwh": 0,
+    "unit": "kWh",
+    "cost": 0,
+    "cost_coverage": 1,
+    "quality": "estimated",
+    "note": null,
+    "notes": []
+   },
+   {
+    "role": "rest",
+    "label": "Overig huis",
+    "kwh": 6.35,
+    "unit": "kWh",
+    "cost": 1.71,
+    "cost_coverage": 1,
+    "quality": "derived",
+    "note": "P1 min airco en boiler; bestaat uit niet-gemeten apparaten.",
+    "notes": []
+   }
+  ],
+  "gas": null,
+  "buckets": [
+   {
+    "start": "2026-11-09T00:00:00+01:00",
+    "end": "2026-11-09T01:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 0.43,
+     "airco": 0.08,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0.35
+    },
+    "cost": 0.12,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T01:00:00+01:00",
+    "end": "2026-11-09T02:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 0.43,
+     "airco": 0.08,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0.35
+    },
+    "cost": 0.12,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T02:00:00+01:00",
+    "end": "2026-11-09T03:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 0.93,
+     "airco": 0.08,
+     "boiler": 0.5,
+     "grid_export": 0,
+     "rest": 0.35
+    },
+    "cost": 0.25,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T03:00:00+01:00",
+    "end": "2026-11-09T04:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 2.43,
+     "airco": 0.08,
+     "boiler": 2,
+     "grid_export": 0,
+     "rest": 0.35
+    },
+    "cost": 0.66,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T04:00:00+01:00",
+    "end": "2026-11-09T05:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 1.93,
+     "airco": 0.08,
+     "boiler": 1.5,
+     "grid_export": 0,
+     "rest": 0.35
+    },
+    "cost": 0.52,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T05:00:00+01:00",
+    "end": "2026-11-09T06:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 0.547,
+     "airco": 0.197,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0.35
+    },
+    "cost": 0.15,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T06:00:00+01:00",
+    "end": "2026-11-09T07:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 0.963,
+     "airco": 0.55,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0.413
+    },
+    "cost": 0.26,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T07:00:00+01:00",
+    "end": "2026-11-09T08:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 1.15,
+     "airco": 0.55,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0.6
+    },
+    "cost": 0.31,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T08:00:00+01:00",
+    "end": "2026-11-09T09:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 1.15,
+     "airco": 0.55,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0.6
+    },
+    "cost": 0.31,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T09:00:00+01:00",
+    "end": "2026-11-09T10:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 0.97,
+     "airco": 0.433,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0.537
+    },
+    "cost": 0.26,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T10:00:00+01:00",
+    "end": "2026-11-09T11:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 0.43,
+     "airco": 0.08,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0.35
+    },
+    "cost": 0.12,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T11:00:00+01:00",
+    "end": "2026-11-09T12:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 0.43,
+     "airco": 0.08,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0.35
+    },
+    "cost": 0.12,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T12:00:00+01:00",
+    "end": "2026-11-09T13:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 0.43,
+     "airco": 0.08,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0.35
+    },
+    "cost": 0.12,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T13:00:00+01:00",
+    "end": "2026-11-09T14:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 0.43,
+     "airco": 0.08,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0.35
+    },
+    "cost": 0.12,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T14:00:00+01:00",
+    "end": "2026-11-09T15:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 0.43,
+     "airco": 0.08,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0.35
+    },
+    "cost": 0.12,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T15:00:00+01:00",
+    "end": "2026-11-09T16:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 0.43,
+     "airco": 0.08,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0.35
+    },
+    "cost": 0.12,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T16:00:00+01:00",
+    "end": "2026-11-09T17:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 0,
+     "airco": 0,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0
+    },
+    "cost": 0,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T17:00:00+01:00",
+    "end": "2026-11-09T18:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 0,
+     "airco": 0,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0
+    },
+    "cost": 0,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T18:00:00+01:00",
+    "end": "2026-11-09T19:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 0,
+     "airco": 0,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0
+    },
+    "cost": 0,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T19:00:00+01:00",
+    "end": "2026-11-09T20:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 0,
+     "airco": 0,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0
+    },
+    "cost": 0,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T20:00:00+01:00",
+    "end": "2026-11-09T21:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 0,
+     "airco": 0,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0
+    },
+    "cost": 0,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T21:00:00+01:00",
+    "end": "2026-11-09T22:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 0,
+     "airco": 0,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0
+    },
+    "cost": 0,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T22:00:00+01:00",
+    "end": "2026-11-09T23:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 0,
+     "airco": 0,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0
+    },
+    "cost": 0,
+    "notes": []
+   },
+   {
+    "start": "2026-11-09T23:00:00+01:00",
+    "end": "2026-11-10T00:00:00+01:00",
+    "complete": false,
+    "values": {
+     "grid": 0,
+     "airco": 0,
+     "boiler": 0,
+     "grid_export": 0,
+     "rest": 0
+    },
+    "cost": 0,
+    "notes": []
+   }
+  ]
+ },
+ "power_now": {
+  "at": "2026-11-09T15:05:37.799494Z",
+  "total_w": 1840,
+  "complete": true,
+  "note": null,
+  "parts": [
+   {
+    "role": "airco",
+    "label": "Airco (beide units)",
+    "watts": 610,
+    "quality": "measured",
+    "at": "2026-11-09T15:05:37.799494Z",
+    "stale": false
+   },
+   {
+    "role": "boiler",
+    "label": "Boiler",
+    "watts": 0,
+    "quality": "measured",
+    "at": "2026-11-09T15:05:37.799494Z",
+    "stale": false
+   },
+   {
+    "role": "rest",
+    "label": "Overig",
+    "watts": 1230,
+    "quality": "derived",
+    "at": "2026-11-09T15:05:37.799494Z",
+    "stale": false,
+    "note": null
+   }
+  ]
+ },
+ "alerts": [
+  {
+   "id": "eed85a22-49f9-43ba-9c1c-aa37520a8bc2",
+   "key": "peil:backup",
+   "severity": "info",
+   "title": "Nog geen automatische back-up ingesteld",
+   "detail": "Stel back-ups in bij Systeem › Back-ups en bewaren.",
+   "created_at": "2026-11-09T15:05:57.864940Z",
+   "acknowledged": false,
+   "source": "system"
+  },
+  {
+   "id": "83eb6189-c911-4e36-b85c-73459aef8ee7",
+   "key": "peil:sensor-batterij",
+   "severity": "warn",
+   "title": "Sensor slaapkamer: batterij 64 %",
+   "detail": "Vervang de batterij binnen een paar weken.",
+   "created_at": "2026-11-09T15:05:57.863145Z",
+   "acknowledged": false,
+   "source": "zigbee"
+  }
+ ]
+}
