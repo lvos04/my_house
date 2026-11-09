@@ -42,6 +42,19 @@ test('offline: API gestopt, banner, bediening uit, laatste gegevens zichtbaar, e
     await expect(page.getByRole('article', { name: 'Slaapkamer' })).toBeVisible();
     await expect(page.getByRole('article', { name: 'Slaapkamer' }).getByRole('button', { name: 'Doeltemperatuur Slaapkamer hoger' })).toBeDisabled();
     await expect(banner).toBeVisible();
+    // Peil (docs/ontwerp/PEIL_REVIEW.md): de laatst bekende stand is nooit groen, en de kaarten krijgen de
+    // gestippelde Verouderd-rand.
+    await expect(page.locator('main [data-status="healthy"]')).toHaveCount(0);
+    await expect(page.getByRole('article', { name: 'Slaapkamer' })).toHaveCSS('border-top-style', 'dashed');
+
+    // A page that was never fetched: Onbekend with the reason and a heading, not an endless "Laden…".
+    await page.getByRole('navigation', { name: 'Hoofdmenu', exact: true }).getByRole('link', { name: 'Verlichting' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Verlichting' })).toBeVisible();
+    await expect(page.getByTestId('nooit-opgehaald').first()).toContainText('Onbekend — nog niet opgehaald');
+    await expect(page.getByText('Laden…')).toHaveCount(0);
+    await expect(banner).toBeVisible();
+    await page.getByRole('navigation', { name: 'Hoofdmenu', exact: true }).getByRole('link', { name: 'Overzicht' }).click();
+    await expect(page.getByRole('article', { name: 'Slaapkamer' })).toBeVisible();
   } finally {
     apiProcess('start');
   }
