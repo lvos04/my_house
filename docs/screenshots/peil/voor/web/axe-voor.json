@@ -1,0 +1,835 @@
+{
+ "gemeten": "2026-11-09T15:32:02.210Z",
+ "axe_core": "4.14.0",
+ "tags": [
+  "wcag2a",
+  "wcag2aa",
+  "wcag21a",
+  "wcag21aa",
+  "wcag22aa"
+ ],
+ "resultaten": [
+  {
+   "scherm": "overzicht",
+   "thema": "licht",
+   "breedte": 390,
+   "axe": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "n": 5,
+     "voorbeeld": ".light-tile.live:nth-child(1)"
+    }
+   ],
+   "tekst_kleiner_dan_14px": {
+    "12": 11,
+    "13": 44
+   },
+   "doelen_kleiner_dan_44px": 2,
+   "voorbeelden_doelen": [
+    "a.small 97×19",
+    "a.small 48×19"
+   ],
+   "elementen_met_opacity_en_tekst": 3,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "klimaat-bediening",
+   "thema": "licht",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 6,
+    "13": 20
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 0,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "klimaat-uit-conflict",
+   "thema": "licht",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 6,
+    "13": 30
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 7,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "klimaat-weekschema",
+   "thema": "licht",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 10,
+    "13": 22
+   },
+   "doelen_kleiner_dan_44px": 7,
+   "voorbeelden_doelen": [
+    "button 41×44"
+   ],
+   "elementen_met_opacity_en_tekst": 3,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "klimaat-instellingen",
+   "thema": "licht",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 5,
+    "13": 12
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 0,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "verlichting",
+   "thema": "licht",
+   "breedte": 390,
+   "axe": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "n": 3,
+     "voorbeeld": "button[aria-label=\"Keuken aanzetten\"]"
+    }
+   ],
+   "tekst_kleiner_dan_14px": {
+    "12": 5,
+    "13": 25
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 1,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "energie",
+   "thema": "licht",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "11": 11,
+    "12": 17,
+    "13": 63
+   },
+   "doelen_kleiner_dan_44px": 2,
+   "voorbeelden_doelen": [
+    "summary 316×32"
+   ],
+   "elementen_met_opacity_en_tekst": 1,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "optimalisatie",
+   "thema": "licht",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 5,
+    "13": 34
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 1,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "apparaten",
+   "thema": "licht",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 5,
+    "13": 87
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 3,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "systeem",
+   "thema": "licht",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 5,
+    "13": 94
+   },
+   "doelen_kleiner_dan_44px": 2,
+   "voorbeelden_doelen": [
+    "summary 324×32"
+   ],
+   "elementen_met_opacity_en_tekst": 8,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "account-telefoons",
+   "thema": "licht",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 5,
+    "13": 8
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 0,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "installatie",
+   "thema": "licht",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 15,
+    "13": 16
+   },
+   "doelen_kleiner_dan_44px": 1,
+   "voorbeelden_doelen": [
+    "summary 282×32"
+   ],
+   "elementen_met_opacity_en_tekst": 0,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "help",
+   "thema": "licht",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 5,
+    "13": 107
+   },
+   "doelen_kleiner_dan_44px": 4,
+   "voorbeelden_doelen": [
+    "summary 316×32"
+   ],
+   "elementen_met_opacity_en_tekst": 0,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "overzicht",
+   "thema": "licht",
+   "breedte": 1440,
+   "axe": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "n": 5,
+     "voorbeeld": ".light-tile.live:nth-child(1)"
+    }
+   ],
+   "tekst_kleiner_dan_14px": {
+    "12": 6,
+    "13": 52
+   },
+   "doelen_kleiner_dan_44px": 2,
+   "voorbeelden_doelen": [
+    "a.small 97×19",
+    "a.small 48×19"
+   ],
+   "elementen_met_opacity_en_tekst": 3,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "klimaat-bediening",
+   "thema": "licht",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 1,
+    "13": 28
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 0,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "klimaat-uit-conflict",
+   "thema": "licht",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 1,
+    "13": 38
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 7,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "klimaat-weekschema",
+   "thema": "licht",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 5,
+    "13": 30
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 3,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "klimaat-instellingen",
+   "thema": "licht",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "13": 20
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 0,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "verlichting",
+   "thema": "licht",
+   "breedte": 1440,
+   "axe": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "n": 3,
+     "voorbeeld": "button[aria-label=\"Keuken aanzetten\"]"
+    }
+   ],
+   "tekst_kleiner_dan_14px": {
+    "13": 33
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 1,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "energie",
+   "thema": "licht",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "11": 1,
+    "12": 22,
+    "13": 71
+   },
+   "doelen_kleiner_dan_44px": 2,
+   "voorbeelden_doelen": [
+    "summary 1074×32"
+   ],
+   "elementen_met_opacity_en_tekst": 1,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "optimalisatie",
+   "thema": "licht",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "13": 42
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 1,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "apparaten",
+   "thema": "licht",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "13": 95
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 3,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "systeem",
+   "thema": "licht",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "13": 102
+   },
+   "doelen_kleiner_dan_44px": 2,
+   "voorbeelden_doelen": [
+    "summary 236×32"
+   ],
+   "elementen_met_opacity_en_tekst": 8,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "account-telefoons",
+   "thema": "licht",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "13": 16
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 0,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "installatie",
+   "thema": "licht",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 10,
+    "13": 24
+   },
+   "doelen_kleiner_dan_44px": 1,
+   "voorbeelden_doelen": [
+    "summary 229×32"
+   ],
+   "elementen_met_opacity_en_tekst": 0,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "help",
+   "thema": "licht",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "13": 115
+   },
+   "doelen_kleiner_dan_44px": 4,
+   "voorbeelden_doelen": [
+    "summary 1074×32"
+   ],
+   "elementen_met_opacity_en_tekst": 0,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "overzicht",
+   "thema": "donker",
+   "breedte": 390,
+   "axe": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "n": 5,
+     "voorbeeld": ".light-tile.live:nth-child(1)"
+    }
+   ],
+   "tekst_kleiner_dan_14px": {
+    "12": 11,
+    "13": 44
+   },
+   "doelen_kleiner_dan_44px": 2,
+   "voorbeelden_doelen": [
+    "a.small 97×19",
+    "a.small 48×19"
+   ],
+   "elementen_met_opacity_en_tekst": 3,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "klimaat-bediening",
+   "thema": "donker",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 6,
+    "13": 20
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 0,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "klimaat-uit-conflict",
+   "thema": "donker",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 6,
+    "13": 30
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 7,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "klimaat-weekschema",
+   "thema": "donker",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 10,
+    "13": 22
+   },
+   "doelen_kleiner_dan_44px": 7,
+   "voorbeelden_doelen": [
+    "button 41×44"
+   ],
+   "elementen_met_opacity_en_tekst": 3,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "klimaat-instellingen",
+   "thema": "donker",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 5,
+    "13": 12
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 0,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "verlichting",
+   "thema": "donker",
+   "breedte": 390,
+   "axe": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "n": 3,
+     "voorbeeld": "button[aria-label=\"Keuken aanzetten\"]"
+    }
+   ],
+   "tekst_kleiner_dan_14px": {
+    "12": 5,
+    "13": 25
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 1,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "energie",
+   "thema": "donker",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "11": 11,
+    "12": 17,
+    "13": 63
+   },
+   "doelen_kleiner_dan_44px": 2,
+   "voorbeelden_doelen": [
+    "summary 316×32"
+   ],
+   "elementen_met_opacity_en_tekst": 1,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "optimalisatie",
+   "thema": "donker",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 5,
+    "13": 34
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 1,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "apparaten",
+   "thema": "donker",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 5,
+    "13": 87
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 3,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "systeem",
+   "thema": "donker",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 5,
+    "13": 94
+   },
+   "doelen_kleiner_dan_44px": 2,
+   "voorbeelden_doelen": [
+    "summary 324×32"
+   ],
+   "elementen_met_opacity_en_tekst": 8,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "account-telefoons",
+   "thema": "donker",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 5,
+    "13": 8
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 0,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "installatie",
+   "thema": "donker",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 15,
+    "13": 16
+   },
+   "doelen_kleiner_dan_44px": 1,
+   "voorbeelden_doelen": [
+    "summary 282×32"
+   ],
+   "elementen_met_opacity_en_tekst": 0,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "help",
+   "thema": "donker",
+   "breedte": 390,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 5,
+    "13": 107
+   },
+   "doelen_kleiner_dan_44px": 4,
+   "voorbeelden_doelen": [
+    "summary 316×32"
+   ],
+   "elementen_met_opacity_en_tekst": 0,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "overzicht",
+   "thema": "donker",
+   "breedte": 1440,
+   "axe": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "n": 5,
+     "voorbeeld": ".light-tile.live:nth-child(1)"
+    }
+   ],
+   "tekst_kleiner_dan_14px": {
+    "12": 6,
+    "13": 52
+   },
+   "doelen_kleiner_dan_44px": 2,
+   "voorbeelden_doelen": [
+    "a.small 97×19",
+    "a.small 48×19"
+   ],
+   "elementen_met_opacity_en_tekst": 3,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "klimaat-bediening",
+   "thema": "donker",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 1,
+    "13": 28
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 0,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "klimaat-uit-conflict",
+   "thema": "donker",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 1,
+    "13": 38
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 7,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "klimaat-weekschema",
+   "thema": "donker",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 5,
+    "13": 30
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 3,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "klimaat-instellingen",
+   "thema": "donker",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "13": 20
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 0,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "verlichting",
+   "thema": "donker",
+   "breedte": 1440,
+   "axe": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "n": 3,
+     "voorbeeld": "button[aria-label=\"Keuken aanzetten\"]"
+    }
+   ],
+   "tekst_kleiner_dan_14px": {
+    "13": 33
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 1,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "energie",
+   "thema": "donker",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "11": 1,
+    "12": 22,
+    "13": 71
+   },
+   "doelen_kleiner_dan_44px": 2,
+   "voorbeelden_doelen": [
+    "summary 1074×32"
+   ],
+   "elementen_met_opacity_en_tekst": 1,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "optimalisatie",
+   "thema": "donker",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "13": 42
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 1,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "apparaten",
+   "thema": "donker",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "13": 95
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 3,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "systeem",
+   "thema": "donker",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "13": 102
+   },
+   "doelen_kleiner_dan_44px": 2,
+   "voorbeelden_doelen": [
+    "summary 236×32"
+   ],
+   "elementen_met_opacity_en_tekst": 8,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "account-telefoons",
+   "thema": "donker",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "13": 16
+   },
+   "doelen_kleiner_dan_44px": 0,
+   "voorbeelden_doelen": [],
+   "elementen_met_opacity_en_tekst": 0,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "installatie",
+   "thema": "donker",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "12": 10,
+    "13": 24
+   },
+   "doelen_kleiner_dan_44px": 1,
+   "voorbeelden_doelen": [
+    "summary 229×32"
+   ],
+   "elementen_met_opacity_en_tekst": 0,
+   "overloop_px": 0
+  },
+  {
+   "scherm": "help",
+   "thema": "donker",
+   "breedte": 1440,
+   "axe": [],
+   "tekst_kleiner_dan_14px": {
+    "13": 115
+   },
+   "doelen_kleiner_dan_44px": 4,
+   "voorbeelden_doelen": [
+    "summary 1074×32"
+   ],
+   "elementen_met_opacity_en_tekst": 0,
+   "overloop_px": 0
+  }
+ ]
+}
