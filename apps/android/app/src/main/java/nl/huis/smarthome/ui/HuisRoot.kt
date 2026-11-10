@@ -144,12 +144,12 @@ internal fun HuisSchil(
                             selected = selected,
                             onClick = { onTab(t) },
                             icon = { PeilIcoon(t.icon, if (selected) Huis.peil.foreground else Huis.peil.mutedForeground, size = 24.dp) },
+                            // Peil 1.1.1 (E16): het actieve item krijgt geen extra gewicht; actief = indicator +
+                            // inkt (en "selected" voor TalkBack). Een vet label kon op een smal scherm niet passen.
                             label = {
                                 Text(
                                     stringResource(t.label),
-                                    style = MaterialTheme.typography.labelMedium.copy(
-                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                    ),
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
                                 )
                             },
                             colors = NavigationBarItemDefaults.colors(
