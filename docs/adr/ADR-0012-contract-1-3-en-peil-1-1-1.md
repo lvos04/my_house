@@ -86,3 +86,19 @@ een gepinde Peil-kopie **1.1.0** uit de map `definitief/` (buiten de repos) zond
   manifest (C1.3-MH-06).
 - **HARDE EIS (§2.3 regel 7):** niets hiervan raakt kijkgeschiedenis of MediaGuard-voortgang; my_house heeft geen
   mediaserver- of MediaGuard-koppeling.
+
+## Aanvulling na de onafhankelijke review (2026-11-10)
+
+- **Statische bewaking "geen koppeling":** `apps/api/tests/platform_v2/test_hub_url_zonder_koppeling.py` faalt zodra de
+  broncode een enrollment-token, sleutelset-vingerafdruk, koppelbestand, enroll- of self-aanroep of een push naar de
+  Hub-inbox bevat, als het startscript van de webcontainer iets anders dan `HUB_URL` uit de omgeving leest, of als
+  `src/hub.ts` het adres uit iets anders dan `/_shc/config.json` haalt. Zo blijft punt 4 en §2.3 regels 2 en 5 bewaakt
+  zonder dat iemand de regels hoeft te onthouden. Het startscript valt nu ook onder shellcheck in CI.
+- **Bestaande installatieroute gemarkeerd (§2.3 regel 4):** README en `docs/installatie-truenas.md` noemen de route met
+  de TrueNAS-shell, `install.sh` en *Install via YAML* de route van 0.2.0 van vóór het platform, alleen nog voor
+  ontwikkeling en CI zodra de standaard Custom App er is (C1.3-MH-03, P3). Er is nu nog geen installatie zonder terminal;
+  dat staat er eerlijk bij, in plaats van de route weg te halen (de bestaande installatie moet blijven werken).
+- **Laatst bekende gegevens zijn nooit vers:** `hydrateFromSnapshot` markeert elke ingeladen waarde als verouderd, zodat
+  de eerste lezer hem meteen opnieuw ophaalt, ook als de momentopname jonger is dan de `staleTime` van 10 s. Afgewezen:
+  de `staleTime` verlagen (meer verkeer bij elke wissel van scherm) of de momentopname vaker opslaan (verkleint de kans,
+  lost het niet op).
