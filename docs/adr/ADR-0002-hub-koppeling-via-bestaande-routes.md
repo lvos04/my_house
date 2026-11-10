@@ -57,6 +57,10 @@ Er is geen machine-identiteit, geen connectorcontract, geen idempotency, geen ve
 - **Klimaatlogica of Gree-aansturing in de Hub:** strijdig met 02_DATA_EIGENAARSCHAP.
 - **Enrollment met `HUB_URL` + enrollment-token nu al verplicht maken:** my_house wordt nu handmatig geïnstalleerd;
   enrollment wordt pas nodig als de Hub my_house via de API installeert (P3, lagere prioriteit).
+  *Aanvulling 2026-11-10 (contract 1.3 §2.3 regels 2 en 5, C1.3-MH-07):* ook dat vervalt: een bestaande app krijgt in
+  v1 geen enrollment en `HUB_URL` start er nooit een; de Hub koppelt met een koppelcode met rol viewer en pollt. Bij
+  installatie via de Hub zet de vertaling alleen `HUB_URL` (voor "Terug naar de Hub"), nooit een token of
+  vingerafdruk (§3.2, RV5).
 
 ## Gevolgen
 

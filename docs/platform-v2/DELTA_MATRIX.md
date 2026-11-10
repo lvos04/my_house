@@ -17,6 +17,11 @@ verwijzen naar §9).
 
 > **Tweede lezing (onafhankelijke controle, 2026-11-09):** zie **§11** onderaan. Daar staan de weerlegde en
 > aangevulde rijen en de bijgestelde bouwlijst; bij verschil gaat §11 vóór §0–§10.
+>
+> **Contract 1.3 (2026-11-10, C1.3-MH-07):** zie **§12** onderaan. Een bestaande app krijgt in v1 **geen
+> enrollment** en `HUB_URL` start er nooit een (contract 1.3 §2.3 regels 2 en 5); de Hub pollt de outbox. De rijen
+> hieronder die enrollment of een push naar de Hub-inbox noemden, zijn doorgehaald. Wat contract 1.3 verder van
+> my_house vraagt, staat per punt in `CONTRACT_1.3_CONFORMITEIT.md` §8 (zelfde map).
 
 ---
 
@@ -108,7 +113,7 @@ verwijzen naar §9).
 | Eis | Klasse | Bewijs | Wat mist → minimale wijziging | Niet doen |
 |---|---|---|---|---|
 | Hub toont woning, zones, meldingen, energie, metingen | **Onvolledig** | Alle data bestaat via leesroutes op niveau `auth` (§6): `GET /homes/{id}/overview` (`routers/homes.py:75`), `/homes/{id}/zones`, `/lights`, `/energy/summary`, `/energy/live`, `/alerts`, `/devices`, `/system/status`; elk meetpunt heeft `at` + `quality` + `stale` | P3-04: dienstidentiteit (koppelcode met rol `viewer`, `api_clients.kind=service`, migratie 0005); P3-03: `/connector/v1/discover\|health\|items\|events\|evidence` + `/healthz` + `/readyz` (contractfoutformaat) | Geen kopie van de my_house-database in de Hub |
-| Read-only overview/events | **Onvolledig** | WebSocket met token (`routers/ws.py:89`) zonder replay; geen outbox | P3-04: outbox (`connector_outbox`) gevuld waar nu `events.publish`/`raise_alert` gebeuren; `GET /connector/v1/events?cursor=`; optioneel push naar `POST {HUB_URL}/api/v1/events/inbox` na enrollment | Geen exact-once-aanname |
+| Read-only overview/events | **Onvolledig** | WebSocket met token (`routers/ws.py:89`) zonder replay; geen outbox | P3-04: outbox (`connector_outbox`) gevuld waar nu `events.publish`/`raise_alert` gebeuren; `GET /connector/v1/events?cursor=`; ~~optioneel push naar `POST {HUB_URL}/api/v1/events/inbox` na enrollment~~ (vervallen, contract 1.3 §2.3 regels 2 en 5: geen enrollment in v1; de Hub pollt `GET /connector/v1/events`) | Geen exact-once-aanname |
 | **Commando's alleen via my_house-API met permissie, TTL en readback** | **Onvolledig** | Permissie (`control`) en readback (`confirmed`) bestaan; **TTL, nonce, idempotency en Hub-handtekening ontbreken** | P3-05: `POST /connector/v1/propose\|apply` met ondertekend `ExecutionRequest` (Ed25519), vervaltijd, nonce, `Idempotency-Key`, ETag → roept bestaande `request_zone_command`/`queue_command` aan; evidence met readback (ADR-0002) | Hub krijgt nooit een `control`-token |
 | Geen dubbele eigen Gree-controller in de Hub | **N.v.t.** (grens) | — | — | Hub bouwt geen Gree-/klimaatlogica (eigenaar my_house) |
 | Scherm: compacte huiskaart + drilldown/quick controls die rollen volgen | **N.v.t.** voor my_house | eigenaar `ai-server-manager` (Hub-UI); my_house levert data + deep-link (`lan_url` uit `GET /system/settings`) | `discover` geeft `deep_link` en de toegestane acties per rol (P3-03) | — |
@@ -216,7 +221,7 @@ verwijzen naar §9).
 | 1 | Geheimen door de app zelf in `/appdata/secrets` | **Deels**: via `install.sh` | P3-01 |
 | 1 | UI-taal NL; waarde + eenheid + bron + laatst bijgewerkt; onbekend ≠ groen | **Ja** (`Measurement`, `Check.state: unknown`) | — |
 | 2 | Rij in de app-tabel | **Ontbreekt** in het contract | ADR-0003 punt 1 (contract_issue) |
-| 3 | Enrollment / koppelcode voor de Hub | **Deels** (koppelcode bestaat voor telefoons) | P3-04 |
+| 3 | Enrollment / koppelcode voor de Hub | **Deels** (koppelcode bestaat voor telefoons) | P3-04; **contract 1.3:** geen enrollment voor een bestaande app, koppelen met een koppelcode met rol viewer (§2.3 regel 2) |
 | 4 | Diensten zonder geldige auth → 401 `{code:"unauthorized"}` | **Deels**: 401 `auth_required`/`token_revoked` in `{"detail":…}` | Connector-routes volgen het contract (ADR-0003 punt 3) |
 | 5 | `/healthz`, `/readyz` zonder auth | **Deels**: `/api/v1/health`, nginx `/healthz` | P3-03 |
 | 5 | Foutformaat, `Idempotency-Key`, ETag, cursor | **Nee** | Op connector-routes (ADR-0003) |
@@ -263,8 +268,10 @@ via P3-05.
 **Echt ontbrekend** (P3): `/connector/v1/discover`, `/health`, `/items`, `/events?cursor=`, `/evidence/{id}`,
 `/propose`, `/apply`, `/rollback` (→ 501), `/healthz` + `/readyz` op API-niveau, dienst-clienttype, outbox,
 Ed25519-verificatie van `ExecutionRequest`, nonce- en idempotency-tabellen, back-upstatus als item voor B12
-(laatste geslaagde back-up, sha256, laatste herstelproef — nu alleen web-admin of CLI), enrollment via `HUB_URL`
-(alleen nodig als de Hub my_house via de API installeert; lager).
+(laatste geslaagde back-up, sha256, laatste herstelproef — nu alleen web-admin of CLI). ~~Enrollment via `HUB_URL`
+(alleen nodig als de Hub my_house via de API installeert; lager).~~ Vervallen (contract 1.3 §2.3 regels 2 en 5,
+C1.3-MH-07): een bestaande app krijgt in v1 geen enrollment; `HUB_URL` is in my_house alleen het doel van "Terug naar
+de Hub" (bij installatie via de Hub zet de vertaling alleen `HUB_URL`, nooit een token of vingerafdruk, §3.2).
 
 ## 7. Custom App-controle (alles-in-één)
 
@@ -289,7 +296,7 @@ Ed25519-verificatie van `ExecutionRequest`, nonce- en idempotency-tabellen, back
 | **P3-01** | P0 | `deploy/allinone/` (Dockerfile op digests, `supervisor.py`, `healthcheck.py`, first-start-init), `deploy/truenas/CUSTOM_APP.md`, `deploy/manifest/my_house.manifest.yaml`, `.env.example`, `deploy/dev/compose.yaml`; CI-job die de image bouwt en start (root én 568), rooktest + browsertests tegen die container; migratiepad bestaande installatie via back-up/herstel in de UI | B06-009, I05-05-01…03/07, contract §1/§9/§10, ADR-0004 | Geen YAML/compose als installatie; geen Docker-socket; geheimen nooit overschrijven |
 | **P3-02** | P0 | `release.yml`/`edge.yml`: `:latest` weg, digests in `release/digests.json`; Dockerfiles en dev-compose op `@sha256`; Dependabot blijft | contract §1 | Zelf geen tag/release publiceren |
 | **P3-03** | P0 | `connector/` (nieuwe router) — `GET /connector/v1/discover`, `/health`, `/items?type=home\|zone\|light_group\|device\|alert\|energy_total\|backup_status&cursor=&limit=`, `/evidence/{id}`; `GET /healthz`, `GET /readyz`; contractfoutformaat; lees-modellen = bestaande `views/*` | B06-006, B06-005 (Hub-kant), A20-A1 | Geen tweede berekening; geen per-binnenunit-verbruik |
-| **P3-04** | P0 | Dienstidentiteit: `api_clients.kind` (`phone\|service`, migratie **0005** met downgrade); `service` maximaal `viewer` op gewone routes; outbox `connector_outbox` (migratie 0005) gevuld bij `events.publish`/`raise_alert`/`resolve_alert`/uurtotaal; `GET /connector/v1/events?cursor=`; optioneel push naar Hub-inbox na enrollment | B06-006, EX12 | Geen exact-once; geen geheimen in events |
+| **P3-04** | P0 | Dienstidentiteit: `api_clients.kind` (`phone\|service`, migratie **0005** met downgrade); `service` maximaal `viewer` op gewone routes; outbox `connector_outbox` (migratie 0005) gevuld bij `events.publish`/`raise_alert`/`resolve_alert`/uurtotaal; `GET /connector/v1/events?cursor=` (de Hub pollt; ~~optioneel push naar Hub-inbox na enrollment~~ vervallen, contract 1.3 §2.3, C1.3-MH-07) | B06-006, EX12 | Geen exact-once; geen geheimen in events; geen enrollment |
 | **P3-05** | P0 | `POST /connector/v1/propose` + `/apply` + `/rollback` (501): Ed25519-verificatie (publieke policy-sleutel uit de koppeling), vervaltijd, nonce (`connector_nonces`), `Idempotency-Key` (`idempotency_keys`), ETag op zone/lichtgroep, allowlist (`light.group.set`, `light.scene.recall`, `zone.command`, `zone.resume`, `zone.schedule.propose`), aanroep van `request_zone_command`/`queue_command`; evidence met before/after + readback | B06-006, B06-007, EX17/18/20/45 | Geen eigen beleid naast `policy.py`; `risk_claim` nooit gebruiken |
 | **P3-06** | P0 | Boiler-regressie EX27: 409 `policy_denied` voor elk beschermd doel op lichtroute, zone-route, knopkoppeling, connector (ook `actor.type=ai`); `PATCH /zones/{id}` alleen `ac_unit` als unit | B06-003, EX27 | Bestaande drie lagen niet vervangen |
 | **P3-07** | P0 | Inbedrijfstellingsgate (ADR-0005): `check_command` weigert `untested` apparaten; wizardvolgorde meters → Hue lezen → Hue test → Gree na D12; testlog per apparaat; matrix uitbreiden (protocolversie, detectie, terugval) | B06-001, B06-002, B06-009 | Niet automatisch `tested` zetten |
@@ -470,3 +477,27 @@ leesroutes kan; bewijs- en blokkadeteksten van B06-001, -003, -004, -005, -006, 
 sectie. B06-002 is ongewijzigd. Geen enkele status `Gereed` of `Geslaagd`; verder geen statuswijziging. Eerlijkheid
 gecontroleerd: elke rij met hardware-, NAS- of accountafhankelijkheid draagt *NIET GEVALIDEERD*; B06-009 blijft
 **Geblokkeerd**.
+
+---
+
+## 12. Contract 1.3 (2026-11-10)
+
+Bij de overstap van de contractkopie 1.1 naar **1.3** (`PLATFORM_CONTRACTEN.md`, byte-gelijk met drifttest; zie
+`CONTRACT_HERKOMST.json`). Wat 1.3 van my_house vraagt, met moment, staat in `CONTRACT_1.3_CONFORMITEIT.md` §8; de
+status per punt in `EVIDENCE.json` (regels `C1.3-MH-01` … `C1.3-MH-07`).
+
+| Punt | Wat | Moment | Stand |
+|---|---|---|---|
+| C1.3-MH-01 | Kopie 1.3 + drifttest; EVIDENCE-test volgens §11 (1.3) | NU | gebouwd (`tools/contract_kopie.py`, `apps/api/tests/platform_v2/`) |
+| C1.3-MH-02 | `HUB_URL` volgens §3.2; nooit uit `Referer` of de URL; geen manifestparameter | NU (nalopen) | nagelopen en aangescherpt (startscript van de webcontainer en `apps/web/src/hub.ts`, ADR-0012) |
+| C1.3-MH-03 | Alles-in-één image met healthcheck volgens §2.2 en rooktest | P3 | open (was P3-01) |
+| C1.3-MH-04 | Bewaakt schrijfpad `propose`/`apply` met geplakte sleutelset en vingerafdruk over alle policy-sleutels | P3 | open (was P3-05; let op RV8: de Hub roteert niet zolang my_house de oude set gepind heeft) |
+| C1.3-MH-05 | Nieuwe routes volgens §5/§6 (foutcatalogus, health, `max_age`) en het terugkeerpad (§4.1) | P3 | open (§11.6: alleen op verzoek van de eigenaar van de Hub-adapter) |
+| C1.3-MH-06 | Manifest met `healthcheck.monitor`, back-up, geen `HUB_*` | P3 | open (was P3-01) |
+| C1.3-MH-07 | Deze delta-matrix: geen enrollment, geen push naar de Hub-inbox | NU (tekst) | gedaan: §6, §9 (P3-04) en B06-006 doorgehaald; de Hub pollt |
+
+**Niet veranderd door 1.3:** de leesadapter blijft in de Hub (ADR-0006, §11.6); bestaande routes houden hun eigen
+foutformaat (§2.3 regel 1); de boiler blijft op drie lagen geblokkeerd; back-up, herstel en monitoring van my_house
+worden niet dubbel gebouwd. **HARDE EIS (§2.3 regel 7):** my_house raakt geen kijkgeschiedenis en geen
+MediaGuard-voortgang (geen mediaserver, geen MediaGuard-koppeling); deze stap wijzigt alleen de contractkopie, de
+`HUB_URL`-controle, de ontwerptaal en documentatie.
