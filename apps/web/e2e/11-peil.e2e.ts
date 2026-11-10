@@ -3,9 +3,10 @@
 // (geen zijwaartse scroll, geen tekst < 14 px, bedienbare doelen ≥ 44 × 44 px, inhoud binnen zijn knop of tegel),
 // een volledige Tab-doorloop (ring ≥ 3:1, niet achter een vaste balk) en de twee toegestane
 // toevoegingen: de themaknop Systeem / Licht / Donker (O-09) en de link "Terug naar de Hub" (O-11).
+import { randomUUID } from 'node:crypto';
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
-import { expect, test } from './helpers';
+import { ensureLinkedZone, expect, seed, test, unique } from './helpers';
 
 const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 const SCREENS: [string, string][] = [
@@ -95,12 +96,13 @@ async function outsideCards(page: Page): Promise<string[]> {
 }
 
 /** Inhoud die buiten zijn eigen knop, tab, tegel of pil steekt (review stap 5: "✓ Verwarmen" stak 10 px uit de
- * modusknop, "Woonkamer" 18 px uit de lichttegel op 320 px). sr-only tekst telt niet. De ondernavigatie is
- * uitgezonderd: vijf kolommen van 64 px op 320 px zijn te smal voor een vet "Overzicht" (PEIL_REVIEW.md, open punt). */
+ * modusknop, "Woonkamer" 18 px uit de lichttegel op 320 px). sr-only tekst telt niet. Sinds Peil 1.1.1 (E16: items op
+ * labelbreedte, actief zonder extra gewicht) telt ook de ondernavigatie mee; in 1.1.0 stak een vet "Overzicht" op
+ * 320 px 2 px uit zijn kolom van 64 px (PEIL_REVIEW.md, open punt). */
 async function contentOutside(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const out: string[] = [];
-    for (const el of Array.from(document.querySelectorAll<HTMLElement>('main button, main a.btn, main [role="tab"], main .light-tile, main .pill, [role="dialog"] button'))) {
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>('main button, main a.btn, main [role="tab"], main .light-tile, main .pill, [role="dialog"] button, nav.bottom-nav .bottom-link'))) {
       const r = el.getBoundingClientRect();
       if (!r.width || el.closest('.sr-only')) continue;
       let uit = el.scrollWidth - el.clientWidth;
@@ -238,6 +240,80 @@ for (const width of [390, 1440]) {
     expect(fouten).toEqual([]);
   });
 }
+
+/** Een kleur (ook een CSS-variabele) zoals de browser hem uitrekent, als "rgb(…)". */
+async function kleur(page: Page, css: string): Promise<string> {
+  return page.evaluate((c) => {
+    const el = document.createElement('span');
+    el.style.color = c;
+    document.body.append(el);
+    const uit = getComputedStyle(el).color;
+    el.remove();
+    return uit;
+  }, css);
+}
+
+/** Contrast tussen twee kleuren (WCAG 2.x), beide als CSS-waarde. */
+async function contrast(page: Page, a: string, b: string): Promise<number> {
+  return page.evaluate(([x, y]) => {
+    const c = document.createElement('canvas').getContext('2d')!;
+    const rgb = (s: string) => { c.clearRect(0, 0, 1, 1); c.fillStyle = '#000'; c.fillStyle = s; c.fillRect(0, 0, 1, 1); return Array.from(c.getImageData(0, 0, 1, 1).data); };
+    const lum = (v: number[]) => { const f = (q: number) => { q /= 255; return q <= 0.04045 ? q / 12.92 : Math.pow((q + 0.055) / 1.055, 2.4); }; return 0.2126 * f(v[0]) + 0.7152 * f(v[1]) + 0.0722 * f(v[2]); };
+    const opgelost = (s: string) => { const el = document.createElement('span'); el.style.color = s; document.body.append(el); const u = getComputedStyle(el).color; el.remove(); return u; };
+    const la = lum(rgb(opgelost(x))), lb = lum(rgb(opgelost(y)));
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  }, [a, b] as const);
+}
+
+test('Peil 1.1.1: -soft-band ≥ 7:1 met -ink, rand -ink bij een gekozen modus en een brandende lichtgroep, ondernavigatie zonder extra gewicht', async ({ adminPage: page, api, homeId }) => {
+  const zone = await ensureLinkedZone(api, homeId, 'Slaapkamer');
+  const groep = `Bureau ${unique()}`;
+  seed('device', {
+    home_id: homeId, provider: 'hue', kind: 'light_group', name: groep, stable_identity: randomUUID(), online: true,
+    state: { type: 'grouped_light', on: true, brightness: 60, owner_type: 'room', lights_on: 1, lights_total: 1, lights_reachable: 1 },
+  });
+  for (const [scheme, thema] of [['light', 'licht'], ['dark', 'donker']] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.setViewportSize({ width: 390, height: 800 });
+    await page.goto(`/klimaat?zone=${zone.id}`);
+    await settled(page);
+    // Tekst op een schemaband (my_house zet labels in de band) staat in -ink: ≥ 7:1 (E14; was 4,9–6,2:1).
+    for (const d of ['heat', 'cool']) {
+      expect(await contrast(page, `var(--domain-${d}-ink)`, `var(--domain-${d}-soft)`), `${thema} ${d}-ink op ${d}-soft`).toBeGreaterThanOrEqual(7);
+    }
+    // De gekozen modusknop (verwarmen of koelen) heeft een rand in -ink, niet in de domeinkleur (§4.1 regel 11).
+    const gekozen = page.getByRole('region', { name: 'Bediening' }).locator('.mode-btn[aria-pressed="true"]');
+    await expect(gekozen).toHaveCount(1);
+    const soort = (await gekozen.getAttribute('class'))!.includes('cool') ? 'cool' : 'heat';
+    expect(await gekozen.evaluate((el) => el.className), `${thema}: gekozen modus is verwarmen of koelen`).toMatch(/\b(heat|cool)\b/);
+    expect(await gekozen.evaluate((el) => getComputedStyle(el).borderTopColor), `${thema} rand gekozen modus`).toBe(await kleur(page, `var(--domain-${soort}-ink)`));
+
+    // Lichttegels staan op het Overzicht (LichtTegel C-45); de lichtgroep hierboven brandt.
+    await page.goto('/');
+    await settled(page);
+    const tegel = page.locator('main .light-tile.on').first();
+    await expect(tegel).toBeVisible();
+    expect(await tegel.evaluate((el) => getComputedStyle(el).borderTopColor), `${thema} rand brandende lichtgroep`).toBe(await kleur(page, 'var(--domain-light-on-ink)'));
+  }
+
+  // Ondernavigatie op 320 px: items op labelbreedte (geen vijf gelijke kolommen), het actieve item even zwaar als de
+  // andere, precies één aria-current.
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.goto('/');
+  await settled(page);
+  const items = page.locator('nav.bottom-nav .bottom-link');
+  await expect(items).toHaveCount(5);
+  const maten = await items.evaluateAll((els) => els.map((el) => ({
+    breed: Math.round(el.getBoundingClientRect().width),
+    gewicht: getComputedStyle(el).fontWeight,
+    actief: el.getAttribute('aria-current') === 'page',
+  })));
+  expect(maten.filter((m) => m.actief)).toHaveLength(1);
+  expect(new Set(maten.map((m) => m.gewicht)).size, 'actief zonder extra gewicht').toBe(1);
+  expect(new Set(maten.map((m) => m.breed)).size, 'items op labelbreedte, geen vaste kolommen').toBeGreaterThan(1);
+  expect(Math.min(...maten.map((m) => m.breed)), 'elk item minstens 44 px').toBeGreaterThanOrEqual(44);
+  expect(await contentOutside(page)).toEqual([]);
+});
 
 test('themaknop: Donker blijft na herladen, Systeem volgt het apparaat (O-09)', async ({ adminPage: page }) => {
   await page.emulateMedia({ colorScheme: 'light' });

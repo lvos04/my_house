@@ -83,6 +83,27 @@ describe('shell (item 40)', () => {
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/auth/logout'))).toBe(true));
   });
 
+  it('Peil 1.1.1 (E16): precies één actief item in de ondernavigatie met aria-current, ook "Meer" op een Meer-pagina', async () => {
+    mockApi((_m, url) => {
+      if (url.endsWith('/homes')) return { body: [home] };
+      if (url.endsWith('/overview')) return { body: overview };
+      return undefined;
+    });
+    const { unmount } = render(<Providers><AppRoutes user={admin} /></Providers>);
+    let bar = await screen.findByRole('navigation', { name: 'Hoofdmenu (mobiel)' });
+    expect(within(bar).getByRole('link', { name: 'Overzicht' })).toHaveAttribute('aria-current', 'page');
+    expect(within(bar).getByRole('button', { name: 'Meer' })).not.toHaveAttribute('aria-current');
+    expect(bar.querySelectorAll('[aria-current]')).toHaveLength(1);
+    unmount();
+
+    render(<Providers route="/systeem"><AppRoutes user={admin} /></Providers>);
+    bar = await screen.findByRole('navigation', { name: 'Hoofdmenu (mobiel)' });
+    const meer = within(bar).getByRole('button', { name: 'Meer' });
+    expect(meer).toHaveAttribute('aria-current', 'page');
+    expect(meer).toHaveClass('active');
+    expect(bar.querySelectorAll('[aria-current]')).toHaveLength(1);
+  });
+
   it('Peil-toevoegingen: zijbalk en Meer-sheet tonen "Terug naar de Hub" (alleen met een geldig adres) en de themakeuze', async () => {
     vergeetHubAdres();
     mockApi((_m, url) => {

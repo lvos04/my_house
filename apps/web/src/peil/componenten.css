@@ -87,8 +87,10 @@
   }
   .mode-btn:hover:not(:disabled) { @apply bg-accent; }
   .mode-btn[aria-pressed='true'] { @apply border-2 border-foreground bg-accent font-bold; --icoon: var(--peil-icoon-check); }
-  .mode-btn.heat[aria-pressed='true'] { @apply border-domain-heat bg-domain-heat-bg text-domain-heat-ink; }
-  .mode-btn.cool[aria-pressed='true'] { @apply border-domain-cool bg-domain-cool-bg text-domain-cool-ink; }
+  /* Peil 1.1.1 (§4.1 regel 11, E14): de rand van een gekozen domeinknop is -ink (≥ 7:1), niet de domeinkleur
+     (2,8:1 op het eigen vlak). Zo deed de Android-app het al (ADR-0010 punt 5). */
+  .mode-btn.heat[aria-pressed='true'] { @apply border-domain-heat-ink bg-domain-heat-bg text-domain-heat-ink; }
+  .mode-btn.cool[aria-pressed='true'] { @apply border-domain-cool-ink bg-domain-cool-bg text-domain-cool-ink; }
   .mode-btn.blocked { @apply border-2 border-dashed border-gate bg-gate-bg text-gate-ink; }
   .mode-btn:disabled:not(.blocked) { @apply cursor-not-allowed border-dashed bg-muted text-disabled-foreground; }
 
@@ -186,7 +188,7 @@
   .light-tile { min-width: 0; }
   .light-tile .lt-name { @apply inline-flex min-w-0 flex-wrap items-center gap-1.5 text-base font-semibold; overflow-wrap: anywhere; }
   .light-tile .lt-name > svg { @apply size-5 shrink-0; }
-  .light-tile.on { @apply border-2 border-domain-light-on bg-domain-light-on-bg text-domain-light-on-ink; }
+  .light-tile.on { @apply border-2 border-domain-light-on-ink bg-domain-light-on-bg text-domain-light-on-ink; }   /* 1.1.1: rand -ink */
   .light-tile.on:hover:not(:disabled) { @apply bg-domain-light-on-bg; }
   .light-tile.on .small, .light-tile.on .muted { @apply text-domain-light-on-ink; }
   .light-tile:disabled, .light-tile.is-unreachable { @apply cursor-not-allowed border-2 border-dashed border-unknown bg-unknown-bg text-foreground opacity-100; }
@@ -199,11 +201,17 @@
   .nav-link > svg { @apply size-5 shrink-0 text-muted-foreground; }
   .nav-link:hover { @apply bg-accent text-foreground; }
   .nav-link.active { @apply bg-accent font-bold; box-shadow: inset 4px 0 0 var(--primary); }
+  /* Ondernavigatie (Peil 1.1.1, E16): items op labelbreedte (flex-auto, minimaal 44 px; de rest van de ruimte gelijk
+     verdeeld) in plaats van vijf vaste kolommen; labels breken nooit midden in een woord. Actief = balk van 3 px in
+     --primary + inkt + aria-current, zonder extra gewicht (een vet "Overzicht" paste op 320 px niet in 64 px). */
+  @media (width < 64rem) {
+    .bottom-nav { display: flex; }
+  }
   .bottom-link {
-    @apply flex min-h-16 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-none border-0 bg-transparent px-0.5 text-sm font-medium text-muted-foreground no-underline;
+    @apply flex min-h-16 min-w-touch flex-auto cursor-pointer flex-col items-center justify-center gap-0.5 rounded-none border-0 bg-transparent px-0.5 text-sm font-medium whitespace-nowrap text-muted-foreground no-underline;
   }
   .bottom-link > svg { @apply size-6 shrink-0; }
-  .bottom-link.active { @apply font-bold text-foreground; box-shadow: inset 0 3px 0 var(--primary); background: transparent; }
+  .bottom-link.active { @apply text-foreground; box-shadow: inset 0 3px 0 var(--primary); background: transparent; }
   .hub-link { @apply w-full justify-start; }
   /* Losse link (niet in lopende tekst): doel ≥ 44 px (WCAG 2.5.8). */
   .los-link > a, a.los-link { @apply inline-flex min-h-touch items-center; }

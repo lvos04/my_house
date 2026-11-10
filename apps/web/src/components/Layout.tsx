@@ -111,6 +111,7 @@ export function Layout({ user }: { user: User }) {
   const { offline } = useConnection();
   const { savedAt } = useSnapshotInfo();
   const location = useLocation();
+  const meerActief = MORE_NAV.some((n) => location.pathname.startsWith(n.to));
   const homes = useQuery({ queryKey: qk.homes, queryFn: api.homes });
   const [moreOpen, setMoreOpen] = useState(false);
   const moreBtn = useRef<HTMLButtonElement>(null);
@@ -226,7 +227,10 @@ export function Layout({ user }: { user: User }) {
         <button
           ref={moreBtn}
           type="button"
-          className={`bottom-link${MORE_NAV.some((n) => location.pathname.startsWith(n.to)) ? ' active' : ''}`}
+          className={`bottom-link${meerActief ? ' active' : ''}`}
+          // Peil 1.1.1 (E16, COMPONENTEN §2): het actieve item draagt aria-current, ook "Meer" op een pagina uit de
+          // Meer-sheet; in forced colors onderstreept de basislaag precies dat item.
+          aria-current={meerActief ? 'page' : undefined}
           aria-haspopup="dialog"
           aria-expanded={moreOpen}
           onClick={() => setMoreOpen(true)}
