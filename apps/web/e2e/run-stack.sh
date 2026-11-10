@@ -108,7 +108,7 @@ EOF
 
 WEB_PID=""
 STATUS=1
-# shellcheck disable=SC2329 # called by the EXIT trap
+# shellcheck disable=SC2317,SC2329 # called by the EXIT trap (older shellcheck reports SC2317, newer SC2329)
 cleanup() {
   set +e
   [[ -n "$WEB_PID" ]] && kill "$WEB_PID" 2>/dev/null
