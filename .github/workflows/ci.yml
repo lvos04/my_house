@@ -166,6 +166,8 @@ jobs:
           path: apps/web/e2e/.output/
           retention-days: 14
           if-no-files-found: ignore
+          # .output is a hidden folder: without this the report and traces are never uploaded.
+          include-hidden-files: true
 
   compose:
     runs-on: ubuntu-24.04
@@ -292,6 +294,8 @@ jobs:
           path: infra/e2e/.output/
           retention-days: 14
           if-no-files-found: ignore
+          # .output is a hidden folder: without this the report and traces are never uploaded.
+          include-hidden-files: true
       - name: Logs
         if: failure()
         run: |

@@ -23,6 +23,11 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
   web-app haalt het adres alleen uit `/_shc/config.json`). CI controleert nu ook het startscript van de webcontainer met
   shellcheck. De installatiehandleiding en de README noemen de bestaande route (shell, `install.sh`, *Install via YAML*)
   nu eerlijk als route van vóór het platform; de standaard Custom App zonder terminal komt in P3 (C1.3-MH-03).
+- **Laatst bekende gegevens na herladen:** gegevens uit de opgeslagen momentopname ("laatst bekend") worden bij de
+  start nu altijd meteen opnieuw opgehaald. Was de momentopname jonger dan 10 seconden, dan gold hij als vers: na een
+  snelle herlaad kende de app bijvoorbeeld een net gemaakte woning niet (gevonden doordat de browsertest "eerste
+  start" in CI-run 42785063693 faalde). CI bewaart het rapport en de traces van mislukte browsertests nu ook echt (de
+  map `.output` werd als verborgen map overgeslagen).
 
 ### Uiterlijk (web-app naar de ontwerptaal Peil)
 
