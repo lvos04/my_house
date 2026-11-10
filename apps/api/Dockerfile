@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Build context: repository root (needs integrations/, apps/api/ and VERSION).
 # Base images are pinned by tag; Dependabot (docker) proposes updates.
-FROM python:3.12.16-slim-trixie AS build
+FROM python:3.15.0-slim-trixie AS build
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 RUN python -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
@@ -36,7 +36,7 @@ RUN /opt/build/bin/pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/whe
 # match the server; keep this tag on the same major as the db service in compose.yaml).
 FROM postgres:16.15-trixie AS pgdg
 
-FROM python:3.12.16-slim-trixie
+FROM python:3.15.0-slim-trixie
 ARG APP_VERSION=dev
 ARG PG_MAJOR=16
 LABEL org.opencontainers.image.title="Smart Home Control API" \
