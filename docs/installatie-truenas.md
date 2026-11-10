@@ -1,6 +1,14 @@
 # Installatie op TrueNAS SCALE 25.10
 
-De app is één Custom App: één YAML met meerdere containers (database, API, worker, web, MQTT-broker en optioneel Zigbee2MQTT en Cloudflare Tunnel).
+> **Let op: dit is de bestaande installatieroute van versie 0.2.0, van vóór het TrueNAS Home Platform.** Ze vraagt de
+> TrueNAS-shell (`git clone`, `install.sh` als root) en **Install via YAML**; TrueNAS ziet de app daardoor als
+> compose-app, niet als standaard Custom App (formulier). Volgens het platformcontract (1.3, §2.3 regel 4) blijft deze
+> route in het platform alleen voor ontwikkeling en CI. De standaard Custom App met één alles-in-één image (formulier:
+> image en tag, poort, opslag; zonder terminal en zonder YAML) komt in fase P3 (C1.3-MH-03, ADR-0004). Tot dan is er
+> voor my_house nog **geen** installatie zonder terminal. De poolnaam `tank`, het IP-adres `192.168.1.20` en
+> `huis.jouwdomein.nl` hieronder zijn **voorbeelden**: vul de pool, het adres en het domein van je eigen NAS in.
+
+De app is één compose-app (*Install via YAML*) met meerdere containers (database, API, worker, web, MQTT-broker en optioneel Zigbee2MQTT en Cloudflare Tunnel).
 
 ## 1. Dataset maken
 

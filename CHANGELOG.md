@@ -18,6 +18,11 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
   donkere inkt, ondernavigatie op de breedte van de labels en zonder vet actief item (web en Android; "Overzicht" stak op
   320 px 2 px uit zijn kolom). Functies, routes, teksten en API zijn gelijk.
 - Delta-matrix: geen enrollment via `HUB_URL` en geen push naar de Hub-inbox (contract 1.3 §2.3); ADR-0012.
+- Review van de conformiteitsronde: een statische test bewaakt dat `HUB_URL` nergens een koppeling start (geen
+  enrollment-token, vingerafdruk, koppelbestand of inbox-push in de broncode; het startscript leest alleen `HUB_URL`; de
+  web-app haalt het adres alleen uit `/_shc/config.json`). CI controleert nu ook het startscript van de webcontainer met
+  shellcheck. De installatiehandleiding en de README noemen de bestaande route (shell, `install.sh`, *Install via YAML*)
+  nu eerlijk als route van vóór het platform; de standaard Custom App zonder terminal komt in P3 (C1.3-MH-03).
 
 ### Uiterlijk (web-app naar de ontwerptaal Peil)
 
