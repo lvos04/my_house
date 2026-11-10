@@ -164,6 +164,23 @@ describe('Terug naar de Hub (O-11)', () => {
     }
   });
 
+  // Contract 1.3 §3.2: dezelfde gevallen als het startscript van de webcontainer (infra/tests/test_scripts.py), zodat
+  // de tweede controle in de browser nooit iets doorlaat dat het script weigert, en andersom.
+  const gevallen = JSON.parse(readFileSync(join(__dirname, '../../../../infra/tests/hub_url_gevallen.json'), 'utf8')) as {
+    geldig: [string, string][];
+    ongeldig: string[];
+  };
+
+  it.each(gevallen.geldig)('contract 1.3 §3.2: %s is geldig', (invoer, origin) => {
+    expect(geldigHubAdres(invoer)).toBe(new URL(origin).origin);
+    // Wat het startscript schrijft, is zelf ook geldig en verandert niet meer.
+    expect(geldigHubAdres(origin)).toBe(new URL(origin).origin);
+  });
+
+  it.each(gevallen.ongeldig)('contract 1.3 §3.2: %s is ongeldig (geen link)', (invoer) => {
+    expect(geldigHubAdres(invoer)).toBeNull();
+  });
+
   it('leest het adres alleen uit /_shc/config.json; geen bestand of geen JSON = geen link', async () => {
     const calls = mockApi((_m, url) => (url === HUB_CONFIG_URL ? { body: { hub_url: 'https://hub.thuis:8443' } } : undefined));
     expect(await laadHubAdres()).toBe('https://hub.thuis:8443');

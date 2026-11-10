@@ -168,76 +168,91 @@ class Zigbee2mqttInBackup(unittest.TestCase):
             self.assertIn("geen uitleg van de API", str(ctx.exception))
 
 
+# HUB_URL for "Terug naar de Hub" (contract 1.3 §3.2 and §2.3 rule 5). Shared by the shell script test below and,
+# as a fixture file, by the web unit test (apps/web/src/test/peil-toevoegingen.test.tsx reads the same lists), so the
+# script in the image and the second check in the browser follow exactly the same cases.
+HUB_URL_CASES = SCRIPTS.parent / "tests" / "hub_url_gevallen.json"
+
+
+def _hub_url_cases() -> dict[str, list]:
+    return json.loads(HUB_URL_CASES.read_text(encoding="utf-8"))
+
+
 @unittest.skipUnless(shutil.which("sh"), "geen sh")
 class WebConfigScript(unittest.TestCase):
-    """apps/web/docker/15-shc-config.sh: HUB_URL -> /_shc/config.json for "Terug naar de Hub" (O-11)."""
+    """apps/web/docker/15-shc-config.sh: HUB_URL -> /_shc/config.json for "Terug naar de Hub" (O-11).
+
+    Runs with the system sh/awk (dash + mawk on Ubuntu) and, when busybox is available, once more with busybox sh and
+    busybox awk: that is what the nginx (Alpine) image runs.
+    """
+
+    shell: tuple[str, ...] = ("sh",)
+    awk_dir: str | None = None
 
     def config(self, hub: str | None) -> tuple[dict, str]:
         with tempfile.TemporaryDirectory() as d:
             env = {k: v for k, v in os.environ.items() if k != "HUB_URL"}
             env["SHC_CONFIG_DIR"] = d
+            if self.awk_dir:
+                env["PATH"] = f"{self.awk_dir}{os.pathsep}{env.get('PATH', '')}"
             if hub is not None:
                 env["HUB_URL"] = hub
-            proc = subprocess.run(["sh", str(WEB_CONFIG_SCRIPT)], env=env, capture_output=True, text=True, check=False)  # noqa: S603, S607
+            proc = subprocess.run(  # noqa: S603
+                [*self.shell, str(WEB_CONFIG_SCRIPT)], env=env, capture_output=True, text=True, check=False
+            )
             self.assertEqual(proc.returncode, 0, proc.stderr)  # an invalid value never stops the container
             return json.loads(Path(d, "config.json").read_text()), proc.stderr
 
     def test_valid_addresses_become_an_origin(self) -> None:
-        for hub, origin in (
-            ("https://hub.thuis:8443", "https://hub.thuis:8443"),
-            ("https://hub.thuis:8443/", "https://hub.thuis:8443"),
-            ("http://192.168.1.5", "http://192.168.1.5"),
-            ("https://[2001:db8::1]:8443", "https://[2001:db8::1]:8443"),
-            ("https://[1::]", "https://[1::]"),
-            ("https://[::10]", "https://[::10]"),
-            ("http://10.0.0.1:8088", "http://10.0.0.1:8088"),
-            ("https://hub-1.thuis", "https://hub-1.thuis"),
-        ):
+        for hub, origin in _hub_url_cases()["geldig"]:
             with self.subTest(hub=hub):
-                self.assertEqual(self.config(hub)[0], {"hub_url": origin})
+                self.assertEqual(self.config(hub), ({"hub_url": origin}, ""))
 
     def test_empty_or_absent_is_no_link(self) -> None:
         self.assertEqual(self.config(None), ({}, ""))
         self.assertEqual(self.config(""), ({}, ""))
 
     def test_invalid_addresses_are_ignored(self) -> None:
-        for hub in (
-            "http://127.0.0.1:8443",
-            "http://localhost",
-            "http://hub.localhost",
-            "http://0.0.0.0",
-            "http://169.254.10.1",
-            "https://[::1]",
-            "https://[fe80::1]",
-            # other spellings of the same loopback/unspecified addresses (the browser normalises them)
-            "http://0177.0.0.1:8443",
-            "http://2130706433",
-            "http://0x7f.1",
-            "http://127.1",
-            "http://1.2.3",
-            "http://169.254.0x1.1",
-            "http://010.0.0.1",
-            "https://[0::1]",
-            "https://[::0001]",
-            "https://[0:0:0:0:0:0:0:1]",
-            "https://[0::]",
-            "https://[::ffff:127.0.0.1]",
-            "https://[0:0:0:0:0:ffff:7f00:1]",
-            "https://user:pass@hub.thuis",
-            "https://hub.thuis/pad",
-            "https://hub.thuis?x=1",
-            "https://hub.thuis#x",
-            'https://hub"thuis',
-            "https://hub.thuis:0",
-            "https://hub.thuis:70000",
-            "ftp://hub.thuis",
-            "javascript:alert(1)",
-            "hub.thuis",
-        ):
+        for hub in _hub_url_cases()["ongeldig"]:
             with self.subTest(hub=hub):
                 cfg, err = self.config(hub)
                 self.assertEqual(cfg, {})
                 self.assertIn("HUB_URL genegeerd", err)
+
+    def test_the_file_is_always_valid_json_even_for_hostile_values(self) -> None:
+        for hub in ('https://a.b\n","x":"y', 'https://a.b"}', "https://a.b\\", "https://a.b\thuis", "https://a.b\u00e9"):
+            with self.subTest(hub=hub):
+                self.assertEqual(self.config(hub)[0], {})
+
+    def test_cases_cover_every_rule_of_section_3_2(self) -> None:
+        cases = _hub_url_cases()
+        ongeldig = set(cases["ongeldig"])
+        # the examples the contract names literally (§3.2 "Adresregels (vorm)")
+        for voorbeeld in ("http://127.1", "http://2130706433", "http://0x7f000001", "http://010.0.0.1", "http://0",
+                          "http://localhost.", "https://[::]", "http://0.0.0.0", "http://169.254.1.1",
+                          "https://[fe80::1]", "https://hub.thuis/pad", "https://u:p@hub.thuis", "https://hub.thuis?x",
+                          "https://hub.thuis#x", "https://::1", "ftp://hub.thuis"):
+            self.assertIn(voorbeeld, ongeldig)
+        self.assertIn(["https://hub.thuis.:8443", "https://hub.thuis.:8443"], cases["geldig"])
+
+
+@unittest.skipUnless(shutil.which("busybox"), "geen busybox (de image gebruikt busybox sh + awk)")
+class WebConfigScriptBusybox(WebConfigScript):
+    """The same cases with busybox sh and busybox awk, like the nginx Alpine image."""
+
+    shell = ("busybox", "sh")
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._tmp = tempfile.TemporaryDirectory()
+        awk = Path(cls._tmp.name, "awk")
+        awk.write_text(f'#!/bin/sh\nexec {shutil.which("busybox")} awk "$@"\n')
+        awk.chmod(0o755)
+        cls.awk_dir = cls._tmp.name
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._tmp.cleanup()
 
 
 if __name__ == "__main__":
