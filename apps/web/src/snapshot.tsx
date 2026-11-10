@@ -106,8 +106,10 @@ export function loadSnapshot(homeId: string | null, st: Storage | null = storage
   return { global: loadRaw(st, GLOBAL_KEY), home: homeId ? loadRaw(st, SNAPSHOT_PREFIX + homeId) : null };
 }
 
-/** Put the stored data into the query cache, marked with its original time (so it is refetched at
- * once). Returns when the home data was saved, or null. Never overwrites fresher data. */
+/** Put the stored data into the query cache, marked with its original time and as stale, so the first
+ * reader refetches it at once — also when the snapshot is younger than the client's staleTime (a
+ * reload within seconds would otherwise keep, say, an empty list of homes as if it were fresh).
+ * Returns when the home data was saved, or null. Never overwrites fresher data. */
 export function hydrateFromSnapshot(qc: QueryClient, homeId: string | null, st: Storage | null = storage()): number | null {
   const { global, home } = loadSnapshot(homeId, st);
   for (const snap of [global, home]) {
@@ -116,6 +118,8 @@ export function hydrateFromSnapshot(qc: QueryClient, homeId: string | null, st: 
       const existing = qc.getQueryState(key);
       if (existing?.data !== undefined && existing.dataUpdatedAt >= snap.savedAt) continue;
       qc.setQueryData(key, data, { updatedAt: snap.savedAt });
+      // Last known data is never fresh: mark it invalidated without fetching now (no observer yet).
+      void qc.invalidateQueries({ queryKey: key, exact: true, refetchType: 'none' });
     }
   }
   return home?.savedAt ?? null;

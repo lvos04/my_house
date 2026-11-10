@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
-import { QueryClient } from '@tanstack/react-query';
+import { QueryClient, QueryObserver } from '@tanstack/react-query';
 import { qk } from '../api/keys';
 import type { Alert, Lights, Overview } from '../api/types';
 import {
@@ -182,6 +182,38 @@ describe('offline snapshot ("laatst bekend")', () => {
     qc.setQueryData(qk.overview('h1'), overview);
     expect(() => saveSnapshot(qc, 'h1', broken)).not.toThrow();
     expect(hydrateFromSnapshot(qc, 'h1', broken)).toBeNull();
+  });
+
+  // Gevonden in CI-run 42785063693 (browsertest "eerste start"): een snapshot van een paar seconden oud (woningen nog
+  // leeg) werd na het herladen als vers gezien (staleTime 10 s) en niet opnieuw opgehaald, zodat de app de net
+  // gemaakte woning niet kende. Laatst bekende gegevens zijn nooit vers: de eerste lezer haalt ze meteen opnieuw op.
+  it('refetches snapshot data at once, also when the snapshot is only seconds old', async () => {
+    const qc = new QueryClient();
+    qc.setQueryData(qk.homes, []);
+    saveSnapshot(qc, null, localStorage, Date.now() - 1_000);
+    const fresh = new QueryClient({ defaultOptions: { queries: { staleTime: 10_000, retry: false } } });
+    hydrateFromSnapshot(fresh, null, localStorage);
+    expect(fresh.getQueryData(qk.homes)).toEqual([]);
+    const queryFn = vi.fn(async () => [overview.home]);
+    const unsubscribe = new QueryObserver(fresh, { queryKey: qk.homes, queryFn }).subscribe(() => {});
+    await vi.waitFor(() => expect(fresh.getQueryData(qk.homes)).toEqual([overview.home]));
+    expect(queryFn).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  it('never overwrites fresher data and does not mark it stale', async () => {
+    const old = new QueryClient();
+    old.setQueryData(qk.homes, []);
+    saveSnapshot(old, null, localStorage, Date.now() - 60_000);
+    const qc = new QueryClient({ defaultOptions: { queries: { staleTime: 10_000, retry: false } } });
+    qc.setQueryData(qk.homes, [overview.home]);
+    hydrateFromSnapshot(qc, null, localStorage);
+    const queryFn = vi.fn(async () => [overview.home]);
+    const unsubscribe = new QueryObserver(qc, { queryKey: qk.homes, queryFn }).subscribe(() => {});
+    await act(async () => {});
+    expect(qc.getQueryData(qk.homes)).toEqual([overview.home]);
+    expect(queryFn).not.toHaveBeenCalled();
+    unsubscribe();
   });
 });
 
