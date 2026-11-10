@@ -2,91 +2,171 @@
  {
   "id": "B06-001",
   "status": "Bezig",
-  "validatie": "P0-inventaris en delta-matrix uitgevoerd; bestaande compatibiliteitsmatrix en Gree-protocolgate Sim-getest; NIET GEVALIDEERD (hardware)",
+  "validatie": "Sim-getest; NIET GEVALIDEERD (hardware)",
   "bewijs": "code-HEAD b0a6a98 (VERSION 0.2.0); baseline deze sessie: pytest integrations 188 geslaagd/1 overgeslagen, pytest apps/api 319/319 (run 2; run 1 hing op een flaky test), vitest 164/164, ruff schoon, validate_compose.sh ok (INVENTARIS.md §15); repo-CI run 42587407462 op 9c9d02f geslaagd (backend, web, e2e, compose, stack); docs/platform-v2/INVENTARIS.md; docs/platform-v2/DELTA_MATRIX.md §1 B06-001; docs/compatibility.md; GET /api/v1/integrations/compatibility (routers/devices.py:877); tests/test_ws_devices_api.py::test_compatibility_matrix_as_data, ::test_preflight_checks; integrations/tests/test_gree_bind.py::test_bind_failure_is_unsupported_with_scan_diagnostics; ADR-0001, ADR-0005; tweede lezing DELTA_MATRIX.md §11 (G1, G5): host, protocolversie, model en firmware worden al per koppeling/apparaat vastgelegd (routers/devices.py:154-155, :739; gree/adapter.py:397; homewizard/adapter.py:435-442), getest-markering + audit device_marked_tested (routers/devices.py:649-662)",
   "blokkade": "Echte apparaten/firmware onbekend (D12 Gree, D13 Zigbee, D14 HomeWizard); NAS-versie en draaiende my_house-versie onbekend (D01, D07). Nog te bouwen: P3-07 (bediening alleen voor apparaten met compatibility=tested; Hue en P1 eerst read-only; bestaande host/protocolversie/firmware en testhistorie tonen, alleen detectiemethode en terugval toevoegen; geen nieuwe velden voor wat al bestaat).",
-  "opmerking": "Delta tegen HEAD 0.2.0, niet tegen v0.1.0. 0.2.0 is niet gepubliceerd: release-run 42580532662 faalde (Gradle-download HTTP 504), images/publish overgeslagen; alleen tag/release v0.1.0 bestaat.",
+  "opmerking": "Validatie (toelichting, tot 2026-11-10 in het veld validatie): P0-inventaris en delta-matrix uitgevoerd; bestaande compatibiliteitsmatrix en Gree-protocolgate Sim-getest; NIET GEVALIDEERD (hardware). Delta tegen HEAD 0.2.0, niet tegen v0.1.0. 0.2.0 is inmiddels gepubliceerd (GitHub-release v0.2.0 op tag b0a6a98, 2026-11-09; gemeten met gh release list op 2026-11-10; contract 1.3 §1.1 besluit 5). De eerdere release-run 42580532662 faalde (Gradle-download HTTP 504).",
   "repo": "my_house",
-  "bijgewerkt": "2026-11-09"
+  "bijgewerkt": "2026-11-10"
  },
  {
   "id": "B06-002",
   "status": "Bezig",
-  "validatie": "Bestaand in code + repo-CI + Sim-getest (nep-apparaten met echt protocol, nep-Gree in compose-E2E); NIET GEVALIDEERD (hardware)",
+  "validatie": "Unit-getest; Sim-getest; NIET GEVALIDEERD (hardware); NIET GEVALIDEERD (echte NAS)",
   "bewijs": "code-HEAD b0a6a98 (VERSION 0.2.0); baseline deze sessie: pytest integrations 188 geslaagd/1 overgeslagen, pytest apps/api 319/319 (run 2; run 1 hing op een flaky test), vitest 164/164, ruff schoon, validate_compose.sh ok (INVENTARIS.md §15); repo-CI run 42587407462 op 9c9d02f geslaagd (backend, web, e2e, compose, stack); integrations/src/shc_integrations/{hue,homewizard,gree,zigbee}; integrations/tests/test_contract_*.py; integrations/tests/test_hue_adapter.py::test_eventstream_watchdog_reconnects_and_reloads; tests/test_ws_failures.py::test_device_offline_then_back_debounced, ::test_zigbee_mqtt_disconnect_and_reconnect; tests/test_ws_climate_worker.py::test_unconfirmed_command_is_confirmed_by_a_later_readback; preflight mDNS-probe routers/homes.py:138-224; infra/e2e/worker-command.e2e.ts; DELTA_MATRIX.md §1 B06-002",
   "blokkade": "Echte Hue/HomeWizard/Gree/Zigbee op het eigen netwerk (D12-D14); mDNS/broadcast en USB-doorgifte in een standaard Custom App op de echte TrueNAS-versie (D01). Nog te bouwen: P3-01 (dongle via formulier), P3-07, P3-12 (flaky test_push_stream_batches_and_restarts).",
-  "opmerking": "Zonder readback nooit 'uitgevoerd': bestaand (status sent/confirmed/failed).",
+  "opmerking": "Validatie (toelichting, tot 2026-11-10 in het veld validatie): Bestaand in code + repo-CI + Sim-getest (nep-apparaten met echt protocol, nep-Gree in compose-E2E); NIET GEVALIDEERD (hardware). Zonder readback nooit 'uitgevoerd': bestaand (status sent/confirmed/failed). Contract 1.3: 'echte NAS' toegevoegd aan validatie, want de blokkade noemt mDNS/broadcast en USB-doorgifte in een standaard Custom App op de echte TrueNAS (D01).",
   "repo": "my_house",
-  "bijgewerkt": "2026-11-09"
+  "bijgewerkt": "2026-11-10"
  },
  {
   "id": "B06-003",
   "status": "Bezig",
-  "validatie": "Bestaand in code (API, worker, adapter) + Unit-getest + Sim-getest; Hub/AI-route ontbreekt nog; NIET GEVALIDEERD (hardware)",
+  "validatie": "Unit-getest; Sim-getest; NIET GEVALIDEERD (hardware)",
   "bewijs": "code-HEAD b0a6a98 (VERSION 0.2.0); baseline deze sessie: pytest integrations 188 geslaagd/1 overgeslagen, pytest apps/api 319/319 (run 2; run 1 hing op een flaky test), vitest 164/164, ruff schoon, validate_compose.sh ok (INVENTARIS.md §15); repo-CI run 42587407462 op 9c9d02f geslaagd (backend, web, e2e, compose, stack); policy.py:37-54; commanding.py:84-90, :154-163; worker/commands.py:140-146; homewizard/adapter.py:239-246, :500-506; worker/core.py:486; routers/devices.py:491; tests/test_api.py::test_boiler_socket_can_never_switch; tests/test_core_logic.py::test_boiler_never_switchable, ::test_energy_socket_relay_blocked_even_without_role; integrations/tests/test_homewizard.py::test_v1_socket_poll_and_relay_blocked_by_default, ::test_relay_allowed_only_via_policy_hook; tests/test_ws_devices_worker.py::test_protected_socket_relay_and_switch_lock_alerts; DELTA_MATRIX.md §1 B06-003, §4 EX27; tweede lezing DELTA_MATRIX.md §11.4: geen API-test controleert de foutcode policy_denied; wegwerp-probe (niet gecommit): PATCH /zones/{id} met boiler als unit = 200, zone-commando = 409 policy_denied, lichtroute = 404",
   "blokkade": "Nog te bouwen: P3-05/P3-06 (connector propose/apply met boiler altijd 409 policy_denied, ook met handtekening/goedkeuring/AI-actor; lichtroute geeft nu 404 i.p.v. 409 voor een boiler-id; PATCH /zones/{id} accepteert elk apparaat als unit). Echte Energy Socket (D14). P3-06 voegt tests toe op detail.code == 'policy_denied'; de bestaande 404-assert in tests/test_api.py::test_boiler_socket_can_never_switch aanpassen, niet verwijderen.",
-  "opmerking": "De HomeWizard-app zelf kan de stekker nog schakelen; dat valt buiten my_house (gedocumenteerd).",
+  "opmerking": "Validatie (toelichting, tot 2026-11-10 in het veld validatie): Bestaand in code (API, worker, adapter) + Unit-getest + Sim-getest; Hub/AI-route ontbreekt nog; NIET GEVALIDEERD (hardware). De HomeWizard-app zelf kan de stekker nog schakelen; dat valt buiten my_house (gedocumenteerd).",
   "repo": "my_house",
-  "bijgewerkt": "2026-11-09"
+  "bijgewerkt": "2026-11-10"
  },
  {
   "id": "B06-004",
   "status": "Bezig",
-  "validatie": "Bestaand in code + Unit-getest + Sim-getest (worker met database en nep-Gree); NIET GEVALIDEERD (hardware)",
+  "validatie": "Unit-getest; Sim-getest; NIET GEVALIDEERD (hardware)",
   "bewijs": "code-HEAD b0a6a98 (VERSION 0.2.0); baseline deze sessie: pytest integrations 188 geslaagd/1 overgeslagen, pytest apps/api 319/319 (run 2; run 1 hing op een flaky test), vitest 164/164, ruff schoon, validate_compose.sh ok (INVENTARIS.md §15); repo-CI run 42587407462 op 9c9d02f geslaagd (backend, web, e2e, compose, stack); climate.py:165-228, :297-310, :344; commanding.py:63-71, :172-174; worker/climate_loop.py:69-122; tests/test_core_logic.py::test_shared_outdoor_conflict_blocks_cooling, ::test_remote_off_is_never_reactivated, ::test_stale_sensor_falls_back_to_oem_and_no_correction, ::test_min_interval_respected; tests/test_api.py::test_zone_command_policy_and_execution (409); tests/test_ws_climate_worker.py::test_two_zones_on_one_outdoor_unit_are_decided_together, ::test_remote_override_expires_back_to_schedule_without_loop; DELTA_MATRIX.md §1 B06-004, §4 EX25/EX26/EX29; tweede lezing DELTA_MATRIX.md §11.4: sensor_round (worker/health.py:232-264) wordt in geen enkele test aangeroepen",
   "blokkade": "Echte Gree-units (D12) en Zigbee-sensor (D13). Nog te bouwen: P3-08 (test voor de sensorveroudering-melding worker/health.py:231-263).",
-  "opmerking": "Geen bouwwerk aan de regelaar zelf; Hub bouwt geen tweede klimaatregelaar.",
+  "opmerking": "Validatie (toelichting, tot 2026-11-10 in het veld validatie): Bestaand in code + Unit-getest + Sim-getest (worker met database en nep-Gree); NIET GEVALIDEERD (hardware). Geen bouwwerk aan de regelaar zelf; Hub bouwt geen tweede klimaatregelaar.",
   "repo": "my_house",
-  "bijgewerkt": "2026-11-09"
+  "bijgewerkt": "2026-11-10"
  },
  {
   "id": "B06-005",
   "status": "Bezig",
-  "validatie": "Bestaand in code + Unit-getest + Sim-getest; levering aan de Hub kan via bestaande leesroutes; NIET GEVALIDEERD (hardware)",
+  "validatie": "Unit-getest; Sim-getest; NIET GEVALIDEERD (hardware)",
   "bewijs": "code-HEAD b0a6a98 (VERSION 0.2.0); baseline deze sessie: pytest integrations 188 geslaagd/1 overgeslagen, pytest apps/api 319/319 (run 2; run 1 hing op een flaky test), vitest 164/164, ruff schoon, validate_compose.sh ok (INVENTARIS.md §15); repo-CI run 42587407462 op 9c9d02f geslaagd (backend, web, e2e, compose, stack); energy.py; worker/aggregates.py; models.py:203-221 (logical_roles, device_bindings); tests/test_core_logic.py::test_counter_reset_and_duplicates_and_gap, ::test_dst_day_has_25_hours; tests/test_ws_energy_aggregates.py::test_reset_only_accepted_when_following_readings_rise_from_new_base, ::test_dst_days_are_complete_and_counted_in_real_hours; tests/test_api.py::test_energy_summary_no_double_count_and_replacement; DELTA_MATRIX.md §1 B06-005, §4 EX28",
   "blokkade": "Echte P1/Energy Socket/kWh-meter (D14; kWh-meter mogelijk nog niet geplaatst). Levering aan de Hub/B14 via de bestaande leesroutes met viewer-token (energy/summary|live|export, met quality; tweede lezing DELTA_MATRIX.md §11 W1); een push-event alleen als de Hub-adapter erom vraagt (P3-04, optioneel).",
-  "opmerking": "Geen verbruik per binnenunit (gedeelde compressor); de Hub rekent niet opnieuw.",
+  "opmerking": "Validatie (toelichting, tot 2026-11-10 in het veld validatie): Bestaand in code + Unit-getest + Sim-getest; levering aan de Hub kan via bestaande leesroutes; NIET GEVALIDEERD (hardware). Geen verbruik per binnenunit (gedeelde compressor); de Hub rekent niet opnieuw.",
   "repo": "my_house",
-  "bijgewerkt": "2026-11-09"
+  "bijgewerkt": "2026-11-10"
  },
  {
   "id": "B06-006",
   "status": "Bezig",
-  "validatie": "Leesdeel bestaat via bestaande routes met viewer-token en 'Hub kan niet schakelen' is Sim-getest; bewaakt schrijfpad (ondertekend ExecutionRequest, nonce, Idempotency-Key) ontbreekt; NIET GEVALIDEERD (echte NAS)",
+  "validatie": "Sim-getest; NIET GEVALIDEERD (echte NAS)",
   "bewijs": "code-HEAD b0a6a98 (VERSION 0.2.0); baseline deze sessie: pytest integrations 188 geslaagd/1 overgeslagen, pytest apps/api 319/319 (run 2; run 1 hing op een flaky test), vitest 164/164, ruff schoon, validate_compose.sh ok (INVENTARIS.md §15); repo-CI run 42587407462 op 9c9d02f geslaagd (backend, web, e2e, compose, stack); leesroutes: routers/homes.py:47,75,100; routers/zones.py:39,48; routers/lights.py:36; routers/energy.py:32,45,265; routers/system.py:56,62; koppelcode: routers/pairing.py:117,197; tests/test_foundation.py::test_viewer_cannot_resume_or_control; tests/test_ws_security_pairing.py::test_pairing_roles (viewer-token → 403; gedraaid 2026-11-09: geslaagd); commando-TTL worker/commands.py:39-40, :148-149 (probe: commando van 3 min = failed 'Commando te oud'); tweede lezing DELTA_MATRIX.md §11 W2, W3, G2, G3; ADR-0006; DELTA_MATRIX.md §1 B06-006, §6; ADR-0002",
-  "blokkade": "Nog te bouwen: P3-05 (propose/apply/evidence met Ed25519-ExecutionRequest, nonce, Idempotency-Key, vervaltijd bovenop de bestaande TTL, ETag via een nieuwe versiekolom). Lees-connector (P3-03) en outbox/kind=service (P3-04) alleen op verzoek van de eigenaar van de Hub-adapter (ADR-0006, contract_issue). Hub-zijde (adapter, kaart, stale-markering) is eigendom van ai-server-manager. Echte NAS onbekend (D01, D03, D07).",
-  "opmerking": "Hub koppelt met een koppelcode met rol viewer; krijgt nooit een control-token.",
+  "blokkade": "Nog te bouwen: P3-05 (propose/apply/evidence met Ed25519-ExecutionRequest, nonce, Idempotency-Key, vervaltijd bovenop de bestaande TTL, ETag via een nieuwe versiekolom). Lees-connector (P3-03) en outbox/kind=service (P3-04, zonder enrollment en zonder push: de Hub pollt, contract 1.3 §2.3) alleen op verzoek van de eigenaar van de Hub-adapter (ADR-0006, contract_issue). Hub-zijde (adapter, kaart, stale-markering) is eigendom van ai-server-manager. Echte NAS onbekend (D01, D03, D07).",
+  "opmerking": "Validatie (toelichting, tot 2026-11-10 in het veld validatie): Leesdeel bestaat via bestaande routes met viewer-token en 'Hub kan niet schakelen' is Sim-getest; bewaakt schrijfpad (ondertekend ExecutionRequest, nonce, Idempotency-Key) ontbreekt; NIET GEVALIDEERD (echte NAS). Hub koppelt met een koppelcode met rol viewer; krijgt nooit een control-token. Contract 1.3 (§2.3 regels 2 en 5, C1.3-MH-07): geen enrollment in v1 en geen push naar de Hub-inbox; de Hub koppelt met een koppelcode (viewer) en pollt. DELTA_MATRIX.md §12.",
   "repo": "my_house",
-  "bijgewerkt": "2026-11-09"
+  "bijgewerkt": "2026-11-10"
  },
  {
   "id": "B06-007",
   "status": "Niet gestart",
-  "validatie": "my_house-kant ontbreekt grotendeels (parametergrenzen per zone bestaan als data); readback-semantiek (geen schijnsucces) bestaat en is Sim-getest; NIET GEVALIDEERD (hardware)",
+  "validatie": "Sim-getest; NIET GEVALIDEERD (hardware)",
   "bewijs": "code-HEAD b0a6a98 (VERSION 0.2.0); baseline deze sessie: pytest integrations 188 geslaagd/1 overgeslagen, pytest apps/api 319/319 (run 2; run 1 hing op een flaky test), vitest 164/164, ruff schoon, validate_compose.sh ok (INVENTARIS.md §15); repo-CI run 42587407462 op 9c9d02f geslaagd (backend, web, e2e, compose, stack); integrations/tests/test_gree.py::test_readback_mismatch_not_confirmed; tests/test_ws_climate_worker.py::test_failed_command_retries_alerts_and_keeps_control; docs/api.md:325-343; DELTA_MATRIX.md §1 B06-007; ADR-0002; zone-capabilities en blocked_modes per zone: views/zones.py:103-111 (tweede lezing DELTA_MATRIX.md §11 G4)",
   "blokkade": "Nog te bouwen: P3-05 (allowlist met parameterschema afgeleid van de bestaande zone-capabilities, propose met before-stand, evidence met readback; boiler altijd policy_denied; risk_claim genegeerd). Chat/spraak in de Hub (B15/B02). Echte Gree-readback (D12).",
-  "opmerking": "AI mag alleen een licht-commando of een schema-concept voorstellen; klimaat via goedkeuring (R2).",
+  "opmerking": "Validatie (toelichting, tot 2026-11-10 in het veld validatie): my_house-kant ontbreekt grotendeels (parametergrenzen per zone bestaan als data); readback-semantiek (geen schijnsucces) bestaat en is Sim-getest; NIET GEVALIDEERD (hardware). AI mag alleen een licht-commando of een schema-concept voorstellen; klimaat via goedkeuring (R2).",
   "repo": "my_house",
-  "bijgewerkt": "2026-11-09"
+  "bijgewerkt": "2026-11-10"
  },
  {
   "id": "B06-008",
   "status": "Bezig",
-  "validatie": "Bestaand in code + Sim-getest (herstel in tijdelijke database, new_home-modus, adreswissel met identiteitscontrole); NIET GEVALIDEERD (echte NAS)",
+  "validatie": "Sim-getest; NIET GEVALIDEERD (echte NAS)",
   "bewijs": "code-HEAD b0a6a98 (VERSION 0.2.0); baseline deze sessie: pytest integrations 188 geslaagd/1 overgeslagen, pytest apps/api 319/319 (run 2; run 1 hing op een flaky test), vitest 164/164, ruff schoon, validate_compose.sh ok (INVENTARIS.md §15); repo-CI run 42587407462 op 9c9d02f geslaagd (backend, web, e2e, compose, stack); backup.py:1-28, :808-968, :1211-1545; routers/system.py:666-830; tests/test_ws_backup_api.py::test_restore_via_upload_verify_apply_and_compare; tests/test_ws_backup_restore.py::test_restore_as_new_home_archives_the_old_home_and_switches_its_integrations_off, ::test_rekey_reencrypts_credentials_and_secret_settings, ::test_restore_drill_compares_counts_and_checks_the_current_key; tests/test_ws_devices_api.py::test_patch_integration_address_checks_identity; DELTA_MATRIX.md §1 B06-008, §4 EX50; apparaat vervangen: routers/devices.py:395, tests/test_ws_devices_api.py::test_archive_restore_and_replace (gedraaid 2026-11-09: geslaagd; tweede lezing DELTA_MATRIX.md §11 A4); restore-drill gedraaid 2026-11-09: geslaagd",
   "blokkade": "Verhuizing tussen twee echte NAS'en (D02, D03, D05). Nog te bouwen: P3-10 (E2E met twee alles-in-één containers, ander IP), P3-11 (oude hoofdsleutel uploaden/rekey zonder terminal, dubbele apparaten in restore/compare).",
-  "opmerking": "Back-up/herstel is ROLLBACK-voorziening van de eigenaar: B12 gebruikt die, bouwt geen eigen export.",
+  "opmerking": "Validatie (toelichting, tot 2026-11-10 in het veld validatie): Bestaand in code + Sim-getest (herstel in tijdelijke database, new_home-modus, adreswissel met identiteitscontrole); NIET GEVALIDEERD (echte NAS). Back-up/herstel is ROLLBACK-voorziening van de eigenaar: B12 gebruikt die, bouwt geen eigen export.",
   "repo": "my_house",
-  "bijgewerkt": "2026-11-09"
+  "bijgewerkt": "2026-11-10"
  },
  {
   "id": "B06-009",
   "status": "Geblokkeerd",
-  "validatie": "NIET GEVALIDEERD (hardware); NIET GEVALIDEERD (echte NAS); installatie nog niet conform contract 1.1",
+  "validatie": "NIET GEVALIDEERD (hardware); NIET GEVALIDEERD (echte NAS); NIET GEVALIDEERD (account)",
   "bewijs": "code-HEAD b0a6a98 (VERSION 0.2.0); baseline deze sessie: pytest integrations 188 geslaagd/1 overgeslagen, pytest apps/api 319/319 (run 2; run 1 hing op een flaky test), vitest 164/164, ruff schoon, validate_compose.sh ok (INVENTARIS.md §15); repo-CI run 42587407462 op 9c9d02f geslaagd (backend, web, e2e, compose, stack); docs/testlog.md §Eerste test op je NAS en §Nog niet getest; INVENTARIS.md §11; DELTA_MATRIX.md §1 B06-009, §7; ADR-0003 punt 8, ADR-0004; tunnel-toegangsgrens: apps/web/nginx.conf.template:6-10, :68-70, docs/buiten-huis.md:20-24, tests/test_ws_security_auth.py::test_https_from_trusted_proxy_sets_secure_cookie_and_real_ip (gedraaid 2026-11-09: geslaagd; tweede lezing DELTA_MATRIX.md §11 W4)",
   "blokkade": "Echte Zigbee-USB, Hue, Gree, HomeWizard en Android-toestel (D12-D14); echte TrueNAS-versie (D01) incl. reboot. Eerst P3-01: my_house is nu niet als standaard Custom App met één image te installeren (vraagt install.sh + Install via YAML/compose). Echt Cloudflare-account voor de tunneltest.",
-  "opmerking": "'Full docker compose' uit het pakket is strijdig met contract 1.1 en wordt gelezen als: volledige alles-in-één Custom App.",
+  "opmerking": "Validatie (toelichting, tot 2026-11-10 in het veld validatie): NIET GEVALIDEERD (hardware); NIET GEVALIDEERD (echte NAS); installatie nog niet conform contract 1.1 (en 1.3). 'Full docker compose' uit het pakket is strijdig met contract 1.1 en wordt gelezen als: volledige alles-in-één Custom App. Contract 1.3 §2.3 regel 4: my_house wordt in P3 een alles-in-één Custom App (C1.3-MH-03).",
   "repo": "my_house",
-  "bijgewerkt": "2026-11-09"
+  "bijgewerkt": "2026-11-10"
+ },
+ {
+  "id": "C1.3-MH-01",
+  "status": "Bezig",
+  "validatie": "Unit-getest",
+  "bewijs": "commit 485b491 (kopie 1.3 + tools/contract_kopie.py + docs/platform-v2/CONTRACT_HERKOMST.json, bron ai-server-manager@02b119c); EVIDENCE-test apps/api/tests/platform_v2/test_evidence_contract.py; drifttest apps/api/tests/platform_v2/test_contract_kopie.py (negatieve gevallen: gewijzigde byte, gerepareerde link, verkeerde pin, kopie ≠ gepinde commit); CI-stap 'Platform contract copy (drift)': controleer + vergelijk --online",
+  "blokkade": "",
+  "opmerking": "PLATFORM_CONTRACTEN.md (contracts 1.3) en CONTRACT_1.3_CONFORMITEIT.md byte-gelijk uit ai-server-manager op bron-commit 02b119c (was kopie 1.1). Een latere bronstand geeft alleen een waarschuwing; overnemen is een stap van de orkestratie (contract, kop). EVIDENCE.json is herschreven naar de vaste validatiewaarden van §11 (toelichting naar opmerking).",
+  "repo": "my_house",
+  "bijgewerkt": "2026-11-10"
+ },
+ {
+  "id": "C1.3-MH-02",
+  "status": "Bezig",
+  "validatie": "Unit-getest; Sim-getest; NIET GEVALIDEERD (echte NAS)",
+  "bewijs": "commit fa1a5a9: apps/web/docker/15-shc-config.sh (awk via ENVIRON) en apps/web/src/hub.ts volgen dezelfde 103 gevallen in infra/tests/hub_url_gevallen.json; infra/tests/test_scripts.py (dash+mawk én busybox sh+awk zoals de nginx-Alpine-image), apps/web/src/test/peil-toevoegingen.test.tsx; browsertest e2e/11-peil.e2e.ts '\"Terug naar de Hub\"' (nagespeelde /_shc/config.json); ADR-0012",
+  "blokkade": "NIET GEVALIDEERD (echte NAS): Een echte installatie met HUB_URL in het Custom App-formulier van TrueNAS is niet getest (geen NAS; my_house heeft nog geen alles-in-één Custom App, C1.3-MH-03).",
+  "opmerking": "Nagelopen tegen §3.2 en aangescherpt. Gevonden en gerepareerd: [::127.0.0.1] werd door beide doorgelaten, localhost. en niet-canonieke IPv4 (10.1, 010.0.0.1) door de browsercontrole, een meerregelige waarde kon de JSON breken. HUB_URL komt alleen uit de omgeving (nooit Referer/URL), start geen enrollment en is geen manifestparameter (manifest pas in P3, C1.3-MH-06). my_house maakt geen verbinding met de Hub (alleen een link), dus de DNS-regel van §3.2 heeft hier niets te bewaken (ADR-0012).",
+  "repo": "my_house",
+  "bijgewerkt": "2026-11-10"
+ },
+ {
+  "id": "C1.3-MH-03",
+  "status": "Niet gestart",
+  "validatie": "Niet getest",
+  "bewijs": "",
+  "blokkade": "",
+  "opmerking": "Moment P3 (CONTRACT_1.3_CONFORMITEIT.md §8): alles-in-één image met healthcheck volgens §2.2 (exec-vorm, wissel naar 568 + no_new_privs, bounding set leeg bij start als root) en rooktest. Was P3-01 (DELTA_MATRIX §9, ADR-0004). Open.",
+  "repo": "my_house",
+  "bijgewerkt": "2026-11-10"
+ },
+ {
+  "id": "C1.3-MH-04",
+  "status": "Niet gestart",
+  "validatie": "Niet getest",
+  "bewijs": "",
+  "blokkade": "",
+  "opmerking": "Moment P3: bewaakt schrijfpad propose/apply met ondertekend ExecutionRequest, back-upbevestiging waar nodig, geplakte sleutelset met vingerafdruk over alle policy-sleutels (testvector HN69-2PHK-XV2D-X85W). Was P3-05. Let op RV8: de Hub ondertekent niet met een nieuwe sleutel zolang my_house de oude set gepind heeft; hoe my_house de rotatie bevestigt, legt de Hub eerst in een ADR vast. Open.",
+  "repo": "my_house",
+  "bijgewerkt": "2026-11-10"
+ },
+ {
+  "id": "C1.3-MH-05",
+  "status": "Niet gestart",
+  "validatie": "Niet getest",
+  "bewijs": "",
+  "blokkade": "",
+  "opmerking": "Moment P3: nieuwe routes volgens §5/§6 (foutcatalogus, health met vaste checknamen, max_age) en het terugkeerpad na inloggen (§4.1). Volgens DELTA_MATRIX §11.6 alleen op verzoek van de eigenaar van de Hub-adapter (ADR-0006). Open.",
+  "repo": "my_house",
+  "bijgewerkt": "2026-11-10"
+ },
+ {
+  "id": "C1.3-MH-06",
+  "status": "Niet gestart",
+  "validatie": "Niet getest",
+  "bewijs": "",
+  "blokkade": "",
+  "opmerking": "Moment P3: manifest deploy/manifest/my_house.manifest.yaml met healthcheck.monitor, back-up en zonder HUB_* (pas na de validator C1.3-ASF-08 in appstore-en-fork). Open.",
+  "repo": "my_house",
+  "bijgewerkt": "2026-11-10"
+ },
+ {
+  "id": "C1.3-MH-07",
+  "status": "Bezig",
+  "validatie": "Unit-getest",
+  "bewijs": "docs/platform-v2/DELTA_MATRIX.md (kop, §6, §9 P3-04, B06-006, nieuw §12); ADR-0002 aanvulling; test_evidence_contract.py::test_delta_matrix_noemt_geen_enrollment_meer",
+  "blokkade": "",
+  "opmerking": "'Enrollment via HUB_URL' en 'push naar de Hub-inbox na enrollment' doorgehaald: een bestaande app krijgt in v1 geen enrollment, HUB_URL start er nooit een (§2.3 regels 2 en 5); de Hub pollt de outbox.",
+  "repo": "my_house",
+  "bijgewerkt": "2026-11-10"
+ },
+ {
+  "id": "REVIEW-my_house-peil-1.1.1",
+  "status": "Bezig",
+  "validatie": "Sim-getest; Unit-getest; NIET GEVALIDEERD (hardware); NIET GEVALIDEERD (echte NAS)",
+  "bewijs": "commits d5a7f9f (gepinde kopie Peil 1.1.1 uit ai-server-manager@4ff4b3f, HERKOMST.json, tools/peil_kopie.py), 322a00c (web: rand -ink, ondernavigatie op labelbreedte zonder extra gewicht), 13520e2 (Android: PeilTokens.kt, ondernavigatie, 40 Paparazzi-afdrukken opnieuw); ontwerpreview docs/ontwerp/PEIL_REVIEW.md §11 en docs/screenshots/peil/review/peil-1.1.1-samenvatting.json (28 schermen × 6 breedtes × 2 thema's: axe 0, tekst < 4,5:1 0, overloop 0, inhoud buiten zijn element 0); browsertests e2e/11-peil.e2e.ts",
+  "blokkade": "NIET GEVALIDEERD (hardware): echte schermlezer (TalkBack/NVDA) en echte telefoon in fel licht niet getest. NIET GEVALIDEERD (echte NAS): de app achter een echte TrueNAS niet getest.",
+  "opmerking": "Peil 1.1.1 overgenomen via de nieuwe gepinde kopie (C1.3-ALG-05), niet lokaal omzeild. Alleen uiterlijk: functies, routes, teksten en API gelijk (OpenAPI-driftcontrole groen). Alles Sim-getest in Chromium (Playwright) en Paparazzi (layoutlib).",
+  "repo": "my_house",
+  "bijgewerkt": "2026-11-10"
  }
 ]
