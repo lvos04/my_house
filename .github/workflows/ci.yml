@@ -63,6 +63,13 @@ jobs:
         run: |
           python tools/contract_kopie.py controleer
           python tools/contract_kopie.py vergelijk --online
+      # Gepinde kopie van de ontwerptaal Peil (ONTWERPTAAL §14, E08): offline tegen de pin (ook de kopieën in de
+      # web-app en de kop van PeilTokens.kt), daarna tegen de bron: afwijking van de gepinde commit of dezelfde versie
+      # met andere inhoud = fout; een nieuwere Peil-versie in de bron = alleen een waarschuwing.
+      - name: Peil design language copy (pin and drift)
+        run: |
+          python tools/peil_kopie.py controleer
+          python tools/peil_kopie.py vergelijk --online
       - name: Adapter contract tests
         run: pytest -q integrations/tests
       - name: API, engine and migration tests
