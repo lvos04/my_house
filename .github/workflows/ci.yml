@@ -54,9 +54,15 @@ jobs:
       - name: Lint
         run: |
           ruff check apps/api/src apps/api/tests
-          ruff check --config apps/api/pyproject.toml infra/scripts infra/e2e infra/tests
+          ruff check --config apps/api/pyproject.toml infra/scripts infra/e2e infra/tests tools
           # integrations follows a newer ruff than the API's dev pin
           pipx run ruff==0.17.4 check integrations
+      # Byte-gelijke kopie van het platformcontract (contract 1.3, kop en §10): offline tegen de pin, daarna
+      # tegen de bron op GitHub (gepinde commit = fout bij verschil; nieuwere bron = alleen een waarschuwing).
+      - name: Platform contract copy (drift)
+        run: |
+          python tools/contract_kopie.py controleer
+          python tools/contract_kopie.py vergelijk --online
       - name: Adapter contract tests
         run: pytest -q integrations/tests
       - name: API, engine and migration tests
