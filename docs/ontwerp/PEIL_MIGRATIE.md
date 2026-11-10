@@ -676,3 +676,20 @@ open punten in [`PEIL_REVIEW.md`](PEIL_REVIEW.md), besluit in
 [ADR-0011](../adr/ADR-0011-peil-review-verouderd-en-nooit-opgehaald.md). Daarmee is §13 punt 5 (nooit geladen pagina
 offline) opgelost: "Onbekend — nog niet opgehaald" met de reden en een paginakop. §13 punten 3 en 6 (readback-woord,
 tabel bij "Laatste 24 uur") blijven open; de grafiek heeft wel as-labels gekregen.
+
+## 17. Peil 1.1.1 (10 november 2026)
+
+De kopie in `design/ontwerptaal/` is Peil 1.1.1 uit ai-server-manager (bron-commit `4ff4b3f`), met pin en driftcontrole
+volgens E08 (`tools/peil_kopie.py`, `design/ontwerptaal/HERKOMST.json`, ADR-0012). Wat het voor my_house betekent:
+
+| Groep | In my_house |
+|---|---|
+| E13 "Verzonden" | stond er al (`commands.ts`, `i18n.ts`) |
+| E14 aliaslaag en tokens | `-soft`-banden lichter (licht) en donkerder (donker): `-ink` erop ≥ 7:1 (was 4,9–6,2:1); de correcties van §8.1 staan nu in de aliaslaag zelf; de rand van een gekozen modus en een brandende lichttegel is `-ink` (`src/peil/componenten.css`; Android deed dat al) |
+| E15 offline/verouderd | stond er al (ADR-0011) |
+| E16 ondernavigatie | items op labelbreedte (`flex-auto`, minimaal 44 px), actief zonder extra gewicht, `aria-current` ook op "Meer" (web); Android: actief zonder extra gewicht |
+| E12 reflow met het lettertype van de CI-runner | de browsertests draaien in CI op de runner zelf (Ubuntu, zijn eigen systeemlettertype) |
+| E01–E10 statuspagina | n.v.t.: my_house heeft geen platform-statuspagina (contract 1.3 §13) |
+
+§13 punt 6 (tabel bij "Laatste 24 uur") blijft open: daarvoor is een besluit van de gebruiker nodig (ONTWERPTAAL §15
+punt 8). Review: `PEIL_REVIEW.md` §11.

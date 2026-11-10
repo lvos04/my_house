@@ -1,0 +1,97 @@
+{
+ "ronde": "Peil 1.1.1 (10 november 2026, docs/screenshots/peil/werkwijze/review.mjs, axe-core 4.14, Chromium)",
+ "metingen": 332,
+ "schermen": [
+  "account-mijn",
+  "account-telefoons",
+  "apparaten",
+  "eerste-start-beheerder",
+  "energie",
+  "help",
+  "inloggen",
+  "installatie",
+  "klimaat-bediening",
+  "klimaat-instellingen",
+  "klimaat-offline",
+  "klimaat-profielen",
+  "klimaat-uit-conflict",
+  "klimaat-verouderd",
+  "klimaat-weekschema",
+  "meer-sheet",
+  "optimalisatie",
+  "overzicht",
+  "overzicht-kijker",
+  "overzicht-offline",
+  "overzicht-verouderd",
+  "server-onbereikbaar",
+  "systeem",
+  "thema-donker-gekozen",
+  "verlichting",
+  "verlichting-offline-nooit-geladen",
+  "verlichting-offline-nooit-geladen-later",
+  "woning-aanmaken"
+ ],
+ "breedtes": [
+  320,
+  360,
+  390,
+  768,
+  1024,
+  1440
+ ],
+ "axe_overtredingen": 0,
+ "tekst_onder_4_5": 0,
+ "veldrand_onder_3": 0,
+ "knopgrens_onder_3": 4,
+ "stippelrand_onder_3": 0,
+ "doelen_onder_44": 0,
+ "overloop_max_px": 0,
+ "opacity_met_tekst": 0,
+ "afgekapt": 0,
+ "inhoud_buiten_element": [],
+ "min_tekstcontrast": 4.56,
+ "min_lettergrootte_px": 14,
+ "min_knopgrens": 1.29,
+ "h1_niet_1": [],
+ "kopsprongen": [],
+ "dubbele_ids": [],
+ "kapotte_aria": [],
+ "focus_doorlopen": 106,
+ "focus_stops_totaal": 2184,
+ "focus_ring_min": 7.55,
+ "focus_zonder_ring": [],
+ "focus_zwak": [],
+ "focus_bedekt": [],
+ "detail_knopGrensFout": [
+  [
+   "{\"el\": \"a.btn.ghost.hub-link\", \"t\": \"Terug naar de Hub\", \"grens\": 1.29, \"rand\": 0, \"vlak\": 1.29, \"randKleur\": \"\", \"randStijl\": \"\", \"vlakKleur\": \"#dce3ec\", \"omgeving\": \"#ffffff\", \"heeftGrens\": true, \"gekozen\": false, \"dis",
+   2
+  ],
+  [
+   "{\"el\": \"a.btn.ghost.hub-link\", \"t\": \"Terug naar de Hub\", \"grens\": 1.38, \"rand\": 0, \"vlak\": 1.38, \"randKleur\": \"\", \"randStijl\": \"\", \"vlakKleur\": \"#26303b\", \"omgeving\": \"#10141a\", \"heeftGrens\": true, \"gekozen\": false, \"dis",
+   2
+  ]
+ ],
+ "tekst_4_5_tot_7": [
+  [
+   "span.big-num.stale \"20,6°\" (#535d6c op #ffffff)",
+   12
+  ],
+  [
+   "span.small \"Sensor verouderd (3 uur geleden) · 48% RV\" (#535d6c op #ffffff)",
+   12
+  ],
+  [
+   "span.big-num.stale \"18,4°\" (#535d6c op #ffffff)",
+   12
+  ],
+  [
+   "span.small \"Sensor verouderd (3 uur geleden) · 55% RV\" (#535d6c op #ffffff)",
+   12
+  ],
+  [
+   "span.small \"nu 20,6°\" (#535d6c op #ffffff)",
+   12
+  ]
+ ]
+}

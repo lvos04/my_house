@@ -19,7 +19,7 @@ Verder: klimaatregeling met weekschema's, comfortprofielen, waakhond en veilige 
 
 ## Ontwerp
 
-De web-app en de Android-app volgen de ontwerptaal **Peil** 1.1.0 van het TrueNAS Home Platform (gepinde kopie in [design/ontwerptaal/](design/ontwerptaal/HERKOMST.md)): licht en donker (in de web-app te kiezen: Systeem, Licht of Donker), een status altijd als icoon + woord + vorm (Gezond · Beperkt · Storing · Onbekend · Verouderd), groen alleen voor gemeten gezondheid, oranje = verwarmen, blauw = koelen, en elk getal met een kwaliteitslabel (gemeten · afgeleid · geschat · geen meting). Alleen het uiterlijk is veranderd; functies, API en installatie zijn gelijk gebleven. Ontwerp en uitvoering: [docs/ontwerp/PEIL_MIGRATIE.md](docs/ontwerp/PEIL_MIGRATIE.md), [docs/ontwerp/PEIL_REVIEW.md](docs/ontwerp/PEIL_REVIEW.md) en ADR-0008 tot en met ADR-0011 in [docs/adr/](docs/adr/). Het oudere ontwerp-canvas [Smart Home Control](https://claude.ai/artifact/9jVrAYrtre4K8BkM4rekav) ("Rustig huis") is daarmee vervangen.
+De web-app en de Android-app volgen de ontwerptaal **Peil** 1.1.1 van het TrueNAS Home Platform (gepinde kopie met bron-commit en driftcontrole in [design/ontwerptaal/](design/ontwerptaal/HERKOMST.md)): licht en donker (in de web-app te kiezen: Systeem, Licht of Donker), een status altijd als icoon + woord + vorm (Gezond · Beperkt · Storing · Onbekend · Verouderd), groen alleen voor gemeten gezondheid, oranje = verwarmen, blauw = koelen, en elk getal met een kwaliteitslabel (gemeten · afgeleid · geschat · geen meting). Alleen het uiterlijk is veranderd; functies, API en installatie zijn gelijk gebleven. Ontwerp en uitvoering: [docs/ontwerp/PEIL_MIGRATIE.md](docs/ontwerp/PEIL_MIGRATIE.md), [docs/ontwerp/PEIL_REVIEW.md](docs/ontwerp/PEIL_REVIEW.md) en ADR-0008 tot en met ADR-0012 in [docs/adr/](docs/adr/). Het oudere ontwerp-canvas [Smart Home Control](https://claude.ai/artifact/9jVrAYrtre4K8BkM4rekav) ("Rustig huis") is daarmee vervangen.
 
 ## Snel starten
 
@@ -60,6 +60,15 @@ docs              plan, API-contract, architectuur, beslissingen, handleidingen
 - Web: `apps/web` (`npm ci`, `npm test`); browsertests met `apps/web/e2e/run-stack.sh`, zie [apps/web/e2e/README.md](apps/web/e2e/README.md).
 - Android: `apps/android` (`./gradlew :core:test :app:testDebugUnitTest`).
 - CI (`.github/workflows/ci.yml`) draait de backend- en webtests bij elke push en pull request, plus een rooktest en browsertests tegen de gebouwde images. De Android-tests en de debug-APK komen uit `.github/workflows/android.yml` (bij wijzigingen in `apps/android`) en draaien bij elke release opnieuw.
+
+## Platform (TrueNAS Home Platform V2)
+
+my_house is een bestaande app van het platform: hij houdt zijn eigen routes, database en UI en krijgt alleen de hiaten
+uit [docs/platform-v2/DELTA_MATRIX.md](docs/platform-v2/DELTA_MATRIX.md). Het platformcontract staat als byte-gelijke
+kopie in [docs/platform-v2/PLATFORM_CONTRACTEN.md](docs/platform-v2/PLATFORM_CONTRACTEN.md) (`contracts 1.3`, met
+`CONTRACT_1.3_CONFORMITEIT.md` en een drifttest: `python3 tools/contract_kopie.py controleer`); wat 1.3 van my_house
+vraagt en wanneer, staat in §8 van de conformiteitslijst, de stand per punt in `docs/platform-v2/EVIDENCE.json`.
+`HUB_URL` is in my_house alleen het adres achter "Terug naar de Hub": geen koppeling met de Hub, geen token (ADR-0012).
 
 ## Licentie
 

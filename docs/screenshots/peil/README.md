@@ -6,6 +6,11 @@ Het uiterlijk van my_house **vóór** (stap 2, nulmeting) en **ná** de omzettin
 naast elkaar te leggen zijn (in plaats van de eerder genoemde `na-fase-1/` en `na-fase-2/`: alleen de eindstand is
 vastgelegd).
 
+> **Peil 1.1.1 (10 november 2026):** `na/` en `android/` tonen nog de stand van 1.1.0. Wat 1.1.1 veranderde
+> (schemabanden, `-ink`-rand, ondernavigatie) staat als uitsnede in `review/11-peil-1.1.1-*.png`, de metingen in
+> `review/peil-1.1.1-samenvatting.json` en `docs/ontwerp/PEIL_REVIEW.md` §11. De Android-referentiebeelden van de test
+> (`apps/android/app/src/test/snapshots/images/`) zijn wel bijgewerkt.
+
 | Map | Wat | Aantal |
 |---|---|---|
 | `voor/web/` | web-app (Vite + React 18 PWA), 360/390/768/1440 px × licht/donker, volledige pagina | 222 |

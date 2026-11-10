@@ -4,6 +4,21 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
 
 ## Unreleased
 
+### Platformcontract 1.3 en Peil 1.1.1 (conformiteitsronde, 2026-11-10)
+
+- **Contractkopie 1.3** (was 1.1): `docs/platform-v2/PLATFORM_CONTRACTEN.md` en `CONTRACT_1.3_CONFORMITEIT.md`
+  byte-gelijk uit ai-server-manager, met pin (`CONTRACT_HERKOMST.json`) en drifttest (`tools/contract_kopie.py`, in CI
+  ook tegen GitHub). `EVIDENCE.json` volgt §11 van 1.3, bewaakt door een nieuwe test.
+- **"Terug naar de Hub" (`HUB_URL`)** volgt de adresregels van contract 1.3 §3.2, in het startscript van de
+  webcontainer én in de app, met dezelfde 103 gevallen. Nu ook geweigerd: `[::127.0.0.1]`, `localhost.` (in de app),
+  niet-canonieke IPv4 als `10.1` of `010.0.0.1` (in de app), meerregelige waarden, niet-ASCII, lege labels en poorten
+  met voorloopnul. Een geldig adres verandert niet; een ongeldig adres verbergt alleen de link.
+- **Ontwerptaal Peil 1.1.1** (was 1.1.0) als gepinde kopie met bron-commit (`tools/peil_kopie.py`, regel E08):
+  schemabanden van verwarmen en koelen met tekst ≥ 7:1, de rand van een gekozen modus en een brandende lichttegel in de
+  donkere inkt, ondernavigatie op de breedte van de labels en zonder vet actief item (web en Android; "Overzicht" stak op
+  320 px 2 px uit zijn kolom). Functies, routes, teksten en API zijn gelijk.
+- Delta-matrix: geen enrollment via `HUB_URL` en geen push naar de Hub-inbox (contract 1.3 §2.3); ADR-0012.
+
 ### Uiterlijk (web-app naar de ontwerptaal Peil)
 
 - **Nieuw uiterlijk volgens Peil 1.1.0**, in twee stappen: eerst de aliaslaag (alle kleuren, radii en de focusring),

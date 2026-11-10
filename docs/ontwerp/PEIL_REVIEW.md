@@ -299,3 +299,38 @@ daarna op de reparaties hieronder.
   Access ziet een buitenstaander dus het (interne) Hub-adres. Contract 1.2 noemt `HUB_URL` niet geheim, maar het blijft
   een keuze voor de gebruiker (ADR-0008 punt 3).
 - Echte apparaten, een schermlezer en Android op toestel of emulator: nog steeds **NIET GEVALIDEERD (hardware)**.
+
+## 11. Peil 1.1.1 (10 november 2026, conformiteitsronde contract 1.3)
+
+my_house neemt Peil **1.1.1** over via de nieuwe gepinde kopie (`design/ontwerptaal/HERKOMST.json`, bron-commit
+`4ff4b3f`, ADR-0012), niet door iets lokaal te omzeilen. Wat er in de app veranderde: de `-soft`-banden van verwarmen en
+koelen, de rand van een gekozen modus en een brandende lichttegel in `-ink`, de ondernavigatie op labelbreedte zonder
+vet actief item (web en Android), en de arcering van overgenomen schemadelen uit de aliaslaag. Functies, routes,
+teksten en API zijn gelijk (OpenAPI-driftcontrole groen).
+
+**Gemeten** met `docs/screenshots/peil/werkwijze/review.mjs` (zelfde methode als §5.2; echte stack, fictieve gegevens):
+28 schermen en toestanden × 320/360/390/768/1024/1440 × licht/donker = 332 metingen, plus een volledige Tab-doorloop op
+390 en 1440 px. Samenvatting: `docs/screenshots/peil/review/peil-1.1.1-samenvatting.json`.
+
+- **axe-core 4.14** (WCAG 2.0/2.1/2.2 A+AA): **0** overtredingen.
+- **Tekstcontrast in de pagina:** 0 onder 4,5:1; laagste 4,56:1 (de bewust gedempte laatst bekende waarde, zoals in
+  §5.2). Tussen 4,5 en 7:1 staan alleen nog de `stale-ink`-teksten: de labels in de schemaband ("Dag 21,0°",
+  "Nacht 18,0°") staan er **niet meer** in (1.1.0: 4,93–6,22:1; nu ≥ 7:1, `-ink` op de nieuwe `-soft`).
+- **Inhoud buiten zijn element:** **0** (1.1.0: "Overzicht" in de ondernavigatie stak op 320 px 2 px uit zijn kolom,
+  `ronde-3-samenvatting.json`). De browsertest telt de ondernavigatie nu mee.
+- **UI-grenzen:** de 4 meldingen onder 3:1 zijn dezelfde als in 1.1.0: de hovertoestand van "Terug naar de Hub" (§5.2,
+  geen fout).
+- **Overloop** 0 px, **doelen** < 44 px 0, **focus**: elke stop een ring (laagste 7,55:1), niets helemaal bedekt.
+- **Browsertests** (`apps/web/e2e/run-stack.sh`, 26 tests): axe 0 op de hoofdschermen in licht en donker op 390 en
+  1440 px, de Peil-matrix 320–1440 px, de Tab-doorloop en de nieuwe test "Peil 1.1.1" (`-soft` ≥ 7:1 met `-ink`,
+  `-ink`-rand bij een gekozen modus en een brandende lichttegel, ondernavigatie zonder extra gewicht en met precies één
+  `aria-current`). Tegen de recepten van 1.1.0 faalt die test aantoonbaar (rand `rgb(235, 104, 52)` in plaats van
+  `rgb(110, 36, 5)`; "Overzicht" 2 px buiten zijn element).
+- **Android:** 40 van de 56 Paparazzi-afdrukken opnieuw vastgelegd (ring met de nieuwe `-soft`, ondernavigatie zonder
+  vet); de 16 zonder ondernavigatie bleven byte-gelijk. `PeilContrastTest` en `PeilTokensTest` groen.
+
+Afdrukken: `docs/screenshots/peil/review/11-peil-1.1.1-modus-en-schemaband-{licht,donker}-390.png` en
+`11-peil-1.1.1-ondernavigatie-{licht,donker}-360.png`.
+
+**NIET GEVALIDEERD:** echte schermlezer (TalkBack/NVDA), echte telefoon in fel licht, Android op toestel of emulator en
+de app achter een echte TrueNAS. Alles hierboven is Sim-getest in Chromium (Playwright) en layoutlib (Paparazzi).
