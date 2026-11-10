@@ -175,8 +175,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Also the start script of the web container (HUB_URL, contract 1.3 §3.2) and the e2e stack runner.
       - name: Shell scripts
-        run: shellcheck infra/scripts/*.sh
+        run: shellcheck infra/scripts/*.sh apps/web/docker/*.sh apps/web/e2e/*.sh
       - name: Infra script tests (render_truenas.py, smoke_test.py; standard library only)
         run: python3 -m unittest discover -s infra/tests -v
       - name: compose.yaml for every profile and every TrueNAS render
