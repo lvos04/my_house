@@ -46,10 +46,30 @@ export function extent(values: Iterable<number | null>): { min: number; max: num
   return min <= max ? { min, max } : null;
 }
 
-/** Begin en eind van alle meetmomenten (ook momenten zonder waarde), of null zonder punten. */
-export function historyRange(h: ZoneHistory): { t0: number; t1: number } | null {
+/** Staat er in deze geschiedenis minstens één waarde (gemeten of doel)? Zonder waarden is er geen grafiek en geen legenda. */
+export function hasValues(h: ZoneHistory): boolean {
+  return extent([...h.temperature, ...h.target].map(([, v]) => v)) !== null;
+}
+
+/**
+ * Begin en eind van alle meetmomenten (ook momenten zonder waarde), of null zonder punten. Met `tot` loopt het tijdvak
+ * door tot dat moment (nooit korter): voor het stuk na de laatste meting als de sensor verouderd is (Peil §10).
+ */
+export function historyRange(h: ZoneHistory, tot?: number): { t0: number; t1: number } | null {
   const e = extent([...h.temperature, ...h.target].map(([t]) => ms(t)));
-  return e ? { t0: e.min, t1: Math.max(e.max, e.min + 1) } : null;
+  if (!e) return null;
+  const eind = isNum(tot) ? Math.max(e.max, tot) : e.max;
+  return { t0: e.min, t1: Math.max(eind, e.min + 1) };
+}
+
+/** De laatste meting mét waarde (tijd en waarde), of null als er in dit tijdvak geen gemeten temperatuur is. */
+export function lastMeasured(h: ZoneHistory): { t: number; v: number } | null {
+  for (let i = h.temperature.length - 1; i >= 0; i--) {
+    const [ts, v] = h.temperature[i];
+    const t = ms(ts);
+    if (isNum(v) && Number.isFinite(t)) return { t, v };
+  }
+  return null;
 }
 
 /** Index van het uur waar een tijdstip in valt (uren tellen vanaf het hele uur van het eerste punt). */
@@ -58,11 +78,12 @@ export function slotIndex(t: number, slot0: number): number {
 }
 
 /**
- * De uren van de grafiek, van het uur van het eerste punt tot en met het uur van het laatste. Uren rekenen in UTC:
- * in elke tijdzone met hele uren verschil (zoals Europe/Amsterdam, ook rond de zomertijd) is dat het klokuur.
+ * De uren van de grafiek, van het uur van het eerste punt tot en met het uur van het laatste (of tot `tot`, als de
+ * grafiek doorloopt na de laatste meting: die uren hebben dan geen meting). Uren rekenen in UTC: in elke tijdzone met
+ * hele uren verschil (zoals Europe/Amsterdam, ook rond de zomertijd) is dat het klokuur.
  */
-export function historySlots(h: ZoneHistory): HistorySlot[] {
-  const range = historyRange(h);
+export function historySlots(h: ZoneHistory, tot?: number): HistorySlot[] {
+  const range = historyRange(h, tot);
   if (!range) return [];
   const slot0 = Math.floor(range.t0 / HOUR_MS) * HOUR_MS;
   const count = slotIndex(range.t1, slot0) + 1;
@@ -142,6 +163,36 @@ export function gapRuns(slots: HistorySlot[]): { from: number; to: number }[] {
   return out;
 }
 
+/**
+ * Het stuk na de laatste meting bij een verouderde sensor: gaten die daarin vallen, vervallen (dat stuk heeft zijn
+ * eigen arcering met "Verouderd sinds …"); een gat dat eroverheen loopt, stopt waar het verouderde stuk begint.
+ */
+export function gapsBefore(gaps: { from: number; to: number }[], grens: number | null): { from: number; to: number }[] {
+  if (grens === null) return gaps;
+  return gaps.filter((g) => g.from < grens).map((g) => (g.to > grens ? { from: g.from, to: grens } : g));
+}
+
+/**
+ * Tijden voor de tussenlabels onder de grafiek: hele klokuren op een vaste stap (1, 2, 3, 6 of 12 uur; hoogstens
+ * acht stappen over de hele breedte), in de tijdzone van het huis. Uren dicht bij het begin of het eind vervallen
+ * (15 % van de breedte): daar staan de begin- en eindtijd al, en labels mogen elkaar niet raken. Korter dan twee uur:
+ * geen tussenlabels.
+ */
+export function hourTicks(t0: number, t1: number, tz?: string): number[] {
+  const span = t1 - t0;
+  if (!(span >= 2 * HOUR_MS)) return [];
+  const stap = [1, 2, 3, 6, 12].find((s) => span / (s * HOUR_MS) <= 8) ?? 12;
+  const fmt = new Intl.DateTimeFormat('nl-NL', { hour: 'numeric', hourCycle: 'h23', timeZone: tz });
+  const uur = (t: number) => Number(fmt.formatToParts(t).find((p) => p.type === 'hour')?.value);
+  const marge = span * 0.15;
+  const out: number[] = [];
+  for (let t = Math.ceil(t0 / HOUR_MS) * HOUR_MS; t < t1; t += HOUR_MS) {
+    if (t - t0 < marge || t1 - t < marge) continue;
+    if (uur(t) % stap === 0) out.push(t);
+  }
+  return out;
+}
+
 const tijd = (t: number, tz?: string) => new Date(t).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', timeZone: tz });
 const dag = (t: number, tz?: string) => new Date(t).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', timeZone: tz });
 
@@ -153,6 +204,49 @@ export function slotLabel(s: HistorySlot, tz?: string): string {
   const van = tijd(s.from, tz);
   const tot = tijd(s.to, tz);
   return `${dag(s.from, tz)} ${van === tot ? van : `${van}–${tot}`}`;
+}
+
+/** Het oordeel van de server over de sensor van de zone (`zone.temperature`): verouderd of niet, en de laatste meting. */
+export interface SensorStand {
+  stale: boolean;
+  at: string | null;
+  value: number | null;
+}
+
+export interface Verouderd {
+  /** Het moment van de laatste meting mét waarde: daar stopt de lijn. */
+  sinds: number;
+  /** De waarde van die laatste meting. */
+  waarde: number | null;
+  /** Tot waar de grafiek doorloopt (alleen als de laatste meting in de grafiek staat). */
+  tot?: number;
+}
+
+/**
+ * Verouderd (Peil §10): de lijn stopt bij de laatste meting, daarna volgt een gearceerd stuk "Verouderd sinds …".
+ * Of de sensor verouderd is, beslist de server (`stale`, met de termijn uit het beleid van de zone); de app rekent dat
+ * nooit zelf uit. Het moment is de laatste meting mét waarde (uit de grafiek of, als die later is, van de server).
+ * Alleen de breedte van het stuk gebruikt de klok van dit apparaat ("nu"), met twee grenzen die van de server komen:
+ * minstens de termijn waarna de server "verouderd" zegt, en hoogstens 24 uur na de laatste meting in de grafiek (ouder
+ * levert de server niet). Geeft null als de sensor niet verouderd is of als er geen laatste meting bekend is.
+ */
+export function staleSince(h: ZoneHistory, sensor: SensorStand | null | undefined, nu: number, staleAfterS = 0): Verouderd | null {
+  if (!sensor || sensor.stale !== true) return null;
+  const laatste = lastMeasured(h);
+  const at = sensor.at && isNum(sensor.value) ? ms(sensor.at) : NaN;
+  const vanServer = Number.isFinite(at) && (!laatste || at > laatste.t);
+  if (!laatste && !vanServer) return null;
+  const sinds = vanServer ? at : laatste!.t;
+  const waarde = vanServer ? sensor.value : laatste!.v;
+  if (!laatste) return { sinds, waarde };
+  const termijn = isNum(staleAfterS) && staleAfterS > 0 ? staleAfterS * 1000 : 0;
+  const tot = Math.min(Math.max(isNum(nu) ? nu : sinds, sinds + termijn), laatste.t + 24 * HOUR_MS);
+  return { sinds, waarde, tot };
+}
+
+/** "11 nov 04:27": dag en tijd van één moment (bron en "verouderd sinds" onder de grafiek). */
+export function momentLabel(t: number, tz?: string): string {
+  return `${dag(t, tz)} ${tijd(t, tz)}`;
 }
 
 export function measuredText(s: HistorySlot): string {

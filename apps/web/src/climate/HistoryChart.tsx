@@ -11,25 +11,38 @@
 //    stuk zonder enige meting is gearceerd (arcering-gat), met het woord erin als het past (anders weg, nooit half:
 //    containerquery in componenten.css) en dan een uitleg onder de grafiek.
 //  - "Toon als tabel, per uur": dezelfde uren met gemiddelde, laagste en hoogste meting en het doel.
+//  - verouderd (ontwerpreview, Peil §10, ADR-0014): zegt de server dat de sensor verouderd is, dan stopt de lijn bij de
+//    laatste meting en volgt een gearceerd stuk met stippelrand en "Verouderd sinds …" tot nu; onder de grafiek staat
+//    de pil "Verouderd" (icoon + woord + vorm, nooit groen) met de laatst bekende waarde. De uren in dat stuk heten
+//    in de tabel en de uitlezing "Geen meting".
+//  - figuur: <figure> met <figcaption> (bron, bijgewerkt, wat een gat betekent); de laatste meting is een eindpunt
+//    van 12 px met een ring in de kaartkleur, op brede schermen met de waarde ernaast.
 import { useId, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import type { ZoneHistory } from '../api/types';
 import { Empty } from '../components/bits';
+import { StatusBadge } from '../components/peil/StatusBadge';
 import { temp, time } from '../format';
 import {
   GEEN_METING,
   HOUR_MS,
   extent,
   gapRuns,
+  gapsBefore,
   historyRange,
   historySlots,
+  hourTicks,
+  lastMeasured,
   lineRuns,
   measuredText,
+  momentLabel,
   rangeText,
   slotIndex,
   slotLabel,
   slotReadout,
+  staleSince,
   targetText,
   type HistorySlot,
+  type SensorStand,
 } from './history';
 
 const W = 1000;
@@ -38,7 +51,20 @@ const H = 180;
 export const HISTORY_KEYS_HINT =
   'Gebruik de pijltjes naar links en rechts om per uur te lezen, Home en End voor het eerste en het laatste uur en Esc om te stoppen. De tabel onder de grafiek bevat dezelfde gegevens.';
 
-export function HistoryChart({ history, tz }: { history: ZoneHistory; tz?: string }) {
+export interface HistoryChartProps {
+  history: ZoneHistory;
+  tz?: string;
+  /** Het oordeel van de server over de sensor (`zone.temperature`): bij `stale` krijgt de grafiek "Verouderd sinds …". */
+  sensor?: SensorStand | null;
+  /** De termijn waarna de server de sensor verouderd noemt (`zone.policy.stale_after_s`). */
+  staleAfterS?: number;
+  /** Waar de metingen vandaan komen, voor onder de grafiek ("sensor van de zone"). */
+  bron?: string;
+  /** "Nu" in ms (alleen voor tests); standaard de klok van dit apparaat. */
+  now?: number;
+}
+
+export function HistoryChart({ history, tz, sensor, staleAfterS, bron = 'temperatuursensor', now }: HistoryChartProps) {
   const hintId = useId();
   const area = useRef<HTMLDivElement>(null);
   const plot = useRef<HTMLDivElement>(null);
@@ -46,13 +72,15 @@ export function HistoryChart({ history, tz }: { history: ZoneHistory; tz?: strin
   const [activeStart, setActiveStart] = useState<number | null>(null);
   const [focused, setFocused] = useState(false);
 
-  const range = historyRange(history);
+  const laatste = lastMeasured(history);
+  const oud = staleSince(history, sensor, now ?? Date.now(), staleAfterS);
+  const range = historyRange(history, oud?.tot);
   const bereik = extent([...history.temperature, ...history.target].map(([, v]) => v));
   if (!range) return <Empty>Nog geen geschiedenis.</Empty>;
   if (!bereik) return <Empty>{GEEN_METING} in de laatste 24 uur.</Empty>;
 
   const { t0, t1 } = range;
-  const slots = historySlots(history);
+  const slots = historySlots(history, oud?.tot);
   const slot0 = slots[0].start;
   const v0 = Math.floor(bereik.min - 0.5), v1 = Math.ceil(bereik.max + 0.5);
   const x = (t: number) => ((t - t0) / (t1 - t0)) * W;
@@ -66,18 +94,29 @@ export function HistoryChart({ history, tz }: { history: ZoneHistory; tz?: strin
     .filter((r) => r.length > 1)
     .map((r) => r.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`).join(' '))
     .join(' ');
-  const dots = measuredRuns.filter((r) => r.length === 1).map((r) => r[0]);
+  // De laatste meting is het eindpunt (12 px, Peil §10) en wordt dus niet ook nog als losse stip getekend.
+  const dots = measuredRuns.filter((r) => r.length === 1 && r[0].t !== laatste?.t).map((r) => r[0]);
+  // Verouderd: het stuk vanaf de laatste meting (of vanaf het begin, als die vóór de grafiek ligt) tot het eind.
+  const oudVan = oud ? Math.max(oud.sinds, t0) : null;
   // Doel: traplijn; het laatste doel van een stuk loopt door tot het eind van zijn uur (of het eind van de grafiek).
+  // Bij een verouderde sensor loopt het doel niet verder het gearceerde stuk in dan zijn eigen laatste waarde: ook
+  // deze lijn stopt bij het laatste punt (Peil §10).
   const step = lineRuns(history.target, slot0)
     .map((r) => {
       const last = r[r.length - 1];
-      const until = Math.min(t1, slot0 + (slotIndex(last.t, slot0) + 1) * HOUR_MS);
+      const uurEind = Math.min(t1, slot0 + (slotIndex(last.t, slot0) + 1) * HOUR_MS);
+      const until = oudVan === null ? uurEind : Math.min(uurEind, Math.max(last.t, oudVan));
       return r.map((p, i) => (i ? `H${x(p.t).toFixed(1)} V${y(p.v).toFixed(1)}` : `M${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`)).join(' ') + ` H${x(until).toFixed(1)}`;
     })
     .join(' ');
-  const gaps = gapRuns(slots);
+  const gaps = gapsBefore(gapRuns(slots), oudVan);
+  const oudSinds = oud ? (oud.sinds >= t0 ? time(new Date(oud.sinds), tz) : momentLabel(oud.sinds, tz)) : '';
+  const gearceerd = gaps.length > 0 || oudVan !== null;
 
-  const lastMeasured = [...history.temperature].reverse().find(([, v]) => typeof v === 'number')?.[1] ?? null;
+  // Tijden onder de grafiek: begin links, eind rechts; tussenlabels op hele uren (alleen als er breedte voor is).
+  const begin = time(new Date(t0), tz);
+  const eind = time(new Date(t1), tz);
+  const tussen = hourTicks(t0, t1, tz);
   // Review stap 5 (Peil §10, dataviz): rasterlijnen op ronde graden (stap 1 of 2) met het getal ernaast, en begin- en
   // eindtijd onder de grafiek; tekst in teksttokens (chart-label), nooit de reekskleur.
   const stap = v1 - v0 > 6 ? 2 : 1;
@@ -114,69 +153,102 @@ export function HistoryChart({ history, tz }: { history: ZoneHistory; tz?: strin
   };
 
   return (
-    <div className="hist-chart">
-      {/* Peil §10: plotvak role=img + tabindex=0. De toegankelijke naam is de samenvatting (ongewijzigd); de uitleg van
-          de toetsen is de beschrijving; de waarde per uur staat in de aria-live-regel eronder. */}
-      <div
-        ref={plot}
-        className="hist-plot"
-        role="img"
-        tabIndex={0}
-        aria-label={`Gemeten en doeltemperatuur, bereik ${v0}° tot ${v1}°${lastMeasured !== null ? `, laatste meting ${temp(lastMeasured)}` : ''}`}
-        aria-describedby={hintId}
-        data-testid="hist-plot"
-        onKeyDown={onKey}
-        onFocus={() => setFocused(true)}
-        onBlur={() => {
-          setFocused(false);
-          choose(null);
-        }}
-        onPointerMove={onPointer}
-        onPointerDown={onPointer}
-        onPointerLeave={(e) => {
-          // Een vinger verlaat het vak zodra hij loslaat: dan blijft de keuze staan (tot een tik ernaast, of Esc).
-          if (e.pointerType !== 'touch' && document.activeElement !== plot.current) choose(null);
-        }}
-      >
-        <div className="hist-y" aria-hidden="true">
-          {ticks.map((v) => <span key={v} className="hist-tick cijfers" style={{ top: pctY(v) }}>{`${v}°`}</span>)}
+    <div className="hist-chart" data-eindlabel={laatste && !oud ? '' : undefined}>
+      <figure className="hist-figuur">
+        {/* Peil §10: plotvak role=img + tabindex=0. De toegankelijke naam is de samenvatting (bij een verouderde sensor
+            met "verouderd sinds …" erachter); de uitleg van de toetsen is de beschrijving; de waarde per uur staat in de
+            aria-live-regel eronder. */}
+        <div
+          ref={plot}
+          className="hist-plot"
+          role="img"
+          tabIndex={0}
+          aria-label={`Gemeten en doeltemperatuur, bereik ${v0}° tot ${v1}°${laatste ? `, laatste meting ${temp(laatste.v)}` : ''}${oud ? `, verouderd sinds ${momentLabel(oud.sinds, tz)}` : ''}`}
+          aria-describedby={hintId}
+          data-testid="hist-plot"
+          onKeyDown={onKey}
+          onFocus={() => setFocused(true)}
+          onBlur={() => {
+            setFocused(false);
+            choose(null);
+          }}
+          onPointerMove={onPointer}
+          onPointerDown={onPointer}
+          onPointerLeave={(e) => {
+            // Een vinger verlaat het vak zodra hij loslaat: dan blijft de keuze staan (tot een tik ernaast, of Esc).
+            if (e.pointerType !== 'touch' && document.activeElement !== plot.current) choose(null);
+          }}
+        >
+          <div className="hist-y" aria-hidden="true">
+            {ticks.map((v) => <span key={v} className="hist-tick cijfers" style={{ top: pctY(v) }}>{`${v}°`}</span>)}
+          </div>
+          <div className="hist-area" ref={area} aria-hidden="true">
+            {gaps.map((g) => (
+              <div key={g.from} className="hist-gat arcering-gat" style={{ left: pctX(g.from), width: `calc(${pctX(g.to)} - ${pctX(g.from)})` }} data-testid="hist-gat">
+                <span>{GEEN_METING}</span>
+              </div>
+            ))}
+            {oudVan !== null && <div className={`hist-oud arcering-gat${oud!.sinds >= t0 ? ' hist-oud-rand' : ''}`} style={{ left: pctX(oudVan) }} data-testid="hist-oud" />}
+            {active && <div className="hist-kruis" style={{ left: pctX(active.from), width: `calc(${pctX(active.to)} - ${pctX(active.from)})` }} data-testid="hist-kruis" />}
+            <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H }} preserveAspectRatio="none" focusable="false">
+              {/* Peil §7: rasterlijnen chart-grid; gemeten = chart-1 (2 px); doel = grenslijn in inkt (chart-limit),
+                  gestreepte traplijn — geen "verwarmen"-kleur, want het doel is geen reeks verwarmen. */}
+              {ticks.map((v) => <line key={v} x1="0" x2={W} y1={y(v)} y2={y(v)} stroke="var(--chart-grid)" vectorEffect="non-scaling-stroke" />)}
+              {step && <path d={step} fill="none" stroke="var(--chart-limit)" strokeWidth="1.5" strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />}
+              {line && <path d={line} fill="none" stroke="var(--chart-1)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />}
+            </svg>
+            {dots.map((p) => <span key={p.t} className="hist-punt" style={{ left: pctX(p.t), top: pctY(p.v) }} />)}
+            {laatste && <span className="hist-eind" style={{ left: pctX(laatste.t), top: pctY(laatste.v) }} data-testid="hist-eind" />}
+            {/* Direct label bij het eindpunt: alleen bij een verse sensor en alleen als er breedte voor is (componenten.css). */}
+            {laatste && !oud && <span className="hist-eindlabel cijfers" style={{ left: pctX(laatste.t), top: pctY(laatste.v) }}>{temp(laatste.v)}</span>}
+            {oudVan !== null && (
+              <div className="hist-oudlabel" style={{ left: pctX(oudVan) }}>
+                <span>Verouderd sinds {oudSinds}</span>
+              </div>
+            )}
+          </div>
         </div>
-        <div className="hist-area" ref={area} aria-hidden="true">
-          {gaps.map((g) => (
-            <div key={g.from} className="hist-gat arcering-gat" style={{ left: pctX(g.from), width: `calc(${pctX(g.to)} - ${pctX(g.from)})` }} data-testid="hist-gat">
-              <span>{GEEN_METING}</span>
-            </div>
-          ))}
-          {active && <div className="hist-kruis" style={{ left: pctX(active.from), width: `calc(${pctX(active.to)} - ${pctX(active.from)})` }} data-testid="hist-kruis" />}
-          <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H }} preserveAspectRatio="none" focusable="false">
-            {/* Peil §7: rasterlijnen chart-grid; gemeten = chart-1 (2 px); doel = grenslijn in inkt (chart-limit),
-                gestreepte traplijn — geen "verwarmen"-kleur, want het doel is geen reeks verwarmen. */}
-            {ticks.map((v) => <line key={v} x1="0" x2={W} y1={y(v)} y2={y(v)} stroke="var(--chart-grid)" vectorEffect="non-scaling-stroke" />)}
-            {step && <path d={step} fill="none" stroke="var(--chart-limit)" strokeWidth="1.5" strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />}
-            {line && <path d={line} fill="none" stroke="var(--chart-1)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />}
-          </svg>
-          {dots.map((p) => <span key={p.t} className="hist-punt" style={{ left: pctX(p.t), top: pctY(p.v) }} />)}
+        <div className="hist-x cijfers" aria-hidden="true">
+          <div className="hist-x-in">
+            <span style={{ left: 0 }}>{begin}</span>
+            {tussen.map((t) => <span key={t} className="hist-x-tussen" style={{ left: pctX(t) }}>{time(new Date(t), tz)}</span>)}
+            {eind !== begin && <span style={{ right: 0 }}>{eind}</span>}
+          </div>
         </div>
-      </div>
-      <div className="hist-x cijfers" aria-hidden="true">
-        <span>{time(new Date(t0), tz)}</span>
-        <span>{time(new Date(t1), tz)}</span>
-      </div>
-      {gaps.length > 0 && (
-        <p className="hist-uitleg">
-          <span className="hist-staal arcering-gat" aria-hidden="true" />
-          Gearceerd: {GEEN_METING.toLowerCase()} (nooit 0).
-        </p>
-      )}
-      <div className="hist-onder">
-        <p className="hist-lezing hist-maat cijfers" aria-hidden="true">{langste}</p>
-        <p className="hist-lezing cijfers" aria-live="polite" data-testid="hist-lezing">
-          {active ? slotReadout(active, tz) : ''}
-        </p>
-        <p id={hintId} className={focused && !active ? 'hist-hint' : 'sr-only'}>
-          {HISTORY_KEYS_HINT}
-        </p>
-      </div>
+        <div className="hist-onder">
+          <p className="hist-lezing hist-maat cijfers" aria-hidden="true">{langste}</p>
+          <p className="hist-lezing cijfers" aria-live="polite" data-testid="hist-lezing">
+            {active ? slotReadout(active, tz) : ''}
+          </p>
+          <p id={hintId} className={focused && !active ? 'hist-hint' : 'sr-only'}>
+            {HISTORY_KEYS_HINT}
+          </p>
+        </div>
+        {/* Peil §10: figcaption met bron en tijd. Verouderd = pil (icoon + woord + vorm) met de laatst bekende waarde. */}
+        <figcaption className="hist-bron">
+          {oud && (
+            <p className="hist-oudregel" data-testid="hist-verouderd">
+              <StatusBadge status="stale" />
+              <span>
+                Laatst bekend <time dateTime={new Date(oud.sinds).toISOString()}>{momentLabel(oud.sinds, tz)}</time>
+                {oud.waarde !== null ? `: ${temp(oud.waarde)}` : ''}. Daarna kwam er geen meting meer.
+              </span>
+            </p>
+          )}
+          {gearceerd && (
+            <p className="hist-uitleg">
+              <span className="hist-staal arcering-gat" aria-hidden="true" />
+              Gearceerd: {GEEN_METING.toLowerCase()} (nooit 0).
+            </p>
+          )}
+          <p className="hist-bronregel" data-testid="hist-bron">
+            Bron: {bron}
+            {!oud && laatste && <> · bijgewerkt <time dateTime={new Date(laatste.t).toISOString()}>{momentLabel(laatste.t, tz)}</time></>}
+            {!oud && !laatste && ' · geen gemeten temperatuur in de laatste 24 uur'}
+            {!gearceerd && ' · een gat betekent dat er geen meting was (nooit 0)'}.
+          </p>
+        </figcaption>
+      </figure>
       <details className="hist-tabel">
         <summary>Toon als tabel, per uur</summary>
         <HistoryTable slots={slots} tz={tz} />

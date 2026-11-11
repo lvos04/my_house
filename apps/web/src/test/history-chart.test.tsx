@@ -5,7 +5,22 @@ import { describe, expect, it } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HistoryChart, HISTORY_KEYS_HINT } from '../climate/HistoryChart';
-import { extent, gapRuns, historyRange, historySlots, lineRuns, slotLabel, slotReadout } from '../climate/history';
+import {
+  HOUR_MS,
+  extent,
+  gapRuns,
+  gapsBefore,
+  hasValues,
+  historyRange,
+  historySlots,
+  hourTicks,
+  lastMeasured,
+  lineRuns,
+  momentLabel,
+  slotLabel,
+  slotReadout,
+  staleSince,
+} from '../climate/history';
 import type { ZoneHistory } from '../api/types';
 
 const TZ = 'Europe/Amsterdam'; // UTC+1 in november
@@ -238,9 +253,11 @@ describe('grafiek "Laatste 24 uur": eerlijk over gaten', () => {
     expect(screen.queryByText(/Gearceerd/)).not.toBeInTheDocument();
   });
 
-  it('een losse meting wordt een stip, niet onzichtbaar', () => {
+  it('een losse meting wordt een stip, niet onzichtbaar; de laatste meting is het eindpunt', () => {
     const { container } = render(<HistoryChart history={{ temperature: [[at('08:00'), 20], [at('11:00'), 21]], target: [] }} tz={TZ} />);
-    expect(container.querySelectorAll('.hist-punt')).toHaveLength(2);
+    expect(container.querySelectorAll('.hist-punt')).toHaveLength(1);
+    expect(screen.getAllByTestId('hist-eind')).toHaveLength(1);
+    expect(screen.getByTestId('hist-eind')).toHaveStyle({ left: '100.00%' });
     expect(container.querySelector('svg path[stroke="var(--chart-1)"]')).toBeNull();
   });
 
@@ -286,5 +303,221 @@ describe('"Toon als tabel, per uur" (WCAG-tweeling)', () => {
       expect(screen.getByTestId('hist-lezing').textContent!.startsWith(`${header}: `)).toBe(true);
       await user.keyboard('{ArrowRight}');
     }
+  });
+});
+
+
+const ms = (hhmm: string) => new Date(at(hhmm)).getTime();
+const vers = { stale: false, at: at('12:45'), value: 20.275 };
+const verouderd = { stale: true, at: at('12:45'), value: 20.275 };
+
+describe('verouderd, eindpunt en tijdas (history.ts)', () => {
+  it('lastMeasured geeft de laatste meting mét waarde, of null', () => {
+    expect(lastMeasured({ temperature: [[at('08:00'), 20], [at('08:30'), 20.4], [at('08:40'), null]], target: [] })).toEqual({ t: ms('08:30'), v: 20.4 });
+    expect(lastMeasured({ temperature: [[at('08:00'), null]], target: [[at('08:00'), 21]] })).toBeNull();
+  });
+
+  it('hasValues: alleen met een gemeten waarde of een doel is er een grafiek', () => {
+    expect(hasValues({ temperature: [], target: [] })).toBe(false);
+    expect(hasValues({ temperature: [[at('08:00'), null]], target: [] })).toBe(false);
+    expect(hasValues({ temperature: [], target: [[at('08:00'), 21]] })).toBe(true);
+  });
+
+  it('staleSince: alleen als de server "verouderd" zegt; het moment is de laatste meting', () => {
+    const h = sample();
+    expect(staleSince(h, vers, ms('16:00'), 1800)).toBeNull();
+    expect(staleSince(h, null, ms('16:00'), 1800)).toBeNull();
+    expect(staleSince(h, undefined, ms('16:00'), 1800)).toBeNull();
+    const oud = staleSince(h, verouderd, ms('16:00'), 1800)!;
+    expect(oud.sinds).toBe(ms('12:45'));
+    expect(oud.waarde).toBeCloseTo(20.275, 5);
+    expect(oud.tot).toBe(ms('16:00'));
+  });
+
+  it('staleSince: de klok van het apparaat bepaalt alleen de breedte, binnen grenzen van de server', () => {
+    const h = sample();
+    // Klok loopt achter (vóór de laatste meting): minstens de termijn waarna de server "verouderd" zegt.
+    expect(staleSince(h, verouderd, ms('09:00'), 1800)!.tot).toBe(ms('12:45') + 1800_000);
+    // Klok loopt ver voor: hoogstens 24 uur na de laatste meting in de grafiek.
+    expect(staleSince(h, verouderd, ms('12:45') + 72 * HOUR_MS, 1800)!.tot).toBe(ms('12:45') + 24 * HOUR_MS);
+    // Geen bruikbare klok of termijn: het stuk begint en eindigt bij de laatste meting (geen verzonnen breedte).
+    expect(staleSince(h, verouderd, NaN)!.tot).toBe(ms('12:45'));
+  });
+
+  it('staleSince: zonder meting in de grafiek telt de laatste meting van de server; zonder beide is er niets te melden', () => {
+    const alleenDoel: ZoneHistory = { temperature: [], target: [[at('08:00'), 21]] };
+    expect(staleSince(alleenDoel, { stale: true, at: '2026-11-07T03:27:00Z', value: 19.5 }, ms('16:00'), 1800)).toEqual({
+      sinds: new Date('2026-11-07T03:27:00Z').getTime(),
+      waarde: 19.5,
+    });
+    expect(staleSince(alleenDoel, { stale: true, at: null, value: null }, ms('16:00'), 1800)).toBeNull();
+    // Een tijd zonder waarde is geen meting.
+    expect(staleSince(alleenDoel, { stale: true, at: at('07:00'), value: null }, ms('16:00'), 1800)).toBeNull();
+  });
+
+  it('historyRange en historySlots lopen door tot "tot": de uren na de laatste meting hebben geen meting', () => {
+    const h = sample();
+    expect(historyRange(h, ms('16:00'))).toEqual({ t0: ms('08:00'), t1: ms('16:00') });
+    // Nooit korter dan de metingen zelf.
+    expect(historyRange(h, ms('09:00'))).toEqual({ t0: ms('08:00'), t1: ms('12:45') });
+    const slots = historySlots(h, ms('15:30'));
+    expect(slots).toHaveLength(8);
+    expect(slots.slice(5).every((s) => s.measured === null && s.target === null)).toBe(true);
+    expect(slotLabel(slots[7], TZ)).toBe('9 nov 16:00–16:30');
+  });
+
+  it('gapsBefore: gaten in het verouderde stuk vervallen; een gat eroverheen stopt bij de grens', () => {
+    const gaten = [{ from: 10, to: 20 }, { from: 30, to: 50 }, { from: 60, to: 70 }];
+    expect(gapsBefore(gaten, null)).toEqual(gaten);
+    expect(gapsBefore(gaten, 40)).toEqual([{ from: 10, to: 20 }, { from: 30, to: 40 }]);
+    expect(gapsBefore(gaten, 30)).toEqual([{ from: 10, to: 20 }]);
+  });
+
+  it('hourTicks: hele klokuren op een vaste stap, niet vlak bij begin of eind', () => {
+    const uren = (t0: string, t1: string) => hourTicks(new Date(t0).getTime(), new Date(t1).getTime(), TZ).map((t) => new Date(t).toISOString().slice(11, 16));
+    // 24 uur: elke 3 uur op de klok van het huis (Amsterdam = UTC+1): 09, 12, 15, 18, 21, 00, 03 uur lokaal.
+    expect(uren('2026-11-08T06:37:00Z', '2026-11-09T06:37:00Z')).toEqual(['11:00', '14:00', '17:00', '20:00', '23:00', '02:00']);
+    // Korter dan twee uur: geen tussenlabels.
+    expect(uren('2026-11-09T08:00:00Z', '2026-11-09T09:30:00Z')).toEqual([]);
+    // Zes uur: elk uur, zonder de uren binnen 15 % van begin en eind.
+    expect(uren('2026-11-09T08:00:00Z', '2026-11-09T14:00:00Z')).toEqual(['09:00', '10:00', '11:00', '12:00', '13:00']);
+    expect(hourTicks(NaN, NaN, TZ)).toEqual([]);
+  });
+
+  it('momentLabel: dag en tijd in de tijdzone van het huis', () => {
+    expect(momentLabel(ms('12:45'), TZ)).toBe('9 nov 13:45');
+  });
+});
+
+describe('grafiek "Laatste 24 uur": verouderde sensor (Peil §10)', () => {
+  const NU = ms('16:00');
+
+  it('verse sensor: geen verouderd-stuk, de naam blijft gelijk, bron en tijd staan onder de grafiek', () => {
+    render(<HistoryChart history={sample()} tz={TZ} sensor={vers} staleAfterS={1800} bron="sensor van de zone" now={NU} />);
+    expect(screen.queryByTestId('hist-oud')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('hist-verouderd')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Verouderd/)).not.toBeInTheDocument();
+    expect(screen.getByRole('img')).toHaveAccessibleName('Gemeten en doeltemperatuur, bereik 18° tot 22°, laatste meting 20,3°');
+    // Er is een gearceerd gat: de uitleg van de arcering staat er, de zin over "een gat" dus niet nog eens.
+    expect(screen.getByTestId('hist-bron')).toHaveTextContent('Bron: sensor van de zone · bijgewerkt 9 nov 13:45.');
+    expect(screen.getByTestId('hist-bron').querySelector('time')).toHaveAttribute('datetime', '2026-11-09T12:45:00.000Z');
+    // De tijdas eindigt bij de laatste meting.
+    expect(screen.getByTestId('hist-eind')).toHaveStyle({ left: '100.00%' });
+  });
+
+  it('zonder gat staat onder de grafiek wat een gat betekent (nooit 0)', () => {
+    render(<HistoryChart history={{ temperature: [[at('08:00'), 20], [at('08:30'), 20.5]], target: [[at('08:00'), 21]] }} tz={TZ} bron="sensor van de airco" />);
+    expect(screen.getByTestId('hist-bron')).toHaveTextContent('Bron: sensor van de airco · bijgewerkt 9 nov 09:30 · een gat betekent dat er geen meting was (nooit 0).');
+  });
+
+  it('de grafiek is een figuur met een bijschrift; de tabel staat erbuiten', () => {
+    const { container } = render(<HistoryChart history={sample()} tz={TZ} />);
+    const figuur = screen.getByRole('figure');
+    expect(figuur).toContainElement(screen.getByRole('img'));
+    expect(figuur.lastElementChild!.tagName).toBe('FIGCAPTION');
+    expect(figuur).toContainElement(screen.getByTestId('hist-lezing'));
+    expect(figuur).not.toContainElement(container.querySelector('details'));
+    // Zonder opgegeven bron heet de bron wat zij is: de temperatuursensor.
+    expect(screen.getByTestId('hist-bron')).toHaveTextContent('Bron: temperatuursensor · bijgewerkt 9 nov 13:45.');
+  });
+
+  it('verouderd: de lijn stopt bij de laatste meting, daarna een gearceerd stuk "Verouderd sinds …" tot nu', () => {
+    const { container } = render(<HistoryChart history={sample()} tz={TZ} sensor={verouderd} staleAfterS={1800} bron="sensor van de zone" now={NU} />);
+    // 08:00–16:00 UTC is acht uur; de laatste meting (12:45) ligt op 59,38 %.
+    const stuk = screen.getByTestId('hist-oud');
+    expect(stuk).toHaveClass('arcering-gat', 'hist-oud-rand');
+    expect(stuk).toHaveStyle({ left: '59.38%' });
+    expect(screen.getByTestId('hist-eind')).toHaveStyle({ left: '59.38%' });
+    expect(container.querySelector('.hist-oudlabel')).toHaveTextContent('Verouderd sinds 13:45');
+    expect(container.querySelector('.hist-oudlabel')).toHaveStyle({ left: '59.38%' });
+    // Geen direct label bij het eindpunt: de laatst bekende waarde staat onder de grafiek.
+    expect(container.querySelector('.hist-eindlabel')).toBeNull();
+    expect(container.querySelector('.hist-chart')).not.toHaveAttribute('data-eindlabel');
+    // De tijdas loopt door tot nu (17:00 in Amsterdam).
+    expect([...container.querySelectorAll('.hist-x span:not(.hist-x-tussen)')].map((e) => e.textContent)).toEqual(['09:00', '17:00']);
+    // Het gat van 11:00–12:00 blijft "Geen meting"; in het verouderde stuk staat geen tweede arcering.
+    expect(screen.getAllByTestId('hist-gat')).toHaveLength(1);
+    // De gemeten lijn loopt niet door na de laatste meting (x hoogstens 593,8 van 1000).
+    const d = container.querySelector('svg path[stroke="var(--chart-1)"]')!.getAttribute('d')!;
+    const xs = [...d.matchAll(/[ML](\d+(?:\.\d+)?) /g)].map((m) => Number(m[1]));
+    expect(Math.max(...xs)).toBeCloseTo(593.8, 1);
+    // Ook de doellijn stopt daar: zij loopt het gearceerde stuk niet in (niet door tot het eind van het uur, 625).
+    const doel = container.querySelector('svg path[stroke="var(--chart-limit)"]')!.getAttribute('d')!;
+    expect(doel.endsWith(' H593.8')).toBe(true);
+  });
+
+  it('verouderd met een doel dat nog wel binnenkomt: de doellijn loopt tot haar eigen laatste waarde, niet verder', () => {
+    // De sensor van de zone zwijgt sinds 12:45; de airco meldt het doel nog tot 14:20.
+    const h = sample();
+    h.target.push([at('13:30'), 19], [at('14:20'), 19]);
+    const { container } = render(<HistoryChart history={h} tz={TZ} sensor={verouderd} staleAfterS={1800} now={NU} />);
+    expect(screen.getByTestId('hist-oud')).toHaveStyle({ left: '59.38%' });
+    // 14:20 ligt op 6 u 20 van de 8 uur = 791,7; het eind van dat uur (15:00 = 875) haalt de lijn niet.
+    const doel = container.querySelector('svg path[stroke="var(--chart-limit)"]')!.getAttribute('d')!;
+    expect(doel.endsWith(' H791.7')).toBe(true);
+  });
+
+  it('verouderd: naam, pil en bijschrift zeggen het in woorden (nooit alleen kleur, nooit groen)', () => {
+    render(<HistoryChart history={sample()} tz={TZ} sensor={verouderd} staleAfterS={1800} bron="sensor van de zone" now={NU} />);
+    expect(screen.getByRole('img')).toHaveAccessibleName(
+      'Gemeten en doeltemperatuur, bereik 18° tot 22°, laatste meting 20,3°, verouderd sinds 9 nov 13:45',
+    );
+    const regel = screen.getByTestId('hist-verouderd');
+    expect(regel).toHaveTextContent('Verouderd');
+    expect(regel).toHaveTextContent('Laatst bekend 9 nov 13:45: 20,3°. Daarna kwam er geen meting meer.');
+    const pil = regel.querySelector('.status-badge')!;
+    expect(pil).toHaveAttribute('data-status', 'stale');
+    expect(pil).toHaveClass('arcering', 'border-dashed', 'border-stale');
+    expect(pil.className).not.toMatch(/healthy/);
+    expect(regel.querySelector('time')).toHaveAttribute('datetime', '2026-11-09T12:45:00.000Z');
+    expect(screen.getByText('Gearceerd: geen meting (nooit 0).')).toBeInTheDocument();
+    // De tijd staat al in de regel "Laatst bekend": de bronregel herhaalt haar niet.
+    expect(screen.getByTestId('hist-bron')).toHaveTextContent('Bron: sensor van de zone.');
+    expect(screen.getByTestId('hist-bron')).not.toHaveTextContent('bijgewerkt');
+  });
+
+  it('verouderd: de uren na de laatste meting heten "Geen meting" in de uitlezing en in de tabel', async () => {
+    const user = userEvent.setup();
+    render(<HistoryChart history={sample()} tz={TZ} sensor={verouderd} staleAfterS={1800} now={NU} />);
+    await user.click(screen.getByRole('img'));
+    await user.keyboard('{End}');
+    expect(screen.getByTestId('hist-lezing')).toHaveTextContent('9 nov 17:00: Geen meting');
+    await user.keyboard('{ArrowLeft}');
+    expect(screen.getByTestId('hist-lezing')).toHaveTextContent('9 nov 16:00–17:00: Geen meting');
+    await user.click(screen.getByText('Toon als tabel, per uur'));
+    const rows = screen.getAllByRole('row').slice(1);
+    expect(rows).toHaveLength(9);
+    expect(within(rows[5]).getAllByRole('cell').map((c) => c.textContent)).toEqual(['Geen meting', 'Geen meting', 'Geen meting']);
+    expect(within(rows[4]).getAllByRole('cell')[0]).toHaveTextContent('20,2°');
+  });
+
+  it('verouderd sinds vóór het begin van de grafiek: het hele vak is gearceerd, met de dag erbij en zonder rand', () => {
+    const { container } = render(
+      <HistoryChart history={{ temperature: [], target: [[at('08:00'), 21], [at('12:00'), 21]] }} tz={TZ} sensor={{ stale: true, at: '2026-11-07T03:27:00Z', value: 19.5 }} staleAfterS={1800} now={NU} />,
+    );
+    const stuk = screen.getByTestId('hist-oud');
+    expect(stuk).toHaveStyle({ left: '0.00%' });
+    expect(stuk).not.toHaveClass('hist-oud-rand');
+    expect(container.querySelector('.hist-oudlabel')).toHaveTextContent('Verouderd sinds 7 nov 04:27');
+    expect(screen.getByRole('img')).toHaveAccessibleName('Gemeten en doeltemperatuur, bereik 20° tot 22°, verouderd sinds 7 nov 04:27');
+    expect(screen.getByTestId('hist-verouderd')).toHaveTextContent('Laatst bekend 7 nov 04:27: 19,5°. Daarna kwam er geen meting meer.');
+    expect(screen.queryByTestId('hist-eind')).not.toBeInTheDocument();
+  });
+
+  it('verouderd zonder enige bekende meting: geen verzonnen tijd, wel eerlijk "geen gemeten temperatuur"', () => {
+    render(<HistoryChart history={{ temperature: [], target: [[at('08:00'), 21], [at('08:30'), 21]] }} tz={TZ} sensor={{ stale: true, at: null, value: null }} now={NU} />);
+    expect(screen.queryByTestId('hist-oud')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('hist-verouderd')).not.toBeInTheDocument();
+    expect(screen.getByTestId('hist-bron')).toHaveTextContent(
+      'Bron: temperatuursensor · geen gemeten temperatuur in de laatste 24 uur · een gat betekent dat er geen meting was (nooit 0).',
+    );
+  });
+
+  it('direct label bij het eindpunt alleen bij een verse sensor; één tijd op de as als begin en eind gelijk zijn', () => {
+    const { container } = render(<HistoryChart history={{ temperature: [[at('08:00'), 20.3]], target: [] }} tz={TZ} />);
+    expect(container.querySelector('.hist-chart')).toHaveAttribute('data-eindlabel');
+    expect(container.querySelector('.hist-eindlabel')).toHaveTextContent('20,3°');
+    expect(container.querySelectorAll('.hist-punt')).toHaveLength(0);
+    expect([...container.querySelectorAll('.hist-x span')].map((e) => e.textContent)).toEqual(['09:00']);
   });
 });

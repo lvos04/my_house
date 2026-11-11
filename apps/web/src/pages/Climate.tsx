@@ -16,6 +16,7 @@ import { PolicyForm } from '../climate/PolicyForm';
 import { ProfilesPanel } from '../climate/Profiles';
 import { modeEffect, todaySegments, weekdayIndex } from '../climate/schedule';
 import { HistoryChart } from '../climate/HistoryChart';
+import { hasValues } from '../climate/history';
 
 // Kept here for existing imports (tests): the logic lives in climate/schedule.ts and climate/HistoryChart.tsx.
 export { todaySegments, weekdayIndex } from '../climate/schedule';
@@ -189,12 +190,24 @@ function ControlTab({ zone, tz, homeId, onLink }: { zone: Zone; tz?: string; hom
       <section aria-labelledby={`gesch-h-${zone.id}`} className="card">
         <div className="section-head">
           <h2 id={`gesch-h-${zone.id}`} style={{ fontSize: 18 }}>Laatste 24 uur</h2>
-          <div className="legend">
-            <span><span className="swatch" style={{ background: 'var(--chart-1)', height: 3 }} aria-hidden="true" />Gemeten</span>
-            <span><span className="swatch" style={{ background: 'repeating-linear-gradient(90deg, var(--chart-limit) 0 4px, transparent 4px 6px)', height: 2 }} aria-hidden="true" />Doel</span>
-          </div>
+          {/* De legenda hoort bij de lijnen: zonder grafiek (laden, fout, nog geen metingen) staat zij er niet. De
+              staaltjes zijn 20 px breed, zodat doorgetrokken en gestreept ook zonder kleur te onderscheiden zijn. */}
+          {history.data && hasValues(history.data) && (
+            <div className="legend">
+              <span><span className="swatch" style={{ background: 'var(--chart-1)', width: 20, height: 3 }} aria-hidden="true" />Gemeten</span>
+              <span><span className="swatch" style={{ background: 'repeating-linear-gradient(90deg, var(--chart-limit) 0 6px, transparent 6px 10px)', width: 20, height: 2, borderRadius: 0 }} aria-hidden="true" />Doel</span>
+            </div>
+          )}
         </div>
-        {history.data ? <HistoryChart history={history.data} tz={tz} /> : history.isLoading ? <Loading /> : <ErrorNote error={history.error} />}
+        {history.data ? (
+          <HistoryChart
+            history={history.data}
+            tz={tz}
+            sensor={zone.temperature}
+            staleAfterS={zone.policy.stale_after_s}
+            bron={zone.sensor_device_id ? 'sensor van de zone' : zone.unit_device_id ? 'sensor van de airco' : undefined}
+          />
+        ) : history.isLoading ? <Loading /> : <ErrorNote error={history.error} />}
         <h3 style={{ marginTop: 8, fontSize: 16 }}>Aanpassingslog</h3>
         {log.data?.length ? (
           <ul className="log">

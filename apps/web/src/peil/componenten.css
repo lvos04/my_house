@@ -256,10 +256,20 @@
 
   /* Lijngrafiek "Laatste 24 uur" (review stap 5, Peil §10): graden links naast de rasterlijnen, begin- en
      eindtijd eronder, in chart-label (≥ 7:1), 14 px, tabelcijfers. */
-  .hist-plot { @apply relative pl-11; }
-  .hist-y { @apply absolute inset-y-0 left-0 w-9; }
+  /* Ontwerpreview (ADR-0014): het plotvak heeft boven en onder 6 px lucht, zodat het bovenste en onderste getal van
+     de y-as binnen het vak en dus binnen de focusring vallen (ze staken 4,8 px uit en de ring liep erdoorheen), en
+     rechts 8 px voor het eindpunt. De tijden staan op hun plek op de as: begin links, eind rechts, tussenlabels op
+     hele uren pas als de grafiek ≥ 34 rem breed is (COMPONENTEN.md, Lijngrafiek: "tussenlabels pas vanaf sm").
+     scroll-margin: na Tab staat ook de regel onder het plotvak (uitleg of uitlezing) boven de ondernavigatie. */
+  .hist-chart { container: hist / inline-size; }
+  .hist-figuur { @apply m-0; }
+  .hist-plot { @apply relative py-1.5 pr-2 pl-11; scroll-margin-bottom: 8.5rem; }
+  .hist-y { @apply absolute inset-y-1.5 left-0 w-9; }
   .hist-tick { @apply absolute right-0 -translate-y-1/2 text-sm leading-5 whitespace-nowrap text-chart-label; }
-  .hist-x { @apply mt-1 flex justify-between pl-11 text-sm text-chart-label; }
+  .hist-x { @apply mt-1.5 pr-2 pl-11 text-sm text-chart-label; }
+  .hist-x-in { @apply relative h-5; }
+  .hist-x-in > span { @apply absolute top-0 leading-5 whitespace-nowrap; }
+  .hist-x-in > .hist-x-tussen { @apply hidden -translate-x-1/2; }
   /* Tabel en toetsenbord bij "Laatste 24 uur" (besluit gebruiker C09, Peil §10, ADR-0013). Het plotvak is één
      focusstop (ring uit de basis); het gekozen uur is een band met inktranden (draadkruis per uur); een gat zonder
      meting is gearceerd (arcering-gat) met "Geen meting" in chart-label; een losse meting is een stip van 8 px met
@@ -280,7 +290,40 @@
     background: color-mix(in oklab, var(--foreground) 8%, transparent);
   }
   .hist-punt { @apply pointer-events-none absolute size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-chart-1; box-shadow: 0 0 0 2px var(--card); }
-  .hist-kruis, .hist-punt { forced-color-adjust: none; }
+  /* Eindpunt (Peil §10): de laatste meting, 12 px met een ring van 2 px in de kaartkleur. De waarde staat er alleen
+     naast bij een verse sensor en als de grafiek ≥ 34 rem breed is: daar krijgt het plotvak rechts een eigen strook,
+     zodat het label nooit over een lijn valt. Smaller kost die strook te veel van de grafiek; de waarde staat dan
+     in het zonepaneel, in de toegankelijke naam, in de uitlezing en in de tabel. */
+  .hist-eind { @apply pointer-events-none absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-chart-1; box-shadow: 0 0 0 2px var(--card); }
+  .hist-eindlabel {
+    @apply pointer-events-none absolute hidden -translate-y-1/2 rounded-sm bg-card px-1 text-sm leading-5 font-semibold whitespace-nowrap text-foreground;
+    margin-left: 0.625rem;
+  }
+  @container hist (width >= 34rem) {
+    .hist-chart[data-eindlabel] .hist-plot, .hist-chart[data-eindlabel] .hist-x { @apply pr-14; }
+    .hist-eindlabel, .hist-x-in > .hist-x-tussen { display: block; }
+  }
+  /* Verouderd (Peil §10): na de laatste meting een gearceerd stuk tot het eind, met een stippelrand in de kleur van
+     "verouderd" op het moment van die meting en het label "Verouderd sinds …" rechtsboven (boven de lijnen). Het
+     label staat er alleen als het past, nooit half (zelfde regel als bij "Geen meting"); de tijd staat altijd ook
+     onder de grafiek en in de toegankelijke naam. Nooit groen, nooit alleen kleur: arcering + rand + woord. */
+  .hist-oud { @apply pointer-events-none absolute inset-y-0 right-0; }
+  /* Zonder preflight is de randdikte overal "medium": eerst alle zijden op 0, anders tekent border-dashed een kader. */
+  .hist-oud-rand { @apply border-0 border-l-2 border-dashed border-stale; }
+  .hist-oudlabel { @apply pointer-events-none absolute inset-y-0 right-0; container-type: inline-size; }
+  .hist-oudlabel > span {
+    @apply absolute top-2 right-1 rounded-sm bg-card px-1.5 text-right text-sm leading-5 font-semibold text-foreground;
+    max-width: min(12rem, 100% - 0.5rem);
+  }
+  /* Vanaf 9rem past "Verouderd sinds" op één regel met de tijd eronder; vanaf ± 11rem alles op één regel. */
+  @container (width < 9rem) { .hist-oudlabel > span { display: none; } }
+  .hist-kruis, .hist-punt, .hist-eind, .hist-oud { forced-color-adjust: none; }
+  /* Onder de grafiek (figcaption, Peil §10): bron en tijd; bij een verouderde sensor eerst de pil "Verouderd" met de
+     laatst bekende waarde. */
+  .hist-bron { @apply mt-2 flex flex-col gap-1.5 border-t border-border pt-2 text-sm text-muted-foreground; }
+  .hist-bron p { @apply m-0; }
+  .hist-bron time { @apply whitespace-nowrap; }
+  .hist-oudregel { @apply flex flex-wrap items-center gap-x-2 gap-y-1 text-foreground; }
   /* Uitlezing en uitleg delen één plek onder de grafiek. Met een muis (hover) is die plek vooraf zo hoog als de
      langste uitlezing van deze grafiek (.hist-maat, onzichtbaar): de tabel eronder verspringt dan niet terwijl de
      aanwijzer over de uren gaat, bij elke breedte en elk lettertype. Bij aanraken is er geen aanwijzen en dus geen
