@@ -422,9 +422,10 @@ export interface ZoneCommand {
   fan?: FanSpeed;
   override_minutes?: number;
 }
+/** Metingen van de laatste uren, oudste eerst. Een meting kan zonder waarde zijn (null = geen meting, nooit 0). */
 export interface ZoneHistory {
-  temperature: [Ts, number][];
-  target: [Ts, number][];
+  temperature: [Ts, number | null][];
+  target: [Ts, number | null][];
 }
 export interface ZoneLogEntry {
   at: Ts;

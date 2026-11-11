@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { qk } from '../api/keys';
-import type { Alert, ScheduleBlock, Zone, ZoneHistory } from '../api/types';
+import type { Alert, ScheduleBlock, Zone } from '../api/types';
 import { useHome } from '../state';
 import { ActionButton, Empty, ErrorNote, Loading, PaginaFout } from '../components/bits';
 import { TabPanel, Tabs } from '../components/Tabs';
@@ -15,10 +15,12 @@ import { ScheduleEditor } from '../climate/ScheduleEditor';
 import { PolicyForm } from '../climate/PolicyForm';
 import { ProfilesPanel } from '../climate/Profiles';
 import { modeEffect, todaySegments, weekdayIndex } from '../climate/schedule';
+import { HistoryChart } from '../climate/HistoryChart';
 
-// Kept here for existing imports (tests): the logic lives in climate/schedule.ts.
+// Kept here for existing imports (tests): the logic lives in climate/schedule.ts and climate/HistoryChart.tsx.
 export { todaySegments, weekdayIndex } from '../climate/schedule';
 export type { Segment } from '../climate/schedule';
+export { HistoryChart } from '../climate/HistoryChart';
 
 /** Peil §7: een label staat alleen in een segment als het er helemaal in past; anders weg (nooit half
  * afgeknipt). De volledige tekst staat in het aria-label van de balk en in de title per segment. */
@@ -54,47 +56,6 @@ function ScheduleBar({ zoneId, tz }: { zoneId: string; tz?: string }) {
       </div>
       <div className="axis" aria-hidden="true"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
     </>
-  );
-}
-
-export function HistoryChart({ history, tz }: { history: ZoneHistory; tz?: string }) {
-  const all = [...history.temperature, ...history.target];
-  if (!all.length) return <Empty>Nog geen geschiedenis.</Empty>;
-  const ts = all.map(([tt]) => new Date(tt).getTime());
-  const vs = all.map(([, v]) => v);
-  const t0 = Math.min(...ts), t1 = Math.max(...ts, t0 + 1);
-  const v0 = Math.floor(Math.min(...vs) - 0.5), v1 = Math.ceil(Math.max(...vs) + 0.5);
-  const W = 1000, H = 180;
-  const x = (tt: string) => ((new Date(tt).getTime() - t0) / (t1 - t0)) * W;
-  const y = (v: number) => H - ((v - v0) / (v1 - v0)) * (H - 10) - 5;
-  const line = history.temperature.map(([tt, v], i) => `${i ? 'L' : 'M'}${x(tt).toFixed(1)} ${y(v).toFixed(1)}`).join(' ');
-  const step = history.target.map(([tt, v], i) => (i ? `H${x(tt).toFixed(1)} V${y(v).toFixed(1)}` : `M${x(tt).toFixed(1)} ${y(v).toFixed(1)}`)).join(' ') + (history.target.length ? ` H${W}` : '');
-  const last = history.temperature.at(-1);
-  // Review stap 5 (Peil §10, dataviz): de lijn had geen schaal. Rasterlijnen op ronde graden (stap 1 of 2) met
-  // het getal ernaast, en begin- en eindtijd onder de grafiek; tekst in teksttokens (chart-label), nooit de reekskleur.
-  const stap = v1 - v0 > 6 ? 2 : 1;
-  const ticks: number[] = [];
-  for (let v = Math.ceil(v0 / stap) * stap; v <= v1; v += stap) ticks.push(v);
-  const pct = (v: number) => `${((y(v) / H) * 100).toFixed(2)}%`;
-  return (
-    <div className="hist-chart">
-      <div className="hist-plot">
-        <div className="hist-y" aria-hidden="true">
-          {ticks.map((v) => <span key={v} className="hist-tick cijfers" style={{ top: pct(v) }}>{`${v}°`}</span>)}
-        </div>
-        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 180 }} role="img" aria-label={`Gemeten en doeltemperatuur, bereik ${v0}° tot ${v1}°${last ? `, laatste meting ${temp(last[1])}` : ''}`} preserveAspectRatio="none">
-          {/* Peil §7: rasterlijnen chart-grid; gemeten = chart-1 (2 px); doel = grenslijn in inkt (chart-limit),
-              gestreepte traplijn — geen "verwarmen"-kleur, want het doel is geen reeks verwarmen. */}
-          {ticks.map((v) => <line key={v} x1="0" x2={W} y1={y(v)} y2={y(v)} stroke="var(--chart-grid)" vectorEffect="non-scaling-stroke" />)}
-          <path d={step} fill="none" stroke="var(--chart-limit)" strokeWidth="1.5" strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />
-          <path d={line} fill="none" stroke="var(--chart-1)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-        </svg>
-      </div>
-      <div className="hist-x cijfers" aria-hidden="true">
-        <span>{time(new Date(t0), tz)}</span>
-        <span>{time(new Date(t1), tz)}</span>
-      </div>
-    </div>
   );
 }
 
