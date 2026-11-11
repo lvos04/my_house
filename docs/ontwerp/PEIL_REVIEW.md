@@ -553,14 +553,16 @@ bekend is).
 - Gedraaid op de eindstand: `npx tsc --noEmit` en `npx tsc -p e2e/tsconfig.json` zonder fouten; vitest **332**
   geslaagd (28 bestanden; 38 in `history-chart.test.tsx`, was 19); `npm run build` in orde; browsertests **31 van 31**
   geslaagd (was 30), met Noto Sans en met DejaVu Sans.
+- CI na de reparatie: run 42987607974 op `8a1b052`, alle vijf de taken geslaagd (e2e 31 van 31 met het lettertype
+  van de CI-machine; web 332 tests).
 
 **Eerlijk over de weg ernaartoe:**
 
 1. Eén tussentijdse volledige ronde had 1 mislukte test van de 31: de nieuwe controle op het einde van de doellijn
    mat de omtrek van het SVG-pad, en die is ruimer dan de lijn zelf (261,3 tegen 260,3 px). De controle rekent nu met
    de coördinaten van het pad.
-2. **De CI-run op de eerste oplevering faalde** (run 42981992176 op `489f076`: backend, web, compose en images
-   geslaagd; e2e 29 geslaagd, **2 mislukt**). Beide matrixtests van flow 12 meldden op 768, 1024 en 1440 px:
+2. **De CI-run op de eerste oplevering faalde** (run 42981992176 op `489f076`, en om dezelfde reden run 42981935504
+   op `d888da0`, de push er vlak voor: backend, web, compose en images geslaagd; e2e 29 geslaagd, **2 mislukt**). Beide matrixtests van flow 12 meldden op 768, 1024 en 1440 px:
    `hist-eindlabel cijfers "20,0°" steekt buiten het plotvak`. Lokaal slaagde alles, omdat de ontwikkelmachine een
    smaller lettertype heeft. Met het CI-lettertype nagebootst faalden lokaal dezelfde 2 tests. Reparatie: §12.4
    punt 12.
