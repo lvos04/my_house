@@ -12,6 +12,9 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
 - **Na slepen over de uren wist een tik ernaast de keuze,** net als na een tik.
 - **Knijpen met twee vingers op de grafiek zoomt de pagina in.** Begon het gebaar op de grafiek, dan zoomde de
   pagina niet; dat kan nu ook daar. Horizontaal slepen kiest nog steeds een uur.
+- **Knijpen kiest geen uur.** Alleen de eerste vinger kiest een uur (tikken of horizontaal slepen); na het knijpen
+  staat de keuze van daarvoor er weer, of geen. (In de eerste versie van het knijpen bleef daarna het uur onder de
+  eerste vinger gekozen, en wiste een tik ernaast het niet; de technische review vond dat.)
 - Alleen gedrag bij aanraken; uiterlijk, teksten, API en gegevens blijven gelijk. Getest met het nagebootste
   aanraakscherm van Chromium; een echte telefoon is niet getest (NIET GEVALIDEERD (hardware)).
 

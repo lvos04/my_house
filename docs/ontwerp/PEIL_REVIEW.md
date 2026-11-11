@@ -586,3 +586,7 @@ ontwerpreview (`dcbe73d`). Daarna kwam er bij:
 - Stand daarna: vitest **336** geslaagd (28 bestanden; 42 in `history-chart.test.tsx`), browsertests **33 van 33**
   (7 in flow `12-grafiek-24-uur`), met Noto Sans. Dezelfde ronde met `SHC_E2E_SHOTS` gaf de acht afdrukken; die zijn
   niet opnieuw vastgelegd, omdat het uiterlijk niet veranderde.
+- Bij de herreview: na knijpen bleef het uur onder de eerste vinger gekozen, en een tik ernaast wiste het niet. Nu
+  kiest alleen de eerste vinger een uur (`isPrimary`) en komt na knijpen de keuze van daarvoor terug (ADR-0013
+  punt 4). Alleen gedrag bij aanraken; de afdrukken hierboven gelden nog. Stand daarna: vitest **337** (43 in
+  `history-chart.test.tsx`), browsertests **36 van 36** (10 in flow `12-grafiek-24-uur`), met Noto Sans.

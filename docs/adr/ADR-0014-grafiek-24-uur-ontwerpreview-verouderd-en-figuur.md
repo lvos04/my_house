@@ -117,8 +117,8 @@ geen overtreding van axe-core en geen contrastfout, maar wel dit:
   nieuw datamodel, geen nieuwe route of instelling; de Android-app heeft deze grafiek niet.
 - Tests: `src/test/history-chart.test.tsx` (vitest; bij deze review 38 tests, was 19) en `e2e/12-grafiek-24-uur.e2e.ts` (bij deze
   review 5, was 4 — eerder stond hier 6 en 5, dat telde de onboarding-test mee die ervoor draait). Na de technische review
-  (11 november 2026): 42 en 7 (vegen en slepen, knijpen, de legenda, de tijden in het bijschrift; `PEIL_REVIEW.md`
-  §12.9, aanvulling). De nieuwe browsertest laat een airco twee uur zwijgen tot de **server** de sensor verouderd noemt en controleert
+  (11 november 2026): 42 en 7 (vegen en slepen, knijpen, de legenda, de tijden in het bijschrift), en na de herreview
+  43 en 10 (knijpen kiest geen uur, ook als de tweede vinger later komt; `PEIL_REVIEW.md` §12.9, aanvulling). De nieuwe browsertest laat een airco twee uur zwijgen tot de **server** de sensor verouderd noemt en controleert
   in licht en donker op 390 en 1440 px: lijn en doellijn stoppen bij de grens, gearceerd stuk met stippelrand, de pil,
   "Geen meting" in leesregel en tabel, het label "Verouderd sinds …" binnen het stuk op één regel (1440) of afwezig
   (390), en axe-core 0.

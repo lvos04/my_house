@@ -273,6 +273,44 @@ describe('grafiek "Laatste 24 uur" met het toetsenbord', () => {
     expect(screen.queryByTestId('hist-kruis')).toBeNull();
   });
 
+  it('knijpen met twee vingers (de browser zoomt: pointercancel) kiest geen uur; een getikt uur blijft staan', () => {
+    render(<HistoryChart history={sample()} tz={TZ} />);
+    const plot = screen.getByRole('img');
+    const area = plot.querySelector<HTMLElement>('.hist-area')!;
+    area.getBoundingClientRect = () => ({ left: 100, width: 500, top: 0, height: 180, right: 600, bottom: 180, x: 100, y: 0, toJSON: () => ({}) });
+    // Elke vinger geeft een eigen pointerdown; de browser noemt de eerste vinger isPrimary, de tweede niet.
+    const vinger = (type: string, clientX: number, isPrimary: boolean) => {
+      const e = new MouseEvent(type, { bubbles: true, clientX });
+      Object.defineProperty(e, 'pointerType', { value: 'touch' });
+      Object.defineProperty(e, 'isPrimary', { value: isPrimary });
+      return fireEvent(plot, e);
+    };
+    const lezing = screen.getByTestId('hist-lezing');
+    // Twee vingers; de tweede kiest geen uur. Neemt de browser het knijpen over, dan krijgen beide een pointercancel:
+    // er was geen keuze, en er blijft er ook geen staan.
+    vinger('pointerdown', 220, true);
+    vinger('pointerdown', 590, false);
+    vinger('pointermove', 400, false);
+    expect(lezing).toHaveTextContent(/^9 nov 10:00–11:00/);
+    vinger('pointercancel', 220, true);
+    vinger('pointercancel', 590, false);
+    expect(lezing).toHaveTextContent(/^$/);
+    expect(screen.queryByTestId('hist-kruis')).toBeNull();
+    expect(plot).not.toHaveFocus();
+    // Eerst een tik op het laatste uur. Daarna een knijpgebaar waarvan de eerste vinger eerst wat sleept en de tweede
+    // later komt (en eerder een pointercancel krijgt): het getikte uur komt terug.
+    vinger('pointerdown', 590, true);
+    vinger('pointerup', 590, true);
+    expect(lezing).toHaveTextContent(/^9 nov 13:00–13:45/);
+    vinger('pointerdown', 100, true);
+    vinger('pointermove', 220, true);
+    vinger('pointerdown', 350, false);
+    vinger('pointercancel', 350, false);
+    vinger('pointercancel', 220, true);
+    expect(lezing).toHaveTextContent(/^9 nov 13:00–13:45/);
+    expect(screen.getByTestId('hist-kruis')).toBeInTheDocument();
+  });
+
   it('houdt plaats vrij voor de langste uitlezing, onzichtbaar en niet voor de schermlezer', () => {
     const { container } = render(<HistoryChart history={sample()} tz={TZ} />);
     const maat = container.querySelector('.hist-maat')!;

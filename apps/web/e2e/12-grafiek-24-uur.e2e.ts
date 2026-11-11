@@ -380,24 +380,64 @@ test.describe('grafiek "Laatste 24 uur" op een telefoon (aanraken)', () => {
 
   // Inzoomen met twee vingers moet ook kunnen als het gebaar op de grafiek begint (die is op een telefoon bijna zo
   // breed als de kaart): touch-action laat dan verticaal schuiven én knijpen aan de browser; alleen horizontaal slepen
-  // blijft bij de grafiek (een uur kiezen).
-  test('knijpen met twee vingers op de grafiek zoomt de pagina in', async ({ adminPage: page, api, homeId }) => {
-    const zone = await zoneMetMetingen(api, homeId);
-    const { sectie, plot } = await openZone(page, zone);
-    await plot.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  // blijft bij de grafiek (een uur kiezen). Knijpen is geen keuze. Gemeten bij de technische review (S-P2-700): elke
+  // vinger gaf een pointerdown, en de tweede legde het uur van de eerste vast als "vorige keuze"; na de pointercancel
+  // van het knijpen bleef dat uur gekozen, zonder focus, zodat een tik ernaast het niet meer wiste.
+  const schaal = (page: Page) => page.evaluate(() => window.visualViewport!.scale);
+  /** Knijpen (uit elkaar) met twee vingers in het midden van de grafiek, met echte touch-gebeurtenissen (via CDP),
+   * zodat de browser zelf beslist dat hij zoomt. Met `later` staat de eerste vinger er eerst alleen (en kiest die een
+   * uur); de tweede komt 80 ms later. */
+  async function knijp(page: Page, sectie: Locator, later: boolean) {
     const vlak = (await sectie.locator('.hist-area').boundingBox())!;
     const x = Math.round(vlak.x + vlak.width / 2);
     const y = Math.round(vlak.y + vlak.height / 2);
-    const schaal = () => page.evaluate(() => window.visualViewport!.scale);
-    expect(await schaal()).toBe(1);
     const cdp = await page.context().newCDPSession(page);
     const vingers = (d: number) => [{ x: x - d, y, id: 0 }, { x: x + d, y, id: 1 }];
+    if (later) {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: vingers(20).slice(0, 1) });
+      await page.waitForTimeout(80);
+    }
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: vingers(20) });
     for (let i = 1; i <= 10; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: vingers(20 + i * 8) });
     await page.waitForTimeout(150);
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-    await expect.poll(schaal).toBeGreaterThan(1.2);
-  });
+    await expect.poll(() => schaal(page)).toBeGreaterThan(1.2);
+  }
+
+  for (const { naam, later } of [
+    { naam: 'twee vingers tegelijk', later: false },
+    { naam: 'de tweede vinger 80 ms later', later: true },
+  ]) {
+    test(`knijpen met twee vingers op de grafiek zoomt de pagina in en kiest geen uur (${naam})`, async ({ adminPage: page, api, homeId }) => {
+      const zone = await zoneMetMetingen(api, homeId);
+      const { sectie, plot, lezing } = await openZone(page, zone);
+      await plot.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+      expect(await schaal(page)).toBe(1);
+      await knijp(page, sectie, later);
+      await expect(lezing).toHaveText('');
+      await expect(sectie.getByTestId('hist-kruis')).toHaveCount(0);
+      await expect(plot).not.toBeFocused();
+    });
+
+    test(`knijpen na een tik: het getikte uur blijft staan en een tik ernaast wist het (${naam})`, async ({ adminPage: page, api, homeId }) => {
+      const zone = await zoneMetMetingen(api, homeId);
+      const { sectie, plot, lezing } = await openZone(page, zone);
+      const kruis = sectie.getByTestId('hist-kruis');
+      await plot.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+      expect(await schaal(page)).toBe(1);
+      // Links = het eerste uur; het knijpen begint in het midden, op andere uren.
+      const vlak = (await sectie.locator('.hist-area').boundingBox())!;
+      await page.touchscreen.tap(vlak.x + 3, vlak.y + vlak.height / 2);
+      await expect(lezing).toHaveText(/^\d{1,2} \S+ \d\d:\d\d(–\d\d:\d\d)?: /);
+      const getikt = (await lezing.textContent())!;
+      await knijp(page, sectie, later);
+      await expect(lezing).toHaveText(getikt);
+      await expect(kruis).toHaveCount(1);
+      await sectie.getByRole('heading', { name: 'Laatste 24 uur' }).tap();
+      await expect(lezing).toHaveText('');
+      await expect(kruis).toHaveCount(0);
+    });
+  }
 });
 
 test.describe('grafiek "Laatste 24 uur": verouderde sensor', () => {

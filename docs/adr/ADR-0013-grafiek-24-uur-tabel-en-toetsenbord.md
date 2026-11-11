@@ -61,10 +61,12 @@ schaal en trok de lijn door over uren zonder meting.
    keuze zodra de aanwijzer het plotvak verlaat (tenzij het plotvak de focus heeft). Na een **tik** op een aanraakscherm
    blijft de keuze staan tot een tik ernaast of Esc: een vinger "verlaat" het vak op het moment van loslaten, en anders
    zou de uitlezing meteen weer verdwijnen. Op een aanraakscherm laat het plotvak verticaal schuiven en knijpen
-   (inzoomen) aan de browser (`touch-action: pan-y pinch-zoom`); alleen horizontaal slepen kiest een uur. Een veeg die
-   de browser overneemt (pointercancel) kiest geen uur, en na slepen heeft het plotvak de focus, zodat een tik ernaast
-   de keuze wist. Knijpen moet ook op de grafiek kunnen: die is op een telefoon bijna zo breed als de kaart, en wie
-   slecht ziet, zoomt juist daar in. Op een apparaat met een muis (`@media (hover: hover)`) is de plaats van de
+   (inzoomen) aan de browser (`touch-action: pan-y pinch-zoom`). Alleen de eerste vinger kiest een uur, met een tik of
+   door horizontaal te slepen; een tweede vinger kiest nooit iets (`isPrimary`). Een gebaar dat de browser overneemt
+   (verticaal vegen of knijpen: pointercancel) kiest geen uur: de keuze van vóór het gebaar komt terug, en zonder
+   eerdere keuze blijft er geen uur staan. Na slepen heeft het plotvak de focus, zodat een tik ernaast de keuze wist.
+   Knijpen moet ook op de grafiek kunnen: die is op een telefoon bijna zo breed als de kaart, en wie slecht ziet, zoomt
+   juist daar in. Op een apparaat met een muis (`@media (hover: hover)`) is de plaats van de
    leesregel vooraf zo hoog als de langste uitlezing van deze grafiek, zodat "Toon als tabel" en alles eronder niet
    verspringt terwijl de aanwijzer over de grafiek gaat (zonder die ruimte sprong het op 320 px 20–80 px, gemeten in
    de browsertest). Op een aanraakscherm is die ruimte er niet: daar verschijnt de regel alleen na een bewuste tik.

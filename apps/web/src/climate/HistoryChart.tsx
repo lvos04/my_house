@@ -5,11 +5,13 @@
 //    tik op een telefoon) kiest hetzelfde uur. Draadkruis = het gekozen uur als band; de waarde staat in één zichtbare
 //    regel onder de grafiek, die ook wordt voorgelezen (aria-live="polite"). Een waarde is nooit alleen met de muis
 //    te lezen, en nooit alleen met kleur. Met een muis vervalt de keuze als de aanwijzer het plotvak verlaat; na een
-//    tik blijft zij staan (een vinger "verlaat" het vak meteen) tot een tik ernaast. Een veeg die de browser als
-//    schuiven overneemt (pointercancel, touch-action: pan-y pinch-zoom; knijpen zoomt dus ook op de grafiek) is geen
-//    keuze: de vorige keuze komt terug. Na slepen met een vinger krijgt het plotvak de focus, zoals na een tik, zodat
-//    ook dan een tik ernaast de keuze wist. Voor de uitlezing is bij een muis vooraf ruimte gemaakt, zodat de tabel
-//    eronder niet verspringt tijdens het aanwijzen.
+//    tik blijft zij staan (een vinger "verlaat" het vak meteen) tot een tik ernaast. Op een aanraakscherm kiest alleen
+//    de eerste vinger een uur (tikken of horizontaal slepen); een tweede vinger kiest nooit iets. Een gebaar dat de
+//    browser overneemt (pointercancel, touch-action: pan-y pinch-zoom: verticaal vegen schuift de pagina, knijpen
+//    zoomt, ook op de grafiek) is geen keuze: de keuze van vóór het gebaar komt terug, en zonder eerdere keuze blijft
+//    er geen uur staan. Na slepen met een vinger krijgt het plotvak de focus, zoals na een tik, zodat ook dan een tik
+//    ernaast de keuze wist. Voor de uitlezing is bij een muis vooraf ruimte gemaakt, zodat de tabel eronder niet
+//    verspringt tijdens het aanwijzen.
 //  - eerlijkheid: een uur zonder meting breekt de lijn en heet "Geen meting" (nooit 0, nooit doorgetrokken); een
 //    stuk zonder enige meting is gearceerd (arcering-gat), met het woord erin als het past (anders weg, nooit half:
 //    containerquery in componenten.css) en dan een uitleg onder de grafiek.
@@ -162,6 +164,10 @@ export function HistoryChart({ history, tz, sensor, staleAfterS, bron = 'tempera
     const ratio = Math.min(1, Math.max(0, (e.clientX - box.left) / box.width));
     choose(Math.min(slots.length - 1, Math.max(0, slotIndex(t0 + ratio * (t1 - t0), slot0))));
   };
+  // Op een aanraakscherm telt alleen de eerste vinger (isPrimary, bijgehouden door de browser). Een tweede vinger
+  // (knijpen) kiest geen uur en legt ook geen "vorige keuze" vast; anders legde hij het uur van de eerste vinger vast,
+  // en bleef dat na het knijpen gekozen.
+  const tweedeVinger = (e: PointerEvent<HTMLDivElement>) => e.pointerType === 'touch' && e.isPrimary === false;
 
   return (
     <div className="hist-chart" data-eindlabel={laatste && !oud ? '' : undefined}>
@@ -183,17 +189,23 @@ export function HistoryChart({ history, tz, sensor, staleAfterS, bron = 'tempera
             setFocused(false);
             choose(null);
           }}
-          onPointerMove={onPointer}
+          onPointerMove={(e) => {
+            if (!tweedeVinger(e)) onPointer(e);
+          }}
           onPointerDown={(e) => {
+            if (tweedeVinger(e)) return;
             if (e.pointerType === 'touch') voorVinger.current = activeStart;
             onPointer(e);
           }}
           onPointerCancel={(e) => {
-            // De browser schuift de pagina (verticaal vegen): de vinger koos niets, de vorige keuze blijft.
+            // De browser schuift of zoomt de pagina (verticaal vegen, knijpen): de vinger koos niets, de vorige keuze
+            // blijft. Bij knijpen krijgen beide vingers een pointercancel; de eerste vinger zet terug.
+            if (tweedeVinger(e)) return;
             if (e.pointerType === 'touch' && voorVinger.current !== undefined) setActiveStart(voorVinger.current);
             voorVinger.current = undefined;
           }}
           onPointerUp={(e) => {
+            if (tweedeVinger(e)) return;
             voorVinger.current = undefined;
             // Na slepen komt er geen click en dus geen focus; zonder focus wist een tik ernaast (blur) de keuze niet.
             if (e.pointerType === 'touch') plot.current?.focus({ preventScroll: true });
