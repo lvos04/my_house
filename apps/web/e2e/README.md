@@ -2,7 +2,7 @@
 
 End-to-end tests in Chromium tegen de echte stack: PostgreSQL, de API (`shc-api serve`) en de gebouwde
 web-app achter `vite preview`, die `/api` (ook de WebSocket) doorstuurt naar de API. Zonder worker en
-zonder hardware: apparaten, knopkoppelingen, meldingen en (voor de offline-test) een hartslag van de achtergronddienst zet `seed.py` rechtstreeks in de testdatabase.
+zonder hardware: apparaten, knopkoppelingen, meldingen, metingen (een temperatuurreeks zoals de worker die opslaat) en (voor de offline-test) een hartslag van de achtergronddienst zet `seed.py` rechtstreeks in de testdatabase.
 
 ## Draaien
 
@@ -36,6 +36,10 @@ Rapporten en traces komen in `e2e/.output/` (niet in git). In CI draait de job `
 | `09-viewer` | kijk-account ziet nergens bediening of beheer; de server weigert een commando |
 | `10-mobile` | 360 en 320 px: knoppen minstens 44 × 44 px, thermostaat (−/+ en draaiknop) en kaarten blijven binnen hun kaart/de pagina, geen zijwaartse scroll, uitloggen via "Meer" |
 | `11-peil` | ontwerptaal Peil: axe-core (WCAG 2.0/2.1/2.2 A+AA) = 0 op de hoofdschermen, de Meer-sheet en inloggen in licht en donker op 390 en 1440 px; Peil-matrix 320–1440 px (geen zijwaartse scroll, geen tekst < 14 px, doelen ≥ 44 px); themaknop (Donker blijft na herladen, Systeem volgt het apparaat); "Terug naar de Hub" alleen met een geldig adres uit `/_shc/config.json` (in de test nagespeeld met `page.route`) |
+| `12-grafiek-24-uur` | grafiek "Laatste 24 uur" (Klimaat › Bediening) met zes uur metingen, een gat van 2½ uur en één meting zonder waarde: het plotvak is één Tab-stop met ring; → ← Home End Esc lezen per uur voor (`aria-live`) met een draadkruis; de muis kiest hetzelfde uur en "Toon als tabel" verspringt daarbij niet; "Toon als tabel, per uur" heeft dezelfde uren met "Geen meting" in het gat; axe-core = 0, de ring om het plotvak en de Peil-matrix op 320–1440 px in licht en donker met open tabel en gekozen uur; op een nagebootst aanraakscherm (390 px) kiest een tik een uur en blijft de keuze staan tot een tik ernaast. Met `SHC_E2E_SHOTS=<map>` bewaart de test afdrukken van de sectie |
 
 `01-onboarding` draait als eerste (project `onboarding`); de andere tests bouwen voort op die
 beheerder en woning en draaien na elkaar (één stack, en `08-offline` stopt de API).
+
+`peil-metingen.ts` is geen testbestand: het bevat de metingen die `11-peil` en `12-grafiek-24-uur` delen (axe-core,
+tekst < 14 px, doelen < 44 px, inhoud buiten zijn kaart of element, focusring).

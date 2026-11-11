@@ -1,5 +1,6 @@
 """Test data for the browser tests that no API endpoint creates: devices as the worker would have
-found them (no real hardware), Hue button mappings as stored by an older version, and alerts.
+found them (no real hardware), Hue button mappings as stored by an older version, alerts, and
+readings (a measured series) as the worker would have stored them.
 
 Run with the API's Python and the same SHC_* environment as the API under test (e2e/run-stack.sh
 exports it). Usage:
@@ -17,7 +18,7 @@ import asyncio
 import json
 import sys
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 
 def _uuid(v: str | None) -> uuid.UUID | None:
@@ -115,7 +116,33 @@ async def heartbeat(a: dict) -> dict:
     return {"worker_heartbeat": value}
 
 
-COMMANDS = {"device": device, "mapping": mapping, "alert": alert, "resolve": resolve, "heartbeat": heartbeat}
+async def readings(a: dict) -> dict:
+    """A series of readings for one device and metric, as the worker stores them (store.ingest_reading):
+    {"device_id": …, "metric": "temperature", "unit": "°C", "points": [[minutes_ago, value_or_null], …]}.
+    A null value is a reading without a value (shown as "Geen meting", never as 0)."""
+    from shc_api.db import sessionmaker
+    from shc_api.store import ingest_reading
+
+    now = datetime.now(UTC).replace(microsecond=0)
+    device_id, metric, unit = uuid.UUID(a["device_id"]), a["metric"], a.get("unit", "°C")
+    added = 0
+    async with sessionmaker()() as db:
+        for minutes_ago, value in a["points"]:
+            at = now - timedelta(minutes=float(minutes_ago))
+            eid = f"e2e-{uuid.uuid4().hex}"
+            added += int(await ingest_reading(db, device_id, metric, value, unit, at, event_id=eid))
+        await db.commit()
+    return {"added": added, "now": now.isoformat()}
+
+
+COMMANDS = {
+    "device": device,
+    "mapping": mapping,
+    "alert": alert,
+    "resolve": resolve,
+    "heartbeat": heartbeat,
+    "readings": readings,
+}
 
 
 async def main(cmd: str, raw: str) -> dict:
