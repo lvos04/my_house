@@ -21,6 +21,22 @@ anders `apps/api/.venv/bin/python`, anders `python3`. Chromium installeer je met
 Rapporten en traces komen in `e2e/.output/` (niet in git). In CI draait de job `e2e` in
 `.github/workflows/ci.yml`.
 
+### Met het lettertype van de CI-machine
+
+De web-app gebruikt het lettertype van het apparaat (`system-ui`). Op een ontwikkelmachine met Noto Sans is dat
+smaller dan DejaVu Sans, waar de CI-machine op uitkomt. Een label dat lokaal net past, kan in CI buiten zijn vlak
+steken (zo faalde CI-run 42981992176 op de waarde naast het eindpunt van de grafiek; ADR-0014 punt 5). Draai daarom
+bij elke wijziging aan maten of labels ook een ronde met het bredere lettertype:
+
+```sh
+FONTCONFIG_FILE="$PWD/apps/web/e2e/ci-lettertype.conf" fc-match system-ui    # moet "DejaVu Sans" geven
+FONTCONFIG_FILE="$PWD/apps/web/e2e/ci-lettertype.conf" apps/web/e2e/run-stack.sh
+```
+
+`ci-lettertype.conf` verbergt Noto Sans voor fontconfig (alleen voor dat ene commando; het systeem verandert niet).
+Het werkt op Linux met fontconfig en met DejaVu Sans geïnstalleerd, en het pad moet volledig zijn. Het bootst
+alleen het lettertype na, niet de rest van de CI-machine: de CI-run zelf blijft de maatstaf.
+
 ## Wat getest wordt
 
 | Bestand | Scenario |
@@ -36,7 +52,7 @@ Rapporten en traces komen in `e2e/.output/` (niet in git). In CI draait de job `
 | `09-viewer` | kijk-account ziet nergens bediening of beheer; de server weigert een commando |
 | `10-mobile` | 360 en 320 px: knoppen minstens 44 × 44 px, thermostaat (−/+ en draaiknop) en kaarten blijven binnen hun kaart/de pagina, geen zijwaartse scroll, uitloggen via "Meer" |
 | `11-peil` | ontwerptaal Peil: axe-core (WCAG 2.0/2.1/2.2 A+AA) = 0 op de hoofdschermen, de Meer-sheet en inloggen in licht en donker op 390 en 1440 px; Peil-matrix 320–1440 px (geen zijwaartse scroll, geen tekst < 14 px, doelen ≥ 44 px); themaknop (Donker blijft na herladen, Systeem volgt het apparaat); "Terug naar de Hub" alleen met een geldig adres uit `/_shc/config.json` (in de test nagespeeld met `page.route`) |
-| `12-grafiek-24-uur` | grafiek "Laatste 24 uur" (Klimaat › Bediening) met zes uur metingen, een gat van 2½ uur en één meting zonder waarde: het plotvak is één Tab-stop met ring; → ← Home End Esc lezen per uur voor (`aria-live`) met een draadkruis; de muis kiest hetzelfde uur en "Toon als tabel" verspringt daarbij niet; "Toon als tabel, per uur" heeft dezelfde uren met "Geen meting" in het gat; axe-core = 0, de ring om het plotvak en de Peil-matrix op 320–1440 px in licht en donker met open tabel en gekozen uur; op een nagebootst aanraakscherm (390 px) kiest een tik een uur en blijft de keuze staan tot een tik ernaast. Ontwerpreview (ADR-0014): het plotvak staat in een `<figure>` met bron en "bijgewerkt" eronder, de laatste meting is een eindpunt van 12 px (breed: met de waarde ernaast), de tijdas heeft hele uren en niets botst of steekt buiten het plotvak; een airco die twee uur niets meldt en die de server verouderd noemt: de meetlijn en de doellijn stoppen, daarna een gearceerd stuk met stippelrand en "Verouderd sinds …" (als het past), de pil "Verouderd" met de laatst bekende waarde, "Geen meting" in uitlezing en tabel, axe-core = 0 in licht en donker op 390 en 1440 px. Met `SHC_E2E_SHOTS=<map>` bewaart de test afdrukken van de sectie |
+| `12-grafiek-24-uur` | grafiek "Laatste 24 uur" (Klimaat › Bediening) met zes uur metingen, een gat van 2½ uur en één meting zonder waarde: het plotvak is één Tab-stop met ring; → ← Home End Esc lezen per uur voor (`aria-live`) met een draadkruis; de muis kiest hetzelfde uur en "Toon als tabel" verspringt daarbij niet; "Toon als tabel, per uur" heeft dezelfde uren met "Geen meting" in het gat; axe-core = 0, de ring om het plotvak en de Peil-matrix op 320–1440 px in licht en donker met open tabel en gekozen uur; op een nagebootst aanraakscherm (390 px) kiest een tik een uur en blijft de keuze staan tot een tik ernaast. Ontwerpreview (ADR-0014): het plotvak staat in een `<figure>` met bron en "bijgewerkt" eronder, de laatste meting is een eindpunt van 12 px (breed: met de waarde ernaast, in een strook die het label volgt), de tijdas heeft hele uren en loopt gelijk met het tekenvlak, en niets botst of steekt buiten het plotvak; een airco die twee uur niets meldt en die de server verouderd noemt: de meetlijn en de doellijn stoppen, daarna een gearceerd stuk met stippelrand en "Verouderd sinds …" (als het past), de pil "Verouderd" met de laatst bekende waarde, "Geen meting" in uitlezing en tabel, axe-core = 0 in licht en donker op 390 en 1440 px. Met `SHC_E2E_SHOTS=<map>` bewaart de test afdrukken van de sectie |
 
 `01-onboarding` draait als eerste (project `onboarding`); de andere tests bouwen voort op die
 beheerder en woning en draaien na elkaar (één stack, en `08-offline` stopt de API).

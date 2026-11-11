@@ -77,7 +77,9 @@ async function muisOverUren(page: Page, sectie: Locator): Promise<string[]> {
 }
 
 /** Wat in en onder het plotvak staat, botst niet: de tijden overlappen elkaar niet, en de getallen van de y-as, het
- * eindpunt, zijn label en "Verouderd sinds …" vallen binnen het plotvak (en dus binnen de focusring). */
+ * eindpunt, zijn label en "Verouderd sinds …" vallen binnen het plotvak (en dus binnen de focusring). De tijdas loopt
+ * gelijk met het tekenvlak: de strook voor het eindlabel volgt de breedte van dat label (in elk systeemfont) en staat
+ * naast allebei. */
 async function botsingen(sectie: Locator): Promise<string[]> {
   return sectie.evaluate((root) => {
     const fouten: string[] = [];
@@ -89,6 +91,9 @@ async function botsingen(sectie: Locator): Promise<string[]> {
       const r = e.getBoundingClientRect();
       if (r.left < plot.left - 0.5 || r.right > plot.right + 0.5 || r.top < plot.top - 0.5 || r.bottom > plot.bottom + 0.5) fouten.push(`${e.className} "${e.textContent}" steekt buiten het plotvak`);
     }
+    const vlak = root.querySelector('.hist-area')!.getBoundingClientRect();
+    const as = root.querySelector('.hist-x-in')!.getBoundingClientRect();
+    if (Math.abs(as.left - vlak.left) > 0.5 || Math.abs(as.right - vlak.right) > 0.5) fouten.push(`de tijdas (${as.left.toFixed(1)}–${as.right.toFixed(1)}) loopt niet gelijk met het tekenvlak (${vlak.left.toFixed(1)}–${vlak.right.toFixed(1)})`);
     return fouten;
   });
 }
@@ -160,9 +165,12 @@ test.describe('grafiek "Laatste 24 uur"', () => {
     const lijnen = await rijen.nth(2).locator('th, td').evaluateAll((els) => els.map((e) => `${getComputedStyle(e).borderTopWidth} ${getComputedStyle(e).borderTopStyle}`));
     expect(lijnen).toEqual(['1px solid', '1px solid', '1px solid', '1px solid']);
 
-    // Aanwijzer (zonder focus): links in het plotvak = het eerste uur, weg = leeg.
+    // Aanwijzer (zonder focus): links in het plotvak = het eerste uur, weg = leeg. De aanwijzer staat net links van
+    // het tekenvlak (bij de getallen van de y-as, nog binnen het plotvak): dat is altijd het eerste uur. Twee pixels
+    // ín het tekenvlak was dat niet altijd: start de test vlak voor een heel uur, dan is het eerste uur een reepje
+    // van minder dan twee pixels en viel de aanwijzer in het tweede uur.
     const vlak = (await sectie.locator('.hist-area').boundingBox())!;
-    await page.mouse.move(vlak.x + 2, vlak.y + vlak.height / 2);
+    await page.mouse.move(vlak.x - 1, vlak.y + vlak.height / 2);
     await expect(lezing).toHaveText(new RegExp(`^${escape(uren[0])}: gemeten`));
     await expect(sectie.getByTestId('hist-kruis')).toBeVisible();
     await page.mouse.move(vlak.x + vlak.width / 2, vlak.y + vlak.height / 2);
