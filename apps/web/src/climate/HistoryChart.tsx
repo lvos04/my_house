@@ -123,6 +123,12 @@ export function HistoryChart({ history, tz, sensor, staleAfterS, bron = 'tempera
   const ticks: number[] = [];
   for (let v = Math.ceil(v0 / stap) * stap; v <= v1; v += stap) ticks.push(v);
 
+  // Het label bij het eindpunt staat in een eigen strook rechts van het tekenvlak. Die strook is precies zo breed als
+  // het label: een onzichtbare maat met dezelfde tekst en dezelfde letter houdt de plaats vrij, naast het tekenvlak
+  // en naast de tijden (zodat de tijdas even breed blijft als het tekenvlak). Een vaste breedte paste maar bij één
+  // systeemfont; in een breder font stak het label buiten het plotvak (.hist-eindmaat in componenten.css).
+  const eindmaat = laatste && !oud ? <span className="hist-eindmaat cijfers" aria-hidden="true">{temp(laatste.v)}</span> : null;
+
   const activeIdx = activeStart === null ? -1 : slots.findIndex((s) => s.start === activeStart);
   const active: HistorySlot | null = activeIdx >= 0 ? slots[activeIdx] : null;
   const choose = (i: number | null) => setActiveStart(i === null ? null : slots[i].start);
@@ -199,7 +205,8 @@ export function HistoryChart({ history, tz, sensor, staleAfterS, bron = 'tempera
             </svg>
             {dots.map((p) => <span key={p.t} className="hist-punt" style={{ left: pctX(p.t), top: pctY(p.v) }} />)}
             {laatste && <span className="hist-eind" style={{ left: pctX(laatste.t), top: pctY(laatste.v) }} data-testid="hist-eind" />}
-            {/* Direct label bij het eindpunt: alleen bij een verse sensor en alleen als er breedte voor is (componenten.css). */}
+            {/* Direct label bij het eindpunt: alleen bij een verse sensor en alleen als er breedte voor is; de strook
+                ernaast volgt de breedte van dit label (eindmaat hierboven, componenten.css). */}
             {laatste && !oud && <span className="hist-eindlabel cijfers" style={{ left: pctX(laatste.t), top: pctY(laatste.v) }}>{temp(laatste.v)}</span>}
             {oudVan !== null && (
               <div className="hist-oudlabel" style={{ left: pctX(oudVan) }}>
@@ -207,6 +214,7 @@ export function HistoryChart({ history, tz, sensor, staleAfterS, bron = 'tempera
               </div>
             )}
           </div>
+          {eindmaat}
         </div>
         <div className="hist-x cijfers" aria-hidden="true">
           <div className="hist-x-in">
@@ -214,6 +222,7 @@ export function HistoryChart({ history, tz, sensor, staleAfterS, bron = 'tempera
             {tussen.map((t) => <span key={t} className="hist-x-tussen" style={{ left: pctX(t) }}>{time(new Date(t), tz)}</span>)}
             {eind !== begin && <span style={{ right: 0 }}>{eind}</span>}
           </div>
+          {eindmaat}
         </div>
         <div className="hist-onder">
           <p className="hist-lezing hist-maat cijfers" aria-hidden="true">{langste}</p>

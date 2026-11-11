@@ -299,9 +299,18 @@
     @apply pointer-events-none absolute hidden -translate-y-1/2 rounded-sm bg-card px-1 text-sm leading-5 font-semibold whitespace-nowrap text-foreground;
     margin-left: 0.625rem;
   }
+  /* De strook is precies zo breed als het label: .hist-eindmaat is een onzichtbare kopie van het label (zelfde tekst,
+     zelfde letter, zelfde marge en vulling) rechts naast het tekenvlak en naast de tijden. Het label eindigt daardoor
+     in elk systeemfont op de rand van de strook, 8 px binnen het plotvak. Een vaste strook van 56 px paste alleen bij
+     een smal font: in DejaVu Sans (het systeemfont van de CI-machine) stak het label buiten het plotvak. */
+  .hist-eindmaat {
+    @apply invisible hidden shrink-0 px-1 text-sm leading-5 font-semibold whitespace-nowrap;
+    margin-left: 0.625rem;
+  }
   @container hist (width >= 34rem) {
-    .hist-chart[data-eindlabel] .hist-plot, .hist-chart[data-eindlabel] .hist-x { @apply pr-14; }
-    .hist-eindlabel, .hist-x-in > .hist-x-tussen { display: block; }
+    .hist-chart[data-eindlabel] .hist-plot, .hist-chart[data-eindlabel] .hist-x { display: flex; }
+    .hist-chart[data-eindlabel] .hist-area, .hist-chart[data-eindlabel] .hist-x-in { flex: 1 1 0; min-width: 0; }
+    .hist-eindlabel, .hist-eindmaat, .hist-x-in > .hist-x-tussen { display: block; }
   }
   /* Verouderd (Peil §10): na de laatste meting een gearceerd stuk tot het eind, met een stippelrand in de kleur van
      "verouderd" op het moment van die meting en het label "Verouderd sinds …" rechtsboven (boven de lijnen). Het

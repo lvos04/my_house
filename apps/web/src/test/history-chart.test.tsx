@@ -432,9 +432,10 @@ describe('grafiek "Laatste 24 uur": verouderde sensor (Peil §10)', () => {
     expect(container.querySelector('.hist-oudlabel')).toHaveStyle({ left: '59.38%' });
     // Geen direct label bij het eindpunt: de laatst bekende waarde staat onder de grafiek.
     expect(container.querySelector('.hist-eindlabel')).toBeNull();
+    expect(container.querySelector('.hist-eindmaat')).toBeNull();
     expect(container.querySelector('.hist-chart')).not.toHaveAttribute('data-eindlabel');
     // De tijdas loopt door tot nu (17:00 in Amsterdam).
-    expect([...container.querySelectorAll('.hist-x span:not(.hist-x-tussen)')].map((e) => e.textContent)).toEqual(['09:00', '17:00']);
+    expect([...container.querySelectorAll('.hist-x-in span:not(.hist-x-tussen)')].map((e) => e.textContent)).toEqual(['09:00', '17:00']);
     // Het gat van 11:00–12:00 blijft "Geen meting"; in het verouderde stuk staat geen tweede arcering.
     expect(screen.getAllByTestId('hist-gat')).toHaveLength(1);
     // De gemeten lijn loopt niet door na de laatste meting (x hoogstens 593,8 van 1000).
@@ -517,7 +518,16 @@ describe('grafiek "Laatste 24 uur": verouderde sensor (Peil §10)', () => {
     const { container } = render(<HistoryChart history={{ temperature: [[at('08:00'), 20.3]], target: [] }} tz={TZ} />);
     expect(container.querySelector('.hist-chart')).toHaveAttribute('data-eindlabel');
     expect(container.querySelector('.hist-eindlabel')).toHaveTextContent('20,3°');
+    // De strook naast het tekenvlak en naast de tijden volgt de breedte van het label: een onzichtbare maat met
+    // dezelfde tekst en dezelfde cijfers, buiten de toegankelijkheidsboom (in elk systeemfont past het label dan).
+    const maten = [...container.querySelectorAll('.hist-eindmaat')];
+    expect(maten.map((e) => e.parentElement!.className.split(' ')[0])).toEqual(['hist-plot', 'hist-x']);
+    for (const m of maten) {
+      expect(m).toHaveTextContent('20,3°');
+      expect(m).toHaveClass('cijfers');
+      expect(m).toHaveAttribute('aria-hidden', 'true');
+    }
     expect(container.querySelectorAll('.hist-punt')).toHaveLength(0);
-    expect([...container.querySelectorAll('.hist-x span')].map((e) => e.textContent)).toEqual(['09:00']);
+    expect([...container.querySelectorAll('.hist-x-in span')].map((e) => e.textContent)).toEqual(['09:00']);
   });
 });

@@ -69,7 +69,7 @@ describe('lijngrafiek "Laatste 24 uur" heeft een schaal (Peil §10)', () => {
     expect(screen.getByRole('img')).toHaveAccessibleName('Gemeten en doeltemperatuur, bereik 18° tot 22°, laatste meting 21,2°');
     expect([...container.querySelectorAll('.hist-tick')].map((e) => e.textContent)).toEqual(['18°', '19°', '20°', '21°', '22°']);
     // Begin links en eind rechts; daartussen hele uren (in de browser pas zichtbaar als de grafiek breed genoeg is).
-    expect([...container.querySelectorAll('.hist-x span:not(.hist-x-tussen)')].map((e) => e.textContent)).toEqual(['09:00', '21:00']);
+    expect([...container.querySelectorAll('.hist-x-in span:not(.hist-x-tussen)')].map((e) => e.textContent)).toEqual(['09:00', '21:00']);
     expect([...container.querySelectorAll('.hist-x .hist-x-tussen')].map((e) => e.textContent)).toEqual(['12:00', '14:00', '16:00', '18:00']);
     expect(container.querySelectorAll('svg line')).toHaveLength(5);
   });
