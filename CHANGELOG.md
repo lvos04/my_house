@@ -10,6 +10,8 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
   kreeg een uur gekozen (draadkruis en uitlezing) dat met een tik ernaast niet meer wegging. Nu schuift de pagina en
   blijft de vorige keuze zoals hij was.
 - **Na slepen over de uren wist een tik ernaast de keuze,** net als na een tik.
+- **Knijpen met twee vingers op de grafiek zoomt de pagina in.** Begon het gebaar op de grafiek, dan zoomde de
+  pagina niet; dat kan nu ook daar. Horizontaal slepen kiest nog steeds een uur.
 - Alleen gedrag bij aanraken; uiterlijk, teksten, API en gegevens blijven gelijk. Getest met het nagebootste
   aanraakscherm van Chromium; een echte telefoon is niet getest (NIET GEVALIDEERD (hardware)).
 

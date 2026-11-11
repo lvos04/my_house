@@ -79,7 +79,8 @@ async function muisOverUren(page: Page, sectie: Locator): Promise<string[]> {
 /** Wat in en onder het plotvak staat, botst niet: de tijden overlappen elkaar niet, en de getallen van de y-as, het
  * eindpunt, zijn label en "Verouderd sinds …" vallen binnen het plotvak (en dus binnen de focusring). De tijdas loopt
  * gelijk met het tekenvlak: de strook voor het eindlabel volgt de breedte van dat label (in elk systeemfont) en staat
- * naast allebei. */
+ * naast allebei. Peil-review §12.4 punt 11: een tijd in het bijschrift ("11 nov 08:29") breekt nooit af, en de tijdas
+ * staat minstens 6 px onder het plotvak, zodat de focusring (3 px op 2 px afstand) de tijden niet raakt. */
 async function botsingen(sectie: Locator): Promise<string[]> {
   return sectie.evaluate((root) => {
     const fouten: string[] = [];
@@ -94,6 +95,19 @@ async function botsingen(sectie: Locator): Promise<string[]> {
     const vlak = root.querySelector('.hist-area')!.getBoundingClientRect();
     const as = root.querySelector('.hist-x-in')!.getBoundingClientRect();
     if (Math.abs(as.left - vlak.left) > 0.5 || Math.abs(as.right - vlak.right) > 0.5) fouten.push(`de tijdas (${as.left.toFixed(1)}–${as.right.toFixed(1)}) loopt niet gelijk met het tekenvlak (${vlak.left.toFixed(1)}–${vlak.right.toFixed(1)})`);
+    const bijschrift = Array.from(root.querySelectorAll('figcaption time'));
+    if (bijschrift.length === 0) fouten.push('geen tijd in het bijschrift om te meten');
+    for (const t of bijschrift) {
+      const regels = t.getClientRects().length;
+      const wit = getComputedStyle(t).whiteSpace;
+      if (regels !== 1 || wit !== 'nowrap') fouten.push(`tijd "${t.textContent}" in het bijschrift: ${regels} regel(s), white-space ${wit} (moet 1 en nowrap zijn)`);
+    }
+    if (as.top - plot.bottom < 5.5) fouten.push(`de tijdas staat ${(as.top - plot.bottom).toFixed(1)} px onder het plotvak (minstens 6)`);
+    const ring = getComputedStyle(root.querySelector('.hist-plot')!);
+    if (ring.outlineStyle !== 'none') {
+      const ringOnder = plot.bottom + Math.max(0, parseFloat(ring.outlineOffset)) + parseFloat(ring.outlineWidth);
+      if (ringOnder > as.top) fouten.push(`de focusring (tot ${ringOnder.toFixed(1)}) raakt de tijdas (vanaf ${as.top.toFixed(1)})`);
+    }
     return fouten;
   });
 }
@@ -325,7 +339,7 @@ test.describe('grafiek "Laatste 24 uur" op een telefoon (aanraken)', () => {
     };
     const scrollY = () => page.evaluate(() => window.scrollY);
 
-    // Verticaal vegen over de grafiek (vinger omlaag): de pagina schuift (touch-action: pan-y), er blijft geen uur
+    // Verticaal vegen over de grafiek (vinger omlaag): de pagina schuift (touch-action: pan-y pinch-zoom), er blijft geen uur
     // staan en het plotvak krijgt geen focus.
     let { vlak, y } = await inBeeld();
     const voor = await scrollY();
@@ -362,6 +376,27 @@ test.describe('grafiek "Laatste 24 uur" op een telefoon (aanraken)', () => {
     await kop.tap();
     await expect(lezing).toHaveText('');
     await expect(kruis).toHaveCount(0);
+  });
+
+  // Inzoomen met twee vingers moet ook kunnen als het gebaar op de grafiek begint (die is op een telefoon bijna zo
+  // breed als de kaart): touch-action laat dan verticaal schuiven én knijpen aan de browser; alleen horizontaal slepen
+  // blijft bij de grafiek (een uur kiezen).
+  test('knijpen met twee vingers op de grafiek zoomt de pagina in', async ({ adminPage: page, api, homeId }) => {
+    const zone = await zoneMetMetingen(api, homeId);
+    const { sectie, plot } = await openZone(page, zone);
+    await plot.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    const vlak = (await sectie.locator('.hist-area').boundingBox())!;
+    const x = Math.round(vlak.x + vlak.width / 2);
+    const y = Math.round(vlak.y + vlak.height / 2);
+    const schaal = () => page.evaluate(() => window.visualViewport!.scale);
+    expect(await schaal()).toBe(1);
+    const cdp = await page.context().newCDPSession(page);
+    const vingers = (d: number) => [{ x: x - d, y, id: 0 }, { x: x + d, y, id: 1 }];
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: vingers(20) });
+    for (let i = 1; i <= 10; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: vingers(20 + i * 8) });
+    await page.waitForTimeout(150);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await expect.poll(schaal).toBeGreaterThan(1.2);
   });
 });
 

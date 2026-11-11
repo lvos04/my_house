@@ -422,12 +422,12 @@ verouderd-label over de gegevens heen (op 390 px bedekt het label het laatste st
 | 3 | Geen eindpunt bij de laatste meting | middel | stip van 12 px met ring van 2 px in de kaartkleur; waarde ernaast in een eigen strook vanaf 34 rem, alleen bij een verse sensor | vitest; browsertest (maat en plaats) |
 | 4 | Tijdas met alleen begin en eind, ook op 1440 px | middel | hele klokuren ertussen vanaf 34 rem (stap 1, 2, 3, 6 of 12 uur; niet binnen 15 % van begin of eind) | vitest (`hourTicks`); browsertest (labels raken elkaar niet) |
 | 5 | y-labels 4,8 px boven en onder het plotvak; de focusring liep door "17°" en "22°" | laag | 6 px ruimte in het plotvak boven en onder; labels vallen erbinnen | browsertest (labels binnen het plotvak) |
-| 6 | Legenda ook boven "Nog geen geschiedenis"; staaltjes van 12 px (het streepje van "Doel" was één blokje) | laag | legenda alleen als er iets te tekenen is; staaltjes 20 px | `peil-review.test.tsx` |
+| 6 | Legenda ook boven "Nog geen geschiedenis"; staaltjes van 12 px (het streepje van "Doel" was één blokje) | laag | legenda alleen als er iets te tekenen is; staaltjes 20 px | vitest `history-chart.test.tsx`, blok `legenda bij "Laatste 24 uur" (pagina Klimaat)` (2 tests, de hele pagina; zonder de voorwaarde of met staaltjes van 12 px faalt er één) |
 | 7 | Eén meting: dezelfde tijd stond links én rechts onder de as ("07:38  07:38") | laag | bij een gelijk begin en eind één label | vitest |
 | 8 | *(tijdens de reparatie)* De doellijn liep tot een uur het verouderde stuk in | middel (eerlijkheid) | de doellijn stopt bij de grens, of bij haar eigen laatste waarde als het doel nog wel binnenkomt (ADR-0014 punt 3) | vitest (2 tests; zonder de regel falen ze allebei); browsertest (einde doellijn = begin arcering ± 1 px) |
 | 9 | *(tijdens de reparatie)* "Verouderd sinds …" brak in twee of drie regels terwijl er ruimte was | laag | label pas vanaf een stuk van 9 rem, breedte tot 12 rem | browsertest (1440: binnen het stuk, één regel; 390: afwezig) |
 | 10 | *(tijdens de reparatie)* De stippelrand werd een kader aan vier kanten (geen Tailwind-preflight) | laag | `border-0 border-l-2 border-dashed` (ADR-0014 punt 9) | afdrukken; meting "verouderd rand" |
-| 11 | *(tijdens de reparatie)* "11 nov" en "08:29" braken uit elkaar in het bijschrift; de ring raakte de tijdlabels | laag | `time { white-space: nowrap }`; tijdas 6 px onder het plotvak | afdrukken; meting afkappen/overlappen = 0 |
+| 11 | *(tijdens de reparatie)* "11 nov" en "08:29" braken uit elkaar in het bijschrift; de ring raakte de tijdlabels | laag | `time { white-space: nowrap }`; tijdas 6 px onder het plotvak | browsertest, `botsingen()` in de matrix (320–1440 px) en bij de verouderde sensor (390 en 1440 px): elke tijd in het bijschrift op één regel met `white-space: nowrap`, de tijdas minstens 6 px onder het plotvak en de focusring raakt haar niet; zonder `whitespace-nowrap` of zonder `mt-1.5` falen alle drie |
 | 12 | *(na de eerste oplevering, gevonden door de CI)* De waarde naast het eindpunt stak buiten het plotvak: de strook was vast 56 px (46 px voor het label). "20,0°" is in DejaVu Sans vet 49,5 px breed: 3,5 px te veel. In Noto Sans paste "20,0°" (42 px), maar "100,0°" (50 px) en "-10,5°" (46,5 px) zouden ook daar zijn uitgestoken | middel (overloop; eigen fout van deze review) | geen vaste breedte meer: een onzichtbare kopie van het label (`hist-eindmaat`, `aria-hidden`) staat naast het tekenvlak en naast de tijdas en maakt de strook precies zo breed als het label, in elk lettertype en bij elke waarde; het label eindigt altijd 8 px binnen het plotvak en de tijdas blijft even breed als het tekenvlak (ADR-0014 punt 5) | vitest (maat aanwezig bij vers, afwezig bij verouderd); browsertest (label binnen het plotvak; tijdas gelijk met het tekenvlak ± 0,5 px); CI draait met het bredere lettertype |
 
 ### 12.5 Controle per eis
@@ -545,7 +545,7 @@ bekend is).
   tabel) en `12-grafiek-24-uur-verouderd-<licht|donker>-<390|1440>.png` (verouderde sensor, rust). Ze zijn gemaakt
   met Noto Sans, op de eindstand.
 - Opnieuw meten: `SHC_E2E_SHOTS=<map> apps/web/e2e/run-stack.sh` draait de browsertests en bewaart dezelfde acht
-  afdrukken. Flow `12-grafiek-24-uur` (5 tests) meet axe-core, de ring, overloop, tekst- en doelmaten en inhoud buiten
+  afdrukken. Flow `12-grafiek-24-uur` meet axe-core, de ring, overloop, tekst- en doelmaten en inhoud buiten
   zijn vlak op 320–1440 px in licht en donker, en de verouderde sensor op 390 en 1440 px.
 - Met het lettertype van de CI-machine:
   `FONTCONFIG_FILE="$PWD/apps/web/e2e/ci-lettertype.conf" apps/web/e2e/run-stack.sh` (zie `apps/web/e2e/README.md`).
@@ -574,3 +574,15 @@ bekend is).
    kwam pas aan het licht bij de volledige vitest-ronde; daarvoor was alleen `history-chart.test.tsx` gedraaid.
 5. In een eerdere versie van deze paragraaf stond "6 tests" voor flow 12. Dat telde de onboarding-test mee die er
    altijd vóór draait; de flow zelf heeft er 5 (was 4).
+
+**Aanvulling na de technische review (11 november 2026).** De getallen hierboven horen bij de eindstand van deze
+ontwerpreview (`dcbe73d`). Daarna kwam er bij:
+
+- `fd89c24`: vegen over de grafiek kiest geen uur meer, en na slepen wist een tik ernaast de keuze (ADR-0013 punt 4).
+- Bij de technische review: de tests die bij §12.4 punt 6 en 11 ontbraken (zie de kolom "Bewaakt door"), en knijpen
+  met twee vingers op de grafiek zoomt de pagina in (`touch-action: pan-y pinch-zoom`; daarvoor `pan-y`, waarmee een
+  knijpgebaar dat op de grafiek begon niets deed). Uiterlijk, teksten en maten zijn niet veranderd; de afdrukken
+  hierboven gelden nog.
+- Stand daarna: vitest **336** geslaagd (28 bestanden; 42 in `history-chart.test.tsx`), browsertests **33 van 33**
+  (7 in flow `12-grafiek-24-uur`), met Noto Sans. Dezelfde ronde met `SHC_E2E_SHOTS` gaf de acht afdrukken; die zijn
+  niet opnieuw vastgelegd, omdat het uiterlijk niet veranderde.

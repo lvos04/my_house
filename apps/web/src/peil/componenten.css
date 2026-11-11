@@ -274,7 +274,7 @@
      focusstop (ring uit de basis); het gekozen uur is een band met inktranden (draadkruis per uur); een gat zonder
      meting is gearceerd (arcering-gat) met "Geen meting" in chart-label; een losse meting is een stip van 8 px met
      een ring van 2 px in de kaartkleur. Overlays houden hun tokenkleur in forced colors, net als de lijnen. */
-  .hist-plot { @apply rounded-sm; touch-action: pan-y; }
+  .hist-plot { @apply rounded-sm; touch-action: pan-y pinch-zoom; }
   .hist-area { @apply relative; }
   .hist-gat {
     @apply pointer-events-none absolute inset-y-0 flex items-end justify-center pb-1 text-sm font-semibold whitespace-nowrap text-chart-label;

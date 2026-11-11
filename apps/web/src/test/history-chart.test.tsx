@@ -1,8 +1,8 @@
 // Grafiek "Laatste 24 uur": tabel per uur en bediening met toetsenbord en aanwijzer (besluit gebruiker C09,
 // Peil 1.1.1 §10, ADR-0013). Een uur zonder meting heet "Geen meting" en is nooit 0; lijn, tabel en voorleestekst
 // zeggen hetzelfde.
-import { describe, expect, it } from 'vitest';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HistoryChart, HISTORY_KEYS_HINT } from '../climate/HistoryChart';
 import {
@@ -22,6 +22,9 @@ import {
   staleSince,
 } from '../climate/history';
 import type { ZoneHistory } from '../api/types';
+import { ClimatePage } from '../pages/Climate';
+import { mockApi, Providers } from './helpers';
+import { zone } from './fixtures';
 
 const TZ = 'Europe/Amsterdam'; // UTC+1 in november
 const at = (hhmm: string) => `2026-11-09T${hhmm}:00Z`;
@@ -578,5 +581,55 @@ describe('grafiek "Laatste 24 uur": verouderde sensor (Peil §10)', () => {
     }
     expect(container.querySelectorAll('.hist-punt')).toHaveLength(0);
     expect([...container.querySelectorAll('.hist-x-in span')].map((e) => e.textContent)).toEqual(['09:00']);
+  });
+});
+
+// Peil-review §12.4 punt 6: de legenda staat in de sectie "Laatste 24 uur" van de pagina (pages/Climate.tsx), niet in
+// HistoryChart. Daarom hier de hele pagina, met de geschiedenis uit de (nagebootste) API.
+describe('legenda bij "Laatste 24 uur" (pagina Klimaat)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  async function sectie(history: ZoneHistory) {
+    const calls = mockApi((_m, url) => {
+      if (url.endsWith('/homes')) return { body: [{ id: 'h1', name: 'Thuis', timezone: TZ, currency: 'EUR', active: true }] };
+      if (url.endsWith('/homes/h1/zones')) return { body: [zone()] };
+      if (url.endsWith('/schedule')) return { body: { blocks: [], profile_id: null, profile: null } };
+      if (url.includes('/history')) return { body: history };
+      return { body: [] };
+    });
+    const view = render(<Providers route="/klimaat"><ClimatePage /></Providers>);
+    const kop = await screen.findByRole('heading', { name: 'Laatste 24 uur' });
+    await waitFor(() => expect(calls.some((c) => c.url.includes('/zones/z1/history'))).toBe(true));
+    return { s: kop.closest('section')!, unmount: view.unmount };
+  }
+
+  it('alleen als er iets te tekenen is: niet bij "Nog geen geschiedenis" en niet bij alleen metingen zonder waarde', async () => {
+    let r = await sectie({ temperature: [], target: [] });
+    expect(await within(r.s).findByText('Nog geen geschiedenis.')).toBeInTheDocument();
+    expect(r.s.querySelector('.legend')).toBeNull();
+    r.unmount();
+
+    r = await sectie({ temperature: [[at('08:00'), null], [at('08:30'), null]], target: [] });
+    expect(await within(r.s).findByText('Geen meting in de laatste 24 uur.')).toBeInTheDocument();
+    expect(r.s.querySelector('.legend')).toBeNull();
+  });
+
+  it('met een grafiek: "Gemeten" en "Doel", elk met een staaltje van 20 px breed', async () => {
+    const { s } = await sectie(sample());
+    expect(await within(s).findByRole('img', { name: /^Gemeten en doeltemperatuur/ })).toBeInTheDocument();
+    const legenda = s.querySelector('.legend')!;
+    expect(legenda).not.toBeNull();
+    expect([...legenda.children].map((e) => e.textContent)).toEqual(['Gemeten', 'Doel']);
+    const staaltjes = [...legenda.querySelectorAll<HTMLElement>('.swatch')];
+    expect(staaltjes).toHaveLength(2);
+    for (const st of staaltjes) {
+      expect(st.style.width).toBe('20px');
+      expect(st).toHaveAttribute('aria-hidden', 'true');
+    }
+    // Doorgetrokken tegenover gestreept: ook zonder kleur te onderscheiden.
+    expect(staaltjes[1].style.background).toMatch(/^repeating-linear-gradient/);
   });
 });
