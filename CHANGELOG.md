@@ -4,6 +4,21 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
 
 ## Unreleased
 
+### Grafiek "Laatste 24 uur": tabel per uur en toetsenbord (2026-11-11)
+
+- **"Toon als tabel, per uur"** onder de grafiek bij Klimaat › Bediening: per klokuur het gemiddelde, de laagste en
+  hoogste meting en het doel. Op een telefoon is elke rij een kaart.
+- **Met het toetsenbord:** de grafiek is één Tab-stop; pijltje rechts/links leest per uur, Home en End springen naar
+  het eerste en laatste uur, Esc stopt. De waarde staat in één regel onder de grafiek en wordt ook voorgelezen. Wie
+  een schermlezer gebruikt, leest dezelfde gegevens in de tabel.
+- **Met muis of vinger:** aanwijzen of tikken kiest hetzelfde uur (een band over de grafiek, geen zwevend venstertje).
+  Na een tik blijft de keuze staan tot je ernaast tikt; met een muis verspringt de pagina niet tijdens het aanwijzen.
+- **Eerlijk over gaten:** een uur zonder meting heet overal "Geen meting". De lijn breekt daar (werd doorgetrokken) en
+  een stuk zonder enige meting is gearceerd. Een meting zonder waarde telde als 0 in de schaal; dat is weg.
+- Alleen weergave en toegankelijkheid (Peil 1.1.1 §10, besluit van de gebruiker): geen nieuwe API, instelling of
+  database-update; de Android-app heeft deze grafiek niet. Getest in Chromium op 320–1440 px, licht en donker
+  (axe-core 0); een echte schermlezer en echte telefoons zijn niet getest (NIET GEVALIDEERD (hardware)). ADR-0013.
+
 ### Platformcontract 1.3 en Peil 1.1.1 (conformiteitsronde, 2026-11-10)
 
 - **Contractkopie 1.3** (was 1.1): `docs/platform-v2/PLATFORM_CONTRACTEN.md` en `CONTRACT_1.3_CONFORMITEIT.md`

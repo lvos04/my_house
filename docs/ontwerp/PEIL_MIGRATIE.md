@@ -39,7 +39,8 @@ Statuswoorden worden de vaste Peil-woorden waar ze status zijn (§10); teksten m
 
 **Niet in deze omzetting:** een tabelweergave bij de temperatuurgrafiek "Laatste 24 uur" (de tabel-toevoeging is alleen
 voor MediaGuard/MSO besloten; voor my_house is het een aanbeveling, zie §13), een themaknop of Hub-link in de
-Android-app, en nieuwe functies.
+Android-app, en nieuwe functies. *Later toegevoegd:* de gebruiker heeft de tabel en de bediening met het toetsenbord
+bij "Laatste 24 uur" op 10 november 2026 toegestaan; gebouwd op 11 november 2026, zie §18.
 
 ---
 
@@ -311,7 +312,7 @@ donker), markeringen, interactie, toegankelijkheid. Kleur volgt de entiteit, noo
 |---|---|---|---|---|
 | **Energie per uur/dag/maand** (`EnergyChart`, gestapeld airco/boiler/overig) | gestapelde staven (verandering in de tijd van een geheel) | airco `chart-1`, boiler `chart-3`, overig `chart-other` + 135°-arcering; validator PASS licht én donker | staven ≤ 24 px, 4 px afgerond aan de bovenkant, 2 px `card`-gat tussen segmenten; **onvolledig** = 45°-arcering `arcering-geschat` + stippelrand `stale` (nu amber = Beperkt, fout); **lopend** = stippellijn `chart-axis` zonder opacity; **toekomst** = haarlijn `chart-grid`; vlag (opmerking) = `info`-rondje met `!`-glyph in inkt | "Toon als tabel" bestaat en blijft (kwaliteit per rij); `role=img` + samenvatting blijft; tooltip mag, nooit enige bron |
 | **Dunne energiebalk Vandaag** (`energy-bar`, 3 delen) | dunne segmentbalk naast een lijst met de cijfers (vorm "thin segmented bar") | idem | `h-2 rounded-full`, 2 px vlakkleur tussen delen, overig gearceerd; geen tekst in de balk | de lijst eronder draagt de cijfers; balk `aria-hidden` of `role=img` met samenvatting (bestaat) |
-| **Laatste 24 uur** (SVG-lijn gemeten vs doel) | lijn, één y-as | gemeten `chart-1` 2 px; doel `chart-limit` (inkt) 1,5 px trap-lijn — **niet** `--heat` (doel is geen reeks "verwarmen") | gat bij ontbrekende meting (lijn breekt + "Geen meting"); verouderd na laatste punt gearceerd; eindpunt 8 px met 2 px `card`-ring + direct label | legenda bestaat (2 reeksen); tabel = aanbeveling (vraagt akkoord, §13) |
+| **Laatste 24 uur** (SVG-lijn gemeten vs doel) | lijn, één y-as | gemeten `chart-1` 2 px; doel `chart-limit` (inkt) 1,5 px trap-lijn — **niet** `--heat` (doel is geen reeks "verwarmen") | gat bij ontbrekende meting (lijn breekt + "Geen meting"); verouderd na laatste punt gearceerd; eindpunt 8 px met 2 px `card`-ring + direct label | legenda bestaat (2 reeksen); tabel per uur + toetsenbord: **gebouwd** na akkoord (§18, ADR-0013). Gat = lijn breekt + "Geen meting" + arcering: gebouwd. Nog niet: "verouderd na laatste punt" en het eindpunt met direct label (§18) |
 | **Schema vandaag / weekschema** (`schedule-bar`, `week-bar`) | tijdlijnbalk (segmenten in de tijd) | verwarmen `domain-heat-soft` met tekst `domain-heat-ink` (5,49:1 / 4,93:1, review 1.5), koelen `domain-cool-soft` + `domain-cool-ink`, uit = `chart-gap` + arcering | labels alleen in een segment als ze passen, anders weg (de tekst staat ook in `aria-label`); "overgenomen van gisteren" (`.carried`) = arcering in plaats van opacity 0,75 | `role=img` + volledige tekst in `aria-label` (bestaat); de blokkenlijst is de tabel |
 | **Android uurstaven** (`HourBars`) en vermogensbalk | als web | `chart-1`/`chart-3`/`chart-other` uit de Compose-tokens | idem; onvolledig = arcering + stippel (nu oranje stippel) | `contentDescription` met de totalen (bestaat); de meterrijen eronder zijn de tabel |
 
@@ -607,7 +608,7 @@ Ondernavigatie: Start `house`, Klimaat `thermometer`, Energie `zap`, Meer `menu`
 | 3 | Peil §11.2 schrijft "Verstuurd — wacht op bevestiging van my_house"; my_house (web, Android, tests) zegt "Verzonden". Twee woorden voor één begrip. | ontwerptaal | my_house is eigenaar van de readback: Peil 1.1.1 neemt "Verzonden" over (één woord platformbreed). |
 | 4 | Aanvullingen op de aliaslaag (§8.1 tabel) horen in de generator, niet in de kopie. | ontwerptaal | aliaslaag 1.1.1 genereren en opnieuw meten. |
 | 5 | Offline toont een nooit geladen pagina eindeloos "Laden…" (afdruk `verlichting-offline-nooit-geladen-*`). | gedrag (geen uiterlijk) | aparte codewijziging: na de offline-drempel "Onbekend — nog niet opgehaald; je bent offline." |
-| 6 | Tabelweergave bij "Laatste 24 uur" ontbreekt (WCAG-tweeling, Peil §10). | toevoeging | vraagt akkoord van de gebruiker (besluit geldt alleen MediaGuard/MSO). |
+| 6 | Tabelweergave bij "Laatste 24 uur" ontbreekt (WCAG-tweeling, Peil §10). | toevoeging | ~~vraagt akkoord van de gebruiker (besluit geldt alleen MediaGuard/MSO)~~ **opgelost:** akkoord op 10 november 2026 (tabel + toetsenbord), gebouwd op 11 november 2026 (§18, ADR-0013). |
 | 7 | 14 px-tekst + systeemfont op 320 px: "Overzicht" in de ondernavigatie (5 kolommen van 64 px). | risico | meten in fase 2; terugval: icoonmarge kleiner, nooit < 14 px. |
 | 8 | Tailwind 4 vraagt moderne browsers (Safari 16.4+, Chrome 111+, Firefox 128+). Oude tablets/wandpanelen kunnen breken. | risico | vóór fase 2 de gebruikte apparaten nagaan (onbekend); fase 1 heeft dit risico niet. |
 | 9 | Android-afdrukken zonder echt toestel; widget niet vastgelegd; echte schermlezer (NVDA/TalkBack) en fel-zonlicht niet getest. | validatie | NIET GEVALIDEERD (hardware); hoort bij de acceptatie (08_UI). |
@@ -638,7 +639,7 @@ op alle 230 afdrukken. De e2e-matrix draait daarnaast op 320–1440 px met de le
 én met DejaVu Sans (zoals de CI); op 320 px vond die 5 px overloop bij de experimentvarianten (opgelost).
 
 **Niet gedaan in deze stap (eerlijk):** de Android-app (§11), fase 3 (inline styles, `styles.css` en aliaslaag weg,
-preflight, `aria-disabled`), de tabelweergave bij "Laatste 24 uur" (§13 punt 6, niet besloten), het gedrag "nooit
+preflight, `aria-disabled`), de tabelweergave bij "Laatste 24 uur" (§13 punt 6, toen niet besloten; later gebouwd, §18), het gedrag "nooit
 geladen pagina offline" (§13 punt 5), een echte schermlezer en echte apparaten (**NIET GEVALIDEERD (hardware)**) en het
 `HUB_URL`-veld in een Custom App-formulier (komt met de alles-in-één image, ADR-0004).
 
@@ -675,7 +676,8 @@ De omgezette web- en Android-app zijn op 9 november 2026 onafhankelijk doorgemet
 open punten in [`PEIL_REVIEW.md`](PEIL_REVIEW.md), besluit in
 [ADR-0011](../adr/ADR-0011-peil-review-verouderd-en-nooit-opgehaald.md). Daarmee is §13 punt 5 (nooit geladen pagina
 offline) opgelost: "Onbekend — nog niet opgehaald" met de reden en een paginakop. §13 punten 3 en 6 (readback-woord,
-tabel bij "Laatste 24 uur") blijven open; de grafiek heeft wel as-labels gekregen.
+tabel bij "Laatste 24 uur") bleven toen open (punt 3 is opgelost in §17, punt 6 in §18); de grafiek kreeg wel
+as-labels.
 
 ## 17. Peil 1.1.1 (10 november 2026)
 
@@ -691,5 +693,33 @@ volgens E08 (`tools/peil_kopie.py`, `design/ontwerptaal/HERKOMST.json`, ADR-0012
 | E12 reflow met het lettertype van de CI-runner | de browsertests draaien in CI op de runner zelf (Ubuntu, zijn eigen systeemlettertype) |
 | E01–E10 statuspagina | n.v.t.: my_house heeft geen platform-statuspagina (contract 1.3 §13) |
 
-§13 punt 6 (tabel bij "Laatste 24 uur") blijft open: daarvoor is een besluit van de gebruiker nodig (ONTWERPTAAL §15
-punt 8). Review: `PEIL_REVIEW.md` §11.
+§13 punt 6 (tabel bij "Laatste 24 uur") bleef in deze stap open: daarvoor was een besluit van de gebruiker nodig
+(ONTWERPTAAL §15 punt 8). Dat besluit is er; zie §18. Review: `PEIL_REVIEW.md` §11.
+
+## 18. Tabel en toetsenbord bij "Laatste 24 uur" (11 november 2026)
+
+Besluit van de gebruiker (10 november 2026, inventaris C09): my_house krijgt een **tabelweergave en bediening met het
+toetsenbord** bij de grafiek "Laatste 24 uur" (Klimaat › Bediening). Alleen uiterlijk en toegankelijkheid: geen nieuwe
+API, geen nieuw datamodel, geen nieuwe instelling. Besluiten en afwegingen in
+[ADR-0013](../adr/ADR-0013-grafiek-24-uur-tabel-en-toetsenbord.md).
+
+| Peil 1.1.1 §10 | In my_house |
+|---|---|
+| Tabel als tweeling van de grafiek | uitklapblok **"Toon als tabel, per uur"** onder de grafiek (dicht bij openen): per klokuur het gemiddelde, de laagste en hoogste meting en het doel; `caption`, `th scope`, tabelcijfers; onder 641 px wordt elke rij een kaart (`stack-mobile`) |
+| Plotvak met het toetsenbord | één Tab-stop (`role="img"`, `tabindex="0"`, Peil-focusring); **→** eerste uur, **←** laatste uur, daarna per uur; **Home/End**; **Esc** stopt; Tab en Enter gaan gewoon door (geen focusval) |
+| Voorlezen | één zichtbare leesregel onder de grafiek die ook `aria-live="polite"` is: "10 nov 12:00–13:00: gemeten gemiddeld 20,8° (laagst 20,5°, hoogst 21,0°); doel 21,0°"; de uitleg van de toetsen is de beschrijving van het plotvak (`aria-describedby`) en zichtbaar zolang het plotvak de focus heeft en er nog niets gekozen is |
+| Aanwijzer en aanraken | muis en tik kiezen hetzelfde uur als het toetsenbord (band met inktranden over de volle hoogte, geen zwevende tooltip). Muis weg = keuze weg; na een tik blijft de keuze staan tot een tik ernaast. Met een muis is de plaats van de leesregel vooraf vrijgehouden, zodat de tabelknop niet verspringt |
+| Eerlijkheid (gat nooit 0) | een uur zonder meting heet overal **"Geen meting"**; de lijn breekt op die uren en bij een meting zonder waarde; een stuk zonder enige meting is gearceerd (`arcering-gat`) met het woord erin als het past (anders weg, nooit half) en de uitleg "Gearceerd: geen meting (nooit 0)."; een losse meting is een stip van 8 px met een ring van 2 px in de kaartkleur; een meting zonder waarde telt niet meer als 0 in de schaal |
+
+**Gemeten (11 november 2026, Chromium, echte API met metingen zoals de worker ze opslaat):** axe-core 0 overtredingen
+(wcag2a/aa, 21a/aa, 22aa) op 320 · 360 · 390 · 768 · 1024 · 1440 px, licht en donker, met open tabel en een gekozen
+uur; geen horizontale scroll; geen tekst onder 14 px; geen doel kleiner dan 44 px; focusring ≥ 3:1; de tabelknop
+verschuift niet als de muis over de uren gaat; een tik op een nagebootst aanraakscherm (390 px) kiest een uur en de
+keuze blijft staan. Tests: `apps/web/src/test/history-chart.test.tsx` en `apps/web/e2e/12-grafiek-24-uur.e2e.ts`.
+Afdrukken: `docs/screenshots/peil/review/12-grafiek-24-uur-*.png`.
+
+**Niet gebouwd (eerlijk):** de Peil-markering "verouderd na het laatste punt" en het eindpunt met direct label (§7): de
+x-as loopt tot het laatste punt, dus er is geen vlak na het laatste punt. **Niet getest:** een echte schermlezer (NVDA,
+TalkBack, VoiceOver) en echte telefoons of tablets — **NIET GEVALIDEERD (hardware)**. In de leesmodus van een
+schermlezer gaan de pijltjes naar de schermlezer zelf; daar is de tabel de weg (ADR-0013 punt 3). De Android-app heeft
+deze grafiek niet; daar verandert niets.

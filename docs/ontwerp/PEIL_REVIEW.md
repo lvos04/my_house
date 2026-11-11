@@ -230,7 +230,7 @@ plekken van ronde 1 en daarna alleen nog de ondernavigatie.
 | Punt | Waarom niet | Voorstel |
 |---|---|---|
 | Ondernavigatie op 320 px: het vette "Overzicht" (actief) is 2 px breder dan zijn kolom van 64 px (Noto Sans; met bredere lettertypen meer). Niet afgekapt en leesbaar | vijf kolommen van 64 px zijn te smal; 14 px is de ondergrens, vet is de Peil-aanduiding voor actief | Peil 1.1.1: regel voor 320 px (bijv. actief zonder vet, alleen de balk) — besluit bij de bron; de e2e-controle sluit de ondernavigatie bewust uit |
-| Tabelweergave bij "Laatste 24 uur" (WCAG-tweeling, Peil §10) | functionele toevoeging; het besluit van de gebruiker geldt alleen MediaGuard/MSO | akkoord vragen (open sinds stap 2) |
+| Tabelweergave bij "Laatste 24 uur" (WCAG-tweeling, Peil §10) | functionele toevoeging; het besluit van de gebruiker gold alleen MediaGuard/MSO | ~~akkoord vragen (open sinds stap 2)~~ **gedaan na deze review:** akkoord op 10 november 2026, tabel per uur en toetsenbordbediening gebouwd op 11 november 2026 (`PEIL_MIGRATIE.md` §18, ADR-0013) |
 | Labels in de schemaband op `domain-*-soft` (4,93–6,22:1) | AA gehaald; Peil zet het paar zelf in de brede matrix | Peil 1.1.1: label op het `-bg`-vlak of een donkerdere `-soft` (§8 punt 3) |
 | Klokknopje in tijd-/datumvelden zonder Peil-ring | browseronderdeel; de browserring is zichtbaar | geen |
 | Readback "Verzonden" i.p.v. Peil "Verstuurd" | my_house is eigenaar van de readback; tests en Android gebruiken "Verzonden" | Peil 1.1.1 neemt "Verzonden" over (§8 punt 1) |
