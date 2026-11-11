@@ -350,13 +350,19 @@ of instelling; de grafiek leest dezelfde twee antwoorden als voorheen (`GET /zon
 De tabel per uur, de toetsenbediening, de leesregel en de eerlijke gaten uit ADR-0013 waren goed: axe-core 0, geen
 contrastfout, geen overloop, geen te klein doel, een zichtbare ring. De nulmeting vond wel **zeven punten**: één
 eerlijkheidsfout, drie afwijkingen van Peil §10 (figuur met bron en tijd, eindpunt, tijdas) en drie kleine (aslabels,
-legenda, een dubbele tijd). Tijdens het repareren kwamen er nog vier bij. Alle elf zijn gerepareerd (§12.4).
+legenda, een dubbele tijd). Tijdens het repareren kwamen er nog vier bij, en na de eerste oplevering vond de CI er
+nog één die deze review zelf had gemaakt (punt 12). Alle twaalf zijn gerepareerd (§12.4).
 
 - **De ernstigste:** een sensor die de server **verouderd** noemt, stond in de grafiek als een gewone lijn die bij de
   laatste meting ophield — geen arcering, geen woord, geen tijd. De grafiek zag eruit als "actueel".
-- **Na de reparatie** (100 combinaties van toestand × breedte × thema): axe-core **0**; tekst ≥ **10,68:1**;
-  lijnen, randen, eindpunt en ring ≥ **4,42:1**; niets afgekapt, niets buiten zijn vlak, geen overloop, geen doel
-  onder 44 px; het plotvak, de uitleg en de leesregel worden na Tab niet bedekt door de ondernavigatie.
+- **De eigen fout:** de waarde naast het eindpunt stond in een strook van vaste breedte. Die paste bij het
+  lettertype van de ontwikkelmachine en stak in het bredere lettertype van de CI-machine 3,5 px buiten het plotvak.
+  De eerste eindmeting was alleen met het eerste lettertype gedaan (§12.2). De strook volgt nu de breedte van het
+  label zelf.
+- **Na de reparatie** (100 combinaties van toestand × breedte × thema, gemeten met twee systeemlettertypen): axe-core
+  **0**; tekst ≥ **10,68:1**; lijnen, randen, eindpunt en ring ≥ **4,42:1**; niets afgekapt, niets buiten zijn vlak,
+  geen overloop, geen doel onder 44 px; het plotvak, de uitleg en de leesregel worden na Tab niet bedekt door de
+  ondernavigatie.
 - **Eén punt blijft bij Peil liggen:** de arcering (`--chart-gap`) haalt als vlak 1,55:1 (licht) en 1,58:1 (donker).
   Zij is nergens het enige teken (§12.6), maar het token hoort bij de bron (§12.7).
 
@@ -373,6 +379,13 @@ legenda, een dubbele tijd). Tijdens het repareren kwamen er nog vier bij. Alle e
 - **Matrix:** 320 · 360 · 390 · 768 · 1440 px × licht en donker. Nulmeting 8 × 5 × 2 = **80** combinaties (commit
   `a3acb18`), eindmeting 10 × 5 × 2 = **100**. Per combinatie drie standen: rust, focus op het plotvak, en open tabel
   met een gekozen uur; daarnaast Tab vanaf de bovenkant van de pagina.
+- **Twee systeemlettertypen.** De web-app gebruikt het lettertype van het apparaat (`system-ui`). Op de
+  ontwikkelmachine is dat Noto Sans, op de CI-machine DejaVu Sans, en dat is breder. De eindmeting is met beide
+  gedraaid (2 × 100 combinaties). **Eerlijk:** de eerste eindmeting was alleen met Noto Sans gedaan, terwijl
+  `PEIL_MIGRATIE.md` al voorschrijft om ook met de CI-lettertypen te meten. De CI-run op de eerste oplevering
+  (`489f076`) faalde daardoor op 2 van de 31 browsertests (§12.4 punt 12, §12.9). Het CI-lettertype is lokaal
+  nagebootst met `apps/web/e2e/ci-lettertype.conf` (verbergt Noto Sans voor fontconfig); dat is een nabootsing van
+  het lettertype, niet van de hele CI-machine.
 - **Gemeten per combinatie** (Playwright 1.63, Chromium, axe-core 4.14 met wcag2a/2aa/21a/21aa/22aa): overtredingen;
   contrast van elk tekstelement en van elke lijn, rand, stip en ring op de berekende kleuren (arcering en pil tegen de
   donkerste pixel); zijwaartse overloop; tekst onder 14 px; doelen onder 44 px; inhoud buiten de kaart of buiten zijn
@@ -389,7 +402,7 @@ legenda, een dubbele tijd). Tijdens het repareren kwamen er nog vier bij. Alle e
 | §10 "`<figure>` + `figcaption` met bron en tijd" | losse `div`, geen bron, geen tijd | `<figure>`; bijschrift "Bron: sensor van de airco · bijgewerkt 11 nov 08:29 · …" |
 | §10 "**'Toon als tabel'** altijd" | aanwezig (ADR-0013) | ongewijzigd; staat ná de figuur (§12.7 punt 1) |
 | §10 "**Gat** … `arcering-gat` met het label 'Geen meting'" | aanwezig (ADR-0013) | ongewijzigd; een gat dat doorloopt in het verouderde stuk wordt niet dubbel gearceerd |
-| COMPONENTEN "eindpunt 12 px met `ring-2 ring-card` + direct label" | geen eindpunt | 12 px met kaartring op elke breedte; waarde ernaast vanaf 34 rem bij een verse sensor |
+| COMPONENTEN "eindpunt 12 px met `ring-2 ring-card` + direct label" | geen eindpunt | 12 px met kaartring op elke breedte; waarde ernaast vanaf 34 rem bij een verse sensor, in een strook die zo breed is als het label |
 | COMPONENTEN "x-labels: eerste links, laatste rechts uitgelijnd, tussenlabels pas vanaf `sm`" | alleen begin en eind, ook op 1440 px | begin en eind; hele uren ertussen vanaf 34 rem |
 | COMPONENTEN "`figcaption`: bron · bijgewerkt · 'een gat betekent dat er geen meting was (nooit 0)'" | alleen "Gearceerd: geen meting (nooit 0)." bij een gat | bron · bijgewerkt · de gat-zin (of, als er iets gearceerd is, de arceer-uitleg met staaltje) |
 | §7 reekskleur `chart-1`, grenslijn `chart-limit`, raster `chart-grid` | juist | ongewijzigd |
@@ -415,25 +428,26 @@ verouderd-label over de gegevens heen (op 390 px bedekt het label het laatste st
 | 9 | *(tijdens de reparatie)* "Verouderd sinds …" brak in twee of drie regels terwijl er ruimte was | laag | label pas vanaf een stuk van 9 rem, breedte tot 12 rem | browsertest (1440: binnen het stuk, één regel; 390: afwezig) |
 | 10 | *(tijdens de reparatie)* De stippelrand werd een kader aan vier kanten (geen Tailwind-preflight) | laag | `border-0 border-l-2 border-dashed` (ADR-0014 punt 9) | afdrukken; meting "verouderd rand" |
 | 11 | *(tijdens de reparatie)* "11 nov" en "08:29" braken uit elkaar in het bijschrift; de ring raakte de tijdlabels | laag | `time { white-space: nowrap }`; tijdas 6 px onder het plotvak | afdrukken; meting afkappen/overlappen = 0 |
+| 12 | *(na de eerste oplevering, gevonden door de CI)* De waarde naast het eindpunt stak buiten het plotvak: de strook was vast 56 px (46 px voor het label). "20,0°" is in DejaVu Sans vet 49,5 px breed: 3,5 px te veel. In Noto Sans paste "20,0°" (42 px), maar "100,0°" (50 px) en "-10,5°" (46,5 px) zouden ook daar zijn uitgestoken | middel (overloop; eigen fout van deze review) | geen vaste breedte meer: een onzichtbare kopie van het label (`hist-eindmaat`, `aria-hidden`) staat naast het tekenvlak en naast de tijdas en maakt de strook precies zo breed als het label, in elk lettertype en bij elke waarde; het label eindigt altijd 8 px binnen het plotvak en de tijdas blijft even breed als het tekenvlak (ADR-0014 punt 5) | vitest (maat aanwezig bij vers, afwezig bij verouderd); browsertest (label binnen het plotvak; tijdas gelijk met het tekenvlak ± 0,5 px); CI draait met het bredere lettertype |
 
 ### 12.5 Controle per eis
 
-| Eis | Nulmeting (80) | Na de review (100) |
+| Eis | Nulmeting (80, Noto Sans) | Na de review (100, met Noto Sans én met DejaVu Sans) |
 |---|---|---|
 | axe-core (WCAG 2.2 AA) | 0 | **0** (rust en open tabel) |
 | Tekstcontrast ≥ 4,5:1 | laagste 10,83 (licht) / 10,68 (donker) | laagste **10,83 / 10,68**; hoogste 19,22 / 16,13; kleinste letter 14 px |
 | Meetlijn, eindpunt, losse stip, legenda "Gemeten" (`chart-1`) ≥ 3:1 | 4,42 / 4,85 (geen eindpunt) | **4,42 / 4,85** |
 | Doellijn en legenda "Doel" (`chart-limit`, 1,5 px, streep 6/4) | 19,22 / 16,13 | **19,22 / 16,13** |
 | Rand van het verouderde stuk (`border-stale`, 2 px gestippeld) | bestond niet | **6,36 / 7,78** |
-| Pil "Verouderd": rand; tekst op de donkerste arceerpixel; maat | bestond niet | **6,36 / 7,78**; **8,97 / 9,24**; 121 × 32 px (geen knop) |
+| Pil "Verouderd": rand; tekst op de donkerste arceerpixel; maat | bestond niet | **6,36 / 7,78**; **8,97 / 9,24**; 121 × 32 px in Noto Sans, 131 × 32 px in DejaVu Sans (geen knop) |
 | Draadkruis (randen in inkt), chevron van "Toon als tabel", rand van het arceer-staaltje | 19,22 / 16,13; 19,22 / 16,13; 5,89 / 6,11 | gelijk |
-| Focusring plotvak: 3 px, 2 px afstand | 9,45 / 8,63, niet bedekt | **9,45 / 8,63**, niet bedekt (40 + 40) |
-| Tab-stops (plotvak en "Toon als tabel") | ring 3 px, laagste 8,63, 0 bedekt | ring 3 px, laagste **8,63**, **0** bedekt (160 stops) |
+| Focusring plotvak: 3 px, 2 px afstand | 9,45 / 8,63, niet bedekt | **9,45 / 8,63**, niet bedekt (2 × 80 metingen; 7 daarvan lazen de ring één beeld te vroeg, zie onder de tabel) |
+| Tab-stops (plotvak en "Toon als tabel") | ring 3 px, laagste 8,63, 0 bedekt | ring 3 px, laagste **8,63**, **0** bedekt (160 stops per lettertype) |
 | Tab vanaf boven: plotvak, uitleg en leesregel boven de ondernavigatie | niet bedekt | **niet bedekt** op alle vijf breedtes |
 | Zijwaartse overloop | 0 px | **0 px** |
 | Aanraakdoelen ≥ 44 px | 0 te klein | **0** te klein ("Toon als tabel" is 44 px hoog) |
 | Tekst onder 14 px; inhoud buiten kaart of element | 0; 0 | **0; 0** |
-| Labels afgekapt, over elkaar of buiten het plotvak | 360 meldingen (y-labels 4,8 px buiten het plotvak) | **0** |
+| Labels afgekapt, over elkaar of buiten het plotvak | 360 meldingen (y-labels 4,8 px buiten het plotvak) | **0** met beide lettertypen (na punt 12; daarvoor stak de waarde naast het eindpunt in DejaVu Sans 3,5 px uit op 768 en 1440 px) |
 | Verouderd/onbekend nooit groen | niets groen, maar verouderd ook niet gemarkeerd | niets groen; verouderd = grijs gearceerd met stippelrand, pil, tekst en naam |
 | Status nooit alleen kleur | reeksen: doorgetrokken en gestreept + legenda; gat: arcering + woord + uitleg | hetzelfde, plus verouderd: icoon + woord + stippelvorm + zin + naam |
 
@@ -442,9 +456,34 @@ verouderd-label over de gegevens heen (op 390 px bedekt het label het laatste st
 vlak van de tabelkop (1,23 / 1,14; de kop is vet en heeft een lijn eronder). Geen daarvan is een grens die de lezer
 nodig heeft om een onderdeel te vinden of een toestand te herkennen.
 
+**De twee lettertypen naast elkaar:** contrast, axe-core, overloop, doelen, tekstmaten, de aanwezigheid van labels, de
+breedte van het verouderde stuk en het aantal tijdlabels zijn met beide lettertypen gelijk. Wat verschilt is alleen
+maat: de pil "Verouderd" (121 tegen 131 px breed), de hoogte van het plotvak (198 tegen 199 px) en de strook naast
+het eindpunt (hieronder).
+
+**De ring, één beeld te vroeg gelezen:** in 7 van de 160 metingen van de ring om het plotvak (4 met Noto Sans, 3 met
+DejaVu Sans) las de meetspec de kleur van de ring in het eerste beeld na het krijgen van de focus. Daar had de ring
+nog de tekstkleur (19,22 / 16,13) in plaats van de ringkleur (9,45 / 8,63). Oorzaak: de meetspec bootst "minder
+beweging" na, en de Peil-basisregel daarvoor geeft elke overgang 0,01 ms; het eerste beeld heeft dan nog de
+beginwaarde. Nagemeten in een aparte ronde (24 combinaties, één keer opgetreden): 400 ms later heeft de ring de
+ringkleur; hij is in beide beelden 3 px, doorgetrokken en zichtbaar. Beide waarden liggen ruim boven 3:1. Geen fout
+in de app, wel een les voor de meting; er is niets aan de app veranderd.
+
 **Eindpunt, label en tijdas per breedte** (licht en donker gelijk): het eindpunt is overal 12 px. De waarde ernaast
 staat op 768 en 1440 px bij een verse sensor en ontbreekt op 320–390 px en bij een verouderde sensor. Tijdlabels: 2 op
 320–390 px, 6 of 7 op 768 en 1440 px (24 uur), 2 bij acht minuten, 1 bij één meting.
+
+**De strook naast het eindpunt** (label / strook; het label eindigt in alle gevallen 8 px binnen het plotvak en de
+tijdas loopt gelijk met het tekenvlak):
+
+| Waarde | Noto Sans | DejaVu Sans |
+|---|---|---|
+| "9,5°" | 34 / 52 px | 39,8 / 57,8 px |
+| "20,0°" | 42 / 60 px | 49,5 / 67,5 px |
+| "-10,5°" | 46,5 / 64,5 px | 55,4 / 73,4 px |
+| "100,0°" | 50 / 68 px | 59,3 / 77,3 px |
+
+De strook is het label plus 10 px afstand tot het eindpunt en 8 px binnenmarge. Vóór punt 12 was zij vast 56 px.
 
 **Het verouderde stuk per breedte:** ruim drie uur verouderd op 24 uur: 32 · 38 · 43 · 103 · 164 px (label alleen op
 1440); net verouderd: 7 · 8 · 9 · 23 · 36 px (nooit een label); zes uur verouderd: 51 · 61 · 69 · 165 · 262 px (label
@@ -493,18 +532,43 @@ bekend is).
 - **Een scheve apparaatklok** is alleen in de unit-tests nagebootst (grenzen van het verouderde stuk), niet in de
   browser.
 - **200 %-zoom** is benaderd met de breedtes 320–390 px, niet met echte browserzoom.
+- **Andere systeemlettertypen** (Segoe UI op Windows, San Francisco op Apple-apparaten, Roboto op Android): niet
+  gemeten; alleen Noto Sans en DejaVu Sans. De strook naast het eindpunt volgt de breedte van het label en hangt
+  dus niet meer van het lettertype af, maar of andere teksten daar anders afbreken is niet gezien.
+- **De CI-machine zelf** is alleen via de CI-run gezien; lokaal is alleen haar lettertype nagebootst.
 
 ### 12.9 Bestanden en opnieuw meten
 
 - Metingen: [`docs/screenshots/peil/review/12-grafiek-24-uur-samenvatting.json`](../screenshots/peil/review/12-grafiek-24-uur-samenvatting.json)
-  (nulmeting en eindmeting naast elkaar).
+  (nulmeting, eindmeting met Noto Sans, eindmeting met DejaVu Sans en de maten van de strook naast het eindpunt).
 - Afdrukken: `docs/screenshots/peil/review/12-grafiek-24-uur-<licht|donker>-<390|1440>.png` (gat, gekozen uur, open
-  tabel) en `12-grafiek-24-uur-verouderd-<licht|donker>-<390|1440>.png` (verouderde sensor, rust).
+  tabel) en `12-grafiek-24-uur-verouderd-<licht|donker>-<390|1440>.png` (verouderde sensor, rust). Ze zijn gemaakt
+  met Noto Sans, op de eindstand.
 - Opnieuw meten: `SHC_E2E_SHOTS=<map> apps/web/e2e/run-stack.sh` draait de browsertests en bewaart dezelfde acht
-  afdrukken. Flow `12-grafiek-24-uur` (6 tests) meet axe-core, de ring, overloop, tekst- en doelmaten en inhoud buiten
+  afdrukken. Flow `12-grafiek-24-uur` (5 tests) meet axe-core, de ring, overloop, tekst- en doelmaten en inhoud buiten
   zijn vlak op 320–1440 px in licht en donker, en de verouderde sensor op 390 en 1440 px.
+- Met het lettertype van de CI-machine:
+  `FONTCONFIG_FILE="$PWD/apps/web/e2e/ci-lettertype.conf" apps/web/e2e/run-stack.sh` (zie `apps/web/e2e/README.md`).
+  Doe dat bij elke wijziging aan maten of labels, naast de gewone ronde.
 - Gedraaid op de eindstand: `npx tsc --noEmit` en `npx tsc -p e2e/tsconfig.json` zonder fouten; vitest **332**
   geslaagd (28 bestanden; 38 in `history-chart.test.tsx`, was 19); `npm run build` in orde; browsertests **31 van 31**
-  geslaagd (was 30). Eerlijk over de weg ernaartoe: één tussentijdse volledige ronde had 1 mislukte test van de 31 —
-  de nieuwe controle op het einde van de doellijn mat de omtrek van het SVG-pad, en die is ruimer dan de lijn zelf
-  (261,3 tegen 260,3 px). De controle rekent nu met de coördinaten van het pad; de ronde daarna slaagde volledig.
+  geslaagd (was 30), met Noto Sans en met DejaVu Sans.
+
+**Eerlijk over de weg ernaartoe:**
+
+1. Eén tussentijdse volledige ronde had 1 mislukte test van de 31: de nieuwe controle op het einde van de doellijn
+   mat de omtrek van het SVG-pad, en die is ruimer dan de lijn zelf (261,3 tegen 260,3 px). De controle rekent nu met
+   de coördinaten van het pad.
+2. **De CI-run op de eerste oplevering faalde** (run 42981992176 op `489f076`: backend, web, compose en images
+   geslaagd; e2e 29 geslaagd, **2 mislukt**). Beide matrixtests van flow 12 meldden op 768, 1024 en 1440 px:
+   `hist-eindlabel cijfers "20,0°" steekt buiten het plotvak`. Lokaal slaagde alles, omdat de ontwikkelmachine een
+   smaller lettertype heeft. Met het CI-lettertype nagebootst faalden lokaal dezelfde 2 tests. Reparatie: §12.4
+   punt 12.
+3. Bij het nadraaien faalde één keer een **bestaande** test (1 van de 6 in die ronde): de muis stond 2 px binnen het
+   plotvak, en in de laatste halve minuut voor een heel uur is het eerste uurvak smaller dan 2 px, waardoor de test
+   het tweede uur las. De test zet de muis nu net vóór het vlak; de app is daarvoor niet gewijzigd.
+4. Na de reparatie van de strook faalde 1 van de 332 unit-tests (`peil-review.test.tsx`): de keuze
+   `.hist-x span` telde de onzichtbare maat mee als tijdlabel. De test kiest nu de labels binnen `.hist-x-in`. Dat
+   kwam pas aan het licht bij de volledige vitest-ronde; daarvoor was alleen `history-chart.test.tsx` gedraaid.
+5. In een eerdere versie van deze paragraaf stond "6 tests" voor flow 12. Dat telde de onboarding-test mee die er
+   altijd vóór draait; de flow zelf heeft er 5 (was 4).

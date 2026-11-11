@@ -11,15 +11,18 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
   grafiek staat "Verouderd" met de laatst bekende waarde en tijd. Eerder hield de grafiek gewoon op bij de laatste
   meting en zag hij eruit als actueel.
 - **Bron en tijd onder de grafiek:** bijvoorbeeld "Bron: sensor van de airco · bijgewerkt 11 nov 08:29".
-- **De laatste meting is een stip;** op een breed scherm staat de waarde ernaast.
+- **De laatste meting is een stip;** op een breed scherm staat de waarde ernaast. De ruimte daarvoor volgt de breedte
+  van het getal, zodat het in elk lettertype en ook bij "-10,5°" of "100,0°" binnen de grafiek blijft. (In de eerste
+  versie van deze review was die ruimte vast en stak het getal in een breder lettertype 3,5 px buiten de grafiek; de
+  automatische controle vond dat.)
 - **Hele uren op de tijdas** op een breed scherm (was alleen begin en eind).
 - Kleiner: de doellijn loopt niet door in het verouderde stuk; de legenda staat er alleen als er een grafiek is; de
   getallen langs de as vallen binnen het plotvak, zodat de focusring er niet meer doorheen loopt; bij één meting staat
   de tijd één keer onder de as (stond er twee keer).
 - Alleen weergave, teksten en toegankelijkheid: geen nieuwe API, instelling of database-update. Nagekeken tegen de
-  echte dienst met testgegevens in Chromium op 320–1440 px, licht en donker (axe-core 0). Een echte schermlezer, echte
-  telefoons, Firefox en Safari zijn niet getest (NIET GEVALIDEERD (hardware)). ADR-0014 en
-  `docs/ontwerp/PEIL_REVIEW.md` §12.
+  echte dienst met testgegevens in Chromium op 320–1440 px, licht en donker, met twee systeemlettertypen (axe-core 0).
+  Een echte schermlezer, echte telefoons, Firefox en Safari zijn niet getest (NIET GEVALIDEERD (hardware)); andere
+  systeemlettertypen dan Noto Sans en DejaVu Sans ook niet. ADR-0014 en `docs/ontwerp/PEIL_REVIEW.md` §12.
 
 ### Grafiek "Laatste 24 uur": tabel per uur en toetsenbord (2026-11-11)
 

@@ -78,7 +78,7 @@ schaal en trok de lijn door over uren zonder meting.
   imports); stijl bij de haakklassen `hist-*` in `src/peil/componenten.css`.
 - Tests: `src/test/history-chart.test.tsx` (vitest, 19 tests: per uur, `null` nooit 0, lijn breekt, toetsen, muis en
   tik, vaste plaats voor de uitlezing, tabel = toetsenbord, duizenden metingen zonder stapeloverloop); browsertest
-  `e2e/12-grafiek-24-uur.e2e.ts` (5 tests) tegen de echte API met metingen zoals de worker ze opslaat
+  `e2e/12-grafiek-24-uur.e2e.ts` (4 tests) tegen de echte API met metingen zoals de worker ze opslaat
   (`e2e/seed.py readings`): Tab-stop met ring, ← → Home End Esc, aanwijzer, tabel met "Geen meting", axe-core 0, een
   tik op een telefoon (aanraakscherm, 390 px) en de Peil-matrix (320–1440 px, licht en donker) met open tabel en
   gekozen uur, waarin op elke breedte ook gemeten wordt dat "Toon als tabel" niet verspringt als de muis over de uren

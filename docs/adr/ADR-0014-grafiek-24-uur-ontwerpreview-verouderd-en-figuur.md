@@ -69,10 +69,20 @@ geen overtreding van axe-core en geen contrastfout, maar wel dit:
 5. **Eindpunt van 12 px, waarde ernaast alleen waar er plaats is.** De laatste meting met waarde krijgt een stip van
    12 px in de reekskleur met een ring van 2 px in de kaartkleur (COMPONENTEN.md), op elke breedte en ook bij een
    verouderde sensor (daar is het "de laatst bekende waarde"). Het **directe label** ("20,8°") staat alleen bij een
-   verse sensor en vanaf een grafiek van 34 rem breed, in een eigen strook rechts van het plotvak. Het prototype zet het
-   label over de lijn heen; op 320–390 px bedekt dat het laatste stuk van de lijn. Smaller dan 34 rem staat de waarde
-   in het bedieningsblok boven de grafiek (daar staat de gemeten temperatuur groot) en in de toegankelijke naam.
+   verse sensor en vanaf een grafiek van 34 rem breed, in een eigen strook rechts van het tekenvlak. Het prototype zet
+   het label over de lijn heen; op 320–390 px bedekt dat het laatste stuk van de lijn. Smaller dan 34 rem staat de
+   waarde in het bedieningsblok boven de grafiek (daar staat de gemeten temperatuur groot) en in de toegankelijke naam.
    Bij een verouderde sensor geen direct label: een los getal zonder "verouderd" erbij leest als een actuele waarde.
+   **De strook heeft geen vaste breedte maar volgt het label** (aangepast op 11 november 2026, na de eerste
+   oplevering). Een onzichtbare kopie van het label (`hist-eindmaat`: zelfde tekst, letter, marge en vulling;
+   `aria-hidden`, `visibility: hidden`) staat als laatste kind in het plotvak en in de rij van de tijdas; het
+   tekenvlak en de tijdas nemen de rest (`flex: 1 1 0`). Zo is de strook in elk lettertype en bij elke waarde precies
+   breed genoeg, eindigt het label 8 px binnen het plotvak en blijft de tijdas even breed als het tekenvlak. De
+   eerste versie had een vaste strook van 56 px. Die paste bij "20,0°" in Noto Sans (42 px), maar niet in DejaVu Sans
+   (49,5 px; het systeemlettertype van de CI-machine), en ook in Noto Sans niet bij "100,0°" of "-10,5°". De web-app
+   gebruikt het lettertype van het apparaat (`system-ui`); een maat die van één lettertype uitgaat is daarom een
+   aanname en geen meting. Afgewezen: een bredere vaste strook (past weer bij één lettertype en kost op elke breedte
+   tekenruimte), en het label afkappen (een afgekapt getal is erger dan geen getal).
 6. **Tijdas met hele uren vanaf 34 rem.** Begin- en eindtijd staan altijd links en rechts; daartussen komen hele
    klokuren op een vaste stap (1, 2, 3, 6 of 12 uur, hoogstens acht stappen), in de tijdzone van het huis. Uren binnen
    15 % van het begin of het eind vervallen, zodat labels elkaar niet raken. Smaller dan 34 rem alleen begin en eind
@@ -105,8 +115,8 @@ geen overtreding van axe-core en geen contrastfout, maar wel dit:
   eindpunt, verouderd stuk, tijdas), `apps/web/src/pages/Climate.tsx` (geeft het oordeel van de server en de bron door;
   legenda alleen bij gegevens) en de haakklassen `hist-*` in `apps/web/src/peil/componenten.css`. Geen nieuwe API, geen
   nieuw datamodel, geen nieuwe route of instelling; de Android-app heeft deze grafiek niet.
-- Tests: `src/test/history-chart.test.tsx` (vitest, 38 tests; was 19) en `e2e/12-grafiek-24-uur.e2e.ts` (6 tests; was
-  5). De nieuwe browsertest laat een airco twee uur zwijgen tot de **server** de sensor verouderd noemt en controleert
+- Tests: `src/test/history-chart.test.tsx` (vitest, 38 tests; was 19) en `e2e/12-grafiek-24-uur.e2e.ts` (5 tests; was
+  4 — eerder stond hier 6 en 5, dat telde de onboarding-test mee die ervoor draait). De nieuwe browsertest laat een airco twee uur zwijgen tot de **server** de sensor verouderd noemt en controleert
   in licht en donker op 390 en 1440 px: lijn en doellijn stoppen bij de grens, gearceerd stuk met stippelrand, de pil,
   "Geen meting" in leesregel en tabel, het label "Verouderd sinds …" binnen het stuk op één regel (1440) of afwezig
   (390), en axe-core 0.

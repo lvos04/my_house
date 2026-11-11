@@ -21,8 +21,9 @@ vastgelegd).
 > review (figuur met bron en tijd, eindpunt, hele uren op de as). Erbij:
 > `review/12-grafiek-24-uur-verouderd-<licht|donker>-<390|1440>.png` (een airco die twee uur niets meldt: de lijn
 > stopt, gearceerd stuk met stippelrand, pil "Verouderd") en `review/12-grafiek-24-uur-samenvatting.json` (nulmeting
-> en eindmeting: 10 toestanden × 5 breedtes × 2 thema's). Dezelfde browsertest en dezelfde nabewerking. Zie
-> `docs/ontwerp/PEIL_REVIEW.md` §12 en ADR-0014.
+> en eindmeting: 10 toestanden × 5 breedtes × 2 thema's, de eindmeting met Noto Sans en met DejaVu Sans). Dezelfde
+> browsertest en dezelfde nabewerking; de afdrukken zijn met Noto Sans gemaakt en na de reparatie van de strook naast
+> het eindpunt opnieuw vervangen. Zie `docs/ontwerp/PEIL_REVIEW.md` §12 en ADR-0014.
 
 | Map | Wat | Aantal |
 |---|---|---|
