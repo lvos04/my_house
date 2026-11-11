@@ -93,3 +93,7 @@ schaal en trok de lijn door over uren zonder meting.
   (PEIL_MIGRATIE §7) — de x-as loopt tot het laatste punt, dus er is geen vlak na het laatste punt; een echte
   schermlezer (NVDA, TalkBack, VoiceOver) en echte apparaten zijn niet getest (**NIET GEVALIDEERD (hardware)**): de
   tik is getest met het nagebootste aanraakscherm van de testbrowser (Sim-getest), niet met een echte telefoon.
+- Later (11 november 2026): de onafhankelijke ontwerpreview heeft de markering "verouderd" en het eindpunt alsnog
+  gebouwd, met een `<figure>` met bron en tijd en hele uren op de tijdas. Zie
+  [ADR-0014](ADR-0014-grafiek-24-uur-ontwerpreview-verouderd-en-figuur.md). De aantallen tests hierboven zijn die van
+  deze stap; sindsdien zijn het er 38 (vitest) en 6 (browsertest).

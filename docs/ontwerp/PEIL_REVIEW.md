@@ -230,7 +230,7 @@ plekken van ronde 1 en daarna alleen nog de ondernavigatie.
 | Punt | Waarom niet | Voorstel |
 |---|---|---|
 | Ondernavigatie op 320 px: het vette "Overzicht" (actief) is 2 px breder dan zijn kolom van 64 px (Noto Sans; met bredere lettertypen meer). Niet afgekapt en leesbaar | vijf kolommen van 64 px zijn te smal; 14 px is de ondergrens, vet is de Peil-aanduiding voor actief | Peil 1.1.1: regel voor 320 px (bijv. actief zonder vet, alleen de balk) — besluit bij de bron; de e2e-controle sluit de ondernavigatie bewust uit |
-| Tabelweergave bij "Laatste 24 uur" (WCAG-tweeling, Peil §10) | functionele toevoeging; het besluit van de gebruiker gold alleen MediaGuard/MSO | ~~akkoord vragen (open sinds stap 2)~~ **gedaan na deze review:** akkoord op 10 november 2026, tabel per uur en toetsenbordbediening gebouwd op 11 november 2026 (`PEIL_MIGRATIE.md` §18, ADR-0013) |
+| Tabelweergave bij "Laatste 24 uur" (WCAG-tweeling, Peil §10) | functionele toevoeging; het besluit van de gebruiker gold alleen MediaGuard/MSO | ~~akkoord vragen (open sinds stap 2)~~ **gedaan na deze review:** akkoord op 10 november 2026, tabel per uur en toetsenbordbediening gebouwd op 11 november 2026 (`PEIL_MIGRATIE.md` §18, ADR-0013); onafhankelijk nagekeken in §12 (ADR-0014) |
 | Labels in de schemaband op `domain-*-soft` (4,93–6,22:1) | AA gehaald; Peil zet het paar zelf in de brede matrix | Peil 1.1.1: label op het `-bg`-vlak of een donkerdere `-soft` (§8 punt 3) |
 | Klokknopje in tijd-/datumvelden zonder Peil-ring | browseronderdeel; de browserring is zichtbaar | geen |
 | Readback "Verzonden" i.p.v. Peil "Verstuurd" | my_house is eigenaar van de readback; tests en Android gebruiken "Verzonden" | Peil 1.1.1 neemt "Verzonden" over (§8 punt 1) |
@@ -334,3 +334,177 @@ Afdrukken: `docs/screenshots/peil/review/11-peil-1.1.1-modus-en-schemaband-{lich
 
 **NIET GEVALIDEERD:** echte schermlezer (TalkBack/NVDA), echte telefoon in fel licht, Android op toestel of emulator en
 de app achter een echte TrueNAS. Alles hierboven is Sim-getest in Chromium (Playwright) en layoutlib (Paparazzi).
+
+## 12. Grafiek "Laatste 24 uur" met tabelweergave (11 november 2026, onafhankelijke ontwerpreview)
+
+**Rol:** ontwerp-agent, onafhankelijk van de bouwer van de tabel en de toetsenbediening (ADR-0013) · **Maatstaf:** Peil
+1.1.1 §10 (grafieken) en COMPONENTEN.md "Lijngrafiek" (`design/ontwerptaal/`), het Peil-prototype
+`server-metrieken.html` met zijn afdrukken, en WCAG 2.2 AA · **Besluit bij deze review:**
+[ADR-0014](../adr/ADR-0014-grafiek-24-uur-ontwerpreview-verouderd-en-figuur.md).
+
+Vaste regels: alleen uiterlijk, teksten en toegankelijkheid. Geen nieuwe API, geen nieuw datamodel, geen nieuwe route
+of instelling; de grafiek leest dezelfde twee antwoorden als voorheen (`GET /zones/{id}/history` en de zone zelf).
+
+### 12.1 Oordeel in het kort
+
+De tabel per uur, de toetsenbediening, de leesregel en de eerlijke gaten uit ADR-0013 waren goed: axe-core 0, geen
+contrastfout, geen overloop, geen te klein doel, een zichtbare ring. De nulmeting vond wel **zeven punten**: één
+eerlijkheidsfout, drie afwijkingen van Peil §10 (figuur met bron en tijd, eindpunt, tijdas) en drie kleine (aslabels,
+legenda, een dubbele tijd). Tijdens het repareren kwamen er nog vier bij. Alle elf zijn gerepareerd (§12.4).
+
+- **De ernstigste:** een sensor die de server **verouderd** noemt, stond in de grafiek als een gewone lijn die bij de
+  laatste meting ophield — geen arcering, geen woord, geen tijd. De grafiek zag eruit als "actueel".
+- **Na de reparatie** (100 combinaties van toestand × breedte × thema): axe-core **0**; tekst ≥ **10,68:1**;
+  lijnen, randen, eindpunt en ring ≥ **4,42:1**; niets afgekapt, niets buiten zijn vlak, geen overloop, geen doel
+  onder 44 px; het plotvak, de uitleg en de leesregel worden na Tab niet bedekt door de ondernavigatie.
+- **Eén punt blijft bij Peil liggen:** de arcering (`--chart-gap`) haalt als vlak 1,55:1 (licht) en 1,58:1 (donker).
+  Zij is nergens het enige teken (§12.6), maar het token hoort bij de bron (§12.7).
+
+### 12.2 Werkwijze
+
+- **Echte dienst, lokaal:** `apps/web/e2e/run-stack.sh` start de echte API, PostgreSQL 16 en de gebouwde web-app;
+  de metingen komen via `e2e/seed.py readings` in de database zoals de worker ze opslaat. Er is geen echte airco en
+  geen echte sensor: alles hieronder is **Sim-getest**.
+- **Tien toestanden:** vol (24 uur), gat (zes uur met een gat van 2½ uur en een meting zonder waarde), verouderd
+  (laatste meting ruim drie uur oud; de server noemt de sensor verouderd), kort (acht minuten), enkel (één meting),
+  ijl (een sensor die één keer per uur meldt, zonder doel), geen (alleen metingen zonder waarde), leeg (geen
+  geschiedenis), en na de reparatie erbij: oudkort (net verouderd) en ouddoel (sensor verouderd terwijl het doel nog
+  binnenkomt).
+- **Matrix:** 320 · 360 · 390 · 768 · 1440 px × licht en donker. Nulmeting 8 × 5 × 2 = **80** combinaties (commit
+  `a3acb18`), eindmeting 10 × 5 × 2 = **100**. Per combinatie drie standen: rust, focus op het plotvak, en open tabel
+  met een gekozen uur; daarnaast Tab vanaf de bovenkant van de pagina.
+- **Gemeten per combinatie** (Playwright 1.63, Chromium, axe-core 4.14 met wcag2a/2aa/21a/21aa/22aa): overtredingen;
+  contrast van elk tekstelement en van elke lijn, rand, stip en ring op de berekende kleuren (arcering en pil tegen de
+  donkerste pixel); zijwaartse overloop; tekst onder 14 px; doelen onder 44 px; inhoud buiten de kaart of buiten zijn
+  element; labels die elkaar raken of buiten het plotvak steken; de ring (dikte, contrast, bedekt of niet).
+- **Bekeken:** van elke combinatie een afdruk, als contactvellen naast het Peil-prototype en de Peil-afdrukken.
+- De meetspec was tijdelijk en staat niet in de repo. Wat blijvend bewaakt wordt, staat in de browsertest
+  `apps/web/e2e/12-grafiek-24-uur.e2e.ts` en in `src/test/history-chart.test.tsx` (§12.9).
+
+### 12.3 Vergelijking met de Peil-regels en het prototype
+
+| Peil 1.1.1 | Nulmeting | Na de review |
+|---|---|---|
+| §10 "**Verouderd:** de lijn stopt bij het laatste punt; daarna arcering met 'Verouderd sinds 10:12'" | ontbrak: de as hield op bij de laatste meting | lijn stopt, eindpunt, gearceerd stuk met stippelrand tot nu, "Verouderd sinds 06:28" als het past, pil en tekst eronder |
+| §10 "`<figure>` + `figcaption` met bron en tijd" | losse `div`, geen bron, geen tijd | `<figure>`; bijschrift "Bron: sensor van de airco · bijgewerkt 11 nov 08:29 · …" |
+| §10 "**'Toon als tabel'** altijd" | aanwezig (ADR-0013) | ongewijzigd; staat ná de figuur (§12.7 punt 1) |
+| §10 "**Gat** … `arcering-gat` met het label 'Geen meting'" | aanwezig (ADR-0013) | ongewijzigd; een gat dat doorloopt in het verouderde stuk wordt niet dubbel gearceerd |
+| COMPONENTEN "eindpunt 12 px met `ring-2 ring-card` + direct label" | geen eindpunt | 12 px met kaartring op elke breedte; waarde ernaast vanaf 34 rem bij een verse sensor |
+| COMPONENTEN "x-labels: eerste links, laatste rechts uitgelijnd, tussenlabels pas vanaf `sm`" | alleen begin en eind, ook op 1440 px | begin en eind; hele uren ertussen vanaf 34 rem |
+| COMPONENTEN "`figcaption`: bron · bijgewerkt · 'een gat betekent dat er geen meting was (nooit 0)'" | alleen "Gearceerd: geen meting (nooit 0)." bij een gat | bron · bijgewerkt · de gat-zin (of, als er iets gearceerd is, de arceer-uitleg met staaltje) |
+| §7 reekskleur `chart-1`, grenslijn `chart-limit`, raster `chart-grid` | juist | ongewijzigd |
+| §10 toetsenbord, `aria-live`, één Tab-stop | juist (ADR-0013) | ongewijzigd |
+
+**Wat het prototype anders doet, en waarom my_house dat niet overneemt:** het prototype zet het eindlabel en het
+verouderd-label over de gegevens heen (op 390 px bedekt het label het laatste stuk van de lijn) en zet `<details>` na
+`<figcaption>` binnen `<figure>`. my_house toont beide labels alleen waar ze passen en zet de tabel na de figuur
+(ADR-0014 punt 1, 4 en 5).
+
+### 12.4 Bevindingen en reparaties
+
+| # | Bevinding | Ernst | Reparatie | Bewaakt door |
+|---|---|---|---|---|
+| 1 | Verouderde sensor zag eruit als actueel: geen arcering, woord of tijd in of onder de grafiek; de toegankelijke naam zei alleen "laatste meting 20,5°" | hoog (eerlijkheid) | het oordeel van de server (`zone.temperature.stale`) stuurt de markering: lijn stopt, gearceerd stuk met stippelrand in `border-stale`, "Verouderd sinds …" als het past, pil "Verouderd" (icoon + woord + stippelvorm) met "Laatst bekend 11 nov 06:28: 20,1°. Daarna kwam er geen meting meer.", naam eindigt op ", verouderd sinds 11 nov 06:28", de uren erna heten "Geen meting" | vitest; browsertest "verouderde sensor" (licht/donker × 390/1440) |
+| 2 | Geen `<figure>`/`figcaption`, geen bron, geen tijd | middel | `<figure>` met bijschrift: bron ("sensor van de zone" / "sensor van de airco" / "temperatuursensor") en "bijgewerkt" in `<time datetime>`; bij verouderd geen "bijgewerkt" (zou "Verouderd" tegenspreken) | vitest; browsertest |
+| 3 | Geen eindpunt bij de laatste meting | middel | stip van 12 px met ring van 2 px in de kaartkleur; waarde ernaast in een eigen strook vanaf 34 rem, alleen bij een verse sensor | vitest; browsertest (maat en plaats) |
+| 4 | Tijdas met alleen begin en eind, ook op 1440 px | middel | hele klokuren ertussen vanaf 34 rem (stap 1, 2, 3, 6 of 12 uur; niet binnen 15 % van begin of eind) | vitest (`hourTicks`); browsertest (labels raken elkaar niet) |
+| 5 | y-labels 4,8 px boven en onder het plotvak; de focusring liep door "17°" en "22°" | laag | 6 px ruimte in het plotvak boven en onder; labels vallen erbinnen | browsertest (labels binnen het plotvak) |
+| 6 | Legenda ook boven "Nog geen geschiedenis"; staaltjes van 12 px (het streepje van "Doel" was één blokje) | laag | legenda alleen als er iets te tekenen is; staaltjes 20 px | `peil-review.test.tsx` |
+| 7 | Eén meting: dezelfde tijd stond links én rechts onder de as ("07:38  07:38") | laag | bij een gelijk begin en eind één label | vitest |
+| 8 | *(tijdens de reparatie)* De doellijn liep tot een uur het verouderde stuk in | middel (eerlijkheid) | de doellijn stopt bij de grens, of bij haar eigen laatste waarde als het doel nog wel binnenkomt (ADR-0014 punt 3) | vitest (2 tests; zonder de regel falen ze allebei); browsertest (einde doellijn = begin arcering ± 1 px) |
+| 9 | *(tijdens de reparatie)* "Verouderd sinds …" brak in twee of drie regels terwijl er ruimte was | laag | label pas vanaf een stuk van 9 rem, breedte tot 12 rem | browsertest (1440: binnen het stuk, één regel; 390: afwezig) |
+| 10 | *(tijdens de reparatie)* De stippelrand werd een kader aan vier kanten (geen Tailwind-preflight) | laag | `border-0 border-l-2 border-dashed` (ADR-0014 punt 9) | afdrukken; meting "verouderd rand" |
+| 11 | *(tijdens de reparatie)* "11 nov" en "08:29" braken uit elkaar in het bijschrift; de ring raakte de tijdlabels | laag | `time { white-space: nowrap }`; tijdas 6 px onder het plotvak | afdrukken; meting afkappen/overlappen = 0 |
+
+### 12.5 Controle per eis
+
+| Eis | Nulmeting (80) | Na de review (100) |
+|---|---|---|
+| axe-core (WCAG 2.2 AA) | 0 | **0** (rust en open tabel) |
+| Tekstcontrast ≥ 4,5:1 | laagste 10,83 (licht) / 10,68 (donker) | laagste **10,83 / 10,68**; hoogste 19,22 / 16,13; kleinste letter 14 px |
+| Meetlijn, eindpunt, losse stip, legenda "Gemeten" (`chart-1`) ≥ 3:1 | 4,42 / 4,85 (geen eindpunt) | **4,42 / 4,85** |
+| Doellijn en legenda "Doel" (`chart-limit`, 1,5 px, streep 6/4) | 19,22 / 16,13 | **19,22 / 16,13** |
+| Rand van het verouderde stuk (`border-stale`, 2 px gestippeld) | bestond niet | **6,36 / 7,78** |
+| Pil "Verouderd": rand; tekst op de donkerste arceerpixel; maat | bestond niet | **6,36 / 7,78**; **8,97 / 9,24**; 121 × 32 px (geen knop) |
+| Draadkruis (randen in inkt), chevron van "Toon als tabel", rand van het arceer-staaltje | 19,22 / 16,13; 19,22 / 16,13; 5,89 / 6,11 | gelijk |
+| Focusring plotvak: 3 px, 2 px afstand | 9,45 / 8,63, niet bedekt | **9,45 / 8,63**, niet bedekt (40 + 40) |
+| Tab-stops (plotvak en "Toon als tabel") | ring 3 px, laagste 8,63, 0 bedekt | ring 3 px, laagste **8,63**, **0** bedekt (160 stops) |
+| Tab vanaf boven: plotvak, uitleg en leesregel boven de ondernavigatie | niet bedekt | **niet bedekt** op alle vijf breedtes |
+| Zijwaartse overloop | 0 px | **0 px** |
+| Aanraakdoelen ≥ 44 px | 0 te klein | **0** te klein ("Toon als tabel" is 44 px hoog) |
+| Tekst onder 14 px; inhoud buiten kaart of element | 0; 0 | **0; 0** |
+| Labels afgekapt, over elkaar of buiten het plotvak | 360 meldingen (y-labels 4,8 px buiten het plotvak) | **0** |
+| Verouderd/onbekend nooit groen | niets groen, maar verouderd ook niet gemarkeerd | niets groen; verouderd = grijs gearceerd met stippelrand, pil, tekst en naam |
+| Status nooit alleen kleur | reeksen: doorgetrokken en gestreept + legenda; gat: arcering + woord + uitleg | hetzelfde, plus verouderd: icoon + woord + stippelvorm + zin + naam |
+
+**Onder 3:1, en waarom dat geen fout is:** de arcering (1,55 / 1,58; aanvullend teken, zie §12.6), de rasterlijnen
+(1,25 / 1,29; Peil §7: raster treedt terug), het vlak van het draadkruis (1,18 / 1,22; de randen ervan zijn inkt) en het
+vlak van de tabelkop (1,23 / 1,14; de kop is vet en heeft een lijn eronder). Geen daarvan is een grens die de lezer
+nodig heeft om een onderdeel te vinden of een toestand te herkennen.
+
+**Eindpunt, label en tijdas per breedte** (licht en donker gelijk): het eindpunt is overal 12 px. De waarde ernaast
+staat op 768 en 1440 px bij een verse sensor en ontbreekt op 320–390 px en bij een verouderde sensor. Tijdlabels: 2 op
+320–390 px, 6 of 7 op 768 en 1440 px (24 uur), 2 bij acht minuten, 1 bij één meting.
+
+**Het verouderde stuk per breedte:** ruim drie uur verouderd op 24 uur: 32 · 38 · 43 · 103 · 164 px (label alleen op
+1440); net verouderd: 7 · 8 · 9 · 23 · 36 px (nooit een label); zes uur verouderd: 51 · 61 · 69 · 165 · 262 px (label
+op 768 en 1440). Zonder label staan de tijd en de laatst bekende waarde in de pilregel onder de grafiek en in de
+toegankelijke naam — op elke breedte.
+
+**NL-microcopy tegen de Peil-woordenlijst (§11):** "Verouderd" (niet: stale, oud), "Verouderd sinds 06:28" (§10
+letterlijk), "Laatst bekend …" (§4.4), "Geen meting" (§10; nooit 0, nooit "–"), "Bron" en "bijgewerkt" (§4.4), "Toon als
+tabel, per uur" (§10 met de eenheid van de rijen erbij). Geen Engels, geen jargon, geen uitroeptekens. Nieuwe zinnen:
+"Daarna kwam er geen meting meer." en "geen gemeten temperatuur in de laatste 24 uur" (bronregel als alleen het doel
+bekend is).
+
+### 12.6 Niet gerepareerd of bewust gelaten
+
+| Punt | Waarom | Voorstel |
+|---|---|---|
+| Arcering `--chart-gap` 1,55:1 / 1,58:1 tegen de kaart | Peil-token; de kopie is gepind. Nooit het enige teken: een gat heeft het woord (als het past) en de uitleg met staaltje (rand 5,89 / 6,11:1); het verouderde stuk heeft de stippelrand, de pil en de zin | §12.7 punt 3 |
+| Geen "Verouderd sinds …" in een stuk smaller dan 9 rem (telefoon; kort verouderd) | het label past er niet in zonder afkappen of over de lijn te vallen | tijd en waarde staan in de pilregel en de naam; geen |
+| Geen waarde naast het eindpunt onder 34 rem | het label zou het eind van de lijn bedekken (zoals in het prototype op 390 px) | de waarde staat groot in het bedieningsblok erboven en in de naam; §12.7 punt 2 |
+| Lege strook onder de tijdas op een smal venster op een computer | de vrijgehouden plaats voor de leesregel bij een muis (ADR-0013 punt 4); op een echt aanraakscherm bestaat zij niet | geen |
+| Teksten, tabel en toetsen van ADR-0013; offline (ADR-0011) | gecontroleerd, in orde | geen |
+| Volledige afdrukken `klimaat-bediening-*` in `docs/screenshots/peil/na/` | tonen nog de grafiek van vóór ADR-0013; de sectie zelf staat in `review/12-grafiek-24-uur-*` | bij een volgende volledige afdrukronde vervangen |
+
+### 12.7 Voorstellen voor Peil (bron: ai-server-manager)
+
+1. Prototype `server-metrieken.html`: `<details>` staat na `<figcaption>` binnen `<figure>`; HTML staat `figcaption`
+   alleen als eerste of laatste kind toe. Zet de tabel na de figuur, of het bijschrift onderaan.
+2. Regel voor het eindlabel en het verouderd-label: "alleen als het past; anders in het bijschrift en de
+   toegankelijke naam". Het prototype zet ze nu over de gegevens.
+3. `--chart-gap` ophogen tot ≥ 3:1, of een rand om elk gearceerd vlak voorschrijven.
+4. §10 zegt niet wat een doel- of grenslijn doet in een verouderd stuk. my_house: stoppen bij de grens, tenzij de
+   lijn zelf nog gegevens heeft.
+5. Geen ontwerpvoorstel maar een API-wens: een servertijd (`as_of`) in het history-antwoord, zodat de breedte van het
+   verouderde stuk niet van de klok van het apparaat afhangt (ADR-0014 punt 2).
+
+### 12.8 Niet getest (NIET GEVALIDEERD)
+
+- **Echte schermlezer** (NVDA, JAWS, TalkBack, VoiceOver): niet beschikbaar. Naam, rol, beschrijving en `aria-live`
+  zijn automatisch gecontroleerd, niet beluisterd.
+- **Echte telefoon of tablet, fel licht:** **NIET GEVALIDEERD (hardware)**. De tik is getest op het nagebootste
+  aanraakscherm van de testbrowser.
+- **Firefox en Safari:** niet getest; alleen Chromium. De containerquery's (`@container`) vragen Safari 16+,
+  Firefox 110+ en Chrome 105+; dat ligt onder wat Tailwind 4 al vraagt.
+- **Een echte airco of sensor:** de reeksen zijn testgegevens in het formaat van de worker. Hoe vaak een echte
+  sensor in de praktijk verouderd raakt, is onbekend.
+- **Een scheve apparaatklok** is alleen in de unit-tests nagebootst (grenzen van het verouderde stuk), niet in de
+  browser.
+- **200 %-zoom** is benaderd met de breedtes 320–390 px, niet met echte browserzoom.
+
+### 12.9 Bestanden en opnieuw meten
+
+- Metingen: [`docs/screenshots/peil/review/12-grafiek-24-uur-samenvatting.json`](../screenshots/peil/review/12-grafiek-24-uur-samenvatting.json)
+  (nulmeting en eindmeting naast elkaar).
+- Afdrukken: `docs/screenshots/peil/review/12-grafiek-24-uur-<licht|donker>-<390|1440>.png` (gat, gekozen uur, open
+  tabel) en `12-grafiek-24-uur-verouderd-<licht|donker>-<390|1440>.png` (verouderde sensor, rust).
+- Opnieuw meten: `SHC_E2E_SHOTS=<map> apps/web/e2e/run-stack.sh` draait de browsertests en bewaart dezelfde acht
+  afdrukken. Flow `12-grafiek-24-uur` (6 tests) meet axe-core, de ring, overloop, tekst- en doelmaten en inhoud buiten
+  zijn vlak op 320–1440 px in licht en donker, en de verouderde sensor op 390 en 1440 px.
+- Gedraaid op de eindstand: `npx tsc --noEmit` en `npx tsc -p e2e/tsconfig.json` zonder fouten; vitest **332**
+  geslaagd (28 bestanden; 38 in `history-chart.test.tsx`, was 19); `npm run build` in orde; browsertests **31 van 31**
+  geslaagd (was 30). Eerlijk over de weg ernaartoe: één tussentijdse volledige ronde had 1 mislukte test van de 31 —
+  de nieuwe controle op het einde van de doellijn mat de omtrek van het SVG-pad, en die is ruimer dan de lijn zelf
+  (261,3 tegen 260,3 px). De controle rekent nu met de coördinaten van het pad; de ronde daarna slaagde volledig.

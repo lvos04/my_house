@@ -723,3 +723,11 @@ x-as loopt tot het laatste punt, dus er is geen vlak na het laatste punt. **Niet
 TalkBack, VoiceOver) en echte telefoons of tablets — **NIET GEVALIDEERD (hardware)**. In de leesmodus van een
 schermlezer gaan de pijltjes naar de schermlezer zelf; daar is de tabel de weg (ADR-0013 punt 3). De Android-app heeft
 deze grafiek niet; daar verandert niets.
+
+**Bijgewerkt na de onafhankelijke ontwerpreview (11 november 2026):** de twee punten onder "Niet gebouwd" zijn er nu
+wel. Noemt de server de sensor verouderd, dan stopt de lijn bij de laatste meting en volgt een gearceerd stuk met
+stippelrand tot nu, met "Verouderd sinds …" als het past en altijd de pil "Verouderd" met de laatst bekende waarde
+eronder. De laatste meting is een eindpunt van 12 px (vanaf 34 rem met de waarde ernaast, bij een verse sensor). Verder:
+`<figure>` met bron en "bijgewerkt" in het bijschrift, hele uren op de tijdas vanaf 34 rem, de aslabels binnen het
+plotvak en de legenda alleen bij een grafiek. Besluit en afwegingen: ADR-0014; bevindingen en metingen:
+[`PEIL_REVIEW.md`](PEIL_REVIEW.md) §12. "NIET GEVALIDEERD (hardware)" hierboven geldt onveranderd.

@@ -1,0 +1,754 @@
+{
+ "ronde": "Ontwerpreview grafiek \"Laatste 24 uur\" met tabelweergave (11 november 2026; tijdelijke Playwright-meetspec tegen apps/web/e2e/run-stack.sh: echte API + PostgreSQL + gebouwde web-app, testgegevens via e2e/seed.py; axe-core 4.14.0, Playwright 1.63.0, Chromium; Sim-getest)",
+ "toestanden_uitleg": {
+  "vol": "24 uur metingen en doel",
+  "gat": "zes uur met een gat van 2,5 uur en een meting zonder waarde",
+  "verouderd": "laatste meting ruim drie uur geleden; de server noemt de sensor verouderd",
+  "kort": "acht minuten metingen",
+  "enkel": "een enkele meting, geen doel",
+  "ijl": "sensor die een keer per uur meldt, geen doel",
+  "geen": "alleen metingen zonder waarde",
+  "leeg": "geen geschiedenis",
+  "oudkort": "net verouderd (laatste meting 51 minuten geleden)",
+  "ouddoel": "sensor verouderd terwijl het doel nog wel binnenkomt"
+ },
+ "per_combinatie": "drie standen: rust, focus op het plotvak, open tabel met gekozen uur; daarnaast Tab vanaf de bovenkant van de pagina",
+ "voor": {
+  "combinaties": 80,
+  "toestanden": [
+   "vol",
+   "gat",
+   "verouderd",
+   "kort",
+   "enkel",
+   "ijl",
+   "geen",
+   "leeg"
+  ],
+  "breedtes": [
+   320,
+   360,
+   390,
+   768,
+   1440
+  ],
+  "themas": [
+   "licht",
+   "donker"
+  ],
+  "axe_overtredingen": 0,
+  "tekstcontrast_laagste": {
+   "licht": 10.83,
+   "donker": 10.68
+  },
+  "kleinste_letter_px": 14,
+  "niet_tekstcontrast_laagste": {
+   "arcering gat (chart-gap)": {
+    "donker": 1.58,
+    "licht": 1.55
+   },
+   "doellijn (chart-limit)": {
+    "donker": 16.13,
+    "licht": 19.22
+   },
+   "draadkruis rand": {
+    "donker": 16.13,
+    "licht": 19.22
+   },
+   "draadkruis vlak": {
+    "donker": 1.22,
+    "licht": 1.18
+   },
+   "focusring plotvak": {
+    "donker": 8.63,
+    "licht": 9.45
+   },
+   "legenda Doel": {
+    "donker": 16.13,
+    "licht": 19.22
+   },
+   "legenda Gemeten": {
+    "donker": 4.85,
+    "licht": 4.42
+   },
+   "meetlijn (chart-1)": {
+    "donker": 4.85,
+    "licht": 4.42
+   },
+   "rasterlijn (chart-grid)": {
+    "donker": 1.29,
+    "licht": 1.25
+   },
+   "staal rand": {
+    "donker": 6.11,
+    "licht": 5.89
+   },
+   "stip losse meting": {
+    "donker": 4.85,
+    "licht": 4.42
+   },
+   "summary chevron": {
+    "donker": 16.13,
+    "licht": 19.22
+   },
+   "tabelkop vlak": {
+    "donker": 1.14,
+    "licht": 1.23
+   }
+  },
+  "overloop_max_px": 0,
+  "tekst_onder_14_px": 0,
+  "doelen_onder_44_px": 0,
+  "buiten_de_kaart": 0,
+  "inhoud_buiten_element": 0,
+  "afkappen_of_overlappen": {
+   "y-label 0 steekt 4.8 px onder het plotvak uit": 180,
+   "y-label 5 steekt 4.8 px boven het plotvak uit": 90,
+   "y-label 4 steekt 4.8 px boven het plotvak uit": 30,
+   "y-label 3 steekt 4.8 px boven het plotvak uit": 30,
+   "y-label 2 steekt 4.8 px boven het plotvak uit": 30
+  },
+  "focusring_plotvak": [
+   {
+    "thema": "licht",
+    "dikte_px": 3,
+    "contrast": 19.22,
+    "bedekt": false,
+    "aantal": 28
+   },
+   {
+    "thema": "licht",
+    "dikte_px": 3,
+    "contrast": 9.45,
+    "bedekt": false,
+    "aantal": 2
+   },
+   {
+    "thema": "donker",
+    "dikte_px": 3,
+    "contrast": 16.13,
+    "bedekt": false,
+    "aantal": 29
+   },
+   {
+    "thema": "donker",
+    "dikte_px": 3,
+    "contrast": 8.63,
+    "bedekt": false,
+    "aantal": 1
+   }
+  ],
+  "tabstops": {
+   "aantal": 120,
+   "ring_min_px": 3,
+   "contrast_laagste": 8.63,
+   "bedekt": 0
+  },
+  "commit": "a3acb18",
+  "eindpunt_per_toestand_en_breedte": {},
+  "verouderd_stuk_per_toestand_en_breedte": {},
+  "aantal_tijdlabels_per_toestand_en_breedte": {
+   "vol": {
+    "320": 2,
+    "360": 2,
+    "390": 2,
+    "768": 2,
+    "1440": 2
+   },
+   "gat": {
+    "320": 2,
+    "360": 2,
+    "390": 2,
+    "768": 2,
+    "1440": 2
+   },
+   "verouderd": {
+    "320": 2,
+    "360": 2,
+    "390": 2,
+    "768": 2,
+    "1440": 2
+   },
+   "kort": {
+    "320": 2,
+    "360": 2,
+    "390": 2,
+    "768": 2,
+    "1440": 2
+   },
+   "enkel": {
+    "320": 2,
+    "360": 2,
+    "390": 2,
+    "768": 2,
+    "1440": 2
+   },
+   "ijl": {
+    "320": 2,
+    "360": 2,
+    "390": 2,
+    "768": 2,
+    "1440": 2
+   }
+  },
+  "toegankelijke_naam_plotvak_1440": {
+   "vol": {
+    "w": 1086,
+    "h": 186,
+    "naam": "Gemeten en doeltemperatuur, bereik 17° tot 22°, laatste meting 20,8°",
+    "role": "img"
+   },
+   "gat": {
+    "w": 1086,
+    "h": 186,
+    "naam": "Gemeten en doeltemperatuur, bereik 18° tot 22°, laatste meting 20,0°",
+    "role": "img"
+   },
+   "verouderd": {
+    "w": 1086,
+    "h": 186,
+    "naam": "Gemeten en doeltemperatuur, bereik 17° tot 22°, laatste meting 20,5°",
+    "role": "img"
+   },
+   "kort": {
+    "w": 1086,
+    "h": 186,
+    "naam": "Gemeten en doeltemperatuur, bereik 19° tot 22°, laatste meting 20,2°",
+    "role": "img"
+   },
+   "enkel": {
+    "w": 1086,
+    "h": 186,
+    "naam": "Gemeten en doeltemperatuur, bereik 19° tot 21°, laatste meting 20,4°",
+    "role": "img"
+   },
+   "ijl": {
+    "w": 1086,
+    "h": 186,
+    "naam": "Gemeten en doeltemperatuur, bereik 16° tot 21°, laatste meting 20,0°",
+    "role": "img"
+   },
+   "geen": null,
+   "leeg": null
+  },
+  "bijschrift_1440": {
+   "vol": null,
+   "gat": null,
+   "verouderd": null,
+   "kort": null,
+   "enkel": null,
+   "ijl": null,
+   "geen": null,
+   "leeg": null
+  }
+ },
+ "na": {
+  "combinaties": 100,
+  "toestanden": [
+   "vol",
+   "gat",
+   "verouderd",
+   "kort",
+   "enkel",
+   "ijl",
+   "geen",
+   "leeg",
+   "oudkort",
+   "ouddoel"
+  ],
+  "breedtes": [
+   320,
+   360,
+   390,
+   768,
+   1440
+  ],
+  "themas": [
+   "licht",
+   "donker"
+  ],
+  "axe_overtredingen": 0,
+  "tekstcontrast_laagste": {
+   "licht": 10.83,
+   "donker": 10.68
+  },
+  "kleinste_letter_px": 14,
+  "niet_tekstcontrast_laagste": {
+   "arcering gat (chart-gap)": {
+    "donker": 1.58,
+    "licht": 1.55
+   },
+   "arcering verouderd": {
+    "donker": 1.58,
+    "licht": 1.55
+   },
+   "doellijn (chart-limit)": {
+    "donker": 16.13,
+    "licht": 19.22
+   },
+   "draadkruis rand": {
+    "donker": 16.13,
+    "licht": 19.22
+   },
+   "draadkruis vlak": {
+    "donker": 1.22,
+    "licht": 1.18
+   },
+   "eindpunt": {
+    "donker": 4.85,
+    "licht": 4.42
+   },
+   "focusring plotvak": {
+    "donker": 8.63,
+    "licht": 9.45
+   },
+   "legenda Doel": {
+    "donker": 16.13,
+    "licht": 19.22
+   },
+   "legenda Gemeten": {
+    "donker": 4.85,
+    "licht": 4.42
+   },
+   "meetlijn (chart-1)": {
+    "donker": 4.85,
+    "licht": 4.42
+   },
+   "pil Verouderd rand": {
+    "donker": 7.78,
+    "licht": 6.36
+   },
+   "pil Verouderd: tekst op donkerste arceerpixel": {
+    "donker": 9.24,
+    "licht": 8.97
+   },
+   "rasterlijn (chart-grid)": {
+    "donker": 1.29,
+    "licht": 1.25
+   },
+   "staal rand": {
+    "donker": 6.11,
+    "licht": 5.89
+   },
+   "stip losse meting": {
+    "donker": 4.85,
+    "licht": 4.42
+   },
+   "summary chevron": {
+    "donker": 16.13,
+    "licht": 19.22
+   },
+   "tabelkop vlak": {
+    "donker": 1.14,
+    "licht": 1.23
+   },
+   "verouderd rand (stale)": {
+    "donker": 7.78,
+    "licht": 6.36
+   }
+  },
+  "overloop_max_px": 0,
+  "tekst_onder_14_px": 0,
+  "doelen_onder_44_px": 0,
+  "buiten_de_kaart": 0,
+  "inhoud_buiten_element": 0,
+  "afkappen_of_overlappen": {},
+  "focusring_plotvak": [
+   {
+    "thema": "licht",
+    "dikte_px": 3,
+    "contrast": 9.45,
+    "bedekt": false,
+    "aantal": 40
+   },
+   {
+    "thema": "donker",
+    "dikte_px": 3,
+    "contrast": 8.63,
+    "bedekt": false,
+    "aantal": 40
+   }
+  ],
+  "tabstops": {
+   "aantal": 160,
+   "ring_min_px": 3,
+   "contrast_laagste": 8.63,
+   "bedekt": 0
+  },
+  "stand": "eindstand van deze ronde (ADR-0014)",
+  "eindpunt_per_toestand_en_breedte": {
+   "vol": {
+    "320": {
+     "stip_px": 12,
+     "label": null
+    },
+    "360": {
+     "stip_px": 12,
+     "label": null
+    },
+    "390": {
+     "stip_px": 12,
+     "label": null
+    },
+    "768": {
+     "stip_px": 12,
+     "label": "20,8°"
+    },
+    "1440": {
+     "stip_px": 12,
+     "label": "20,8°"
+    }
+   },
+   "gat": {
+    "320": {
+     "stip_px": 12,
+     "label": null
+    },
+    "360": {
+     "stip_px": 12,
+     "label": null
+    },
+    "390": {
+     "stip_px": 12,
+     "label": null
+    },
+    "768": {
+     "stip_px": 12,
+     "label": "20,0°"
+    },
+    "1440": {
+     "stip_px": 12,
+     "label": "20,0°"
+    }
+   },
+   "verouderd": {
+    "320": {
+     "stip_px": 12,
+     "label": null
+    },
+    "360": {
+     "stip_px": 12,
+     "label": null
+    },
+    "390": {
+     "stip_px": 12,
+     "label": null
+    },
+    "768": {
+     "stip_px": 12,
+     "label": null
+    },
+    "1440": {
+     "stip_px": 12,
+     "label": null
+    }
+   },
+   "kort": {
+    "320": {
+     "stip_px": 12,
+     "label": null
+    },
+    "360": {
+     "stip_px": 12,
+     "label": null
+    },
+    "390": {
+     "stip_px": 12,
+     "label": null
+    },
+    "768": {
+     "stip_px": 12,
+     "label": "20,2°"
+    },
+    "1440": {
+     "stip_px": 12,
+     "label": "20,2°"
+    }
+   },
+   "enkel": {
+    "320": {
+     "stip_px": 12,
+     "label": null
+    },
+    "360": {
+     "stip_px": 12,
+     "label": null
+    },
+    "390": {
+     "stip_px": 12,
+     "label": null
+    },
+    "768": {
+     "stip_px": 12,
+     "label": "20,4°"
+    },
+    "1440": {
+     "stip_px": 12,
+     "label": "20,4°"
+    }
+   },
+   "ijl": {
+    "320": {
+     "stip_px": 12,
+     "label": null
+    },
+    "360": {
+     "stip_px": 12,
+     "label": null
+    },
+    "390": {
+     "stip_px": 12,
+     "label": null
+    },
+    "768": {
+     "stip_px": 12,
+     "label": "20,0°"
+    },
+    "1440": {
+     "stip_px": 12,
+     "label": "20,0°"
+    }
+   },
+   "oudkort": {
+    "320": {
+     "stip_px": 12,
+     "label": null
+    },
+    "360": {
+     "stip_px": 12,
+     "label": null
+    },
+    "390": {
+     "stip_px": 12,
+     "label": null
+    },
+    "768": {
+     "stip_px": 12,
+     "label": null
+    },
+    "1440": {
+     "stip_px": 12,
+     "label": null
+    }
+   },
+   "ouddoel": {
+    "320": {
+     "stip_px": 12,
+     "label": null
+    },
+    "360": {
+     "stip_px": 12,
+     "label": null
+    },
+    "390": {
+     "stip_px": 12,
+     "label": null
+    },
+    "768": {
+     "stip_px": 12,
+     "label": null
+    },
+    "1440": {
+     "stip_px": 12,
+     "label": null
+    }
+   }
+  },
+  "verouderd_stuk_per_toestand_en_breedte": {
+   "verouderd": {
+    "320": {
+     "breedte_px": 32,
+     "label": null
+    },
+    "360": {
+     "breedte_px": 38,
+     "label": null
+    },
+    "390": {
+     "breedte_px": 43,
+     "label": null
+    },
+    "768": {
+     "breedte_px": 103,
+     "label": null
+    },
+    "1440": {
+     "breedte_px": 164,
+     "label": "Verouderd sinds 05:20"
+    }
+   },
+   "oudkort": {
+    "320": {
+     "breedte_px": 7,
+     "label": null
+    },
+    "360": {
+     "breedte_px": 8,
+     "label": null
+    },
+    "390": {
+     "breedte_px": 9,
+     "label": null
+    },
+    "768": {
+     "breedte_px": 23,
+     "label": null
+    },
+    "1440": {
+     "breedte_px": 36,
+     "label": null
+    }
+   },
+   "ouddoel": {
+    "320": {
+     "breedte_px": 51,
+     "label": null
+    },
+    "360": {
+     "breedte_px": 61,
+     "label": null
+    },
+    "390": {
+     "breedte_px": 69,
+     "label": null
+    },
+    "768": {
+     "breedte_px": 165,
+     "label": "Verouderd sinds 02:28"
+    },
+    "1440": {
+     "breedte_px": 262,
+     "label": "Verouderd sinds 02:28"
+    }
+   }
+  },
+  "aantal_tijdlabels_per_toestand_en_breedte": {
+   "vol": {
+    "320": 2,
+    "360": 2,
+    "390": 2,
+    "768": 7,
+    "1440": 7
+   },
+   "gat": {
+    "320": 2,
+    "360": 2,
+    "390": 2,
+    "768": 6,
+    "1440": 6
+   },
+   "verouderd": {
+    "320": 2,
+    "360": 2,
+    "390": 2,
+    "768": 6,
+    "1440": 6
+   },
+   "kort": {
+    "320": 2,
+    "360": 2,
+    "390": 2,
+    "768": 2,
+    "1440": 2
+   },
+   "enkel": {
+    "320": 1,
+    "360": 1,
+    "390": 1,
+    "768": 1,
+    "1440": 1
+   },
+   "ijl": {
+    "320": 2,
+    "360": 2,
+    "390": 2,
+    "768": 7,
+    "1440": 7
+   },
+   "oudkort": {
+    "320": 2,
+    "360": 2,
+    "390": 2,
+    "768": 7,
+    "1440": 7
+   },
+   "ouddoel": {
+    "320": 2,
+    "360": 2,
+    "390": 2,
+    "768": 7,
+    "1440": 7
+   }
+  },
+  "toegankelijke_naam_plotvak_1440": {
+   "vol": {
+    "w": 1086,
+    "h": 198,
+    "naam": "Gemeten en doeltemperatuur, bereik 17° tot 22°, laatste meting 20,8°",
+    "role": "img"
+   },
+   "gat": {
+    "w": 1086,
+    "h": 198,
+    "naam": "Gemeten en doeltemperatuur, bereik 18° tot 22°, laatste meting 20,0°",
+    "role": "img"
+   },
+   "verouderd": {
+    "w": 1086,
+    "h": 198,
+    "naam": "Gemeten en doeltemperatuur, bereik 17° tot 22°, laatste meting 20,5°, verouderd sinds 11 nov 05:20",
+    "role": "img"
+   },
+   "kort": {
+    "w": 1086,
+    "h": 198,
+    "naam": "Gemeten en doeltemperatuur, bereik 19° tot 22°, laatste meting 20,2°",
+    "role": "img"
+   },
+   "enkel": {
+    "w": 1086,
+    "h": 198,
+    "naam": "Gemeten en doeltemperatuur, bereik 19° tot 21°, laatste meting 20,4°",
+    "role": "img"
+   },
+   "ijl": {
+    "w": 1086,
+    "h": 198,
+    "naam": "Gemeten en doeltemperatuur, bereik 16° tot 21°, laatste meting 20,0°",
+    "role": "img"
+   },
+   "geen": null,
+   "leeg": null,
+   "oudkort": {
+    "w": 1086,
+    "h": 198,
+    "naam": "Gemeten en doeltemperatuur, bereik 19° tot 22°, laatste meting 20,8°, verouderd sinds 11 nov 07:41",
+    "role": "img"
+   },
+   "ouddoel": {
+    "w": 1086,
+    "h": 198,
+    "naam": "Gemeten en doeltemperatuur, bereik 20° tot 23°, laatste meting 21,9°, verouderd sinds 11 nov 02:28",
+    "role": "img"
+   }
+  },
+  "bijschrift_1440": {
+   "vol": "Bron: sensor van de airco · bijgewerkt 11 nov 08:29 · een gat betekent dat er geen meting was (nooit 0).",
+   "gat": "Gearceerd: geen meting (nooit 0).Bron: sensor van de airco · bijgewerkt 11 nov 08:30.",
+   "verouderd": "VerouderdLaatst bekend 11 nov 05:20: 20,5°. Daarna kwam er geen meting meer.Gearceerd: geen meting (nooit 0).Bron: sensor van de airco.",
+   "kort": "Bron: sensor van de airco · bijgewerkt 11 nov 08:30 · een gat betekent dat er geen meting was (nooit 0).",
+   "enkel": "Bron: sensor van de airco · bijgewerkt 11 nov 08:31 · een gat betekent dat er geen meting was (nooit 0).",
+   "ijl": "Gearceerd: geen meting (nooit 0).Bron: sensor van de zone · bijgewerkt 11 nov 08:19.",
+   "geen": null,
+   "leeg": null,
+   "oudkort": "VerouderdLaatst bekend 11 nov 07:41: 20,8°. Daarna kwam er geen meting meer.Gearceerd: geen meting (nooit 0).Bron: sensor van de airco.",
+   "ouddoel": "VerouderdLaatst bekend 11 nov 02:28: 21,9°. Daarna kwam er geen meting meer.Gearceerd: geen meting (nooit 0).Bron: sensor van de zone."
+  }
+ },
+ "toelichting": [
+  "Contrast: laagste gemeten verhouding per onderdeel en thema (WCAG-formule op de berekende kleuren; arcering en pil tegen de donkerste pixel).",
+  "Onder 3:1 staan alleen vlakken die geen grens of teken op zichzelf zijn: de arcering (chart-gap, altijd met rand of woord en uitleg), rasterlijnen, het vlak van het draadkruis (de randen ervan zijn inkt) en het vlak van de tabelkop.",
+  "voor.focusring_plotvak bevat twee waarden per thema: de ring is op wisselende momenten tijdens het verschijnen gemeten; de laagste waarde is de eindkleur (ring-token). In 'na' is na het verschijnen gemeten.",
+  "NIET GEVALIDEERD (hardware): echte schermlezer, echte telefoon of tablet, Firefox, Safari, gegevens van een echte airco."
+ ]
+}

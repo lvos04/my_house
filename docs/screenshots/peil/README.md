@@ -16,6 +16,13 @@ vastgelegd).
 > `apps/web/e2e/12-grafiek-24-uur.e2e.ts` met `SHC_E2E_SHOTS=<map>` (testgegevens van die test: zes uur metingen met een
 > gat), verkleind met `werkwijze/nabewerk.py`. De afdrukken `klimaat-bediening-*` in `na/` tonen nog de grafiek van
 > vóór deze toevoeging. Zie `docs/ontwerp/PEIL_MIGRATIE.md` §18.
+>
+> **Ontwerpreview van die grafiek (11 november 2026):** de vier afdrukken hierboven zijn vervangen door de stand na de
+> review (figuur met bron en tijd, eindpunt, hele uren op de as). Erbij:
+> `review/12-grafiek-24-uur-verouderd-<licht|donker>-<390|1440>.png` (een airco die twee uur niets meldt: de lijn
+> stopt, gearceerd stuk met stippelrand, pil "Verouderd") en `review/12-grafiek-24-uur-samenvatting.json` (nulmeting
+> en eindmeting: 10 toestanden × 5 breedtes × 2 thema's). Dezelfde browsertest en dezelfde nabewerking. Zie
+> `docs/ontwerp/PEIL_REVIEW.md` §12 en ADR-0014.
 
 | Map | Wat | Aantal |
 |---|---|---|
@@ -26,7 +33,7 @@ vastgelegd).
 | `na/web/` | web-app ná de omzetting, dezelfde schermen, breedtes en thema's als `voor/web/`, plus `thema-donker-gekozen-*` (systeem licht, in de app Donker gekozen). In stap 5 zijn de schermen die de review veranderde vervangen (`index.json`: `bijgewerkt`) en is `verlichting-offline-nooit-geladen-later-*` toegevoegd | 238 |
 | `na/web/index.json` | zelfde velden als `voor/web/index.json` | — |
 | `na/web/axe-na.json` | dezelfde axe- en eigen metingen als `axe-voor.json`, ná de omzetting | — |
-| `review/` | stap 5, onafhankelijke ontwerpreview: samenvatting van de metingen per ronde (`ronde-1/2/3-samenvatting.json`) en uitsneden voor/na per bevinding; zie `docs/ontwerp/PEIL_REVIEW.md`. Later erbij: Peil 1.1.1 (`11-peil-1.1.1-*`, `peil-1.1.1-samenvatting.json`) en de tabel bij "Laatste 24 uur" (`12-grafiek-24-uur-*`) | 20 + 4 |
+| `review/` | stap 5, onafhankelijke ontwerpreview: samenvatting van de metingen per ronde (`ronde-1/2/3-samenvatting.json`) en uitsneden voor/na per bevinding; zie `docs/ontwerp/PEIL_REVIEW.md`. Later erbij: Peil 1.1.1 (`11-peil-1.1.1-*`, `peil-1.1.1-samenvatting.json`) en de grafiek "Laatste 24 uur" met tabel (`12-grafiek-24-uur-*`, met de ontwerpreview erbij) | 20 + 9 |
 | `android/` | native app ná de omzetting (stap 4), dezelfde schermen, breedtes en thema's als `voor/android/`, plus `start-storing-*` (achtergronddienst zonder hartslag) en `peil-onderdelen*` (alle bouwstenen) | 80 |
 
 Namen: `<scherm>-<licht|donker>-<breedte>.png`, dezelfde vorm als de Peil-prototypes (`definitief/shots/`).
