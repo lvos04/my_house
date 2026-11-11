@@ -5,8 +5,10 @@
 //    tik op een telefoon) kiest hetzelfde uur. Draadkruis = het gekozen uur als band; de waarde staat in één zichtbare
 //    regel onder de grafiek, die ook wordt voorgelezen (aria-live="polite"). Een waarde is nooit alleen met de muis
 //    te lezen, en nooit alleen met kleur. Met een muis vervalt de keuze als de aanwijzer het plotvak verlaat; na een
-//    tik blijft zij staan (een vinger "verlaat" het vak meteen) tot een tik ernaast. Voor de uitlezing is bij een
-//    muis vooraf ruimte gemaakt, zodat de tabel eronder niet verspringt tijdens het aanwijzen.
+//    tik blijft zij staan (een vinger "verlaat" het vak meteen) tot een tik ernaast. Een veeg die de browser als
+//    schuiven overneemt (pointercancel, touch-action: pan-y) is geen keuze: de vorige keuze komt terug. Na slepen met
+//    een vinger krijgt het plotvak de focus, zoals na een tik, zodat ook dan een tik ernaast de keuze wist. Voor de
+//    uitlezing is bij een muis vooraf ruimte gemaakt, zodat de tabel eronder niet verspringt tijdens het aanwijzen.
 //  - eerlijkheid: een uur zonder meting breekt de lijn en heet "Geen meting" (nooit 0, nooit doorgetrokken); een
 //    stuk zonder enige meting is gearceerd (arcering-gat), met het woord erin als het past (anders weg, nooit half:
 //    containerquery in componenten.css) en dan een uitleg onder de grafiek.
@@ -71,6 +73,8 @@ export function HistoryChart({ history, tz, sensor, staleAfterS, bron = 'tempera
   // Het gekozen uur op zijn begintijd (niet op de plaats in de lijst): bij verversen schuift het venster op.
   const [activeStart, setActiveStart] = useState<number | null>(null);
   const [focused, setFocused] = useState(false);
+  // De keuze van vóór de vinger op het plotvak kwam: terug te zetten als het een veeg blijkt (pointercancel).
+  const voorVinger = useRef<number | null | undefined>(undefined);
 
   const laatste = lastMeasured(history);
   const oud = staleSince(history, sensor, now ?? Date.now(), staleAfterS);
@@ -179,7 +183,20 @@ export function HistoryChart({ history, tz, sensor, staleAfterS, bron = 'tempera
             choose(null);
           }}
           onPointerMove={onPointer}
-          onPointerDown={onPointer}
+          onPointerDown={(e) => {
+            if (e.pointerType === 'touch') voorVinger.current = activeStart;
+            onPointer(e);
+          }}
+          onPointerCancel={(e) => {
+            // De browser schuift de pagina (verticaal vegen): de vinger koos niets, de vorige keuze blijft.
+            if (e.pointerType === 'touch' && voorVinger.current !== undefined) setActiveStart(voorVinger.current);
+            voorVinger.current = undefined;
+          }}
+          onPointerUp={(e) => {
+            voorVinger.current = undefined;
+            // Na slepen komt er geen click en dus geen focus; zonder focus wist een tik ernaast (blur) de keuze niet.
+            if (e.pointerType === 'touch') plot.current?.focus({ preventScroll: true });
+          }}
           onPointerLeave={(e) => {
             // Een vinger verlaat het vak zodra hij loslaat: dan blijft de keuze staan (tot een tik ernaast, of Esc).
             if (e.pointerType !== 'touch' && document.activeElement !== plot.current) choose(null);

@@ -4,6 +4,15 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
 
 ## Unreleased
 
+### Grafiek "Laatste 24 uur": vegen en slepen op een telefoon (technische review, 2026-11-11)
+
+- **Vegen over de grafiek kiest geen uur meer.** Wie op een telefoon over de grafiek veegt om de pagina te schuiven,
+  kreeg een uur gekozen (draadkruis en uitlezing) dat met een tik ernaast niet meer wegging. Nu schuift de pagina en
+  blijft de vorige keuze zoals hij was.
+- **Na slepen over de uren wist een tik ernaast de keuze,** net als na een tik.
+- Alleen gedrag bij aanraken; uiterlijk, teksten, API en gegevens blijven gelijk. Getest met het nagebootste
+  aanraakscherm van Chromium; een echte telefoon is niet getest (NIET GEVALIDEERD (hardware)).
+
 ### Grafiek "Laatste 24 uur": verouderd zichtbaar, bron en tijd erbij (ontwerpreview, 2026-11-11)
 
 - **Een verouderde sensor is nu te zien in de grafiek.** Stuurt de sensor geen metingen meer (de server noemt hem dan

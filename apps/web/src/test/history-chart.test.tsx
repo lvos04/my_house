@@ -221,6 +221,55 @@ describe('grafiek "Laatste 24 uur" met het toetsenbord', () => {
     expect(lezing).toHaveTextContent(/^$/);
   });
 
+  it('vegen met een vinger (de browser schuift de pagina: pointercancel) kiest geen uur; een getikt uur blijft staan', () => {
+    render(<HistoryChart history={sample()} tz={TZ} />);
+    const plot = screen.getByRole('img');
+    const area = plot.querySelector<HTMLElement>('.hist-area')!;
+    area.getBoundingClientRect = () => ({ left: 100, width: 500, top: 0, height: 180, right: 600, bottom: 180, x: 100, y: 0, toJSON: () => ({}) });
+    const touch = (type: string, clientX: number) => {
+      const e = new MouseEvent(type, { bubbles: true, clientX });
+      Object.defineProperty(e, 'pointerType', { value: 'touch' });
+      return fireEvent(plot, e);
+    };
+    const lezing = screen.getByTestId('hist-lezing');
+    // Een veeg begint als een tik; neemt de browser het schuiven over, dan was het geen keuze.
+    touch('pointerdown', 220);
+    touch('pointercancel', 220);
+    expect(lezing).toHaveTextContent(/^$/);
+    expect(screen.queryByTestId('hist-kruis')).toBeNull();
+    expect(plot).not.toHaveFocus();
+    // Eerst een tik op het laatste uur, daarna een veeg die op een ander uur begint: het getikte uur blijft.
+    touch('pointerdown', 590);
+    touch('pointerup', 590);
+    expect(lezing).toHaveTextContent(/^9 nov 13:00–13:45/);
+    touch('pointerdown', 220);
+    touch('pointercancel', 220);
+    expect(lezing).toHaveTextContent(/^9 nov 13:00–13:45/);
+    expect(screen.getByTestId('hist-kruis')).toBeInTheDocument();
+  });
+
+  it('slepen met een vinger: na loslaten heeft het plotvak de focus, zodat een tik ernaast de keuze wist', () => {
+    render(<HistoryChart history={sample()} tz={TZ} />);
+    const plot = screen.getByRole('img');
+    const area = plot.querySelector<HTMLElement>('.hist-area')!;
+    area.getBoundingClientRect = () => ({ left: 100, width: 500, top: 0, height: 180, right: 600, bottom: 180, x: 100, y: 0, toJSON: () => ({}) });
+    const touch = (type: string, clientX: number) => {
+      const e = new MouseEvent(type, { bubbles: true, clientX });
+      Object.defineProperty(e, 'pointerType', { value: 'touch' });
+      return fireEvent(plot, e);
+    };
+    const lezing = screen.getByTestId('hist-lezing');
+    // Slepen is geen tik: de browser stuurt dan geen click, en zonder focus kon een tik ernaast niets wissen.
+    touch('pointerdown', 100);
+    touch('pointermove', 220);
+    touch('pointerup', 220);
+    expect(lezing).toHaveTextContent(/^9 nov 10:00–11:00/);
+    expect(plot).toHaveFocus();
+    act(() => plot.blur());
+    expect(lezing).toHaveTextContent(/^$/);
+    expect(screen.queryByTestId('hist-kruis')).toBeNull();
+  });
+
   it('houdt plaats vrij voor de langste uitlezing, onzichtbaar en niet voor de schermlezer', () => {
     const { container } = render(<HistoryChart history={sample()} tz={TZ} />);
     const maat = container.querySelector('.hist-maat')!;

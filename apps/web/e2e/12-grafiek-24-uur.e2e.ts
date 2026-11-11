@@ -295,6 +295,74 @@ test.describe('grafiek "Laatste 24 uur" op een telefoon (aanraken)', () => {
     await expect(lezing).toHaveText('');
     await expect(sectie.getByTestId('hist-kruis')).toHaveCount(0);
   });
+
+  // Gemeten met een meetprobe (S-P2-700): een veeg begint met pointerdown, en die koos een uur, ook als de browser
+  // daarna het schuiven overnam (pointercancel). Na een veeg of een sleep had het plotvak geen focus, dus een tik
+  // ernaast wiste de keuze niet: uitlezing en draadkruis bleven staan. Echte touch-gebeurtenissen (via CDP), zodat de
+  // browser zelf beslist of hij schuift, zoals op een telefoon.
+  test('vegen over de grafiek schuift de pagina en kiest geen uur; na slepen wist een tik ernaast de keuze', async ({ adminPage: page, api, homeId }) => {
+    const zone = await zoneMetMetingen(api, homeId);
+    const { sectie, plot, lezing } = await openZone(page, zone);
+    const kruis = sectie.getByTestId('hist-kruis');
+    const kop = sectie.getByRole('heading', { name: 'Laatste 24 uur' });
+    const cdp = await page.context().newCDPSession(page);
+    const veeg = async (van: { x: number; y: number }, dx: number, dy: number) => {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [van] });
+      const eind = { x: van.x + dx, y: van.y + dy };
+      for (let i = 1; i <= 10; i++) {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: van.x + (dx * i) / 10, y: van.y + (dy * i) / 10 }] });
+      }
+      // De vinger staat even stil voor hij loslaat. Laat hij los terwijl hij nog beweegt, dan maakt Chromium van een
+      // tik direct daarna geen klik (gemeten: wel pointerdown en touchstart, geen mousedown en click).
+      await page.waitForTimeout(150);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [eind] });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    };
+    const inBeeld = async () => {
+      await plot.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+      const vlak = (await sectie.locator('.hist-area').boundingBox())!;
+      return { vlak, y: Math.round(vlak.y + vlak.height / 2) };
+    };
+    const scrollY = () => page.evaluate(() => window.scrollY);
+
+    // Verticaal vegen over de grafiek (vinger omlaag): de pagina schuift (touch-action: pan-y), er blijft geen uur
+    // staan en het plotvak krijgt geen focus.
+    let { vlak, y } = await inBeeld();
+    const voor = await scrollY();
+    await veeg({ x: Math.round(vlak.x + vlak.width / 2), y }, 0, 120);
+    await expect.poll(scrollY).toBeLessThan(voor - 50);
+    await expect(lezing).toHaveText('');
+    await expect(kruis).toHaveCount(0);
+    await expect(plot).not.toBeFocused();
+
+    // Een getikt uur blijft staan als de vinger daarna over de grafiek veegt om de pagina te schuiven (de veeg begint
+    // rechts, op een ander uur).
+    ({ vlak, y } = await inBeeld());
+    await page.touchscreen.tap(vlak.x + 3, y);
+    await expect(lezing).toHaveText(/^\d{1,2} \S+ \d\d:\d\d(–\d\d:\d\d)?: /);
+    const getikt = (await lezing.textContent())!;
+    const geschoven = await scrollY();
+    await veeg({ x: Math.round(vlak.x + vlak.width - 3), y }, 0, 120);
+    await expect.poll(scrollY).toBeLessThan(geschoven - 50);
+    await expect(lezing).toHaveText(getikt);
+    await expect(kruis).toHaveCount(1);
+    await kop.tap();
+    await expect(lezing).toHaveText('');
+    await expect(kruis).toHaveCount(0);
+
+    // Horizontaal slepen kiest het uur onder de vinger en schuift de pagina niet; na loslaten wist een tik ernaast
+    // de keuze, net als na een tik.
+    ({ vlak, y } = await inBeeld());
+    const stil = await scrollY();
+    await veeg({ x: Math.round(vlak.x + 20), y }, 150, 0);
+    await expect(lezing).not.toHaveText('');
+    await expect(kruis).toHaveCount(1);
+    await expect(plot).toBeFocused();
+    expect(await scrollY()).toBe(stil);
+    await kop.tap();
+    await expect(lezing).toHaveText('');
+    await expect(kruis).toHaveCount(0);
+  });
 });
 
 test.describe('grafiek "Laatste 24 uur": verouderde sensor', () => {
