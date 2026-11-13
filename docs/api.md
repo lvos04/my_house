@@ -88,7 +88,7 @@ HTTP-status + `{"detail": {"code": "string", "message": "Nederlandse uitleg"}}`.
 | 502 | `device_offline`, `pair_failed`, `pairing_required`, `discovery_failed`, `adapter_error` | Apparaat niet bereikbaar of gaf een fout bij zoeken/koppelen |
 | 503 | `device_offline` | Airco niet bereikbaar (commando niet in de wachtrij gezet) |
 | 503 | `api_unavailable` | Van nginx: de API start op of wordt bijgewerkt |
-| 503 | `secret_key_invalid` | De sleutel van deze server (`SHC_SECRET_KEY`) ontbreekt of is ongeldig: back-up niet te controleren |
+| 503 | `secret_key_invalid` | De sleutel van deze server (`SHC_SECRET_KEY`) ontbreekt of is ongeldig: back-up niet te controleren, versleutelde instelling of koppeling niet te lezen of op te slaan |
 | 504 | `device_offline` | Apparaat antwoordt niet binnen de tijd |
 | 507 | `disk_full` | Te weinig schijfruimte voor de upload |
 
@@ -475,7 +475,7 @@ Integration = {id, provider, label, provider_label, home_id, enabled, identity, 
 | POST | `/devices/{id}/unbind` | `admin` | `{role}` → `Device`. 409 `not_bound` |
 | DELETE | `/devices/{id}` | `admin` | → `Device`: archiveren. Rollen en zonekoppelingen eindigen, wachtende commando's vervallen, historie blijft |
 | POST | `/devices/{id}/replace` | `admin` | `{new_device_id}` → `{old, new, moved: {roles, zones, mappings}}` |
-| POST | `/devices/{id}/test` | `admin` | → `{device_id, ok, checked_at, checks: [Check], readings, note}`. Leest alleen; schakelt nooit iets |
+| POST | `/devices/{id}/test` | `admin` | → `{device_id, ok, checked_at, checks: [Check], readings, note}`. Leest alleen; schakelt nooit iets. 503 `secret_key_invalid` als de koppeling inloggegevens heeft en de sleutel ontbreekt of te kort is |
 | POST | `/devices/{id}/tested` | `admin` | `{note?}` → `Device` met `compatibility: "tested"` |
 | GET | `/devices/{id}/diagnostics` | `admin` | → diagnoseblok (apparaat, integratie zonder sleutels, laatste metingen en commando's) |
 | GET | `/integrations?home_id=` | `auth` | → `[Integration]`, plus een regel `not_configured` per aanbieder zonder koppeling |
@@ -483,7 +483,7 @@ Integration = {id, provider, label, provider_label, home_id, enabled, identity, 
 | GET | `/integrations/{integration_id}` | `admin` | → `Integration` + `{health, config, diagnostics, devices}` |
 | GET | `/integrations/{provider}/instructions` | `auth` | → `{provider, label, steps, needs_manufacturer_app, works_locally}` |
 | POST | `/integrations/{provider}/discover` | `admin` | `{home_id, timeout_s? (1–30)}` → `[{provider, stable_identity, kind, name, host, model, firmware}]`; 502 `discovery_failed` |
-| POST | `/integrations/{provider}/pair` | `admin` | `{home_id, host, name?, options?}` → `Device` + `{integration_id, repaired}`, of 202 `{status: "action_required", steps, retry_after_s}` (b.v. link-knop van de Hue Bridge) |
+| POST | `/integrations/{provider}/pair` | `admin` | `{home_id, host, name?, options?}` → `Device` + `{integration_id, repaired}`, of 202 `{status: "action_required", steps, retry_after_s}` (b.v. link-knop van de Hue Bridge). 503 `secret_key_invalid` (vóór het koppelen; er wordt niets opgeslagen) |
 | PATCH | `/integrations/{integration_id}` | `admin` | `{host?, name?, verify?: true}` → `Integration`. Met `verify` moet op het nieuwe adres hetzelfde apparaat antwoorden (409 `identity_mismatch`) |
 | DELETE | `/integrations/{integration_id}` | `admin` | 204: ontkoppelen (sleutel gewist, worker stopt) |
 | POST | `/integrations/zigbee/setup` | `admin` | `{home_id}` → `Device` (kind `zigbee_bridge`) |
@@ -548,7 +548,7 @@ Backup = {id, kind: "export"|"db_dump", filename, status: "running"|"ok"|"failed
 | POST | `/system/backups` | `web-admin` | `{passphrase (12–256), include_secrets?: true}` → `Backup` (klaar binnen 50 s), of 202 `Backup` met `status: "running"` (daarna `GET /system/backups` volgen); 500 `backup_failed` |
 | GET | `/system/backups/{id}/download` | `web-admin` | → het versleutelde bestand |
 | GET | `/system/backup-settings` | `web-admin` | → `BackupSettings` |
-| PUT | `/system/backup-settings` | `web-admin` | `{passphrase?, clear_passphrase?, hour? (0–23), keep? (1–365), enabled?, schedule?}` → `BackupSettings`. Weggelaten velden blijven zoals ze zijn |
+| PUT | `/system/backup-settings` | `web-admin` | `{passphrase?, clear_passphrase?, hour? (0–23), keep? (1–365), enabled?, schedule?}` → `BackupSettings`. Weggelaten velden blijven zoals ze zijn. Met `passphrase`: 503 `secret_key_invalid` (er wordt niets opgeslagen) |
 
 ```
 BackupSettings = {
@@ -576,9 +576,9 @@ worker (of zijn container) stopte, telt als mislukte poging: `failures` + 1 met 
 
 | Methode | Pad | Toegang | Body / antwoord |
 |---|---|---|---|
-| GET | `/system/notify` | `web-admin` | → `{configured, source: "app"\|"env"\|null, url_hint, error, events: [string]}` |
-| PUT | `/system/notify` | `web-admin` | `{url: string\|null}` → idem. `null` of leeg wist het adres uit de app |
-| POST | `/system/notify/test` | `web-admin` | → `{ok, error}`; 409 `not_configured` |
+| GET | `/system/notify` | `web-admin` | → `{configured, source: "app"\|"env"\|null, url_hint, error, events: [string]}`. 503 `secret_key_invalid` als er een adres in de app staat |
+| PUT | `/system/notify` | `web-admin` | `{url: string\|null}` → idem. `null` of leeg wist het adres uit de app. 503 `secret_key_invalid` bij een adres (er wordt niets opgeslagen); wissen kan zonder sleutel |
+| POST | `/system/notify/test` | `web-admin` | → `{ok, error}`; 409 `not_configured`; 503 `secret_key_invalid` als er een adres in de app staat |
 
 `url` is een ntfy-onderwerp (`https://ntfy.sh/<geheim-onderwerp>` of een eigen ntfy in het thuisnetwerk)
 of een andere webhook; een adres met `gebruiker:wachtwoord@` wordt geweigerd. Het adres wordt

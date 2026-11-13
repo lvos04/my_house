@@ -24,7 +24,7 @@ from .. import events, notify, views
 from ..adaptive import BASELINE_DAYS
 from ..config import VERSION, get_settings
 from ..deps import DB, Admin, Auth, WebAdmin
-from ..errors import api_error, not_found
+from ..errors import api_error, not_found, require_secret_box, secret_key_invalid
 from ..logfilter import fouttekst as _fouttekst
 from ..models import BackupRecord, Device, DeviceBinding, Home, Integration, LogicalRole
 from ..security import lan_url_problem, normalize_server_url, remote_url_problem
@@ -309,6 +309,8 @@ async def get_backup_settings(db: DB, p: WebAdmin) -> dict:
 
 @router.put("/system/backup-settings")
 async def put_backup_settings(body: BackupSettingsIn, db: DB, p: WebAdmin) -> dict:
+    if body.passphrase:
+        require_secret_box()  # KLEIN-43: eerst de sleutel, dan pas iets opslaan
     stored = dict(await get_setting(db, "backup_settings", {}) or {})
     for k in ("hour", "keep", "enabled", "schedule"):
         v = getattr(body, k)
@@ -346,7 +348,15 @@ class NotifyIn(BaseModel):
         return v.strip()
 
 
+async def _require_box_for_stored_notify(db) -> None:
+    """KLEIN-43: staat er een push-adres in de app, dan is de sleutel nodig om het te lezen. Ontbreekt die of
+    is hij te kort: 503 secret_key_invalid in plaats van 500 of de melding "andere hoofdsleutel"."""
+    if await get_setting(db, notify.SETTING_KEY):
+        require_secret_box()
+
+
 async def notify_view(db) -> dict:
+    await _require_box_for_stored_notify(db)
     url, source = await notify.configured_url(db)
     return {
         "configured": url is not None,
@@ -369,6 +379,8 @@ async def get_notify(db: DB, p: WebAdmin) -> dict:
 
 @router.put("/system/notify")
 async def put_notify(body: NotifyIn, db: DB, p: WebAdmin) -> dict:
+    if body.url is not None:
+        require_secret_box()
     await set_secret_setting(db, notify.SETTING_KEY, body.url)
     await audit(db, p.actor, "notify_url_updated", notify.url_hint(body.url), cleared=body.url is None)
     await db.commit()
@@ -378,6 +390,7 @@ async def put_notify(body: NotifyIn, db: DB, p: WebAdmin) -> dict:
 @router.post("/system/notify/test")
 async def test_notify(db: DB, p: WebAdmin) -> dict:
     """Send a test message to the configured address; ``{ok, error}``."""
+    await _require_box_for_stored_notify(db)
     url, _source = await notify.configured_url(db)
     if not url:
         raise api_error(409, "not_configured", "Stel eerst een push-adres in.")
@@ -596,9 +609,6 @@ async def _stream_upload(request: Request, dest: Path, max_bytes: int) -> dict[s
     return fields
 
 
-SLEUTEL_ONBRUIKBAAR_TEKST = "De sleutel van deze server ontbreekt of is ongeldig; controle niet mogelijk."
-
-
 class _SecretKeyUnusable(Exception):
     """SHC_SECRET_KEY(_FILE) ontbreekt of SecretBox weigert hem (te kort). Draagt bewust geen tekst mee."""
 
@@ -707,7 +717,7 @@ async def restore_verify(request: Request, db: DB, p: WebAdmin) -> dict:
         summary = verify_summary(upload_id, path, v, fields.get("filename"))
     except _SecretKeyUnusable:  # sleutel ontbreekt of is te kort (KLEIN-41): weigeren en upload opruimen
         path.unlink(missing_ok=True)
-        raise api_error(503, "secret_key_invalid", SLEUTEL_ONBRUIKBAAR_TEKST) from None
+        raise secret_key_invalid() from None
     meta = {k: summary[k] for k in ("created_at", "app_version", "schema_revision", "schema_relation", "restorable")}
     path.with_suffix(".json").write_text(json.dumps(meta))
     await audit(db, p.actor, "restore_verified", upload_id, **meta)

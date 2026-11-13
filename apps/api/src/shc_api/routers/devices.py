@@ -20,7 +20,7 @@ from sqlalchemy import select, update
 from .. import events
 from ..config import VERSION, get_settings
 from ..deps import DB, Admin, Auth, get_home
-from ..errors import api_error, not_found
+from ..errors import api_error, not_found, require_secret_box
 from ..models import (
     ButtonMapping,
     ClimateZone,
@@ -478,10 +478,6 @@ async def replace_device(device_id: uuid.UUID, body: ReplaceIn, db: DB, p: Admin
 # --- test, tested, diagnostics --------------------------------------------------------------------
 
 
-def _box() -> SecretBox:
-    return SecretBox(get_settings().resolved_secret_key())
-
-
 def _adapter_for(integ: Integration, creds: dict | None = None):
     info = providers().get(integ.provider)
     if info is None:
@@ -565,8 +561,10 @@ async def test_device(device_id: uuid.UUID, db: DB, p: Admin) -> dict:
                 }
             )
     else:
+        # KLEIN-43: een ontbrekende of te korte sleutel is geen key_mismatch, maar 503 secret_key_invalid.
+        box = require_secret_box() if integ.credentials_enc else None
         try:
-            creds = _box().decrypt(integ.credentials_enc) if integ.credentials_enc else {}
+            creds = box.decrypt(integ.credentials_enc) if box else {}
         except Exception:
             creds = None
         if creds is None:
@@ -1239,6 +1237,9 @@ async def pair(provider: str, body: PairIn, db: DB, p: Admin):
     home = await get_home(db, body.home_id)
     if home.active_to is not None:
         raise api_error(409, "archived", "Deze woning is gearchiveerd.")
+    # KLEIN-43: eerst de sleutel, dan pas koppelen: anders ontstaat er een sleutel op het apparaat (bv. de
+    # Hue-bridge) die hier niet bewaard kan worden.
+    box = require_secret_box()
     adapter = info.adapter({"host": body.host, **body.options}, {})
     try:
         result = await adapter.pair(body.host, **body.options)
@@ -1256,7 +1257,6 @@ async def pair(provider: str, body: PairIn, db: DB, p: Admin):
             status_code=202,
             content={"status": "action_required", "steps": result.steps, "retry_after_s": result.retry_after_s},
         )
-    box = SecretBox(get_settings().resolved_secret_key())
     dev = result.device
     extra = dict(dev.extra or {})
     identity = str(result.stable_identity)[:128]
