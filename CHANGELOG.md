@@ -19,6 +19,7 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
 - Veiligheid (KLEIN-53): een databasefout in `shc-api backup`, `restore`, `verify-backup`, `restore-drill`, `rekey`, `reset-password`, `maintenance` of `decrypt-dump` geeft geen traceback met de DETAIL-regel van PostgreSQL meer op stderr, maar één regel "Opdracht <naam> mislukt: <soort>: <fouttekst>" (alleen soort, sqlstate, constraint en tabel) met exitcode 1, zoals voorheen; het logfilter hangt bij deze commando's ook aan `logging.lastResort`, zodat een waarschuwing (bijv. "Status niet doorgegeven aan open schermen") de DETAIL-regel niet meer toont. Andere fouten gaan ongewijzigd door.
 - Tests (KLEIN-62): de screenshot-scripts in `docs/screenshots/peil/werkwijze/` hebben geen eigen kopie meer van de testaccounts; `testaccounts.mjs` leest ze uit `apps/web/e2e/helpers.ts`, zodat de testwaarden op één plek staan. Geen ander gedrag.
 - Docs (KLEIN-64): de OpenAPI-momentopname (`docs/openapi/my_house.openapi.json`) noemt nu 503 `secret_key_invalid` bij de negen routes die dat antwoord kunnen geven (via `responses=` op de routes); een nieuwe test bewaakt dat. Geen ander gedrag.
+- Web (KLEIN-70): de web-app heeft een eigen vangnettekst voor `secret_key_invalid` ("De sleutel van deze server ontbreekt of is ongeldig; deze actie is niet mogelijk.", gelijk aan de vaste servertekst); die verschijnt alleen als de server geen tekst meestuurt. Geen ander gedrag.
 
 ### Grafiek "Laatste 24 uur": vegen en slepen op een telefoon (technische review, 2026-11-11)
 

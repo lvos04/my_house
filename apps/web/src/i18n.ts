@@ -295,4 +295,5 @@ export const ERROR_CODE_LABEL: Dict = {
   payload_too_large: 'Het bestand is te groot.',
   mode_required: 'Kies eerst een modus.',
   lan_url_required: 'Stel eerst het thuisadres in via Systeem › Adressen.',
+  secret_key_invalid: 'De sleutel van deze server ontbreekt of is ongeldig; deze actie is niet mogelijk.',
 };

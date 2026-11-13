@@ -69,6 +69,7 @@ export type ApiErrorCode =
   | 'restore_refused'
   | 'setup_done'
   | 'invalid_code'
+  | 'secret_key_invalid'
   | (string & {});
 
 /* ------------------------------------------------------------------ auth & users */
