@@ -746,7 +746,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> None:
-    from .logfilter import fouttekst, install_log_filter, uvicorn_log_config
+    import asyncpg
+    from sqlalchemy.exc import DBAPIError
+
+    from .logfilter import fouttekst, install_last_resort_filter, install_log_filter, uvicorn_log_config
 
     args = build_parser().parse_args(argv)
     if args.cmd in ("serve", "migrate"):
@@ -791,7 +794,12 @@ def main(argv: list[str] | None = None) -> None:
         "maintenance": _maintenance,
         "decrypt-dump": _decrypt_dump,
     }
-    code = asyncio.run(handlers[args.cmd](args))
+    install_last_resort_filter()  # vangnet: deze commando's loggen via logging.lastResort (KLEIN-53)
+    try:
+        code = asyncio.run(handlers[args.cmd](args))
+    except (DBAPIError, asyncpg.PostgresError) as e:  # zonder traceback en DETAIL van PostgreSQL (KLEIN-53)
+        print(f"Opdracht {args.cmd} mislukt: {e.__class__.__name__}: {fouttekst(e)}", file=sys.stderr)
+        raise SystemExit(1) from e  # dezelfde exitcode als een onafgevangen fout
     if code:
         raise SystemExit(code)
 

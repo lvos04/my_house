@@ -11,6 +11,7 @@ PostgreSQL zet bij een constraint-schending een DETAIL-regel in de fouttekst: de
   :func:`db_error_text`, elke andere fout als ``str(fout)`` (verplaatst uit ``routers/system.py``, KLEIN-38/KLEIN-39).
 - :class:`DbDetailFilter` is het vangnet op de handlers van de app: in bericht en exceptietekst wordt alles vanaf een
   regel die met ``DETAIL:`` begint, en elke regel met ``Failing row contains``, vervangen door een vaste aantekening.
+  Bij de cli-commando's zonder eigen logconfiguratie hangt het aan ``logging.lastResort`` (KLEIN-53).
 """
 
 from __future__ import annotations
@@ -105,6 +106,14 @@ def install_log_filter(logger: logging.Logger | None = None) -> None:
     for handler in (logger or logging.getLogger()).handlers:
         if not any(isinstance(f, DbDetailFilter) for f in handler.filters):
             handler.addFilter(DbDetailFilter())
+
+
+def install_last_resort_filter() -> None:
+    """Hangt het filter aan ``logging.lastResort``: de handler die WARNING en hoger op stderr zet als er geen handler
+    is ingesteld, zoals bij de cli-commando's buiten serve/migrate/worker (KLEIN-53); tweemaal aanhaken mag."""
+    handler = logging.lastResort
+    if handler is not None and not any(isinstance(f, DbDetailFilter) for f in handler.filters):
+        handler.addFilter(DbDetailFilter())
 
 
 def uvicorn_log_config() -> dict[str, Any]:
