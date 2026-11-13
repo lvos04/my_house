@@ -34,6 +34,7 @@ from ..commanding import (
     zone_command_failed,
 )
 from ..db import sessionmaker
+from ..logfilter import fouttekst
 from ..models import (
     ClimateZone,
     ComfortProfile,
@@ -108,7 +109,7 @@ class ClimateMixin:
                     key,
                     "error",
                     "Klimaatregeling loopt vast op een zone",
-                    f"De automatische regeling slaat deze zone over door een fout: {str(exc)[:300]}",
+                    f"De automatische regeling slaat deze zone over door een fout: {fouttekst(exc)[:300]}",
                     "climate",
                 )
                 self._climate_errors.add(key)

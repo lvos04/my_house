@@ -743,7 +743,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> None:
-    from .logfilter import install_log_filter, uvicorn_log_config
+    from .logfilter import fouttekst, install_log_filter, uvicorn_log_config
 
     args = build_parser().parse_args(argv)
     if args.cmd in ("serve", "migrate"):
@@ -754,8 +754,8 @@ def main(argv: list[str] | None = None) -> None:
         except MigrationError as e:
             print(f"Database-update geweigerd: {e}", file=sys.stderr)
             raise SystemExit(2) from e
-        except Exception as e:
-            print(f"Database-update mislukt: {e.__class__.__name__}: {e}", file=sys.stderr)
+        except Exception as e:  # een databasefout zonder DETAIL van PostgreSQL (KLEIN-39)
+            print(f"Database-update mislukt: {e.__class__.__name__}: {fouttekst(e)}", file=sys.stderr)
             raise SystemExit(2) from e
     if args.cmd == "serve":
         import uvicorn

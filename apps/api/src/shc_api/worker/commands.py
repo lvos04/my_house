@@ -28,6 +28,7 @@ from ..commanding import (
     zone_command_failed,
 )
 from ..db import sessionmaker
+from ..logfilter import fouttekst
 from ..models import ClimateZone, CommandRecord, Device, Home, ZoneLog
 from ..policy import DeviceFacts, PolicyDenied, check_command
 from ..store import get_setting, roles_of
@@ -72,7 +73,7 @@ class CommandsMixin:
                     # failed with the message, the same as the lights view shows it (item 27).
                     ok = False
             except Exception as e:  # adapter errors, timeouts, unsupported
-                ok, confirmed, detail = False, False, str(e)[:500] or type(e).__name__
+                ok, confirmed, detail = False, False, fouttekst(e)[:500] or type(e).__name__
             await self._record_result(cmd_id, ok, confirmed, detail, state)
 
     async def _recover_interrupted(self, home_ids) -> None:

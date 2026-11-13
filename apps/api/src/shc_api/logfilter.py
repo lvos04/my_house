@@ -7,6 +7,8 @@ PostgreSQL zet bij een constraint-schending een DETAIL-regel in de fouttekst: de
 - :func:`db_error_text` geeft van een databasefout alleen soort, sqlstate, constraint en tabel (verplaatst uit
   ``backup.py``, KLEIN-31; ``backup`` gebruikt hem ongewijzigd). De algemene foutafhandeling van API en worker logt
   daarmee.
+- :func:`fouttekst` geeft van elke fout de tekst voor gebruiker, record of stderr: een databasefout via
+  :func:`db_error_text`, elke andere fout als ``str(fout)`` (verplaatst uit ``routers/system.py``, KLEIN-38/KLEIN-39).
 - :class:`DbDetailFilter` is het vangnet op de handlers van de app: in bericht en exceptietekst wordt alles vanaf een
   regel die met ``DETAIL:`` begint, en elke regel met ``Failing row contains``, vervangen door een vaste aantekening.
 """
@@ -17,6 +19,9 @@ import copy
 import logging
 import re
 from typing import Any
+
+import asyncpg
+from sqlalchemy.exc import DBAPIError
 
 DETAIL_WEGGELATEN = "[DETAIL weggelaten]"
 
@@ -51,6 +56,14 @@ def db_error_text(exc: BaseException) -> str:
     if tabel:
         delen.append(f"(tabel {tabel})")
     return " ".join(delen) + "."
+
+
+def fouttekst(exc: BaseException) -> str:
+    """Tekst van een fout voor gebruiker, record, stderr en log: een databasefout (SQLAlchemy of de driver zelf)
+    zonder de DETAIL-regel van PostgreSQL (KLEIN-38), elke andere fout als str(exc)."""
+    if isinstance(exc, DBAPIError | asyncpg.PostgresError):
+        return db_error_text(exc)
+    return str(exc)
 
 
 def scrub_detail(tekst: str) -> str:

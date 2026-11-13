@@ -36,6 +36,7 @@ from sqlalchemy import select
 
 from ..config import Settings, get_settings
 from ..db import sessionmaker
+from ..logfilter import fouttekst
 from ..models import BackupRecord, Home
 from ..store import get_secret_setting, get_setting, raise_alert, resolve_alert, set_setting
 from ..views.status import publish_status
@@ -455,7 +456,7 @@ class BackupMixin:
         try:
             result = await run_backup_process(["--auto", *(["--dump"] if kind == "dump" else [])])
         except Exception as exc:  # spawning failed
-            result = {"status": "failed", "error": f"Back-upproces kon niet starten: {exc}"}
+            result = {"status": "failed", "error": f"Back-upproces kon niet starten: {fouttekst(exc)}"}
         await self.record_auto_result(result, state, started)
         return result
 
