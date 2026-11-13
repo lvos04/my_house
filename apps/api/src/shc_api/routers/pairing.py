@@ -20,7 +20,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from ..config import get_settings
 from ..deps import CLIENT_TTL, DB, Phone, WebAdmin
-from ..errors import api_error, not_found
+from ..errors import api_error, not_found, require_secret_box
 from ..events import publish_auth_revoked
 from ..models import ApiClient, Home, PairingCode, Setting, User
 from ..security import (
@@ -141,10 +141,11 @@ async def create_code(body: CodeRequest, request: Request, db: DB, p: WebAdmin) 
         if not await password_matches(db, user, body.password, ip=client_ip(request)):
             await db.commit()
             raise api_error(403, "wrong_password", "Je wachtwoord klopt niet.")
+    box = require_secret_box()  # KLEIN-45: 503 secret_key_invalid zonder bruikbare sleutel
     code = new_pairing_code()
     expires = datetime.now(UTC) + CODE_TTL
     pc = PairingCode(
-        code_hash=token_hash(code), user_id=p.user.id, label=body.label, expires_at=expires, role=body.role
+        code_hash=box.pairing_code_hash(code), user_id=p.user.id, label=body.label, expires_at=expires, role=body.role
     )
     db.add(pc)
     await db.flush()
@@ -200,12 +201,14 @@ async def redeem(body: Redeem, request: Request, db: DB) -> dict:
     if _redeem_attempts.blocked(ip):
         raise too_many(_redeem_attempts.retry_after(ip))
     code = normalize_pairing_code(body.code)
+    # KLEIN-45: zelfde HMAC als bij aanmaken; een code die nog als kale SHA-256 is opgeslagen wordt niet gevonden.
+    code_hash = require_secret_box().pairing_code_hash(code)
     now = datetime.now(UTC)
     # Atomic single use: mark used only if still unused and valid.
     res = await db.execute(
         update(PairingCode)
         .where(
-            PairingCode.code_hash == token_hash(code),
+            PairingCode.code_hash == code_hash,
             PairingCode.used_at.is_(None),
             PairingCode.expires_at > now,
         )

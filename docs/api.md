@@ -147,8 +147,8 @@ en `legacy_phone_limited` (database-update 0004). Wachtwoorden en sleutels komen
 
 | Methode | Pad | Toegang | Body | Antwoord |
 |---|---|---|---|---|
-| POST | `/pairing/codes` | `web-admin` | `{label?, role?: "control"\|"viewer"\|"admin", password?}` | `{code, expires_at, role, server_id, qr_payload}`. Rol `admin` vraagt `password` (je eigen wachtwoord): 403 `password_required` / `wrong_password`. 409 `lan_url_required` als er nog geen thuisadres is |
-| POST | `/pairing/redeem` | `public` | `{code, device_name}` | `{token, user, client: Client, server: {server_id, lan_url, remote_url, home_id, home_name}}`. 400 `invalid_code` |
+| POST | `/pairing/codes` | `web-admin` | `{label?, role?: "control"\|"viewer"\|"admin", password?}` | `{code, expires_at, role, server_id, qr_payload}`. Rol `admin` vraagt `password` (je eigen wachtwoord): 403 `password_required` / `wrong_password`. 409 `lan_url_required` als er nog geen thuisadres is. 503 `secret_key_invalid` (er wordt geen code gemaakt). De server bewaart alleen een HMAC-SHA256 van de code, met een uit `SHC_SECRET_KEY` afgeleide sleutel |
+| POST | `/pairing/redeem` | `public` | `{code, device_name}` | `{token, user, client: Client, server: {server_id, lan_url, remote_url, home_id, home_name}}`. 400 `invalid_code`; 503 `secret_key_invalid` (de code wordt niet verbruikt) |
 | GET | `/pairing/identity?nonce=&client_id=` | `public` | – | `{server_id, name, proof?, proof_alg?}` (zie hieronder) |
 | GET | `/clients` | `web-admin` | – | `[Client + {user}]` |
 | DELETE | `/clients/{id}` | `web-admin` | – | 204: telefoon intrekken |

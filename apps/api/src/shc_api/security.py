@@ -271,6 +271,16 @@ class SecretBox:
         self._key = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=b"shc-credentials-v1").derive(
             master_key.encode()
         )
+        # KLEIN-45: eigen sleutel voor koppelcodes (domeinscheiding), nooit de hoofdsleutel zelf.
+        self._pairing_key = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=b"shc-pairing-code-v1").derive(
+            master_key.encode()
+        )
+
+    def pairing_code_hash(self, code: str) -> str:
+        """Opzoekwaarde van een koppelcode in ``pairing_codes.code_hash``: HMAC-SHA256 (64 tekens hex) met
+        een uit SHC_SECRET_KEY afgeleide sleutel. Een code is maar ~40 bit; kale SHA-256 zou uit een gelekte
+        hash binnen de geldigheid terug te rekenen zijn, deze HMAC niet zonder de serversleutel."""
+        return hmac.new(self._pairing_key, code.encode(), hashlib.sha256).hexdigest()
 
     def encrypt(self, data: dict[str, Any]) -> bytes:
         nonce = os.urandom(12)
