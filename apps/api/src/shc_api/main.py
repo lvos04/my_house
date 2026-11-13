@@ -7,12 +7,14 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from sqlalchemy.exc import DBAPIError
 
 from .config import VERSION, get_settings
 from .db import dispose, sessionmaker
 from .deps import UNSAFE, Admin
 from .events import dumps, hub
+from .logfilter import db_error_text, install_log_filter
 from .models import AuditLog
 from .routers import (
     auth,
@@ -39,6 +41,7 @@ log = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logging.basicConfig(level=get_settings().log_level)
+    install_log_filter()  # vangnet: geen DETAIL van PostgreSQL in de log (KLEIN-37)
     get_settings().resolved_secret_key()  # fail fast with a clear message
     await hub.start()
     watch.start()  # worker heartbeat / backups: alert, status.updated, optional push (28, 36)
@@ -271,6 +274,16 @@ def create_app() -> FastAPI:
                 }
             },
         )
+
+    @app.exception_handler(DBAPIError)
+    async def _database_error(req: Request, exc: DBAPIError) -> PlainTextResponse:
+        """Onverwachte databasefout (KLEIN-37): in de log alleen soort, sqlstate, constraint en tabel, nooit de
+        DETAIL-regel van PostgreSQL (sleutelwaarde of hele rij). Het antwoord blijft wat Starlette zonder deze
+        handler gaf: 500 met de platte tekst "Internal Server Error". Een websocket gaat door zoals voorheen."""
+        if req.scope.get("type") != "http":
+            raise exc
+        log.error("Onverwachte databasefout bij %s %s: %s", req.method, route_template(req.scope), db_error_text(exc))
+        return PlainTextResponse("Internal Server Error", status_code=500)
 
     # Pure ASGI middlewares (no BaseHTTPMiddleware: its task group would wrap the 413 raised while
     # reading the body into a generic 400). Added last = outermost: the size limit applies first.

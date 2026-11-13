@@ -743,9 +743,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> None:
+    from .logfilter import install_log_filter, uvicorn_log_config
+
     args = build_parser().parse_args(argv)
     if args.cmd in ("serve", "migrate"):
         logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+        install_log_filter()  # vangnet: geen DETAIL van PostgreSQL in de log (KLEIN-37)
         try:
             migrate()
         except MigrationError as e:
@@ -765,6 +768,7 @@ def main(argv: list[str] | None = None) -> None:
             port=args.port,
             proxy_headers=True,
             forwarded_allow_ips=get_settings().forwarded_allow_ips,
+            log_config=uvicorn_log_config(),  # uvicorn's own config plus the DETAIL filter (KLEIN-37)
         )
         return
     if args.cmd == "migrate":

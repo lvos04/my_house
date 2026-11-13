@@ -42,10 +42,12 @@ import asyncpg
 import httpx
 from sqlalchemy import func, literal, select, update
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.exc import DBAPIError
 
 from .. import events
 from ..config import get_settings
 from ..db import sessionmaker
+from ..logfilter import db_error_text, install_log_filter
 from ..models import Alert, Device, Home, Integration
 from ..security import SecretBox
 from ..store import get_setting, raise_alert, resolve_alert, set_setting
@@ -296,6 +298,8 @@ class Worker(IngestMixin, CommandsMixin, ClimateMixin, HealthMixin, BackupMixin,
             except Exception as exc:
                 if is_expected_error(exc):  # e.g. database briefly unreachable: one line, no traceback
                     log.warning("Lus %s faalde: %s", name, exc or type(exc).__name__)
+                elif isinstance(exc, DBAPIError):  # KLEIN-37: no PostgreSQL DETAIL (key value, whole row)
+                    log.error("Lus %s faalde: %s", name, db_error_text(exc))
                 else:
                     log.exception("Lus %s faalde", name)
                 await asyncio.sleep(backoff)
@@ -803,4 +807,5 @@ def alert_text(integ: Integration, code: str | None) -> tuple[str, str]:
 
 async def run() -> None:
     logging.basicConfig(level=get_settings().log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    install_log_filter()  # vangnet: geen DETAIL van PostgreSQL in de log (KLEIN-37)
     await Worker().run()

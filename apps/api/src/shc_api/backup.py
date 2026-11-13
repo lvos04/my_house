@@ -59,6 +59,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_e
 from sqlalchemy.pool import NullPool
 
 from .config import VERSION, get_settings
+from .logfilter import db_error_text
 from .models import Base
 
 log = logging.getLogger(__name__)
@@ -94,35 +95,6 @@ SKIP_TABLES = {"sessions", "pairing_codes", "processed_events"}  # short-lived, 
 
 class BackupError(Exception):
     pass
-
-
-def db_error_text(exc: BaseException) -> str:
-    """A database error as text without PostgreSQL's DETAIL line (KLEIN-31): DETAIL shows the key value
-    ("Key (col)=(value) already exists") or the whole row ("Failing row contains (...)"), which can hold a
-    token hash or a password hash. Only sqlstate, constraint and table, as far as the driver gives them."""
-    orig = getattr(exc, "orig", None) or exc
-    bronnen = [orig, getattr(orig, "__cause__", None), getattr(orig, "diag", None)]
-
-    def veld(*namen: str) -> str | None:
-        for bron in bronnen:
-            for naam in namen:
-                waarde = getattr(bron, naam, None) if bron is not None else None
-                if isinstance(waarde, str) and waarde:
-                    return waarde
-        return None
-
-    soort = type(getattr(orig, "__cause__", None) or orig).__name__
-    delen = [f"databasefout {soort}"]
-    sqlstate = veld("sqlstate", "pgcode")
-    if sqlstate:
-        delen.append(f"(sqlstate {sqlstate})")
-    constraint = veld("constraint_name")
-    if constraint:
-        delen.append(f"op constraint {constraint}")
-    tabel = veld("table_name")
-    if tabel:
-        delen.append(f"(tabel {tabel})")
-    return " ".join(delen) + "."
 
 
 # --- helpers ----------------------------------------------------------------------------------
