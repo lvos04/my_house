@@ -22,11 +22,13 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import VERSION, get_settings
-from .store import get_secret_setting
+from .store import SecretSettingError, get_secret_setting
 
 log = logging.getLogger(__name__)
 
 SETTING_KEY = "notify_url_enc"  # SecretBox-encrypted, like backup_passphrase_enc
+# KLEIN-44: vaste waarschuwing bij een ontbrekende of te korte hoofdsleutel; nooit (een deel van) de sleutel.
+SLEUTEL_ONBRUIKBAAR_LOG = "Sleutel van deze server ontbreekt of is ongeldig; meldingsadres niet gelezen."
 TIMEOUT_S = 10.0
 
 
@@ -53,11 +55,15 @@ def url_hint(url: str | None) -> str | None:
 
 async def configured_url(db: AsyncSession) -> tuple[str | None, str | None]:
     """(url, source) with source "app" or "env"; (None, None) when not set. An app value that cannot
-    be decrypted (other master key) falls back to the environment value."""
+    be decrypted (other master key) falls back to the environment value. So does a missing or too short
+    master key (KLEIN-44), with its own fixed warning without key material."""
     try:
         url = await get_secret_setting(db, SETTING_KEY)
-    except ValueError:
+    except SecretSettingError:
         log.warning("Push-adres kan niet ontsleuteld worden (andere hoofdsleutel); stel het opnieuw in")
+        url = None
+    except (RuntimeError, ValueError):  # the SecretBox cannot be made: key missing or too short
+        log.warning(SLEUTEL_ONBRUIKBAAR_LOG)
         url = None
     if url:
         return str(url), "app"

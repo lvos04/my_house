@@ -23,7 +23,7 @@ from shc_api.store import get_setting
 from .ws_devices_support import add_device, add_integration, new_home
 
 TE_KORT = "KortGeheimQ7zX-9wv"  # 18 tekens: SecretBox weigert hem
-TEKST = "De sleutel van deze server ontbreekt of is ongeldig; controle niet mogelijk."
+TEKST = "De sleutel van deze server ontbreekt of is ongeldig; deze actie is niet mogelijk."
 URL = "https://ntfy.sh/klein43-onderwerp"
 
 

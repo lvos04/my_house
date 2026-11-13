@@ -56,7 +56,7 @@ async def test_controle_weigert_zonder_sleutelmateriaal_en_ruimt_upload_op(
     assert r.status_code == 503, r.text
     detail = r.json()["detail"]
     assert detail["code"] == "secret_key_invalid"
-    assert detail["message"] == "De sleutel van deze server ontbreekt of is ongeldig; controle niet mogelijk."
+    assert detail["message"] == "De sleutel van deze server ontbreekt of is ongeldig; deze actie is niet mogelijk."
     assert _uploads() <= voor  # het geüploade bestand is weer weg
     _geen_sleutelmateriaal(r.text + caplog.text)
 

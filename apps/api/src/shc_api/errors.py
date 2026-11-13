@@ -9,8 +9,8 @@ def not_found(what: str = "Item") -> HTTPException:
     return api_error(404, "not_found", f"{what} niet gevonden.")
 
 
-# KLEIN-41/43: vaste tekst bij een ontbrekende of te korte SHC_SECRET_KEY(_FILE); nooit (een deel van) de sleutel.
-SLEUTEL_ONBRUIKBAAR_TEKST = "De sleutel van deze server ontbreekt of is ongeldig; controle niet mogelijk."
+# KLEIN-41/43/44: vaste tekst bij een ontbrekende of te korte SHC_SECRET_KEY(_FILE); nooit (een deel van) de sleutel.
+SLEUTEL_ONBRUIKBAAR_TEKST = "De sleutel van deze server ontbreekt of is ongeldig; deze actie is niet mogelijk."
 
 
 def secret_key_invalid() -> HTTPException:
