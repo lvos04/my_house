@@ -85,8 +85,10 @@ def test_een_gewijzigde_byte_is_drift(kopie: Path) -> None:
 def test_een_gerepareerde_link_is_ook_drift(kopie: Path) -> None:
     """'Een repo past een kopie nooit aan, ook niet om een link te repareren' (contract, kop)."""
     pad = kopie / ck.MAP / "CONTRACT_1.3_CONFORMITEIT.md"
-    pad.write_text(pad.read_text(encoding="utf-8").replace("`PLATFORM_CONTRACTEN.md`", "[x](PLATFORM_CONTRACTEN.md)", 1),
-                   encoding="utf-8")
+    pad.write_text(
+        pad.read_text(encoding="utf-8").replace("`PLATFORM_CONTRACTEN.md`", "[x](PLATFORM_CONTRACTEN.md)", 1),
+        encoding="utf-8",
+    )
     assert any("CONTRACT_1.3_CONFORMITEIT.md: wijkt af" in f for f in ck.controleer(kopie))
 
 

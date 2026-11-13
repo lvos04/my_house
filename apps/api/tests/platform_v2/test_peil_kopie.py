@@ -94,8 +94,9 @@ def test_app_kopie_met_de_hand_gewijzigd(kopie: Path) -> None:
 
 def test_kop_van_een_andere_versie(kopie: Path) -> None:
     pad = kopie / pk.MAP / "COMPONENTEN.md"
-    pad.write_text(pad.read_text(encoding="utf-8").replace("HERKOMST — Peil 1.1.1", "HERKOMST — Peil 1.1.0", 1),
-                   encoding="utf-8")
+    pad.write_text(
+        pad.read_text(encoding="utf-8").replace("HERKOMST — Peil 1.1.1", "HERKOMST — Peil 1.1.0", 1), encoding="utf-8"
+    )
     assert any("COMPONENTEN.md: herkomstkop wijkt af" in f for f in pk.controleer(kopie))
 
 
@@ -108,8 +109,10 @@ def test_kop_ontbreekt(kopie: Path) -> None:
 def test_android_tokens_uit_een_andere_tokens_json(kopie: Path) -> None:
     pad = kopie / pk.PEIL_TOKENS_KT
     herkomst = json.loads((kopie / pk.HERKOMST).read_text(encoding="utf-8"))
-    pad.write_text(pad.read_text(encoding="utf-8").replace(herkomst["bestanden"]["tokens.json"]["sha256"], "0" * 64),
-                   encoding="utf-8")
+    pad.write_text(
+        pad.read_text(encoding="utf-8").replace(herkomst["bestanden"]["tokens.json"]["sha256"], "0" * 64),
+        encoding="utf-8",
+    )
     assert any("PeilTokens.kt: niet gegenereerd uit de gepinde tokens.json" in f for f in pk.controleer(kopie))
 
 

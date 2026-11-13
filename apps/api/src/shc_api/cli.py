@@ -253,6 +253,9 @@ def _print_key_check(v) -> dict | None:
     except RuntimeError as e:  # no SHC_SECRET_KEY(_FILE) in this shell
         print(f"  Apparaatsleutels niet gecontroleerd: {e}")
         return None
+    except ValueError:  # SecretBox weigert een te korte sleutel; vaste tekst, nooit (een deel van) de sleutel
+        print("  Apparaatsleutels niet gecontroleerd: SHC_SECRET_KEY is ongeldig (moet minimaal 32 tekens zijn).")
+        return None
     if not c["total"]:
         print("  Apparaatsleutels: geen (geredigeerde back-up of niets gekoppeld).")
     else:
