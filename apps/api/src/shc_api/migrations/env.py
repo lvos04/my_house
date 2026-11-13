@@ -37,7 +37,7 @@ def do_run(connection):
 
 async def run_async():
     url = context.config.get_main_option("sqlalchemy.url") or get_settings().database_url
-    engine = create_async_engine(url, poolclass=NullPool)
+    engine = create_async_engine(url, poolclass=NullPool, hide_parameters=True)
     try:
         async with engine.connect() as conn:
             await conn.run_sync(do_run)

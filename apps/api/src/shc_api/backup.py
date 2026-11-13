@@ -913,7 +913,7 @@ async def run_backup(
     if z2m_dir is None:
         cand = s.data_dir / "zigbee2mqtt"
         z2m_dir = cand if cand.exists() else None
-    engine = create_async_engine(url or s.database_url, poolclass=NullPool)
+    engine = create_async_engine(url or s.database_url, poolclass=NullPool, hide_parameters=True)
     name = backup_filename(auto)
     path = backup_dir / name
     tmp = backup_dir / f".{name}.tmp"
@@ -1063,7 +1063,7 @@ async def run_db_dump(
     db_url = url or s.database_url
     backup_dir = backup_dir or s.backup_dir
     backup_dir.mkdir(parents=True, exist_ok=True)
-    engine = create_async_engine(db_url, poolclass=NullPool)
+    engine = create_async_engine(db_url, poolclass=NullPool, hide_parameters=True)
     name = dump_filename(auto)
     path = backup_dir / name
     tmp = backup_dir / f".{name}.tmp"
@@ -1556,7 +1556,7 @@ async def restore_file(
         raise BackupError("Onbekende herstelkeuze.")
     v = verified or verify_file(path, passphrase, collect=False)
     check_restorable(v.manifest)
-    engine = create_async_engine(url or get_settings().database_url, poolclass=NullPool)
+    engine = create_async_engine(url or get_settings().database_url, poolclass=NullPool, hide_parameters=True)
     report = RestoreReport()
     try:
         async with engine.connect() as conn:

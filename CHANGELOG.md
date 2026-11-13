@@ -4,6 +4,8 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
 
 ## Unreleased
 
+- Veiligheid (V-094): een databasefout toont de waarden van gebonden parameters niet meer in de foutmelding of de log (`hide_parameters` op alle engines van de API, CLI, back-up en migraties).
+
 ### Grafiek "Laatste 24 uur": vegen en slepen op een telefoon (technische review, 2026-11-11)
 
 - **Vegen over de grafiek kiest geen uur meer.** Wie op een telefoon over de grafiek veegt om de pagina te schuiven,

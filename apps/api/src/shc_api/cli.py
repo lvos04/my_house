@@ -80,7 +80,7 @@ def current_revision(url: str | None = None) -> str | None:
     from .config import get_settings
 
     async def q():
-        engine = create_async_engine(url or get_settings().database_url, poolclass=NullPool)
+        engine = create_async_engine(url or get_settings().database_url, poolclass=NullPool, hide_parameters=True)
         try:
             async with engine.connect() as conn:
                 if (await conn.execute(text("SELECT to_regclass('alembic_version')"))).scalar() is None:
@@ -281,7 +281,7 @@ async def worker_running(url: str | None = None) -> tuple[bool, bool]:
     from .config import get_settings
     from .store import get_setting
 
-    engine = create_async_engine(url or get_settings().database_url, poolclass=NullPool)
+    engine = create_async_engine(url or get_settings().database_url, poolclass=NullPool, hide_parameters=True)
     try:
         async with AsyncSession(engine) as db:
             hb = await get_setting(db, "worker_heartbeat")
@@ -307,7 +307,7 @@ async def publish_status_now(url: str | None = None) -> None:
     from .config import get_settings
     from .views.status import publish_status
 
-    engine = create_async_engine(url or get_settings().database_url, poolclass=NullPool)
+    engine = create_async_engine(url or get_settings().database_url, poolclass=NullPool, hide_parameters=True)
     try:
         async with AsyncSession(engine) as db:
             await publish_status(db)
@@ -326,7 +326,7 @@ async def set_maintenance(on: bool, url: str | None = None) -> None:
     from .store import set_setting
     from .views.status import publish_status
 
-    engine = create_async_engine(url or get_settings().database_url, poolclass=NullPool)
+    engine = create_async_engine(url or get_settings().database_url, poolclass=NullPool, hide_parameters=True)
     try:
         async with AsyncSession(engine) as db:
             await set_setting(db, "maintenance", on)
@@ -455,7 +455,7 @@ async def restore_drill(path: Path, passphrase: str, *, keep: bool = False) -> d
         await asyncio.to_thread(migrate, drill_url, pre_dump=False)
         report = await bk.restore_file(path, passphrase, url=drill_url, verified=v)
         result["report"] = report.as_dict()
-        engine = create_async_engine(drill_url, poolclass=NullPool)
+        engine = create_async_engine(drill_url, poolclass=NullPool, hide_parameters=True)
         try:
             async with AsyncSession(engine) as db:
                 mismatches = []
@@ -573,7 +573,7 @@ async def rekey(old_key: str, *, dry_run: bool = False, url: str | None = None) 
     s = get_settings()
     old, new = SecretBox(old_key), SecretBox(s.resolved_secret_key())
     out = {"rekeyed": [], "already_current": [], "failed": [], "settings": {}}
-    engine = create_async_engine(url or s.database_url, poolclass=NullPool)
+    engine = create_async_engine(url or s.database_url, poolclass=NullPool, hide_parameters=True)
     try:
         async with AsyncSession(engine) as db:
             for integ in (await db.execute(select(Integration))).scalars():
@@ -645,7 +645,7 @@ async def reset_password(username: str, password: str, url: str | None = None) -
 
     if len(password) < MIN_PASSWORD_LENGTH:
         raise SystemExit(f"Minimaal {MIN_PASSWORD_LENGTH} tekens.")
-    engine = create_async_engine(url or get_settings().database_url, poolclass=NullPool)
+    engine = create_async_engine(url or get_settings().database_url, poolclass=NullPool, hide_parameters=True)
     try:
         async with AsyncSession(engine) as db:
             u = (await db.execute(select(User).where(User.username == username))).scalar_one_or_none()
