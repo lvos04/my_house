@@ -596,10 +596,21 @@ async def _stream_upload(request: Request, dest: Path, max_bytes: int) -> dict[s
     return fields
 
 
+SLEUTEL_ONBRUIKBAAR_TEKST = "De sleutel van deze server ontbreekt of is ongeldig; controle niet mogelijk."
+
+
+class _SecretKeyUnusable(Exception):
+    """SHC_SECRET_KEY(_FILE) ontbreekt of SecretBox weigert hem (te kort). Draagt bewust geen tekst mee."""
+
+
 def _decrypt_check(summary: dict) -> dict:
     """Which integration credentials and encrypted settings (backup passphrase, push address) in the
-    backup can be decrypted with this server's key."""
-    return bk.decrypt_check(summary.get("_integration_rows", []), settings=summary.get("_secret_settings", []))
+    backup can be decrypted with this server's key. Raises _SecretKeyUnusable when this server has no
+    usable key (KLEIN-41)."""
+    try:
+        return bk.decrypt_check(summary.get("_integration_rows", []), settings=summary.get("_secret_settings", []))
+    except (RuntimeError, ValueError):  # ontbrekende of te korte sleutel; nooit (een deel van) de sleutel tonen
+        raise _SecretKeyUnusable() from None
 
 
 def verify_summary(upload_id: str, path: Path, v: bk.Verified, filename: str | None) -> dict:
@@ -692,7 +703,11 @@ async def restore_verify(request: Request, db: DB, p: WebAdmin) -> dict:
     except bk.BackupError as e:
         path.unlink(missing_ok=True)
         raise api_error(422, "backup_invalid", str(e)) from e
-    summary = verify_summary(upload_id, path, v, fields.get("filename"))
+    try:
+        summary = verify_summary(upload_id, path, v, fields.get("filename"))
+    except _SecretKeyUnusable:  # sleutel ontbreekt of is te kort (KLEIN-41): weigeren en upload opruimen
+        path.unlink(missing_ok=True)
+        raise api_error(503, "secret_key_invalid", SLEUTEL_ONBRUIKBAAR_TEKST) from None
     meta = {k: summary[k] for k in ("created_at", "app_version", "schema_revision", "schema_relation", "restorable")}
     path.with_suffix(".json").write_text(json.dumps(meta))
     await audit(db, p.actor, "restore_verified", upload_id, **meta)

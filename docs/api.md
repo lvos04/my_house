@@ -88,6 +88,7 @@ HTTP-status + `{"detail": {"code": "string", "message": "Nederlandse uitleg"}}`.
 | 502 | `device_offline`, `pair_failed`, `pairing_required`, `discovery_failed`, `adapter_error` | Apparaat niet bereikbaar of gaf een fout bij zoeken/koppelen |
 | 503 | `device_offline` | Airco niet bereikbaar (commando niet in de wachtrij gezet) |
 | 503 | `api_unavailable` | Van nginx: de API start op of wordt bijgewerkt |
+| 503 | `secret_key_invalid` | De sleutel van deze server (`SHC_SECRET_KEY`) ontbreekt of is ongeldig: back-up niet te controleren |
 | 504 | `device_offline` | Apparaat antwoordt niet binnen de tijd |
 | 507 | `disk_full` | Te weinig schijfruimte voor de upload |
 
@@ -591,7 +592,7 @@ back-ups mislukken of de laatste goede back-up is ouder dan 36 uur (en weer in o
 
 | Methode | Pad | Toegang | Body / antwoord |
 |---|---|---|---|
-| POST | `/system/restore/verify` | `web-admin` | Upload: multipart met `file` en `passphrase` (of een binaire body met header `X-Backup-Passphrase`) → `RestoreCheck`. Wijzigt niets. 422 `backup_invalid`, 413, 507 `disk_full` |
+| POST | `/system/restore/verify` | `web-admin` | Upload: multipart met `file` en `passphrase` (of een binaire body met header `X-Backup-Passphrase`) → `RestoreCheck`. Wijzigt niets. 422 `backup_invalid`, 413, 503 `secret_key_invalid`, 507 `disk_full` |
 | DELETE | `/system/restore/uploads/{upload_id}` | `web-admin` | 204: upload weggooien (anders na 24 uur) |
 | POST | `/system/restore/apply` | `web-admin` | `{upload_id, passphrase, mode?: "same_home"\|"new_home"}` → 202 `{job_id, status: "running", poll}`. 409 `backup_running`, `restore_running`, `restore_refused`; 422 `backup_invalid` |
 | GET | `/system/restore/jobs/{job_id}` | `public` | → `{job_id, state: "running"\|"done"\|"failed", step, mode, started_at, finished_at, error, report}`. Zonder login: de database (met de sessies) wordt vervangen; het `job_id` is een lang willekeurig geheim |

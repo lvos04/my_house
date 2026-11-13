@@ -10,6 +10,7 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
 - Veiligheid (KLEIN-38): als het starten van een handmatige back-up of een herstel-job faalt door een databasefout, tonen het HTTP-antwoord, de foutmelding van de job en de log alleen nog soort, sqlstate, constraint en tabel, niet de DETAIL-regel van PostgreSQL; andere fouten houden hun tekst.
 - Veiligheid (KLEIN-39): ook bij een databasefout in de start van een automatische back-up, een melding van de klimaatregeling, het detail van een mislukt commando en "Database-update mislukt" van `shc-api migrate` staan alleen nog soort, sqlstate, constraint en tabel, niet de DETAIL-regel van PostgreSQL; andere fouten houden hun tekst. De gedeelde hulpfunctie `fouttekst` staat nu in `shc_api/logfilter.py`.
 - Herstel (KLEIN-40): `shc-api verify-backup` en `shc-api restore` stoppen niet meer met een traceback als SHC_SECRET_KEY te kort is; de sleutelcontrole meldt dan "Apparaatsleutels niet gecontroleerd: SHC_SECRET_KEY is ongeldig (moet minimaal 32 tekens zijn).", zonder (een deel van) de sleutel, en het commando loopt verder zoals bij een ontbrekende sleutel.
+- Herstel (KLEIN-41): bij het controleren van een back-up via de web-app (`POST /system/restore/verify`) geeft een ontbrekende of te korte `SHC_SECRET_KEY` nu 503 `secret_key_invalid` met een vaste tekst zonder (een deel van) de sleutel, in plaats van een kale 500; het geüploade bestand wordt opgeruimd.
 
 ### Grafiek "Laatste 24 uur": vegen en slepen op een telefoon (technische review, 2026-11-11)
 
