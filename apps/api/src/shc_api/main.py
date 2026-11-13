@@ -38,11 +38,29 @@ UPLOAD_PREFIX = f"{API_PREFIX}/system/restore"
 log = logging.getLogger(__name__)
 
 
+SLEUTEL_TE_KORT_TEKST = (
+    "SHC_SECRET_KEY of SHC_SECRET_KEY_FILE is te kort (minimaal 32 tekens). Genereer er een met: "
+    "python -c 'import secrets;print(secrets.token_urlsafe(48))'"
+)
+
+
+def check_secret_key() -> None:
+    """Refuse to start without a usable master key. A missing key raises the RuntimeError of
+    resolved_secret_key(); a key SecretBox refuses (too short) raises a RuntimeError of the same kind with a
+    fixed Dutch text, never (part of) the key (KLEIN-42). Routes then never run with an unusable key."""
+    from .security import SecretBox
+
+    try:
+        SecretBox(get_settings().resolved_secret_key())
+    except ValueError:
+        raise RuntimeError(SLEUTEL_TE_KORT_TEKST) from None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logging.basicConfig(level=get_settings().log_level)
     install_log_filter()  # vangnet: geen DETAIL van PostgreSQL in de log (KLEIN-37)
-    get_settings().resolved_secret_key()  # fail fast with a clear message
+    check_secret_key()  # fail fast with a clear message (missing or too short)
     await hub.start()
     watch.start()  # worker heartbeat / backups: alert, status.updated, optional push (28, 36)
     yield
