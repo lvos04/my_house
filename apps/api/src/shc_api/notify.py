@@ -77,12 +77,23 @@ KEY_ERROR = (
 )
 
 
+# KLEIN-46: vaste tekst als de SecretBox niet te maken is (sleutel ontbreekt of is te kort); nooit (een deel
+# van) de sleutel. Een geldige maar andere sleutel blijft KEY_ERROR.
+SLEUTEL_ONBRUIKBAAR_FOUT = (
+    "De sleutel van deze server ontbreekt of is ongeldig; het push-adres dat in de app is ingesteld, kan niet "
+    "gelezen worden en wordt niet gebruikt."
+)
+
+
 async def stored_url_error(db: AsyncSession) -> str | None:
-    """Dutch explanation when the address stored in the app cannot be decrypted, else None."""
+    """Dutch explanation when the address stored in the app cannot be decrypted, else None. Same split as
+    ``configured_url``: other master key -> KEY_ERROR; key missing or too short -> SLEUTEL_ONBRUIKBAAR_FOUT."""
     try:
         await get_secret_setting(db, SETTING_KEY)
-    except ValueError:
+    except SecretSettingError:
         return KEY_ERROR
+    except (RuntimeError, ValueError):  # the SecretBox cannot be made: key missing or too short
+        return SLEUTEL_ONBRUIKBAAR_FOUT
     return None
 
 

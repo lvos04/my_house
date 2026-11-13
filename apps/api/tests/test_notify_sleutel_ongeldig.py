@@ -82,3 +82,35 @@ async def test_geldige_maar_andere_sleutel_houdt_oude_melding(opgeslagen_adres, 
     meldingen = _waarschuwingen(caplog)
     assert len(meldingen) == 1 and OUDE_MELDING in meldingen[0]
     assert NIEUWE_MELDING not in caplog.text
+
+
+# KLEIN-46: notify.stored_url_error (enige aanroeper: routers/system.notify_view, veld "error" van
+# GET/PUT /system/notify, str of None) maakt hetzelfde onderscheid als configured_url. Ontbrekende of te
+# korte sleutel: eigen vaste tekst; geldige maar andere sleutel: KEY_ERROR. Soort uitkomst blijft str.
+SLEUTEL_FOUT = (
+    "De sleutel van deze server ontbreekt of is ongeldig; het push-adres dat in de app is ingesteld, kan niet "
+    "gelezen worden en wordt niet gebruikt."
+)
+
+
+@pytest.mark.parametrize("soort", ["te_kort", "ontbreekt"])
+async def test_stored_url_error_ontbrekende_of_te_korte_sleutel(opgeslagen_adres, monkeypatch, tmp_path, soort):
+    _zet_sleutel(monkeypatch, tmp_path, soort)
+    async with sessionmaker()() as db:
+        fout = await notify.stored_url_error(db)
+    assert isinstance(fout, str)
+    assert fout == SLEUTEL_FOUT == notify.SLEUTEL_ONBRUIKBAAR_FOUT
+    assert fout != notify.KEY_ERROR
+    _geen_sleutelmateriaal(fout)
+
+
+async def test_stored_url_error_geldige_maar_andere_sleutel_blijft_key_error(opgeslagen_adres, monkeypatch):
+    monkeypatch.setattr(get_settings(), "secret_key_file", None)
+    monkeypatch.setattr(get_settings(), "secret_key", ANDERE_SLEUTEL)
+    async with sessionmaker()() as db:
+        assert await notify.stored_url_error(db) == notify.KEY_ERROR
+
+
+async def test_stored_url_error_eigen_sleutel_geen_fout(opgeslagen_adres):
+    async with sessionmaker()() as db:
+        assert await notify.stored_url_error(db) is None
