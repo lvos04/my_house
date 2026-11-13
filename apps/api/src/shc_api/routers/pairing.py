@@ -20,7 +20,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from ..config import get_settings
 from ..deps import CLIENT_TTL, DB, Phone, WebAdmin
-from ..errors import api_error, not_found, require_secret_box
+from ..errors import SECRET_KEY_INVALID_RESPONSE, api_error, not_found, require_secret_box
 from ..events import publish_auth_revoked
 from ..models import ApiClient, Home, PairingCode, Setting, User
 from ..security import (
@@ -114,7 +114,7 @@ class CodeRequest(BaseModel):
     password: str | None = Field(default=None, max_length=256)
 
 
-@router.post("/pairing/codes")
+@router.post("/pairing/codes", responses=SECRET_KEY_INVALID_RESPONSE)
 async def create_code(body: CodeRequest, request: Request, db: DB, p: WebAdmin) -> dict:
     lan, remote = await configured_urls(db)
     if not lan:
@@ -195,7 +195,7 @@ def client_view(c: ApiClient, username: str | None = None) -> dict:
     return v
 
 
-@router.post("/pairing/redeem")
+@router.post("/pairing/redeem", responses=SECRET_KEY_INVALID_RESPONSE)
 async def redeem(body: Redeem, request: Request, db: DB) -> dict:
     ip = client_ip(request)
     if _redeem_attempts.blocked(ip):

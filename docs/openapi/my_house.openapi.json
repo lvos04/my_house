@@ -2801,6 +2801,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "`secret_key_invalid`: de sleutel van deze server ontbreekt of is ongeldig."
           }
         },
         "summary": "Test Device",
@@ -4729,6 +4732,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "`secret_key_invalid`: de sleutel van deze server ontbreekt of is ongeldig."
           }
         },
         "summary": "Pair",
@@ -4823,6 +4829,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "`secret_key_invalid`: de sleutel van deze server ontbreekt of is ongeldig."
           }
         },
         "summary": "Create Code",
@@ -4938,6 +4947,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "`secret_key_invalid`: de sleutel van deze server ontbreekt of is ongeldig."
           }
         },
         "summary": "Redeem",
@@ -5136,6 +5148,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "`secret_key_invalid`: de sleutel van deze server ontbreekt of is ongeldig."
           }
         },
         "summary": "Put Backup Settings",
@@ -5264,6 +5279,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "503": {
+            "description": "`secret_key_invalid`: de sleutel van deze server ontbreekt of is ongeldig."
           }
         },
         "summary": "Get Notify",
@@ -5305,6 +5323,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "`secret_key_invalid`: de sleutel van deze server ontbreekt of is ongeldig."
           }
         },
         "summary": "Put Notify",
@@ -5329,6 +5350,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "503": {
+            "description": "`secret_key_invalid`: de sleutel van deze server ontbreekt of is ongeldig."
           }
         },
         "summary": "Test Notify",
@@ -5554,6 +5578,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "503": {
+            "description": "`secret_key_invalid`: de sleutel van deze server ontbreekt of is ongeldig."
           }
         },
         "summary": "Restore Verify",

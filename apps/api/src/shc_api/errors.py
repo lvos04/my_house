@@ -13,6 +13,12 @@ def not_found(what: str = "Item") -> HTTPException:
 SLEUTEL_ONBRUIKBAAR_TEKST = "De sleutel van deze server ontbreekt of is ongeldig; deze actie is niet mogelijk."
 
 
+# KLEIN-64: voor ``responses=`` op elke route die secret_key_invalid kan geven, zodat de OpenAPI het noemt.
+SECRET_KEY_INVALID_RESPONSE: dict[int | str, dict] = {
+    503: {"description": "`secret_key_invalid`: de sleutel van deze server ontbreekt of is ongeldig."}
+}
+
+
 def secret_key_invalid() -> HTTPException:
     return api_error(503, "secret_key_invalid", SLEUTEL_ONBRUIKBAAR_TEKST)
 

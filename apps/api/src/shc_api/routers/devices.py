@@ -20,7 +20,7 @@ from sqlalchemy import select, update
 from .. import events
 from ..config import VERSION, get_settings
 from ..deps import DB, Admin, Auth, get_home
-from ..errors import api_error, not_found, require_secret_box
+from ..errors import SECRET_KEY_INVALID_RESPONSE, api_error, not_found, require_secret_box
 from ..models import (
     ButtonMapping,
     ClimateZone,
@@ -520,7 +520,7 @@ def _seen_check(d: Device, now: datetime) -> dict:
     return {"key": "seen", "label": "Laatste bericht", "state": state, "detail": detail}
 
 
-@router.post("/devices/{device_id}/test")
+@router.post("/devices/{device_id}/test", responses=SECRET_KEY_INVALID_RESPONSE)
 async def test_device(device_id: uuid.UUID, db: DB, p: Admin) -> dict:
     """Non-destructive check: reads only (health probe of the integration, last messages, latest
     readings). Never switches anything — not the boiler, not a socket, not a lamp."""
@@ -1225,7 +1225,7 @@ def legacy_same_device(integ: Integration, identity: str, host: str, box: Secret
     return bool(host) and str(cfg.get("host") or "").strip().lower() == host.strip().lower()
 
 
-@router.post("/integrations/{provider}/pair")
+@router.post("/integrations/{provider}/pair", responses=SECRET_KEY_INVALID_RESPONSE)
 async def pair(provider: str, body: PairIn, db: DB, p: Admin):
     """Pair a device. Pairing the same physical device again (same identity: serial, MAC, bridge id)
     updates its existing integration instead of adding a second one, and moves its devices there."""

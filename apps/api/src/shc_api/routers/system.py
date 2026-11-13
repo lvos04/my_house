@@ -24,7 +24,7 @@ from .. import events, notify, views
 from ..adaptive import BASELINE_DAYS
 from ..config import VERSION, get_settings
 from ..deps import DB, Admin, Auth, WebAdmin
-from ..errors import api_error, not_found, require_secret_box, secret_key_invalid
+from ..errors import SECRET_KEY_INVALID_RESPONSE, api_error, not_found, require_secret_box, secret_key_invalid
 from ..logfilter import fouttekst as _fouttekst
 from ..models import BackupRecord, Device, DeviceBinding, Home, Integration, LogicalRole
 from ..security import lan_url_problem, normalize_server_url, remote_url_problem
@@ -307,7 +307,7 @@ async def get_backup_settings(db: DB, p: WebAdmin) -> dict:
     return await backup_settings_view(db)
 
 
-@router.put("/system/backup-settings")
+@router.put("/system/backup-settings", responses=SECRET_KEY_INVALID_RESPONSE)
 async def put_backup_settings(body: BackupSettingsIn, db: DB, p: WebAdmin) -> dict:
     if body.passphrase:
         require_secret_box()  # KLEIN-43: eerst de sleutel, dan pas iets opslaan
@@ -372,12 +372,12 @@ async def notify_view(db) -> dict:
     }
 
 
-@router.get("/system/notify")
+@router.get("/system/notify", responses=SECRET_KEY_INVALID_RESPONSE)
 async def get_notify(db: DB, p: WebAdmin) -> dict:
     return await notify_view(db)
 
 
-@router.put("/system/notify")
+@router.put("/system/notify", responses=SECRET_KEY_INVALID_RESPONSE)
 async def put_notify(body: NotifyIn, db: DB, p: WebAdmin) -> dict:
     if body.url is not None:
         require_secret_box()
@@ -387,7 +387,7 @@ async def put_notify(body: NotifyIn, db: DB, p: WebAdmin) -> dict:
     return await notify_view(db)
 
 
-@router.post("/system/notify/test")
+@router.post("/system/notify/test", responses=SECRET_KEY_INVALID_RESPONSE)
 async def test_notify(db: DB, p: WebAdmin) -> dict:
     """Send a test message to the configured address; ``{ok, error}``."""
     await _require_box_for_stored_notify(db)
@@ -685,7 +685,7 @@ def _verify(path: Path, passphrase: str) -> bk.Verified:
     return v
 
 
-@router.post("/system/restore/verify")
+@router.post("/system/restore/verify", responses=SECRET_KEY_INVALID_RESPONSE)
 async def restore_verify(request: Request, db: DB, p: WebAdmin) -> dict:
     """Upload a backup (multipart: `file` + `passphrase`, streamed to disk), decrypt and verify it.
     Nothing is changed. Returns versions, counts, homes and devices, and an `upload_id` for apply."""
