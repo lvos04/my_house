@@ -9,6 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
+import { ADMIN, VIEWER } from './testaccounts.mjs';
 
 // Playwright en axe-core: paden uit PEIL_PLAYWRIGHT en PEIL_AXE (run_shots.sh kiest standaard die van apps/web);
 // zonder die variabelen de pakketten 'playwright' en 'axe-core' die Node vanaf deze map vindt.
@@ -28,7 +29,6 @@ const FOCUS_WIDTHS = new Set([390, 1440]);
 const THEMES = (process.env.PEIL_THEMAS || 'licht,donker').split(',');
 const ALLEEN = process.env.PEIL_ALLEEN ? new Set(process.env.PEIL_ALLEEN.split(',')) : null;
 const GEEN_SHOTS = process.env.PEIL_GEEN_SHOTS === '1';
-const ADMIN = { username: 'beheerder', password: 'lang-genoeg-wachtwoord-2026' };
 const HUB_FICTIEF = 'https://hub.voorbeeld.invalid:8443';
 const log = (...a) => console.error('[review]', ...a);
 const runs = [];
@@ -323,7 +323,7 @@ await send('PATCH', `/zones/${wk.id}`, { unit_device_id: ids.ac1, sensor_device_
 await send('PATCH', `/zones/${sk.id}`, { unit_device_id: ids.ac2, sensor_device_id: ids.s2 });
 const weekdays = [0, 1, 2, 3, 4], all = [0, 1, 2, 3, 4, 5, 6];
 await send('PUT', `/zones/${wk.id}/schedule`, { blocks: [{ days: weekdays, start: '06:30', target_c: 21, mode: null, label: 'Dag' }, { days: [5, 6], start: '08:00', target_c: 21, mode: null, label: 'Dag' }, { days: all, start: '22:30', target_c: 18, mode: null, label: 'Nacht' }] });
-await send('POST', '/users', { username: 'meekijker', password: 'kijken-mag-altijd-2026', role: 'viewer' });
+await send('POST', '/users', { ...VIEWER, role: 'viewer' });
 
 const pages = [
   ['overzicht', '/'], ['klimaat-bediening', `/klimaat?zone=${wk.id}&tab=bediening`], ['klimaat-uit-conflict', `/klimaat?zone=${sk.id}&tab=bediening`],
@@ -335,7 +335,7 @@ for (const [name, path] of pages) await capture(name, path, adminState);
 await capture('meer-sheet', '/', adminState, { widths: WIDTHS.filter((w) => w < 1024), full: false, note: 'Meer-sheet open', before: async (page) => { await page.getByRole('navigation', { name: 'Hoofdmenu (mobiel)' }).getByRole('button', { name: 'Meer' }).click(); await page.waitForTimeout(300); } });
 await capture('thema-donker-gekozen', '/', adminState, { full: false, note: 'In de app Donker gekozen', before: async (page, w) => { if (w < 1024) await page.getByRole('navigation', { name: 'Hoofdmenu (mobiel)' }).getByRole('button', { name: 'Meer' }).click(); await page.getByRole('group', { name: 'Thema' }).first().getByRole('button', { name: 'Donker' }).click(); await page.waitForTimeout(300); } });
 const viewerApi = await pwRequest.newContext({ baseURL: BASE });
-r = await viewerApi.post('/api/v1/auth/login', { data: { username: 'meekijker', password: 'kijken-mag-altijd-2026' } });
+r = await viewerApi.post('/api/v1/auth/login', { data: VIEWER });
 if (r.ok()) await capture('overzicht-kijker', '/', await viewerApi.storageState(), { note: 'Rol kijker' });
 
 seed('stale', {});

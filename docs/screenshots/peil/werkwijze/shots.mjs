@@ -4,6 +4,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { ADMIN, VIEWER } from './testaccounts.mjs';
 
 // Playwright: pad uit PEIL_PLAYWRIGHT (run_shots.sh kiest standaard die van apps/web); zonder die variabele
 // het pakket 'playwright' dat Node vanaf deze map vindt.
@@ -16,7 +17,6 @@ const OUT = process.env.PEIL_OUT;
 const WIDTHS = (process.env.PEIL_WIDTHS || '360,390,768,1440').split(',').map(Number);
 const THEMES = (process.env.PEIL_THEMAS || 'licht,donker').split(',');
 const ALLEEN = process.env.PEIL_ALLEEN ? new Set(process.env.PEIL_ALLEEN.split(',')) : null;
-const ADMIN = { username: 'beheerder', password: 'lang-genoeg-wachtwoord-2026' };
 const index = [];
 const log = (...a) => console.error('[shots]', ...a);
 
@@ -136,7 +136,7 @@ await send('PUT', `/zones/${wk.id}/schedule`, { blocks: [
   { days: [5, 6], start: '08:00', target_c: 21, mode: null, label: 'Dag' },
   { days: all, start: '22:30', target_c: 18, mode: null, label: 'Nacht' },
 ] });
-await send('POST', '/users', { username: 'meekijker', password: 'kijken-mag-altijd-2026', role: 'viewer' });
+await send('POST', '/users', { ...VIEWER, role: 'viewer' });
 
 // ---------------------------------------------------------------- 4. alle pagina's
 const pages = [
@@ -179,7 +179,7 @@ await capture('thema-donker-gekozen', '/', adminState, {
 });
 // Kijker (alleen lezen)
 const viewerApi = await pwRequest.newContext({ baseURL: BASE });
-r = await viewerApi.post('/api/v1/auth/login', { data: { username: 'meekijker', password: 'kijken-mag-altijd-2026' } });
+r = await viewerApi.post('/api/v1/auth/login', { data: VIEWER });
 const viewerState = r.ok() ? await viewerApi.storageState() : null;
 if (viewerState) await capture('overzicht-kijker', '/', viewerState, { note: 'Rol kijker: geen bediening' });
 

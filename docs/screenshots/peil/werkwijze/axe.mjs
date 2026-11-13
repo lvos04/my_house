@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
+import { ADMIN } from './testaccounts.mjs';
 
 // Playwright en axe-core: paden uit PEIL_PLAYWRIGHT en PEIL_AXE (run_shots.sh kiest standaard die van apps/web);
 // zonder die variabelen de pakketten 'playwright' en 'axe-core' die Node vanaf deze map vindt.
@@ -17,7 +18,7 @@ const AXE = readFileSync(AXE_PAD, 'utf8');
 const BASE = process.env.E2E_BASE_URL;
 const seed = (cmd, data) => JSON.parse(execFileSync(process.env.E2E_PYTHON, [process.env.PEIL_SEED, cmd, JSON.stringify(data)], { encoding: 'utf8', env: process.env }).trim().split('\n').at(-1));
 const api = await pwRequest.newContext({ baseURL: BASE });
-await api.post('/api/v1/auth/setup', { data: { username: 'beheerder', password: 'lang-genoeg-wachtwoord-2026' } });
+await api.post('/api/v1/auth/setup', { data: ADMIN });
 const st = await api.storageState();
 const csrf = decodeURIComponent(st.cookies.find((c) => c.name === 'shc_csrf').value);
 const send = async (m, p, d) => { const x = await api.fetch(`/api/v1${p}`, { method: m, data: d, headers: { 'X-CSRF-Token': csrf } }); return x.ok() && x.status() !== 204 ? x.json() : null; };

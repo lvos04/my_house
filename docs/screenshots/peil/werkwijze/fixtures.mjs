@@ -3,6 +3,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { ADMIN } from './testaccounts.mjs';
 
 // Playwright: pad uit PEIL_PLAYWRIGHT (run_shots.sh kiest standaard die van apps/web); zonder die variabele
 // het pakket 'playwright' dat Node vanaf deze map vindt.
@@ -15,7 +16,7 @@ const OUT = process.env.PEIL_OUT;
 mkdirSync(OUT, { recursive: true });
 const seed = (cmd, data) => JSON.parse(execFileSync(process.env.E2E_PYTHON, [process.env.PEIL_SEED, cmd, JSON.stringify(data)], { encoding: 'utf8', env: process.env }).trim().split('\n').at(-1));
 const api = await pwRequest.newContext({ baseURL: BASE });
-let r = await api.post('/api/v1/auth/setup', { data: { username: 'beheerder', password: 'lang-genoeg-wachtwoord-2026' } });
+let r = await api.post('/api/v1/auth/setup', { data: ADMIN });
 const st = await api.storageState();
 const csrf = decodeURIComponent(st.cookies.find((c) => c.name === 'shc_csrf').value);
 const send = async (m, p, d) => { const x = await api.fetch(`/api/v1${p}`, { method: m, data: d, headers: { 'X-CSRF-Token': csrf } }); if (!x.ok()) console.error(m, p, x.status(), await x.text()); return x.ok() && x.status() !== 204 ? x.json() : null; };

@@ -103,3 +103,6 @@ schaal en trok de lijn door over uren zonder meting.
   gebouwd, met een `<figure>` met bron en tijd en hele uren op de tijdas. Zie
   [ADR-0014](ADR-0014-grafiek-24-uur-ontwerpreview-verouderd-en-figuur.md). De aantallen tests hierboven zijn die van
   deze stap; sindsdien zijn het er 38 (vitest) en 6 (browsertest).
+- Aanvulling (13 november 2026, opnieuw gemeten op commit 4ffc703): `src/test/history-chart.test.tsx` heeft nu 43
+  tests (vitest: "Tests 43 passed (43)") en `e2e/12-grafiek-24-uur.e2e.ts` 10 tests (geteld met
+  `npx playwright test --list`). De telling "38 en 6" hierboven is daarmee verouderd.
