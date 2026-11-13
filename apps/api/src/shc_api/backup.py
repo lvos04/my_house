@@ -96,6 +96,35 @@ class BackupError(Exception):
     pass
 
 
+def db_error_text(exc: BaseException) -> str:
+    """A database error as text without PostgreSQL's DETAIL line (KLEIN-31): DETAIL shows the key value
+    ("Key (col)=(value) already exists") or the whole row ("Failing row contains (...)"), which can hold a
+    token hash or a password hash. Only sqlstate, constraint and table, as far as the driver gives them."""
+    orig = getattr(exc, "orig", None) or exc
+    bronnen = [orig, getattr(orig, "__cause__", None), getattr(orig, "diag", None)]
+
+    def veld(*namen: str) -> str | None:
+        for bron in bronnen:
+            for naam in namen:
+                waarde = getattr(bron, naam, None) if bron is not None else None
+                if isinstance(waarde, str) and waarde:
+                    return waarde
+        return None
+
+    soort = type(getattr(orig, "__cause__", None) or orig).__name__
+    delen = [f"databasefout {soort}"]
+    sqlstate = veld("sqlstate", "pgcode")
+    if sqlstate:
+        delen.append(f"(sqlstate {sqlstate})")
+    constraint = veld("constraint_name")
+    if constraint:
+        delen.append(f"op constraint {constraint}")
+    tabel = veld("table_name")
+    if tabel:
+        delen.append(f"(tabel {tabel})")
+    return " ".join(delen) + "."
+
+
 # --- helpers ----------------------------------------------------------------------------------
 
 
@@ -935,7 +964,12 @@ async def run_backup(
             tmp.replace(path)
         except BaseException as exc:
             tmp.unlink(missing_ok=True)
-            msg = str(exc) if isinstance(exc, BackupError) else f"Back-up mislukt: {exc.__class__.__name__}: {exc}"
+            if isinstance(exc, BackupError):
+                msg = str(exc)
+            elif isinstance(exc, DBAPIError):
+                msg = f"Back-up mislukt: {db_error_text(exc)}"
+            else:
+                msg = f"Back-up mislukt: {exc.__class__.__name__}: {exc}"
             async with AsyncSession(engine, expire_on_commit=False) as db:
                 rec = await db.get(BackupRecord, rid)
                 rec.status = "failed"
@@ -1089,9 +1123,12 @@ async def run_db_dump(
             tmp.replace(path)
         except BaseException as exc:
             tmp.unlink(missing_ok=True)
-            msg = (
-                str(exc) if isinstance(exc, BackupError) else f"Database-dump mislukt: {exc.__class__.__name__}: {exc}"
-            )
+            if isinstance(exc, BackupError):
+                msg = str(exc)
+            elif isinstance(exc, DBAPIError):
+                msg = f"Database-dump mislukt: {db_error_text(exc)}"
+            else:
+                msg = f"Database-dump mislukt: {exc.__class__.__name__}: {exc}"
             async with AsyncSession(engine, expire_on_commit=False) as db:
                 rec = await db.get(BackupRecord, rid)
                 rec.status = "failed"
@@ -1570,7 +1607,7 @@ async def restore_file(
                 "De database is bezet (er loopt nog een back-up of de worker is actief). Er is niets gewijzigd; "
                 "probeer het over een paar minuten opnieuw."
             ) from exc
-        raise BackupError(f"Herstel mislukt, er is niets gewijzigd: {getattr(exc, 'orig', exc)}") from exc
+        raise BackupError(f"Herstel mislukt, er is niets gewijzigd: {db_error_text(exc)}") from exc
     finally:
         await engine.dispose()
     return report

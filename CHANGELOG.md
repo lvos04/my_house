@@ -5,6 +5,7 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
 ## Unreleased
 
 - Veiligheid (V-094): een databasefout toont de waarden van gebonden parameters niet meer in de foutmelding of de log (`hide_parameters` op alle engines van de API, CLI, back-up en migraties).
+- Veiligheid (KLEIN-31): een databasefout bij herstel, back-up of database-dump toont alleen nog sqlstate, constraint en tabel, niet de DETAIL-regel van PostgreSQL (die kan een sleutelwaarde of een hele rij met een hash bevatten).
 
 ### Grafiek "Laatste 24 uur": vegen en slepen op een telefoon (technische review, 2026-11-11)
 
