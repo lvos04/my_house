@@ -7,6 +7,7 @@ Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/re
 - Veiligheid (V-094): een databasefout toont de waarden van gebonden parameters niet meer in de foutmelding of de log (`hide_parameters` op alle engines van de API, CLI, back-up en migraties).
 - Veiligheid (KLEIN-31): een databasefout bij herstel, back-up of database-dump toont alleen nog sqlstate, constraint en tabel, niet de DETAIL-regel van PostgreSQL (die kan een sleutelwaarde of een hele rij met een hash bevatten).
 - Veiligheid (KLEIN-37): een onverwachte databasefout in de API of een worker-lus komt in de log alleen nog met soort, sqlstate, constraint en tabel; een logfilter op de handlers van de app en van uvicorn haalt als vangnet de DETAIL-regel van PostgreSQL weg. Het HTTP-antwoord blijft 500 "Internal Server Error".
+- Veiligheid (KLEIN-38): als het starten van een handmatige back-up of een herstel-job faalt door een databasefout, tonen het HTTP-antwoord, de foutmelding van de job en de log alleen nog soort, sqlstate, constraint en tabel, niet de DETAIL-regel van PostgreSQL; andere fouten houden hun tekst.
 
 ### Grafiek "Laatste 24 uur": vegen en slepen op een telefoon (technische review, 2026-11-11)
 

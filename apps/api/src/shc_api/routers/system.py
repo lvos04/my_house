@@ -14,10 +14,12 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
 
+import asyncpg
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, text, update
+from sqlalchemy.exc import DBAPIError
 
 from .. import backup as bk
 from .. import events, notify, views
@@ -25,6 +27,7 @@ from ..adaptive import BASELINE_DAYS
 from ..config import VERSION, get_settings
 from ..deps import DB, Admin, Auth, WebAdmin
 from ..errors import api_error, not_found
+from ..logfilter import db_error_text
 from ..models import BackupRecord, Device, DeviceBinding, Home, Integration, LogicalRole
 from ..security import lan_url_problem, normalize_server_url, remote_url_problem
 from ..store import audit, get_setting, set_secret_setting, set_setting
@@ -149,6 +152,14 @@ class BackupIn(BaseModel):
     include_secrets: bool = True
 
 
+def _fouttekst(exc: BaseException) -> str:
+    """Tekst van een fout voor beheerder en log: een databasefout zonder de DETAIL-regel van PostgreSQL (KLEIN-38),
+    elke andere fout als str(exc)."""
+    if isinstance(exc, DBAPIError | asyncpg.PostgresError):
+        return db_error_text(exc)
+    return str(exc)
+
+
 async def _manual_backup(rec_id: uuid.UUID, passphrase: str, include_secrets: bool) -> dict:
     from ..db import sessionmaker
 
@@ -158,7 +169,7 @@ async def _manual_backup(rec_id: uuid.UUID, passphrase: str, include_secrets: bo
     try:
         result = await run_backup_process(args, stdin=(passphrase + "\n").encode())
     except Exception as exc:
-        result = {"status": "failed", "error": f"Back-upproces kon niet starten: {exc}"}
+        result = {"status": "failed", "error": f"Back-upproces kon niet starten: {_fouttekst(exc)}"}
     async with sessionmaker()() as db:
         if result.get("status") != "ok":
             rec = await db.get(BackupRecord, rec_id)
@@ -739,7 +750,7 @@ async def _run_restore_job(job: dict, path: Path, passphrase: str, mode: str, ma
                 await publish_status(db)
                 await db.commit()
     except Exception as exc:
-        msg = str(exc) if isinstance(exc, bk.BackupError) else f"{exc.__class__.__name__}: {exc}"
+        msg = str(exc) if isinstance(exc, bk.BackupError) else f"{exc.__class__.__name__}: {_fouttekst(exc)}"
         job.update(state="failed", step="mislukt", error=msg[:500], finished_at=datetime.now(UTC))
         log.warning("Herstel mislukt: %s", msg)
         with contextlib.suppress(Exception):
