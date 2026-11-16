@@ -20,6 +20,7 @@ anyio==4.16.0 \
     --hash=sha256:59bb03251907983d1603d27c3087ddb1e93299ea2163adcdba37899a4fb12ffb \
     --hash=sha256:c66ae634e0b8228396b801741beb3294326d4b6102f7bba4041c0dfb58c29026
     # via
+    #   fastapi
     #   httpx
     #   starlette
     #   watchfiles
@@ -302,9 +303,9 @@ cryptography==50.0.2 \
     # via
     #   shc-api
     #   shc-integrations
-fastapi==0.162.2 \
-    --hash=sha256:9ebd2a69b579141315b2447d8e3f518e6fd909abd6c01cac5cc6b06d5c8841f4 \
-    --hash=sha256:d0584f9662317e01140df94c64f4bed1d8b059fe35496e30c9c92f70e6e5ff15
+fastapi==0.162.5 \
+    --hash=sha256:1ca37f64f61c99cebd38636e67525fb721c5e8c1169f07f2a35d73b0a63265d4 \
+    --hash=sha256:5303c67415fde762889ca337db79d27b755b8bd09cef314fa7a4340bb30bfd2b
     # via shc-api
 greenlet==3.5.6 \
     --hash=sha256:0616b8f878098c5681fd8f0dc92d887551717402342a70f0abcbfea5f5ad8a44 \
@@ -933,6 +934,12 @@ pyyaml==6.0.3 \
     --hash=sha256:fa160448684b4e94d80416c0fa4aac48967a969efe22931448d853ada8baf926 \
     --hash=sha256:fc09d0aa354569bc501d4e787133afc08552722d3ab34836a80547331bb5d4a0
     # via uvicorn
+.
+    # via -r requirements.in
+../../integrations
+    # via
+    #   -r requirements.in
+    #   shc-api
 sqlalchemy==2.0.57 \
     --hash=sha256:03d147ff68e787833d60b732238f3440031fbc45d4629edf8bcd073e89a461c3 \
     --hash=sha256:060e698953af83dab5aeecc09d14122857c6dc69e288a8fc93c4487529b056cb \
@@ -1278,7 +1285,3 @@ websockets==17.4 \
     --hash=sha256:f5f06f59e19aa0770aaf651ce91c196fa620b35aed49a7e6c36e7335f3f83db7 \
     --hash=sha256:fcac44d917672ad6257ad64b80b5168306f168a78cab5c0612e4c699caed18cf
     # via uvicorn
-
-# The following packages were excluded from the output:
-# shc-api
-# shc-integrations
