@@ -24,6 +24,17 @@ wachtwoordzin van de back-up, dan kun je die ook meegeven met `--passphrase-file
    mislukt hij, dan blijft de database zoals hij was.
 4. De worker start pas als de API gezond is, dus nooit tegen een half bijgewerkte database.
 
+**Database van een nieuwere versie.** Start een oudere versie van my_house op een database die een nieuwere versie al
+heeft bijgewerkt, dan herkent de API dat aan de databaserevisie: die staat niet in de migraties van deze versie. Dat
+gebeurt vóór alles: er komt geen dump, geen migratie en geen enkele schrijfactie. In plaats van steeds opnieuw te
+starten, start de API in een **herstelmodus**. Elke vraag aan de API krijgt dan de uitleg *De database is van een
+nieuwere my_house-versie; kies in het formulier van de Custom App de bijpassende versie of zet de snapshot van vóór de
+update terug.* De status van de API (`/api/v1/health`) meldt `herstelmodus`, zodat de app niet als gezond geldt;
+`/api/v1/system/recovery` geeft dezelfde uitleg met de revisie van de database en de nieuwste revisie die deze versie
+kent. De worker start geen rondes en wacht. my_house zet een database nooit zelf terug naar een oudere versie: kies in
+het formulier van de Custom App weer de versie die bij de database hoort, of zet de snapshot van vóór de update terug
+en start dan deze versie opnieuw.
+
 **Terugdraaien.** Zet de vorige versie terug (YAML met `--version <oude versie>`, of `SHC_VERSION`).
 Is er inmiddels een migratie uitgevoerd, dan kent de oude versie het nieuwe schema niet. Zet dan de
 automatische dump van vóór de update terug, in een lege database:

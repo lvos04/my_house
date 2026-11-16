@@ -28,6 +28,33 @@ class MigrationError(Exception):
     """Migration refused or failed; the message is meant for the user (Dutch)."""
 
 
+# S-P3-700 (EX15, ADR-0004 besluit 9): database van een nieuwere my_house-versie. Vaste tekst voor log, API en worker.
+DATABASE_NIEUWER_CODE = "database_newer"
+DATABASE_NIEUWER_TEKST = (
+    "De database is van een nieuwere my_house-versie; kies in het formulier van de Custom App de bijpassende versie "
+    "of zet de snapshot van vóór de update terug. Deze versie verandert niets aan de database."
+)
+SCHEMA_NIEUWER_EXIT = 3  # exitcode van `shc-api migrate` bij een database van een nieuwere versie
+
+
+def _revisie_tekst(rev: str) -> str:
+    """A revision read from the database, safe for one log line or JSON field (printable, at most 64 chars)."""
+    return "".join(c for c in rev if c.isprintable())[:64]
+
+
+class SchemaNewerError(MigrationError):
+    """The database has a revision that is not in this version's migration chain, so a newer my_house made it
+    (S-P3-700). Raised before any dump, migration or write. Never downgrade automatically: `serve` starts the
+    recovery mode (shc_api.herstel), `migrate` exits with SCHEMA_NIEUWER_EXIT."""
+
+    def __init__(self, revision: str, newest_known: str) -> None:
+        self.revision = _revisie_tekst(revision)
+        self.newest_known = newest_known
+        super().__init__(
+            f"{DATABASE_NIEUWER_TEKST} (Databaserevisie {self.revision}; deze versie kent tot en met {newest_known}.)"
+        )
+
+
 def _passphrase(args) -> str:
     if getattr(args, "passphrase_stdin", False):
         return sys.stdin.readline().rstrip("\n")
@@ -140,7 +167,9 @@ def pre_migration_dump(url: str, revision: str, backup_dir: Path) -> Path | None
 
 def migrate(url: str | None = None, *, backup_dir: Path | None = None, pre_dump: bool = True) -> Path | None:
     """Upgrade the database to the newest schema. When migrations are pending on an existing database,
-    a pg_dump is made first (contract C11). Errors propagate (MigrationError or the alembic error)."""
+    a pg_dump is made first (contract C11). A revision that is not in this version's migration chain (a newer
+    my_house made the database) raises SchemaNewerError BEFORE the dump: no dump, no migration, no write
+    (S-P3-700; compared with the migration chain, V-086). Errors propagate (MigrationError or the alembic error)."""
     from alembic import command
 
     from . import backup as bk
@@ -151,6 +180,8 @@ def migrate(url: str | None = None, *, backup_dir: Path | None = None, pre_dump:
     dump = None
     current = current_revision(target_url)
     head = bk.head_revision()
+    if current is not None and bk.schema_relation(current) == "newer":
+        raise SchemaNewerError(current, head)
     if pre_dump and current is not None and current != head:
         dump = pre_migration_dump(target_url, current, backup_dir or s.backup_dir)
     command.upgrade(bk.alembic_config(url), "head")
@@ -752,11 +783,17 @@ def main(argv: list[str] | None = None) -> None:
     from .logfilter import fouttekst, install_last_resort_filter, install_log_filter, uvicorn_log_config
 
     args = build_parser().parse_args(argv)
+    herstel: SchemaNewerError | None = None
     if args.cmd in ("serve", "migrate"):
         logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
         install_log_filter()  # vangnet: geen DETAIL van PostgreSQL in de log (KLEIN-37)
         try:
             migrate()
+        except SchemaNewerError as e:  # S-P3-700: geen dump, geen migratie, geen herstartlus
+            print(f"Database-update geweigerd: {e}", file=sys.stderr)
+            if args.cmd == "migrate":
+                raise SystemExit(SCHEMA_NIEUWER_EXIT) from e
+            herstel = e
         except MigrationError as e:
             print(f"Database-update geweigerd: {e}", file=sys.stderr)
             raise SystemExit(2) from e
@@ -768,8 +805,18 @@ def main(argv: list[str] | None = None) -> None:
 
         from .config import get_settings
 
+        app: object = "shc_api.main:app"
+        if herstel is not None:
+            from .herstel import HerstelApp
+
+            print(
+                "Herstelmodus: de API beantwoordt alleen /api/v1/health en /api/v1/system/recovery; "
+                "al het andere geeft 503. De database wordt niet gebruikt.",
+                file=sys.stderr,
+            )
+            app = HerstelApp(herstel.revision, herstel.newest_known)
         uvicorn.run(
-            "shc_api.main:app",
+            app,
             host=args.host,
             port=args.port,
             proxy_headers=True,

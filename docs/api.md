@@ -89,6 +89,7 @@ HTTP-status + `{"detail": {"code": "string", "message": "Nederlandse uitleg"}}`.
 | 503 | `device_offline` | Airco niet bereikbaar (commando niet in de wachtrij gezet) |
 | 503 | `api_unavailable` | Van nginx: de API start op of wordt bijgewerkt |
 | 503 | `secret_key_invalid` | De sleutel van deze server (`SHC_SECRET_KEY`) ontbreekt of is ongeldig: back-up niet te controleren, versleutelde instelling of koppeling niet te lezen of op te slaan |
+| 503 | `database_newer` | Herstelmodus: de database is van een nieuwere my_house-versie; elke route behalve `/health` en `/system/recovery` (zie [Systeem](#systeem)) |
 | 504 | `device_offline` | Apparaat antwoordt niet binnen de tijd |
 | 507 | `disk_full` | Te weinig schijfruimte voor de upload |
 
@@ -533,6 +534,12 @@ onder `sensor_days`. De worker ruimt elk uur op, in porties.
 
 **Veilige modus** staat aan na elk herstel: de worker stuurt geen enkel commando naar apparaten tot
 een beheerder hem opheft. **Onderhoudsmodus** staat aan tijdens een herstel: de worker pauzeert.
+
+**Herstelmodus** (database van een nieuwere my_house-versie, zie [onderhoud.md](onderhoud.md#updates-en-terugdraaien)):
+de API gebruikt de database dan niet. `GET /health` geeft 503 `{status: "herstelmodus", version, detail: {code:
+"database_newer", message}}`; `GET /system/recovery` (`public`, alleen in de herstelmodus) geeft 200 `{mode:
+"herstelmodus", code, message, version, database_revision, newest_known_revision}`; elke andere route, ook de
+websocket, geeft 503 `database_newer` (de websocket sluit met code 1013). `shc-api migrate` stopt dan met exitcode 3.
 
 ### Back-ups
 

@@ -205,7 +205,7 @@ verwijzen naar §9).
 | EX29 | Zigbee-sensor stale → veilige terugval + melding na time-out | **Onvolledig** | terugval getest; melding `worker/health.py:231-263` ongetest | P3-08 |
 | EX30 | Gree-firmware incompatibel → unsupported, nooit pseudo-bediening | **Bestaand** (sim) | `test_gree_bind.py::test_bind_failure_is_unsupported_with_scan_diagnostics`, `test_ws_devices_api.py::test_pair_failure_keeps_diagnostics_and_maps_errors` | — |
 | EX50 | Migratie naar andere host → datalinks logisch na IP-wissel | **Onvolledig** | §1 B06-008 | P3-10 (twee alles-in-één containers) |
-| EX15 | DB-schema-rollback: oude image + nieuwer schema → tag-only rollback geblokkeerd | **Onvolledig** | nieuwer back-upschema geweigerd; oude image start niet (alembic-fout) | P3-09: nette startweigering + herstelpagina |
+| EX15 | DB-schema-rollback: oude image + nieuwer schema → tag-only rollback geblokkeerd | **Onvolledig** | nieuwer back-upschema geweigerd; ~~oude image start niet (alembic-fout)~~ sinds S-P3-700 (2026-11-16): onbekende revisie herkend vóór de dump, API in herstelmodus, worker wacht (`test_schema_nieuwer.py`) | ~~P3-09: nette startweigering + herstelpagina~~ rest: herstelmodus via de bewaker van de alles-in-één image (S-P3-720) |
 | EX16 | Credential ingetrokken → geen open toegang | **Bestaand** | 401 `token_revoked` | — |
 | EX17/EX18/EX45 | Prompt-injectie / klasse-vervalsing / Node-RED-flow vraagt verboden actie | **Onvolledig** (my_house-kant) | my_house-beleid is onafhankelijk van de aanvrager | P3-05/06: connector negeert `risk_claim`, allowlist, boiler altijd `policy_denied` |
 | EX20 | Approval replay → één uitvoering | **Ontbrekend** | — | P3-05: nonce-tabel + `Idempotency-Key` |

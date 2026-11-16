@@ -19,6 +19,8 @@ The concern-specific loops live in the mixins this class is assembled from.
   3 consecutive failures or 5 minutes; one log line per state change; ``status.updated`` on change.
 - At start, an automatic backup that was still running when the previous worker stopped is recorded
   as a failed attempt (``recover_backup_at_start``, see backup_job).
+- Before all of that, ``wait_while_schema_newer`` reads the database revision: a database of a newer my_house
+  version (S-P3-700) keeps the worker waiting, without rounds or writes and without exiting.
 """
 
 from __future__ import annotations
@@ -47,7 +49,7 @@ from sqlalchemy.exc import DBAPIError
 from .. import events
 from ..config import get_settings
 from ..db import sessionmaker
-from ..logfilter import db_error_text, install_log_filter
+from ..logfilter import db_error_text, fouttekst, install_log_filter
 from ..models import Alert, Device, Home, Integration
 from ..security import SecretBox
 from ..store import get_setting, raise_alert, resolve_alert, set_setting
@@ -805,7 +807,38 @@ def alert_text(integ: Integration, code: str | None) -> tuple[str, str]:
     return f"{name} niet bereikbaar", ""
 
 
+SCHEMA_CHECK_RETRY_S = 5.0  # wait between attempts to read the database revision at start
+
+
+async def wait_while_schema_newer(retry_s: float = SCHEMA_CHECK_RETRY_S) -> None:
+    """S-P3-700 (EX15): before any round, read the database's alembic revision (read only). A revision that is not
+    in this version's migration chain means a newer my_house made the database: log that once and wait without end,
+    with no rounds, no heartbeat and no database write. No exit: with ``restart: unless-stopped`` an exit becomes a
+    restart loop. A revision that cannot be read yet is tried again; the worker never starts blind."""
+    from .. import backup as bk
+    from .. import cli
+
+    reported = False
+    while True:
+        try:
+            current = await asyncio.to_thread(cli.current_revision)
+            break
+        except Exception as exc:  # database not reachable yet: try again, without traceback or DETAIL
+            if not reported:
+                log.warning("Databaseversie niet leesbaar (%s); de worker probeert het opnieuw", fouttekst(exc))
+                reported = True
+            await asyncio.sleep(retry_s)
+    if current is None or bk.schema_relation(current) != "newer":
+        return
+    log.error(
+        "De worker start niet: %s De worker wacht en schrijft niets in de database.",
+        cli.SchemaNewerError(current, bk.head_revision()),
+    )
+    await asyncio.Event().wait()
+
+
 async def run() -> None:
     logging.basicConfig(level=get_settings().log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     install_log_filter()  # vangnet: geen DETAIL van PostgreSQL in de log (KLEIN-37)
+    await wait_while_schema_newer()
     await Worker().run()
