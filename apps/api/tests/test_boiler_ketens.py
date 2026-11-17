@@ -481,7 +481,6 @@ async def test_ontdekken_koppelen_adres_diagnose_schakelen_nooit(admin, boiler_r
 
         async def execute(self, command):
             calls.append("execute")
-            raise AssertionError("Deze route mag nooit schakelen")
 
         async def close(self):
             pass
@@ -504,7 +503,8 @@ async def test_ontdekken_koppelen_adres_diagnose_schakelen_nooit(admin, boiler_r
     assert diagnosis.status_code == 200, diagnosis.text
     assert (await admin.post(f"/devices/{r.boiler}/tested")).status_code == 200
     assert calls.count("discover") == 1 and calls.count("pair") == 1 and calls.count("probe") == 1
-    assert calls.count("health") == 1 and "execute" not in calls
+    assert calls.count("health") == 1
+    assert "execute" not in calls, "Leesroutes mogen execute niet aanroepen"
     assert await commands(r.home) == []
 
 

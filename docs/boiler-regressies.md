@@ -23,7 +23,7 @@ en fysieke acceptatie staan nog open; er rest dus meer dan alleen een NAS-test.
 | Interne commandokern | `test_interne_commandokern_weigert_elke_bron_en_actie`: user/button/engine × set_relay/set_power/switch/set_group/set_hvac/recall_scene, geen wachtrij. |
 | Wachtrij, rolwijziging en nieuwe poging | `test_worker_hercontrole_na_rolwijziging`: echte HTTP-, knop- of engine-ingang maakt eerst één toegestaan commando; daarna wordt het doel beschermd. Ook met een reeds begonnen poging: `denied`, nul adapteraanroepen. `test_worker_actiematrix_via_interne_commandokern` dekt daarnaast zes acties × drie bronnen via de echte interne queuefunctie. Geen rechtstreeks ingevoegde wachtrijregel als routebewijs. |
 | Import en vrijgave | `test_import_vrijgave_en_oude_knop_tot_adapter`: web verify/apply en CLI-herstel zelf, beide met v1 én v2. Een via HTTP aangemaakt commando en een oude knopmapping zijn echt teruggezet; veilige modus is eerst aan, vervolgens via de route vrijgegeven. De herstelde knopdruk en worker blijven geblokkeerd; nul uitvoering. |
-| Binden/ontkoppelen/vervangen/archiveren/getest | `test_apparaatlevensloop_en_oude_relaiskoppeling`: echte beheerroutes, bij vervangen aantoonbaar herschreven doel in de oude mapping. Ook na ontkoppelen en heractiveren blijft de Energy Socket alleen meten. Knopdruk bereikt ingest, geen schakeling. |
+| Binden/ontkoppelen/vervangen/archiveren/getest | `test_apparaatlevensloop_en_oude_relaiskoppeling`: echte beheerroutes. De oorspronkelijke vervangproef dekte uitsluitend het vervangen **van** de boiler door een nieuwe stekker, niet het vervangen **door** een al beschermde boiler. Die ontbrekende dekking staat hieronder. Ook na ontkoppelen en heractiveren blijft de Energy Socket alleen meten. Knopdruk bereikt ingest, geen schakeling. |
 | Ontdekken/koppelen/adres/probe/diagnostiek | `test_ontdekken_koppelen_adres_diagnose_schakelen_nooit`: complete HTTP-keten met geïnstrumenteerde nep-provider. Discover, pair, probe en health zijn daadwerkelijk aangeroepen; execute nooit. |
 | Productiehook HomeWizard | `test_productie_homewizard_hook_blijft_dicht`: echte HomeWizard-adapter via zowel `routers/devices._adapter_for` als `Worker.start_integration`; beide relaisstanden geweigerd, nul gemockte PUT's. De opstarttaken van deze eigen test doen geen netwerkwerk en worden afgewacht. Bestaande negen HomeWizard-tests blijven groen. Een positieve controle bewijst dat dezelfde HTTP-testhulp een toegestaan fictief doel werkelijk tot de gemockte PUT brengt. |
 | WebSocket | `test_websocket_heeft_geen_commandodispatch`: geldige beheersessie, hello bevestigt bedieningsrechten, vier commandoberichten gevolgd door ping/pong. Berichten zijn dus verwerkt; geen wachtrij- of adaptermutatie. |
@@ -65,8 +65,11 @@ S-P6-21 vallen buiten deze stap. Er is geen releasetag, contractwijziging, UI-wi
 
 ## Gemeten mutaties (2026-11-17)
 
-55 verschillende mutaties gedood; elke hieronder genoemde pytest-aanroep gaf exitcode 1.
-De overkoepelende mutatietool gaf exitcode 0. De slotregels zijn letterlijk overgenomen.
+Historische bouwmeting: 55 pytest-aanroepen gaven exitcode 1; de overkoepelende tool gaf exitcode 0.
+Bij `apparaat-pair` en `apparaat-probe` bleek de toenmalige fout echter `502 == 200`, doordat de
+spy zelf een uitzondering wierp. Die twee tellen hier niet als rechtstreeks nul-executebewijs.
+De herstelmeting hieronder gebruikt een registrerende spy en eist de expliciete nul-executeassertie.
+De historische slotregels blijven ter herkenning staan.
 
 | Weg | Letterlijke pytest-slotregel |
 |---|---|
@@ -126,7 +129,7 @@ De overkoepelende mutatietool gaf exitcode 0. De slotregels zijn letterlijk over
 | `apparaat-probe` | `1 failed in 4.57s` |
 | `apparaat-health` | `1 failed in 3.22s` |
 
-## Laatste lokale poort
+## Historische bouwpoort
 
 - Volledige API-suite: `631 passed, 3 warnings in 204.12s (0:03:24)`; geen skips.
 - Daarna de herstelde adaptertesthulp met positieve controle: `2 passed, 78 deselected in 9.06s`.
@@ -137,3 +140,149 @@ De overkoepelende mutatietool gaf exitcode 0. De slotregels zijn letterlijk over
 - OpenAPI opnieuw geëxporteerd; geen verschil met de bestaande momentopname.
 
 De CI van de afsluitcommit en de drie exacte commitbereiken staan in het externe ketenrapport.
+
+
+## Herstel na review
+
+`test_boiler_herstel.py` controleert vervangen naar een reeds beschermde boiler via vijf API-stappen
+in een nieuw huis (alleen de apparaatinventaris is testdata), plus unit-, sensor-, knopstap- en
+knopverhuizing naar een beschermd apparaat. De volledige logische database-inhoud en sequenties
+worden met `pg_dump --data-only` vóór en na iedere weigering bytegewijs vergeleken; alleen de
+willekeurige restrictieregels van het dumpformaat worden weggelaten. Dit is geen vergelijking van
+fysieke PostgreSQL-bestanden. Een positieve proef vervangt de boiler zelf door een nieuwe stekker
+en bevestigt dat de beschermde rol meegaat.
+
+Dezelfde suite controleert POST/PUT/PATCH bij beschermd + gearchiveerd en bij een verkeerde modus
+(licht-in-klimaat en zone-in-licht). Iedere weigering geeft `409 policy_denied` zonder databasewijziging.
+Ontbrekende doelen, beschermde doelen uit een andere woning en onbeschermde archiefdoelen blijven
+`422` of `invalid` in simulatie. Simulatie van een beschermd archiefdoel geeft `refused/policy_denied`.
+Alleen uitzetten van een oude beschermde koppeling werkt; aanzetten, wijzigen en gecombineerd
+uitzetten/wijzigen blijven geweigerd. Gewone koppelingen kunnen nog steeds uit en aan.
+
+Andere wegen nagelezen:
+
+- Samenvoegen bij pairing: `routers/devices.py::pair` verplaatst `Device.integration_id` tussen
+  koppelingen van dezelfde identiteit. Apparaat-id's en knop-/zoneverwijzingen worden niet herschreven.
+- Import en terugzetten: `backup.py::_restore_sync` zet de volledige back-up met bestaande ids terug;
+  het koppelt geen bestaand doel om naar een andere beschermde id. `_after_restore` zet veilige modus
+  aan. De bestaande web-/CLI-proeven voor v1/v2 controleren ook na vrijgave nul adapteruitvoering.
+- Momentopname: `restore_snapshot` is een vergelijkingsmomentopname voor compatibiliteit;
+  `routers/system.py::restore_compare` leest die alleen. Geen afzonderlijke route gevonden die
+  hiermee knop- of zonedoelen herschrijft. Fysiek NAS-snapshotherstel is niet onderzocht.
+- Bulk: `routers/lights.py::put_mappings` valideert alle nieuwe koppelingen vóór verwijderen en
+  opslaan; de uitgebreide POST/PUT/PATCH-matrix bewijst volledige atomiciteit bij weigering.
+
+Er is langs deze andere wegen geen gelijksoortige omkoppeling aangetoond die aanvullend herstel
+vereist. Herstelcode, policykern en back-upformaat zijn daar ongewijzigd gebleven.
+
+Buiten deze herstelronde blijven `set_light` uit naar een onbeschermde Energy Socket (adapterweigering),
+inplannen op een oude zone met boilerunit en het beperken van lichtstapdoelen bij vervangen tot
+lichtsoorten. Deze punten zijn niet als opgelost meegeteld.
+
+
+## Definitieve herstelmutaties (2026-11-17)
+
+Alle 73 verschillende mutaties zijn op de bedoelde assertie aangetoond: de bestaande 55 plus
+18 herstelproeven. De eerste volledige toolrun meldde `73 mutaties gedraaid; 1 niet bewezen`.
+De positieve vervangproef had toen geen meeverhuizende verwijzing en bereikte de nieuwe controle
+niet. Na toevoeging van een oude knopstap gaf de normale proef `1 passed in 2.24s` en de gerichte
+herhaling `1 mutaties gedraaid; 0 niet bewezen`. Alleen die nieuwe meting telt voor deze proef.
+De positieve proef wordt rood bij een bewust te strenge policy; de negatieve vervangproeven worden
+rood als de policy ontbreekt. Woningafscherming is aanvullende behoudsdekking.
+
+Elke pytest-aanroep hieronder gaf exitcode 1. Voor de vier leesroutes is tevens de letterlijke
+`AssertionError: Leesroutes mogen execute niet aanroepen` in de uitvoer gecontroleerd.
+Geen collectie-/setupfout telt als bewijs. De exacte commando's en ruwe uitvoer staan in het externe
+ketenbewijs; hier volgen de letterlijke slotregels.
+
+| Weg | Letterlijke pytest-slotregel |
+|---|---|
+| `zone-patch` | `6 failed, 2 passed in 1.99s` |
+| `zone-typen` | `2 failed in 1.50s` |
+| `zone-command` | `6 failed in 2.05s` |
+| `licht-pad-body` | `5 failed in 1.86s` |
+| `knop-post` | `1 failed in 1.56s` |
+| `knop-put` | `1 failed in 1.56s` |
+| `knop-patch` | `1 failed in 1.54s` |
+| `knopdruk-licht` | `1 failed in 1.54s` |
+| `knopdruk-scene` | `1 failed in 1.50s` |
+| `knopdruk-zone` | `1 failed in 1.60s` |
+| `knopdruk-hervatten` | `1 failed in 1.58s` |
+| `knopdruk-gecombineerd` | `1 failed in 2.12s` |
+| `simulatie-licht` | `1 failed in 2.49s` |
+| `simulatie-scene` | `1 failed in 2.36s` |
+| `simulatie-zone` | `1 failed in 2.49s` |
+| `automatisering-schema` | `1 failed in 2.64s` |
+| `automatisering-beleid` | `1 failed in 2.51s` |
+| `automatisering-hervatten` | `1 failed in 2.38s` |
+| `automatisering-profiel` | `1 failed in 2.29s` |
+| `automatisering-profielwijziging` | `1 failed in 2.45s` |
+| `automatisering-planner` | `1 failed in 2.18s` |
+| `automatisering-adaptief` | `1 failed in 2.46s` |
+| `planner-pauzeren` | `1 failed in 2.40s` |
+| `planner-hervatten` | `1 failed in 2.51s` |
+| `planner-stoppen` | `1 failed in 2.58s` |
+| `planner-verwijderen` | `1 failed in 2.58s` |
+| `worker-user-False` | `1 failed in 2.22s` |
+| `worker-user-True` | `1 failed in 2.14s` |
+| `worker-button-False` | `1 failed in 2.45s` |
+| `worker-button-True` | `1 failed in 2.05s` |
+| `worker-engine-False` | `1 failed in 2.21s` |
+| `worker-engine-True` | `1 failed in 2.05s` |
+| `rechten-web-admin` | `1 failed in 2.29s` |
+| `rechten-phone-admin` | `1 failed in 2.06s` |
+| `rechten-phone-control` | `1 failed in 1.67s` |
+| `rechten-phone-viewer` | `1 failed in 1.59s` |
+| `rechten-web-viewer` | `1 failed in 1.63s` |
+| `import-web-v2` | `1 failed in 3.86s` |
+| `import-web-v1` | `1 failed in 4.40s` |
+| `import-cli-v2` | `1 failed in 3.42s` |
+| `import-cli-v1` | `1 failed in 4.69s` |
+| `levensloop-binden` | `1 failed in 2.49s` |
+| `levensloop-ontkoppelen` | `1 failed in 2.04s` |
+| `levensloop-vervangen` | `1 failed in 2.38s` |
+| `levensloop-archiveren` | `1 failed in 2.54s` |
+| `levensloop-getest` | `1 failed in 2.41s` |
+| `adapter-api` | `1 failed in 2.29s` |
+| `adapter-worker` | `1 failed in 2.26s` |
+| `worker-actiematrix` | `18 failed in 5.22s` |
+| `interne-kern` | `18 failed in 4.91s` |
+| `websocket` | `1 failed in 2.33s` |
+| `apparaat-discover` | `1 failed in 2.39s` |
+| `apparaat-pair` | `1 failed in 2.57s` |
+| `apparaat-probe` | `1 failed in 2.62s` |
+| `apparaat-health` | `1 failed in 2.62s` |
+| `vervangen-naar-boiler` | `1 failed in 2.23s` |
+| `vervangen-toegestaan` | `1 failed in 2.70s` |
+| `vervangen-unit` | `1 failed in 2.97s` |
+| `vervangen-sensor` | `1 failed in 3.17s` |
+| `vervangen-knopstap` | `1 failed in 2.49s` |
+| `vervangen-knop` | `1 failed in 2.59s` |
+| `knop-archief-post` | `1 failed in 1.83s` |
+| `knop-archief-put` | `1 failed in 1.63s` |
+| `knop-archief-patch` | `1 failed in 1.61s` |
+| `knop-licht-in-klimaat-post` | `1 failed in 1.56s` |
+| `knop-licht-in-klimaat-put` | `1 failed in 1.66s` |
+| `knop-licht-in-klimaat-patch` | `1 failed in 1.62s` |
+| `knop-zone-in-licht-post` | `1 failed in 1.57s` |
+| `knop-zone-in-licht-put` | `1 failed in 1.56s` |
+| `knop-zone-in-licht-patch` | `1 failed in 1.56s` |
+| `simulatie-archief` | `1 failed in 1.53s` |
+| `oude-koppeling-uitzetten` | `1 failed in 1.56s` |
+| `oude-koppeling-aanzetten` | `1 failed in 1.59s` |
+
+
+## Lokale herstelpoort
+
+- Volledige API-suite: `661 passed, 3 warnings in 173.55s (0:02:53)`; geen skips.
+  Dit omvat alle 30 nieuwe herstelgevallen en de bestaande boiler-, import-, policy- en workerproeven.
+- Integraties: `188 passed, 1 skipped in 13.68s`. De skip blijft `geen readback om te vervalsen`
+  uit `integrations/tests/contract_kit.py`; niet als groen bewijs meegeteld.
+- Ruff voor API/tests, infra/tools en integraties groen. Contract-/Peil-controle en online vergelijking groen.
+- OpenAPI opnieuw geëxporteerd en byte-gelijk aan de vastgelegde momentopname.
+- De eerste nulmeting gaf `17 failed, 13 passed in 6.25s`: zestien bedoelde fouten en één onjuiste
+  positieve testopstelling (een oude boiler als klimaatunit). Die opstelling is gecorrigeerd.
+- De eerste tools-lint had vier te lange regels; de slotcontrole is groen. Geen controle afgezwakt.
+
+De twee herstelcommits, CI op de afsluitcommit, exacte commando's en alle slotregels staan in
+`RAPPORT-A-HERSTEL.md` van de externe keten S-P3-705. Echte hardware blijft NIET GEVALIDEERD.

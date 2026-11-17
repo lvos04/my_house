@@ -82,6 +82,28 @@ for entrance in ("discover", "pair", "probe", "health"):
         f"leesroute-{entrance}",
         "test_boiler_ketens.py::test_ontdekken_koppelen_adres_diagnose_schakelen_nooit",
     )
+case("vervangen-naar-boiler", "vervangen", "test_boiler_herstel.py::test_vervangen_naar_boiler_via_api")
+case(
+    "vervangen-toegestaan", "vervangen-te-streng",
+    "test_boiler_herstel.py::test_boiler_zelf_vervangen_blijft_toegestaan",
+)
+for link in ("unit", "sensor", "knopstap", "knop"):
+    case(
+        f"vervangen-{link}", "vervangen",
+        f"test_boiler_herstel.py::test_vervangen_naar_beschermd_doel_atomair[{link}]",
+    )
+for reason in ("archief", "licht-in-klimaat", "zone-in-licht"):
+    for method in ("post", "put", "patch"):
+        case(
+            f"knop-{reason}-{method}", "mapping",
+            f"test_boiler_herstel.py::test_knopbeleid_voor_archief_en_modus[{reason}-{method}]",
+        )
+case("simulatie-archief", "droog-beleid", "test_boiler_herstel.py::test_simulatie_beschermd_archief_weigert_beleid")
+case("oude-koppeling-uitzetten", "uitzetten", "test_boiler_herstel.py::test_oude_beschermde_koppeling_alleen_uitzetten")
+case(
+    "oude-koppeling-aanzetten", "uitzetten-te-ruim",
+    "test_boiler_herstel.py::test_oude_beschermde_koppeling_alleen_uitzetten",
+)
 
 PLUGIN = r"""
 import json
@@ -105,6 +127,25 @@ def beschadig_controle(monkeypatch):
         monkeypatch.setattr(zones.patch_zone, "__code__", functions["patch_zone"].__code__)
     if kind in ("command", "alles"):
         monkeypatch.setattr(commanding, "check_command", lambda *a: None)
+        monkeypatch.setattr(lights, "check_command", lambda *a: None)
+    if kind == "droog-beleid":
+        monkeypatch.setattr(lights, "check_command", lambda *a: None)
+    if kind == "vervangen":
+        monkeypatch.setattr(devices, "check_command", lambda *a: None)
+    if kind == "vervangen-te-streng":
+        from shc_api.policy import PolicyDenied
+        def altijd_weigeren(*a):
+            raise PolicyDenied("Mutatie weigert ook de toegestane vervanging.")
+        monkeypatch.setattr(devices, "check_command", altijd_weigeren)
+    if kind in ("uitzetten", "uitzetten-te-ruim"):
+        import inspect
+        source = inspect.getsource(lights.patch_mapping)
+        source = source[source.index("async def "):]
+        source = source.replace('body.model_fields_set == {"enabled"} and body.enabled is False',
+                                'False' if kind == "uitzetten" else 'body.enabled is not None')
+        functions = {}
+        exec(compile(source, "<mutatie-uitzetten>", "exec"), lights.patch_mapping.__globals__, functions)
+        monkeypatch.setattr(lights.patch_mapping, "__code__", functions["patch_mapping"].__code__)
     if kind in ("zone-patch", "alles"):
         monkeypatch.setattr(zones, "check_command", lambda *a: None)
     if kind in ("mapping", "licht", "alles"):
@@ -190,6 +231,8 @@ def main() -> int:
             lines = output.strip().splitlines()
             slot = lines[-1] if lines else "geen uitvoer"
             assertion_failure = "AssertionError" in output or "DID NOT RAISE" in output
+            if mutation.startswith("leesroute-"):
+                assertion_failure = "AssertionError: Leesroutes mogen execute niet aanroepen" in output
             killed = result.returncode == 1 and " failed" in output and "ERROR " not in output and assertion_failure
             failures += not killed
             row = {

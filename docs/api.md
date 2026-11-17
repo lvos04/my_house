@@ -332,6 +332,20 @@ scènedoel in de body gecontroleerd. Knopkoppelingen via POST, PUT en PATCH krij
 ook voor een klimaatstap of hervatstap naar een zone met een beschermde unit. Een geweigerde
 bulkvervanging bewaart alle bestaande koppelingen.
 
+Bij een bestaand knopdoel uit dezelfde woning gaat de beleidscontrole vóór de archief- en
+modusvalidatie: ook een beschermd gearchiveerd lichtdoel, een lichtstap in een klimaatkoppeling of
+een zonestap in een lichtkoppeling geeft `409 policy_denied`. Ontbrekende en woningvreemde doelen
+houden `422 validation_error`; de simulatie noemt zulke doelen `invalid`.
+Een oude of geïmporteerde beschermde koppeling mag met uitsluitend `PATCH {"enabled": false}`
+worden uitgezet. Aanzetten of inhoudelijk wijzigen blijft `409 policy_denied`; tegelijk uitzetten
+en een ander veld wijzigen valt ook onder die controle.
+
+`POST /devices/{id}/replace` controleert vóór iedere wijziging de bestaande policy van het nieuwe
+apparaat als er zones, zone-units, sensorkoppelingen, knopkoppelingen of knopstapdoelen naartoe
+verhuizen. Een al beschermd nieuw apparaat geeft `409 policy_denied`; de database blijft gelijk.
+De boiler zelf vervangen door een nieuwe, nog onbeschermde meetstekker blijft toegestaan: de
+boilerrol verhuist mee.
+
 `PATCH /zones/{id}` accepteert als unit alleen `ac_unit` en als sensor alleen `zigbee_sensor` uit
 dezelfde woning. Een beschermd apparaat geeft eerst `409 policy_denied`; een overige verkeerde
 apparaatsoort geeft `422 validation_error`. Bij weigering verandert geen enkel veld. Ontkoppelen met
@@ -339,7 +353,8 @@ apparaatsoort geeft `422 validation_error`. Bij weigering verandert geen enkel v
 lezers krijgen op die beheerroutes `403 forbidden`. Bedieningsrechten heffen de boilerblokkade niet op.
 
 De knopsimulatie houdt haar bestaande antwoordvorm: HTTP 200 met per stap `refused` en
-`code: "policy_denied"`. Een droge hervatstap toont alleen de configuratiewijziging (`would_run`),
+`code: "policy_denied"`, ook bij een beschermd gearchiveerd lichtdoel in dezelfde woning.
+Een droge hervatstap toont alleen de configuratiewijziging (`would_run`),
 geen fysieke uitvoering. WebSocket ontvangt pingberichten en levert updates; hij biedt geen
 commandodispatch. Volledige lokale ketenproeven en beperkingen: [boilerregressies](boiler-regressies.md).
 
