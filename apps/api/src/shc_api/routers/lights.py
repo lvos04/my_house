@@ -240,15 +240,18 @@ async def normalize_mapping(db: DB, dev: Device, m: dict) -> tuple[dict, list[st
     for n, step in enumerate(steps, start=1):
         where = f"Stap {n}: "
         if step["type"] == "light":
-            if mode == "climate":
-                errors.append(where + "een klimaatkoppeling mag alleen airco-stappen bevatten.")
-                continue
             target_id = _uuid(step.get("device_id"))
             target = await db.get(Device, target_id) if target_id else None
-            if target is None or target.home_id != dev.home_id or target.lifecycle == "archived":
+            if target is None or target.home_id != dev.home_id:
                 errors.append(where + "lamp, groep of scène niet gevonden.")
                 continue
             await _check_target(db, target, "recall_scene" if target.kind == "scene" else "set_group")
+            if target.lifecycle == "archived":
+                errors.append(where + "lamp, groep of scène niet gevonden.")
+                continue
+            if mode == "climate":
+                errors.append(where + "een klimaatkoppeling mag alleen airco-stappen bevatten.")
+                continue
             allowed = LIGHT_ACTIONS.get(target.kind)
             if not allowed:
                 errors.append(where + "alleen lampen, lichtgroepen en scènes kunnen worden bediend.")
@@ -281,9 +284,6 @@ async def normalize_mapping(db: DB, dev: Device, m: dict) -> tuple[dict, list[st
                 norm["params"] = params
             out_steps.append(norm)
         else:
-            if mode == "lights":
-                errors.append(where + "een lichtkoppeling mag alleen lamp-, groep- en scènestappen bevatten.")
-                continue
             zone_id = _uuid(step.get("zone_id"))
             zone = await db.get(ClimateZone, zone_id) if zone_id else None
             if zone is None or zone.home_id != dev.home_id:
@@ -293,6 +293,9 @@ async def normalize_mapping(db: DB, dev: Device, m: dict) -> tuple[dict, list[st
                 unit = await db.get(Device, zone.unit_device_id)
                 if unit is not None:
                     await _check_target(db, unit, "set_hvac")
+            if mode == "lights":
+                errors.append(where + "een lichtkoppeling mag alleen lamp-, groep- en scènestappen bevatten.")
+                continue
             if step.get("action") == "resume":
                 out_steps.append({"type": "zone", "zone_id": str(zone.id), "action": "resume"})
                 continue
@@ -411,6 +414,11 @@ async def _mapping(db: DB, mapping_id: uuid.UUID) -> tuple[ButtonMapping, Device
 @router.patch("/button-mappings/{mapping_id}")
 async def patch_mapping(mapping_id: uuid.UUID, body: MappingPatch, db: DB, p: Admin):
     m, d = await _mapping(db, mapping_id)
+    if body.model_fields_set == {"enabled"} and body.enabled is False:
+        m.enabled = False
+        await audit(db, p.actor, "button_mapping_updated", d.name, mapping=str(m.id))
+        await db.commit()
+        return button_view(d, await _maps(db, d.id))
     data = {**_mapping_dict(m)}
     data.pop("id")
     for f in body.model_fields_set:
@@ -464,10 +472,17 @@ async def _dry_run(db: DB, home: Home, dev: Device, step: dict) -> dict:
             await sp.rollback()
         return out
     target = await db.get(Device, _uuid(step.get("device_id"))) if _uuid(step.get("device_id")) else None
-    if target is None or target.home_id != dev.home_id or target.lifecycle == "archived":
+    if target is None or target.home_id != dev.home_id:
         return {"type": "light", "result": "invalid", "reason": "Lamp, groep of scène niet gevonden."}
     action, params = light_command(target, step)
     out = {"type": "light", "device_id": target.id, "device_name": target.name, "action": action, "params": params}
+    roles, protected = await roles_of(db, target.id)
+    try:
+        check_command(DeviceFacts(target.kind, roles, protected), action, params)
+    except PolicyDenied as e:
+        return {**out, "result": "refused", "code": "policy_denied", "reason": e.message}
+    if target.lifecycle == "archived":
+        return {"type": "light", "result": "invalid", "reason": "Lamp, groep of scène niet gevonden."}
     sp = await db.begin_nested()
     try:
         await queue_command(db, home.id, target, action, params, "button", actor)

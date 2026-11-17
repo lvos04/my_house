@@ -33,7 +33,7 @@ from ..models import (
     Room,
     ZoneLog,
 )
-from ..policy import DEFAULT_PROTECTED_ROLES
+from ..policy import DEFAULT_PROTECTED_ROLES, DeviceFacts, PolicyDenied, check_command
 from ..security import SecretBox
 from ..store import audit, latest_reading, roles_of
 from ..views.status import integration_details
@@ -426,7 +426,14 @@ async def replace_device(device_id: uuid.UUID, body: ReplaceIn, db: DB, p: Admin
         .all()
     )
     own_maps = (await db.execute(select(ButtonMapping).where(ButtonMapping.device_id == old.id))).scalars().all()
+    home_maps = (await db.execute(select(ButtonMapping).where(ButtonMapping.home_id == old.home_id))).scalars().all()
     # Check everything before changing anything.
+    if zones or own_maps or any(_swap_step_ids(m.action or {}, str(old.id), str(new.id))[1] for m in home_maps):
+        new_roles, protected = await roles_of(db, new.id)
+        try:
+            check_command(DeviceFacts(new.kind, new_roles, protected), "set_hvac" if zones else "set_group", {})
+        except PolicyDenied as e:
+            raise api_error(409, "policy_denied", e.message) from e
     for role in roles:
         _check_role_fit(role, new)
     for z in zones:
@@ -455,7 +462,7 @@ async def replace_device(device_id: uuid.UUID, body: ReplaceIn, db: DB, p: Admin
     for m in own_maps:
         m.device_id = new.id
     steps_moved = 0
-    for m in (await db.execute(select(ButtonMapping).where(ButtonMapping.home_id == old.home_id))).scalars():
+    for m in home_maps:
         action, changed = _swap_step_ids(m.action or {}, str(old.id), str(new.id))
         if changed:
             m.action = action
