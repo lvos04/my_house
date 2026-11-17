@@ -36,6 +36,7 @@ from ..models import (
 from ..policy import DEFAULT_PROTECTED_ROLES, DeviceFacts, PolicyDenied, check_command
 from ..security import SecretBox
 from ..store import audit, latest_reading, roles_of
+from ..views.lights import LIGHT_ACTIONS, mapping_steps
 from ..views.status import integration_details
 
 router = APIRouter(tags=["devices"])
@@ -270,6 +271,29 @@ async def _role(db: DB, home_id: uuid.UUID, key: str) -> LogicalRole:
     return role
 
 
+async def _check_reference_policy(
+    db: DB, d: Device, extra_roles: list[LogicalRole], moving_from: uuid.UUID | None = None
+) -> None:
+    """Toets bestaande én meeverhuizende verwijzingen met de rollen ná de wijziging."""
+    ids = {d.id, moving_from} if moving_from else {d.id}
+    zones = (await db.execute(select(ClimateZone).where(
+        ClimateZone.home_id == d.home_id,
+        (ClimateZone.unit_device_id.in_(ids)) | (ClimateZone.sensor_device_id.in_(ids)),
+    ))).scalars().all()
+    maps = (await db.execute(select(ButtonMapping).where(ButtonMapping.home_id == d.home_id))).scalars().all()
+    referenced = zones or any(
+        m.device_id in ids or any(str(i) in json.dumps(m.action or {}) for i in ids) for m in maps
+    )
+    if referenced:
+        roles, protected = await roles_of(db, d.id)
+        roles = roles | frozenset(r.key for r in extra_roles)
+        protected = protected | frozenset(r.key for r in extra_roles if r.protected)
+        try:
+            check_command(DeviceFacts(d.kind, roles, protected), "set_hvac" if zones else "set_group", {})
+        except PolicyDenied as e:
+            raise api_error(409, "policy_denied", e.message) from e
+
+
 @router.post("/devices/{device_id}/bind")
 async def bind(device_id: uuid.UUID, body: BindIn, db: DB, p: Admin) -> dict:
     """Bind a device to a logical role. The previous device keeps its history (binding closed, not deleted)."""
@@ -277,6 +301,7 @@ async def bind(device_id: uuid.UUID, body: BindIn, db: DB, p: Admin) -> dict:
     if d.lifecycle == "archived":
         raise api_error(409, "archived", "Dit apparaat is gearchiveerd.")
     role = await _role(db, d.home_id, body.role)
+    await _check_reference_policy(db, d, [role])
     _check_role_fit(role, d)
     now = datetime.now(UTC)
     for b in (
@@ -392,6 +417,16 @@ def _swap_step_ids(action: dict, old: str, new: str) -> tuple[dict, bool]:
     return json.loads(raw.replace(old, new)), True
 
 
+def _check_step_kinds(maps: list[ButtonMapping], old: Device, new: Device) -> None:
+    """Een verhuisde lichtstap moet zijn actie op het nieuwe soort kunnen uitvoeren."""
+    for m in maps:
+        for step in mapping_steps(m.action):
+            if step["type"] == "light" and step.get("device_id") == str(old.id):
+                action = step.get("action") or (LIGHT_ACTIONS.get(old.kind) or (None,))[0]
+                if action not in LIGHT_ACTIONS.get(new.kind, ()):
+                    raise api_error(409, "role_mismatch", "De knopstap past niet bij het nieuwe apparaattype.")
+
+
 @router.post("/devices/{device_id}/replace")
 async def replace_device(device_id: uuid.UUID, body: ReplaceIn, db: DB, p: Admin) -> dict:
     """Move role bindings, zone links and button mappings from this device to a new one. Both keep
@@ -428,12 +463,8 @@ async def replace_device(device_id: uuid.UUID, body: ReplaceIn, db: DB, p: Admin
     own_maps = (await db.execute(select(ButtonMapping).where(ButtonMapping.device_id == old.id))).scalars().all()
     home_maps = (await db.execute(select(ButtonMapping).where(ButtonMapping.home_id == old.home_id))).scalars().all()
     # Check everything before changing anything.
-    if zones or own_maps or any(_swap_step_ids(m.action or {}, str(old.id), str(new.id))[1] for m in home_maps):
-        new_roles, protected = await roles_of(db, new.id)
-        try:
-            check_command(DeviceFacts(new.kind, new_roles, protected), "set_hvac" if zones else "set_group", {})
-        except PolicyDenied as e:
-            raise api_error(409, "policy_denied", e.message) from e
+    await _check_reference_policy(db, new, roles, old.id)
+    _check_step_kinds(home_maps, old, new)
     for role in roles:
         _check_role_fit(role, new)
     for z in zones:

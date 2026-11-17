@@ -442,7 +442,7 @@ class SimulateIn(BaseModel):
     event: str = Field(min_length=1, max_length=ID_MAX)
 
 
-async def _dry_run(db: DB, home: Home, dev: Device, step: dict) -> dict:
+async def _dry_run(db: DB, home: Home, dev: Device, step: dict, mapping_mode: str | None = None) -> dict:
     """Run one step's checks inside a savepoint that is always rolled back: nothing is queued."""
     actor = f"knop {dev.name} (simulatie)"
     if step["type"] == "zone":
@@ -450,6 +450,15 @@ async def _dry_run(db: DB, home: Home, dev: Device, step: dict) -> dict:
         if zone is None or zone.home_id != dev.home_id:
             return {"type": "zone", "result": "invalid", "reason": "Klimaatzone niet gevonden."}
         out = {"type": "zone", "zone_id": zone.id, "zone_name": zone.name}
+        if mapping_mode == "lights":
+            unit = await db.get(Device, zone.unit_device_id) if zone.unit_device_id else None
+            if unit is not None:
+                roles, protected = await roles_of(db, unit.id)
+                try:
+                    check_command(DeviceFacts(unit.kind, roles, protected), "set_hvac", {})
+                except PolicyDenied as e:
+                    return {**out, "result": "refused", "code": "policy_denied", "reason": e.message}
+            return {**out, "result": "invalid", "reason": "Stap past niet bij de koppeling."}
         if step.get("action") == "resume":
             return {**out, "action": "resume", "result": "would_run", "reason": "Terug naar schema."}
         sp = await db.begin_nested()
@@ -481,6 +490,8 @@ async def _dry_run(db: DB, home: Home, dev: Device, step: dict) -> dict:
         check_command(DeviceFacts(target.kind, roles, protected), action, params)
     except PolicyDenied as e:
         return {**out, "result": "refused", "code": "policy_denied", "reason": e.message}
+    if mapping_mode == "climate":
+        return {**out, "result": "invalid", "reason": "Stap past niet bij de koppeling."}
     if target.lifecycle == "archived":
         return {"type": "light", "result": "invalid", "reason": "Lamp, groep of scène niet gevonden."}
     sp = await db.begin_nested()
@@ -515,12 +526,7 @@ async def simulate(device_id: uuid.UUID, body: SimulateIn, db: DB, p: Admin) -> 
             entry["skipped"] = "Gecombineerde actie is nog niet bevestigd en wordt niet uitgevoerd."
         else:
             for step in mapping_steps(m.action):
-                if (step["type"] == "zone" and m.mode == "lights") or (step["type"] == "light" and m.mode == "climate"):
-                    entry["steps"].append(
-                        {"type": step["type"], "result": "invalid", "reason": "Stap past niet bij de koppeling."}
-                    )
-                    continue
-                entry["steps"].append(await _dry_run(db, home, d, step))
+                entry["steps"].append(await _dry_run(db, home, d, step, m.mode))
         results.append(entry)
     await db.rollback()
     bridge = body.button in rules

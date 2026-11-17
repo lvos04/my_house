@@ -104,6 +104,26 @@ case(
     "oude-koppeling-aanzetten", "uitzetten-te-ruim",
     "test_boiler_herstel.py::test_oude_beschermde_koppeling_alleen_uitzetten",
 )
+for way in ("h1a", "h1b", "h1c"):
+    case(f"roltoekenning-{way}", "verwijzingen",
+         f"test_boiler_herstel_2.py::test_roltoekenning_na_historische_vervanging[{way}]")
+for role in ("boiler_energy", "eigen_beveiligde_rol"):
+    for way in ("binden", "bestaand-doel", "meeverhuizen"):
+        for link in ("unit", "sensor", "knopstap", "knop"):
+            case(f"h1d-{role}-{way}-{link}", "verwijzingen",
+                 f"test_boiler_herstel_2.py::test_h1d_verwijzingen_bij_beschermde_rol[{role}-{way}-{link}]")
+for kind, action in (("energy_socket", "toggle"), ("scene", "toggle"), ("light", "recall_scene"),
+                     ("light", "set_group"), ("light_group", "set_light")):
+    case(f"stapsoort-{kind}-{action}", "stapsoort",
+         f"test_boiler_herstel_2.py::test_knopstap_vervangen_vereist_passende_soort[{kind}-{action}]")
+for link in ("unit", "sensor"):
+    case(f"klimaatsoort-{link}", "vervangen-klimaatsoort",
+         f"test_boiler_herstel_2.py::test_klimaatvervanging_vereist_passende_soort[{link}]")
+for target in ("licht", "zone"):
+    case(f"simulatie-modus-{target}", "simulatie-modus",
+         f"test_boiler_herstel_2.py::test_simulatie_verkeerde_modus_eerst_beleid[{target}]")
+case("lamp-vervangen-toegestaan", "stapsoort-te-streng",
+     "test_boiler_herstel_2.py::test_lamp_door_lamp_vervangen_blijft_werken")
 
 PLUGIN = r"""
 import json
@@ -133,10 +153,34 @@ def beschadig_controle(monkeypatch):
     if kind == "vervangen":
         monkeypatch.setattr(devices, "check_command", lambda *a: None)
     if kind == "vervangen-te-streng":
-        from shc_api.policy import PolicyDenied
-        def altijd_weigeren(*a):
-            raise PolicyDenied("Mutatie weigert ook de toegestane vervanging.")
-        monkeypatch.setattr(devices, "check_command", altijd_weigeren)
+        async def altijd_weigeren(*a):
+            raise devices.api_error(409, "policy_denied", "Mutatie weigert ook de toegestane vervanging.")
+        monkeypatch.setattr(devices, "_check_reference_policy", altijd_weigeren)
+    if kind == "verwijzingen":
+        async def zonder_verwijzingscontrole(*a):
+            pass
+        monkeypatch.setattr(devices, "_check_reference_policy", zonder_verwijzingscontrole)
+    if kind in ("stapsoort", "stapsoort-te-streng"):
+        def stapsoort(*a):
+            if kind == "stapsoort-te-streng":
+                raise devices.api_error(409, "role_mismatch", "Mutatie weigert ook een passende lamp.")
+        monkeypatch.setattr(devices, "_check_step_kinds", stapsoort)
+    if kind in ("simulatie-modus", "vervangen-klimaatsoort"):
+        import inspect
+        func = lights.simulate if kind == "simulatie-modus" else devices.replace_device
+        source = inspect.getsource(func)
+        source = source[source.index("async def "):]
+        if kind == "simulatie-modus":
+            source = source.replace('entry["steps"].append(await _dry_run(db, home, d, step, m.mode))',
+                '''if step["type"] != ("zone" if m.mode == "climate" else "light"):
+                    entry["steps"].append({"type": step["type"], "result": "invalid"})
+                    continue
+                entry["steps"].append(await _dry_run(db, home, d, step, m.mode))''')
+        else:
+            source = source.replace('new.kind != "ac_unit"', 'False').replace('new.kind not in SENSOR_KINDS', 'False')
+        functions = {}
+        exec(compile(source, "<mutatie-herstel-2>", "exec"), func.__globals__, functions)
+        monkeypatch.setattr(func, "__code__", functions[func.__name__].__code__)
     if kind in ("uitzetten", "uitzetten-te-ruim"):
         import inspect
         source = inspect.getsource(lights.patch_mapping)
@@ -221,8 +265,10 @@ def main() -> int:
         plugin = Path(temp) / "boiler_mutatie_plugin.py"
         for name, (mutation, test) in selected.items():
             plugin.write_text(f"MUTATION = {mutation!r}\n" + PLUGIN + READ_PLUGIN)
-            env = {**os.environ, "PYTHONPATH": temp, "PYTHONDONTWRITEBYTECODE": "1"}
-            cmd = [sys.executable, "-m", "pytest", "-q", "-p", "boiler_mutatie_plugin", f"tests/{test}"]
+            env = {**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [temp, os.environ.get("PYTHONPATH")])),
+                   "PYTHONDONTWRITEBYTECODE": "1"}
+            cmd = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+                   "-p", "boiler_mutatie_plugin", f"tests/{test}"]
             result = subprocess.run(  # noqa: S603 - executable en testnamen komen uitsluitend uit deze vaste tabel.
                 cmd, cwd=ROOT / "apps/api", env=env, capture_output=True, text=True, timeout=180
             )

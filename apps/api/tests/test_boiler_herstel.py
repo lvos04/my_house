@@ -80,16 +80,17 @@ async def test_boiler_zelf_vervangen_blijft_toegestaan(admin, boiler_rig):
     # De gewone boiler is geen klimaatunit; de oude/importzone uit de fixture hoort hier niet bij.
     response = await patch(admin, f"/zones/{r.zone}", {"unit_device_id": None})
     assert response.status_code == 200, response.text
-    # Een oude knopstap moet wél mee verhuizen; anders bereikt deze proef de nieuwe controle niet.
-    await _legacy_mapping(r, {"device_id": str(r.boiler), "action": "set_relay", "params": {"on": False}})
+    # Zonder verwijzingen blijft rolverhuizing toegestaan. Oude verwijzingen worden apart geweigerd.
     replacement = await add_device(str(r.home), "energy_socket", "Nieuwe meetstekker")
+    before = database_bytes()
     response = await admin.post(f"/devices/{r.boiler}/replace", json={"new_device_id": str(replacement)})
     assert response.status_code == 200, response.text
+    assert database_bytes() != before
     assert response.json()["new"]["protected"] is True
     assert response.json()["old"]["lifecycle"] == "replaced"
     assert "boiler" in response.json()["moved"]["roles"]
-    assert response.json()["moved"]["mappings"] == 1
-    assert (await mappings(admin, r))[0]["action"]["steps"][0]["device_id"] == str(replacement)
+    assert response.json()["moved"]["mappings"] == 0
+    assert await mappings(admin, r) == []
     assert await commands(r.home) == []
 
 

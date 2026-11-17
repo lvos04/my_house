@@ -23,7 +23,7 @@ en fysieke acceptatie staan nog open; er rest dus meer dan alleen een NAS-test.
 | Interne commandokern | `test_interne_commandokern_weigert_elke_bron_en_actie`: user/button/engine × set_relay/set_power/switch/set_group/set_hvac/recall_scene, geen wachtrij. |
 | Wachtrij, rolwijziging en nieuwe poging | `test_worker_hercontrole_na_rolwijziging`: echte HTTP-, knop- of engine-ingang maakt eerst één toegestaan commando; daarna wordt het doel beschermd. Ook met een reeds begonnen poging: `denied`, nul adapteraanroepen. `test_worker_actiematrix_via_interne_commandokern` dekt daarnaast zes acties × drie bronnen via de echte interne queuefunctie. Geen rechtstreeks ingevoegde wachtrijregel als routebewijs. |
 | Import en vrijgave | `test_import_vrijgave_en_oude_knop_tot_adapter`: web verify/apply en CLI-herstel zelf, beide met v1 én v2. Een via HTTP aangemaakt commando en een oude knopmapping zijn echt teruggezet; veilige modus is eerst aan, vervolgens via de route vrijgegeven. De herstelde knopdruk en worker blijven geblokkeerd; nul uitvoering. |
-| Binden/ontkoppelen/vervangen/archiveren/getest | `test_apparaatlevensloop_en_oude_relaiskoppeling`: echte beheerroutes. De oorspronkelijke vervangproef dekte uitsluitend het vervangen **van** de boiler door een nieuwe stekker, niet het vervangen **door** een al beschermde boiler. Die ontbrekende dekking staat hieronder. Ook na ontkoppelen en heractiveren blijft de Energy Socket alleen meten. Knopdruk bereikt ingest, geen schakeling. |
+| Binden/ontkoppelen/vervangen/archiveren/getest | `test_apparaatlevensloop_en_oude_relaiskoppeling`: echte beheerroutes. Met een oude relaiskoppeling worden opnieuw binden en vervangen nu atomair geweigerd. Ontkoppelen, archiveren, heractiveren en getest markeren blijven mogelijk; de Energy Socket blijft alleen meten. Knopdruk bereikt ingest, geen schakeling. |
 | Ontdekken/koppelen/adres/probe/diagnostiek | `test_ontdekken_koppelen_adres_diagnose_schakelen_nooit`: complete HTTP-keten met geïnstrumenteerde nep-provider. Discover, pair, probe en health zijn daadwerkelijk aangeroepen; execute nooit. |
 | Productiehook HomeWizard | `test_productie_homewizard_hook_blijft_dicht`: echte HomeWizard-adapter via zowel `routers/devices._adapter_for` als `Worker.start_integration`; beide relaisstanden geweigerd, nul gemockte PUT's. De opstarttaken van deze eigen test doen geen netwerkwerk en worden afgewacht. Bestaande negen HomeWizard-tests blijven groen. Een positieve controle bewijst dat dezelfde HTTP-testhulp een toegestaan fictief doel werkelijk tot de gemockte PUT brengt. |
 | WebSocket | `test_websocket_heeft_geen_commandodispatch`: geldige beheersessie, hello bevestigt bedieningsrechten, vier commandoberichten gevolgd door ping/pong. Berichten zijn dus verwerkt; geen wachtrij- of adaptermutatie. |
@@ -149,7 +149,7 @@ in een nieuw huis (alleen de apparaatinventaris is testdata), plus unit-, sensor
 knopverhuizing naar een beschermd apparaat. De volledige logische database-inhoud en sequenties
 worden met `pg_dump --data-only` vóór en na iedere weigering bytegewijs vergeleken; alleen de
 willekeurige restrictieregels van het dumpformaat worden weggelaten. Dit is geen vergelijking van
-fysieke PostgreSQL-bestanden. Een positieve proef vervangt de boiler zelf door een nieuwe stekker
+fysieke PostgreSQL-bestanden. Een positieve proef vervangt de boiler zelf door een nieuwe stekker zonder verwijzingen
 en bevestigt dat de beschermde rol meegaat.
 
 Dezelfde suite controleert POST/PUT/PATCH bij beschermd + gearchiveerd en bij een verkeerde modus
@@ -159,28 +159,49 @@ Ontbrekende doelen, beschermde doelen uit een andere woning en onbeschermde arch
 Alleen uitzetten van een oude beschermde koppeling werkt; aanzetten, wijzigen en gecombineerd
 uitzetten/wijzigen blijven geweigerd. Gewone koppelingen kunnen nog steeds uit en aan.
 
-Andere wegen nagelezen:
+## Andere wegen nagelezen
+
+- Binden: `routers/devices.py::bind` kon een bestaand stapdoel alsnog beschermen. De controle
+  gebruikt nu `roles_of` plus de nieuwe rol, inclusief de standaardrollen en eigen beschermde
+  rollen, en toetst alle verwijzingen in de woning met `check_command` vóór enige wijziging.
+- Vervangen in twee stappen: `replace_device` kon eerst een groep naar een onbeschermde stekker
+  verplaatsen en daarna de boilerrol naar die stekker verhuizen. Dezelfde controle toetst nu zowel
+  bestaande als meeverhuizende verwijzingen met de rollen ná de wijziging. Daarnaast weigert de
+  soortcontrole al de eerste ongeschikte vervanging. Een boiler zonder verwijzingen vervangen mag.
+- Terugzetten uit het archief: `archive_device` sluit bindings; `patch_device` met `lifecycle=active`
+  heropent ze niet. Opnieuw binden passeert de nieuwe verwijzingscontrole (H1c). Ook een oude rol
+  zonder soortbeperking, zoals `boiler_energy` op een zone-unit of sensor, wordt geweigerd (H1d).
 
 - Samenvoegen bij pairing: `routers/devices.py::pair` verplaatst `Device.integration_id` tussen
-  koppelingen van dezelfde identiteit. Apparaat-id's en knop-/zoneverwijzingen worden niet herschreven.
+  koppelingen van dezelfde identiteit. Apparaat-id's, rollen en knop-/zoneverwijzingen worden niet
+  herschreven; gesloten bindings worden niet heropend. Een bestaande beschermde binding blijft
+  vóór én na reactivatie beschermd, want `roles_of` filtert niet op levensloop.
+- Soortwissel bij pair en worker/ingest: `should_upgrade_kind` laat alleen generiek → specifiek
+  toe. Geen soort uit `LIGHT_ACTIONS`, `ac_unit` of `zigbee_sensor` is generiek. Een geldig stapdoel
+  kan hierdoor dus niet naar een stekker veranderen. Een oude generieke fixture kan wel opwaarderen;
+  dat verandert geen rol of verwijzing. Beide echte ingangen zijn met een nep-provider respectievelijk
+  `DeviceInfo` beproefd: lichtgroep, rollen en stapdoel blijven behouden. Dezelfde functie bewaakt
+  de ingestwegen voor inventaris, meting, status en knopevent.
 - Import en terugzetten: `backup.py::_restore_sync` zet de volledige back-up met bestaande ids terug;
-  het koppelt geen bestaand doel om naar een andere beschermde id. `_after_restore` zet veilige modus
-  aan. De bestaande web-/CLI-proeven voor v1/v2 controleren ook na vrijgave nul adapteruitvoering.
+  oude beschermde verwijzingen blijven bestaan zoals opgedragen. `_after_restore` zet veilige modus
+  aan. `routers/system.py::release_safe_mode` wijzigt alleen de instelling en audit, geen bindings
+  of doelen. Web-/CLI-proeven voor v1/v2 controleren ook na vrijgave nul adapteruitvoering. Dit is
+  herstel van bestaande gegevens, geen nieuwe roltoekenning aan een bestaand ander stapdoel.
 - Momentopname: `restore_snapshot` is een vergelijkingsmomentopname voor compatibiliteit;
   `routers/system.py::restore_compare` leest die alleen. Geen afzonderlijke route gevonden die
   hiermee knop- of zonedoelen herschrijft. Fysiek NAS-snapshotherstel is niet onderzocht.
 - Bulk: `routers/lights.py::put_mappings` valideert alle nieuwe koppelingen vóór verwijderen en
   opslaan; de uitgebreide POST/PUT/PATCH-matrix bewijst volledige atomiciteit bij weigering.
 
-Er is langs deze andere wegen geen gelijksoortige omkoppeling aangetoond die aanvullend herstel
-vereist. Herstelcode, policykern en back-upformaat zijn daar ongewijzigd gebleven.
+De eerdere conclusie dat geen gelijksoortige omkoppeling was aangetoond, was onjuist: H1a–H1d
+tonen de omweg via binden en vervangen aan. Beide zijn nu hersteld; de herstelkern, policykern,
+worker en het back-upformaat blijven ongewijzigd. Er is geen gegevenswijzigende migratie gemaakt.
 
-Buiten deze herstelronde blijven `set_light` uit naar een onbeschermde Energy Socket (adapterweigering),
-inplannen op een oude zone met boilerunit en het beperken van lichtstapdoelen bij vervangen tot
-lichtsoorten. Deze punten zijn niet als opgelost meegeteld.
+Buiten deze herstelronde blijven `set_light` uit naar een onbeschermde Energy Socket (adapterweigering)
+en inplannen op een oude zone met boilerunit. Deze punten zijn niet als opgelost meegeteld.
 
 
-## Definitieve herstelmutaties (2026-11-17)
+## Historische herstelmutaties ronde 1 (2026-11-17)
 
 Alle 73 verschillende mutaties zijn op de bedoelde assertie aangetoond: de bestaande 55 plus
 18 herstelproeven. De eerste volledige toolrun meldde `73 mutaties gedraaid; 1 niet bewezen`.
@@ -286,3 +307,77 @@ ketenbewijs; hier volgen de letterlijke slotregels.
 
 De twee herstelcommits, CI op de afsluitcommit, exacte commando's en alle slotregels staan in
 `RAPPORT-A-HERSTEL.md` van de externe keten S-P3-705. Echte hardware blijft NIET GEVALIDEERD.
+
+
+## Herstelronde 2: verwijzingen, soort en simulatie
+
+De nulmeting op de oude productiecode gaf `34 failed, 9 passed in 9.32s`. Na herstel
+gaf dezelfde set `43 passed in 9.11s`. Met twee aanvullende echte pair-/ingestproeven
+en de bestaande herstel- en ketentests: `155 passed in 38.41s`.
+
+- H1a–H1c volgen de API-ketens uit de herreview. Omdat de soortcontrole nu al de eerste
+  groep-naar-stekkerstap weigert, schakelt alleen de historische voorbereidende vervanging
+  tijdelijk die soortcontrole uit. De daaropvolgende roltoekenning gebruikt alle controles.
+  Zo bewijst de test onafhankelijk de verwijzingscontrole, ook voor reeds bestaande gegevens.
+- H1d: standaardrol `boiler_energy` zonder beschermingsvlag en een eigen beschermde rol, elk
+  met unit-, sensor-, knopstap- of knopverwijzing; binden, bestaande doelverwijzing bij vervangen
+  en meeverhuizende verwijzing. Alle 24 gevallen geven atomair `409 policy_denied`.
+- Vijf ongeschikte lichtactie/soortcombinaties en beide ongeschikte klimaatsoorten geven
+  `409 role_mismatch`. De gewone lampvervanging en boilervervanging zonder verwijzingen geven 200.
+- Licht-in-klimaat en zone-in-licht geven in simulatie `refused/policy_denied`, zonder wachtrij.
+  Alle geweigerde mutaties en beide simulatiegevallen vergelijken de logische database bytegewijs.
+
+De tool gaf `110 mutaties gedraaid; 0 niet bewezen`: de 73 bestaande plus 37 aanvullende
+mutaties. Elke afzonderlijke pytest eindigde met exitcode 1 op een bedoelde assertie; geen
+collectie- of setupfout telde mee. De positieve boilerproef wordt nu getoetst met een opzettelijk
+te strenge verwijzingscontrole, zonder een oude ongeldige verwijzing toe te voegen. De positieve
+lampvervanging heeft ook een te strenge tegenproef. Hieronder de aanvullende letterlijke slotregels.
+
+| Weg | Letterlijke pytest-slotregel |
+|---|---|
+| `roltoekenning-h1a` | `1 failed in 1.94s` |
+| `roltoekenning-h1b` | `1 failed in 1.97s` |
+| `roltoekenning-h1c` | `1 failed in 1.84s` |
+| `h1d-boiler_energy-binden-unit` | `1 failed in 1.79s` |
+| `h1d-boiler_energy-binden-sensor` | `1 failed in 1.88s` |
+| `h1d-boiler_energy-binden-knopstap` | `1 failed in 1.87s` |
+| `h1d-boiler_energy-binden-knop` | `1 failed in 2.04s` |
+| `h1d-boiler_energy-bestaand-doel-unit` | `1 failed in 1.93s` |
+| `h1d-boiler_energy-bestaand-doel-sensor` | `1 failed in 2.00s` |
+| `h1d-boiler_energy-bestaand-doel-knopstap` | `1 failed in 1.91s` |
+| `h1d-boiler_energy-bestaand-doel-knop` | `1 failed in 1.90s` |
+| `h1d-boiler_energy-meeverhuizen-unit` | `1 failed in 1.89s` |
+| `h1d-boiler_energy-meeverhuizen-sensor` | `1 failed in 1.91s` |
+| `h1d-boiler_energy-meeverhuizen-knopstap` | `1 failed in 1.94s` |
+| `h1d-boiler_energy-meeverhuizen-knop` | `1 failed in 1.82s` |
+| `h1d-eigen_beveiligde_rol-binden-unit` | `1 failed in 1.68s` |
+| `h1d-eigen_beveiligde_rol-binden-sensor` | `1 failed in 2.12s` |
+| `h1d-eigen_beveiligde_rol-binden-knopstap` | `1 failed in 1.96s` |
+| `h1d-eigen_beveiligde_rol-binden-knop` | `1 failed in 1.95s` |
+| `h1d-eigen_beveiligde_rol-bestaand-doel-unit` | `1 failed in 1.89s` |
+| `h1d-eigen_beveiligde_rol-bestaand-doel-sensor` | `1 failed in 2.02s` |
+| `h1d-eigen_beveiligde_rol-bestaand-doel-knopstap` | `1 failed in 2.02s` |
+| `h1d-eigen_beveiligde_rol-bestaand-doel-knop` | `1 failed in 1.93s` |
+| `h1d-eigen_beveiligde_rol-meeverhuizen-unit` | `1 failed in 2.17s` |
+| `h1d-eigen_beveiligde_rol-meeverhuizen-sensor` | `1 failed in 2.05s` |
+| `h1d-eigen_beveiligde_rol-meeverhuizen-knopstap` | `1 failed in 1.99s` |
+| `h1d-eigen_beveiligde_rol-meeverhuizen-knop` | `1 failed in 1.72s` |
+| `stapsoort-energy_socket-toggle` | `1 failed in 1.98s` |
+| `stapsoort-scene-toggle` | `1 failed in 2.10s` |
+| `stapsoort-light-recall_scene` | `1 failed in 2.03s` |
+| `stapsoort-light-set_group` | `1 failed in 1.98s` |
+| `stapsoort-light_group-set_light` | `1 failed in 2.02s` |
+| `klimaatsoort-unit` | `1 failed in 1.99s` |
+| `klimaatsoort-sensor` | `1 failed in 1.99s` |
+| `simulatie-modus-licht` | `1 failed in 1.93s` |
+| `simulatie-modus-zone` | `1 failed in 1.89s` |
+| `lamp-vervangen-toegestaan` | `1 failed in 1.99s` |
+
+De ruwe uitvoer, exacte commando’s en volledige poort staan in het externe `RAPPORT-A-HERSTEL-2.md`
+van keten S-P3-705. Dit is Sim-getest; fysieke acceptatie en ondertekende connector blijven open.
+
+Volledige lokale herstelpoort ronde 2: API `706 passed, 3 warnings in 166.10s (0:02:46)`
+zonder skips; integraties `188 passed, 1 skipped in 13.61s`. De bestaande skip is
+`geen readback om te vervalsen` uit `integrations/tests/contract_kit.py` en telt niet als groen
+bewijs. Ruff voor API, tools/infra en integraties, contract-/Peil-controles en online vergelijkingen
+zijn groen. OpenAPI is opnieuw geëxporteerd en byte-gelijk aan de momentopname.

@@ -340,11 +340,19 @@ Een oude of geïmporteerde beschermde koppeling mag met uitsluitend `PATCH {"ena
 worden uitgezet. Aanzetten of inhoudelijk wijzigen blijft `409 policy_denied`; tegelijk uitzetten
 en een ander veld wijzigen valt ook onder die controle.
 
-`POST /devices/{id}/replace` controleert vóór iedere wijziging de bestaande policy van het nieuwe
-apparaat als er zones, zone-units, sensorkoppelingen, knopkoppelingen of knopstapdoelen naartoe
-verhuizen. Een al beschermd nieuw apparaat geeft `409 policy_denied`; de database blijft gelijk.
-De boiler zelf vervangen door een nieuwe, nog onbeschermde meetstekker blijft toegestaan: de
-boilerrol verhuist mee.
+`POST /devices/{id}/bind` en `POST /devices/{id}/replace` toetsen vóór iedere wijziging de bestaande
+policy met alle rollen die het doel daarna heeft, inclusief de beschermde rollen die meeverhuizen.
+Wijzen zones (unit of sensor), knopkoppelingen of knopstappen in dezelfde woning al naar dat doel,
+of verhuizen zulke verwijzingen mee, dan geeft een beschermd doel `409 policy_denied` zonder
+databasewijziging. Dit geldt ook voor oude rollen zoals `boiler_energy` en eigen beschermde rollen.
+De boiler zelf vervangen door een meetstekker zonder bestaande of meeverhuizende verwijzingen
+blijft toegestaan: de boilerrol verhuist mee.
+
+Een verhuisde lichtstap moet zijn actie volgens `LIGHT_ACTIONS` op het nieuwe apparaattype kunnen
+uitvoeren. Een lichtgroep naar een stekker, of een scèneactie naar een lamp, geeft `409 role_mismatch`.
+Voor klimaatverwijzingen blijven een `ac_unit` als unit en een `zigbee_sensor` als sensor vereist.
+Alle controles lopen vóór rol-, zone-, stap-, levensloop- en auditwijzigingen. Een gewone lamp door
+een passende lamp vervangen blijft werken.
 
 `PATCH /zones/{id}` accepteert als unit alleen `ac_unit` en als sensor alleen `zigbee_sensor` uit
 dezelfde woning. Een beschermd apparaat geeft eerst `409 policy_denied`; een overige verkeerde
@@ -353,7 +361,8 @@ apparaatsoort geeft `422 validation_error`. Bij weigering verandert geen enkel v
 lezers krijgen op die beheerroutes `403 forbidden`. Bedieningsrechten heffen de boilerblokkade niet op.
 
 De knopsimulatie houdt haar bestaande antwoordvorm: HTTP 200 met per stap `refused` en
-`code: "policy_denied"`, ook bij een beschermd gearchiveerd lichtdoel in dezelfde woning.
+`code: "policy_denied"`, ook bij een beschermd gearchiveerd lichtdoel in dezelfde woning of een
+beschermd doel in een koppeling met de verkeerde modus. Ook hier gaat beleid vóór modusvalidatie.
 Een droge hervatstap toont alleen de configuratiewijziging (`would_run`),
 geen fysieke uitvoering. WebSocket ontvangt pingberichten en levert updates; hij biedt geen
 commandodispatch. Volledige lokale ketenproeven en beperkingen: [boilerregressies](boiler-regressies.md).
@@ -506,7 +515,7 @@ Integration = {id, provider, label, provider_label, home_id, enabled, identity, 
 | GET | `/devices/{id}` | `auth` | → `Device` |
 | PATCH | `/devices/{id}` | `admin` | `{name?, room_id?, lifecycle?: "active"}` (gearchiveerd apparaat terugzetten) → `Device` |
 | PATCH | `/devices/{id}/calibration` | `admin` | `{temperature_offset? (−10–10), humidity_offset? (−30–30)}` → `Device`; alleen sensoren en airco-units |
-| POST | `/devices/{id}/bind` | `admin` | `{role}` → `Device`. De vorige binding van die rol wordt gesloten, historie blijft. 409 `role_mismatch` |
+| POST | `/devices/{id}/bind` | `admin` | `{role}` → `Device`. De vorige binding van die rol wordt gesloten, historie blijft. 409 `role_mismatch` of `policy_denied` bij verwijzingen naar een beschermd doel |
 | POST | `/devices/{id}/unbind` | `admin` | `{role}` → `Device`. 409 `not_bound` |
 | DELETE | `/devices/{id}` | `admin` | → `Device`: archiveren. Rollen en zonekoppelingen eindigen, wachtende commando's vervallen, historie blijft |
 | POST | `/devices/{id}/replace` | `admin` | `{new_device_id}` → `{old, new, moved: {roles, zones, mappings}}` |

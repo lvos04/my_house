@@ -363,6 +363,7 @@ async def test_import_vrijgave_en_oude_knop_tot_adapter(admin, boiler_rig, tmp_p
 
 @pytest.mark.parametrize("weg", ["binden", "ontkoppelen", "vervangen", "archiveren", "getest"])
 async def test_apparaatlevensloop_en_oude_relaiskoppeling(admin, boiler_rig, weg):
+    from .test_boiler_herstel import database_bytes, denied
     from .ws_devices_support import add_device
 
     r = boiler_rig
@@ -372,21 +373,27 @@ async def test_apparaatlevensloop_en_oude_relaiskoppeling(admin, boiler_rig, weg
     mid = await _legacy_mapping(r, {"device_id": str(r.boiler), "action": "set_relay", "params": {"on": False}})
     if weg == "binden":
         assert (await admin.post(f"/devices/{r.boiler}/unbind", json={"role": "boiler"})).status_code == 200
+        before = database_bytes()
         response = await admin.post(f"/devices/{r.boiler}/bind", json={"role": "boiler"})
+        denied(response)
+        assert database_bytes() == before
     elif weg == "ontkoppelen":
         response = await admin.post(f"/devices/{r.boiler}/unbind", json={"role": "boiler"})
     elif weg == "vervangen":
         replacement = await add_device(r.home, "energy_socket", "Nieuwe testmeter")
+        before = database_bytes()
         response = await admin.post(f"/devices/{r.boiler}/replace", json={"new_device_id": str(replacement.id)})
-        assert response.status_code == 200, response.text
+        denied(response)
+        assert database_bytes() == before
         saved = await fetch(ButtonMapping, mid)
-        assert saved.action["steps"][0]["device_id"] == str(replacement.id)
+        assert saved.action["steps"][0]["device_id"] == str(r.boiler)
     elif weg == "archiveren":
         assert (await admin.delete(f"/devices/{r.boiler}")).status_code == 200
         response = await admin.c.patch(f"/api/v1/devices/{r.boiler}", json={"lifecycle": "active"}, headers=admin.h())
     else:
         response = await admin.post(f"/devices/{r.boiler}/tested", json={"note": "Lokale test"})
-    assert response.status_code == 200, response.text
+    if weg not in ("binden", "vervangen"):
+        assert response.status_code == 200, response.text
     w, recorder = Worker(), Recorder()
     w._adapter_for = lambda d: recorder
     await _press(r, w)
