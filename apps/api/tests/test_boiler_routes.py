@@ -46,3 +46,13 @@ async def test_zone_patch_ac_unit_en_sensor_en_ontkoppelen(admin, home):
             saved = (await db.execute(select(ClimateZone).where(ClimateZone.id == uuid.UUID(zone["id"])))).scalar_one()
             for field, value in body.items():
                 assert str(getattr(saved, field)) == str(value)
+
+
+@pytest.mark.parametrize("field,kind", [("unit_device_id", "zigbee_sensor"), ("sensor_device_id", "ac_unit")])
+async def test_zone_patch_unit_en_sensor_zijn_niet_uitwisselbaar(admin, home, field, kind):
+    zone = (await admin.get(f"/homes/{home['id']}/zones")).json()[0]
+    target = await add_device(home["id"], kind, "Verkeerde soort")
+    response = await admin.c.patch(f"/api/v1/zones/{zone['id']}", json={field: str(target)}, headers=admin.h())
+    assert response.status_code == 422 and response.json()["detail"]["code"] == "validation_error"
+    after = (await admin.get(f"/zones/{zone['id']}")).json()
+    assert after[field] == zone[field]

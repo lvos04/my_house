@@ -324,6 +324,25 @@ Profile = ProfileIn + {id, home_id, zone_ids: [uuid], created_at}
 
 Een profiel zonder schema geldt de hele week (`00:00`, alle dagen) met `target_c` en `mode`.
 
+## Boilerbescherming
+
+Een beschermd apparaat geeft op de zone- en lichtroute `409` met `detail.code = "policy_denied"`,
+ook wanneer het offline is. Bij een scèneverzoek worden zowel het groepsdoel in het pad als het
+scènedoel in de body gecontroleerd. Knopkoppelingen via POST, PUT en PATCH krijgen dezelfde weigering,
+ook voor een klimaatstap of hervatstap naar een zone met een beschermde unit. Een geweigerde
+bulkvervanging bewaart alle bestaande koppelingen.
+
+`PATCH /zones/{id}` accepteert als unit alleen `ac_unit` en als sensor alleen `zigbee_sensor` uit
+dezelfde woning. Een beschermd apparaat geeft eerst `409 policy_denied`; een overige verkeerde
+apparaatsoort geeft `422 validation_error`. Bij weigering verandert geen enkel veld. Ontkoppelen met
+`null` blijft mogelijk. Configuratie vereist beheerrechten; een telefoon met alleen `control` en
+lezers krijgen op die beheerroutes `403 forbidden`. Bedieningsrechten heffen de boilerblokkade niet op.
+
+De knopsimulatie houdt haar bestaande antwoordvorm: HTTP 200 met per stap `refused` en
+`code: "policy_denied"`. Een droge hervatstap toont alleen de configuratiewijziging (`would_run`),
+geen fysieke uitvoering. WebSocket ontvangt pingberichten en levert updates; hij biedt geen
+commandodispatch. Volledige lokale ketenproeven en beperkingen: [boilerregressies](boiler-regressies.md).
+
 ## Commando's
 
 Elke opdracht aan een apparaat (zone, lichtgroep, scène, Zigbee-koppelvenster) gaat als `queued` de

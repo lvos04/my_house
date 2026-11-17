@@ -2,9 +2,8 @@
 
 import pytest
 
+from .boiler_support import boiler_rig as boiler_rig
 from .boiler_support import commands, mapping, mappings, set_online
-
-pytest_plugins = ["tests.boiler_support"]
 
 
 @pytest.mark.parametrize("path,scene", [
