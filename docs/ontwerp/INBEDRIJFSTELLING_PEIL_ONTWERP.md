@@ -102,8 +102,10 @@ regels. Filter **server-side** exact op apparaat-ID en toegestane woning, vóór
 
 Bij gate aan en `compatibility != tested`: HTTP **409**, bestaand `detail`-foutformaat, nieuwe code
 **`device_not_tested`**, Nederlandse `message` uit `commissioning.denied` in §7. Geen 202 of command-ID bij een
-directe weigering. Bescherming heeft voorrang: ook een geteste boiler geeft `policy_denied`; niet-ondersteund blijft
-het bestaande protocol-/soortbeleid volgen. Rechten/woningafscherming gaan vóór het vrijgeven van apparaatgegevens.
+directe weigering. Bescherming heeft voorrang: ook een geteste boiler geeft `policy_denied`. Daarna geeft elke
+niet-geteste status, inclusief `unsupported` of ontbrekend, de eigen gatecode. Bestaand protocol-/soortbeleid blijft
+daarnaast gelden; een testlabel maakt een niet-ondersteund commando niet uitvoerbaar. Rechten/woningafscherming
+gaan vóór het vrijgeven van apparaatgegevens.
 
 Web toont GateBlokkade bij de bediening, naam van het doel, reden en vervolglink. Bij een fout van dit verzoek
 wordt de uitleg eenmaal aangekondigd; een vooraf zichtbare blokkade heeft geen alarmerende live-regio. Beheerder:
@@ -299,7 +301,7 @@ Alle resultaten hieronder zijn **nog te meten na bouw**, met fictieve gegevens e
 3. Bestaande installatie: taak blijft na herladen zichtbaar; laatste bediening uitsluitend `confirmed`, per exact apparaat/woning; geen record heeft de lege tekst. Geen overerving bij vervangen.
 4. Per-apparaat- en bulkbevestiging: bewuste niet-vooringevulde keuze, alle namen, annuleren zonder mutatie, atomair foutgedrag/drift/dubbelklik, per apparaat audit. Ontdekking/pairing/leestest verandert teststatus niet en schakelt niets.
 5. Inschakelen: expliciet gevolg en actuele resterende aantallen; na bevestiging blijvend aan met audit, ook na herstart. Fout/onbekende uitkomst toont geen schijnbevestiging; ophalen herstelt werkelijke toestand.
-6. Gateketen uit §4: ongetest en ontbrekende status bij aan geven eigen weigering, ook beheerder en worker; nul adapteraanroepen. Positieve geteste tegenhanger werkt binnen alle overige beperkingen; boiler altijd `policy_denied`. Gate uit behoudt bestaande bediening.
+6. Gateketen uit §4: ongetest, `unsupported` en ontbrekende status bij aan geven eigen weigering, ook beheerder en worker; nul adapteraanroepen. Positieve geteste tegenhanger werkt binnen alle overige beperkingen; boiler altijd `policy_denied`. Gate uit behoudt bestaande bediening.
 7. Historie: twee woningen, meerdere apparaten, oude ontbrekende velden en meerdere pagina's; filtering vóór limiet, nieuwste boven, geen huidige notitie op oude regels. Niet-beheerders krijgen geen actorhistorie.
 8. Wizard: meters → Hue lezen → Hue testen → Gree; wachten in gewone taal zonder D12-vrijgave via browservoortgang. Gree later laat basis doorgaan; oude voortgang markeert geen nieuwe teststap af.
 9. Android: eigen JSON-409 bewaart code/uitleg, Nederlands en Engels gebruiken de specifieke resource; geen command-ID, retry/routewissel/ontkoppeling, klimaatconcept weg. Kale 409 houdt bestaande algemene fouttekst.
