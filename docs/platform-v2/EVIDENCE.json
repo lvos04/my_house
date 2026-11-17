@@ -105,9 +105,9 @@
   "validatie": "Unit-getest",
   "bewijs": "commit 485b491 (kopie 1.3 + tools/contract_kopie.py + docs/platform-v2/CONTRACT_HERKOMST.json, bron ai-server-manager@02b119c); EVIDENCE-test apps/api/tests/platform_v2/test_evidence_contract.py; drifttest apps/api/tests/platform_v2/test_contract_kopie.py (negatieve gevallen: gewijzigde byte, gerepareerde link, verkeerde pin, kopie ≠ gepinde commit); CI-stap 'Platform contract copy (drift)': controleer + vergelijk --online; GitHub Actions op 0cead2c: CI-run 42779782484 geslaagd (backend 188+370 tests, 2 overgeslagen = vergelijking met een lokale bronrepo, die CI online doet; web 292; e2e 26; compose; images, scan en rooktest + 5 browsertests achter nginx) en Android-run 42779782488 geslaagd (PeilTokens --check, unit-tests + Paparazzi-vergelijking, debug- en release-APK); lokaal: pytest apps/api 372, integrations 188 (+1 overgeslagen), vitest 292, e2e 26, infra-unittests 23 (ook busybox), Android core 82 + app 109",
   "blokkade": "",
-  "opmerking": "PLATFORM_CONTRACTEN.md (contracts 1.3) en CONTRACT_1.3_CONFORMITEIT.md byte-gelijk uit ai-server-manager op bron-commit 02b119c (was kopie 1.1). Een latere bronstand geeft alleen een waarschuwing; overnemen is een stap van de orkestratie (contract, kop). EVIDENCE.json is herschreven naar de vaste validatiewaarden van §11 (toelichting naar opmerking).",
+  "opmerking": "kopie aanvulling C-12, bron e88a290. PLATFORM_CONTRACTEN.md (contracts 1.3) en CONTRACT_1.3_CONFORMITEIT.md byte-gelijk uit ai-server-manager op bron-commit e88a290 (daarvoor 02b119c; was kopie 1.1). Een latere bronstand geeft alleen een waarschuwing; overnemen is een stap van de orkestratie (contract, kop). EVIDENCE.json is herschreven naar de vaste validatiewaarden van §11 (toelichting naar opmerking).",
   "repo": "my_house",
-  "bijgewerkt": "2026-11-10"
+  "bijgewerkt": "2026-11-17"
  },
  {
   "id": "C1.3-MH-02",

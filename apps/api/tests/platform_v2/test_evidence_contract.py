@@ -40,6 +40,7 @@ VALIDATIE = {
     "NIET GEVALIDEERD (hardware)",
     "NIET GEVALIDEERD (account)",
     "NIET GEVALIDEERD (Mac/Xcode)",
+    "NIET GEVALIDEERD (echte Hub)",  # aanvulling C-12 (C12-6)
     "Niet getest",
 }
 TESTMATRIX_ID = re.compile(r"EX\d+|JLT-\d+")
@@ -121,6 +122,19 @@ def echt() -> list[dict[str, Any]]:
 
 def test_evidence_volgt_paragraaf_11(echt: list[dict[str, Any]]) -> None:
     assert fouten(echt, excel_ids(), conformiteitspunten()) == []
+
+
+def test_vaste_lijst_is_de_tabel_van_paragraaf_11() -> None:
+    """De vaste lijst volgt het contract: een waarde erbij of eraf zonder contracttekst is rood (C12-6: echte Hub)."""
+    tekst = (PV2 / "PLATFORM_CONTRACTEN.md").read_text(encoding="utf-8")
+    begin = tekst.index("## 11. Bewijs en Excel")
+    p11 = tekst[begin : tekst.index("## 12.", begin)]
+    in_tabel: set[str] = set()
+    for ruw in p11.splitlines():
+        regel = ruw.strip()
+        if regel.startswith("| `"):
+            in_tabel.update(re.findall(r"`([^`]+)`", regel.split(" | ")[0]))
+    assert in_tabel == VALIDATIE, f"verschil met contract §11: {sorted(in_tabel ^ VALIDATIE)}"
 
 
 def test_alle_punten_van_my_house_staan_in_de_lijst() -> None:
