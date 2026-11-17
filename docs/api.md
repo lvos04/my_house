@@ -538,8 +538,9 @@ een beheerder hem opheft. **Onderhoudsmodus** staat aan tijdens een herstel: de 
 **Herstelmodus** (database van een nieuwere my_house-versie, zie [onderhoud.md](onderhoud.md#updates-en-terugdraaien)):
 de API gebruikt de database dan niet. `GET /health` geeft 503 `{status: "herstelmodus", version, detail: {code:
 "database_newer", message}}`; `GET /system/recovery` (`public`, alleen in de herstelmodus) geeft 200 `{mode:
-"herstelmodus", code, message, version, database_revision, newest_known_revision}`; elke andere route, ook de
-websocket, geeft 503 `database_newer` (de websocket sluit met code 1013). `shc-api migrate` stopt dan met exitcode 3.
+"herstelmodus", code, message, version, database_revision, newest_known_revision}`; elke andere route geeft 503
+`database_newer`. De websocket (`/ws`) wordt geaccepteerd en meteen gesloten met sluitcode 1013 en reden
+`database_newer`, zonder bericht. `shc-api migrate` stopt dan met exitcode 3.
 
 ### Back-ups
 

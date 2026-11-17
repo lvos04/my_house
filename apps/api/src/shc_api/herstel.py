@@ -9,7 +9,10 @@ en geen auditregels, dus hij kan niets schrijven. Het proces stopt ook niet, dus
   API dus niet als gezond.
 - ``GET /api/v1/system/recovery`` (herstelinfo): 200 met dezelfde uitleg, de revisie van de database en de nieuwste
   revisie die deze versie kent. Zonder aanmelding; er staan geen gegevens van het huis in.
-- Al het andere (elke methode, elke route, ook de websocket): 503 ``database_newer``.
+- Al het andere (elke methode, elke route): 503 ``database_newer``.
+- Een websocket wordt eerst geaccepteerd en dan meteen gesloten met sluitcode 1013 ("Try Again Later") en reden
+  ``database_newer``; er gaat geen bericht over. Een sluiting vóór de accept maakt uvicorn tot een HTTP 403 bij de
+  handshake, en dan ziet de client code noch reden.
 
 Nooit automatisch downgraden: de gebruiker kiest in het formulier van de Custom App de bijpassende versie of zet de
 snapshot van vóór de update terug.
@@ -71,7 +74,9 @@ class HerstelApp:
                     await send({"type": "lifespan.shutdown.complete"})
                     return
         if kind == "websocket":
-            await WebSocket(scope, receive, send).close(code=WS_TRY_AGAIN_LATER)
+            ws = WebSocket(scope, receive, send)
+            await ws.accept()  # zonder accept wordt de sluiting een HTTP 403 bij de handshake (zie boven)
+            await ws.close(code=WS_TRY_AGAIN_LATER, reason=DATABASE_NIEUWER_CODE)
             return
         status, body = self.answer(scope.get("method", ""), scope.get("path", ""))
         raw = json.dumps(body, ensure_ascii=False).encode()

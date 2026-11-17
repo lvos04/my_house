@@ -10,7 +10,8 @@ dumps). Met ``restart: unless-stopped`` werd dat een herstartlus die de opslag v
     ``/api/v1/system/recovery`` (200); elke andere route, ook elke schrijvende, geeft 503 ``database_newer``;
     de worker start geen rondes en wacht zonder te stoppen;
 (c) een database op het huidige schema start gewoon;
-(d) een database op een ouder schema migreert zoals voorheen, met dump.
+(d) een gevulde database op een ouder schema migreert zoals voorheen, met een dump die de gegevens bevat (teruggezet
+    in een lege database: dezelfde inhoud als vóór de migratie).
 
 De tabellen worden vergeleken met inhoud (niet leeg, V-003); de herkenning gebruikt de migratieketen, niet de letterlijke
 waarde "0099" (V-086: ook "0005", het eerstvolgende nummer, telt als nieuwer).
@@ -19,10 +20,17 @@ waarde "0099" (V-086: ook "0005", het eerstvolgende nummer, telt als nieuwer).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import functools
+import gzip
 import json
 import logging
 import re
+import shutil
+import socket
+import subprocess
+import threading
+import time
 import uuid
 
 import httpx
@@ -112,6 +120,29 @@ def _migrate_op(monkeypatch, url: str, backup_dir) -> None:
     monkeypatch.setattr(cli, "migrate", functools.partial(cli.migrate, url, backup_dir=backup_dir))
 
 
+@contextlib.asynccontextmanager
+async def _app_op(url: str, backup_dir):
+    """De hele app op de proefdatabase: ``SHC_DATABASE_URL`` en ``SHC_BACKUP_DIR``, de instellingen opnieuw gelezen en
+    de engine/sessionmaker van ``shc_api.db`` opnieuw gemaakt. Zo gebruiken ``cli.main`` (``migrate()`` zonder
+    adres), ``cli.current_revision()``, de worker en de API zelf de proefdatabase, en ziet de vergelijking van de
+    inhoud elke schrijfactie (R-TECH-1). Daarna alles terug naar de testdatabase van de suite."""
+    from shc_api import db
+    from shc_api.config import get_settings
+
+    mp = pytest.MonkeyPatch()
+    await db.dispose()
+    try:
+        mp.setenv("SHC_DATABASE_URL", url)
+        mp.setenv("SHC_BACKUP_DIR", str(backup_dir))
+        get_settings.cache_clear()
+        assert get_settings().database_url == url
+        yield
+    finally:
+        await db.dispose()
+        mp.undo()
+        get_settings.cache_clear()
+
+
 def _serve(monkeypatch) -> dict:
     import uvicorn
 
@@ -199,54 +230,54 @@ async def test_api_start_in_herstelmodus_en_weigert_alles_behalve_health(monkeyp
     try:
         voor = await _inhoud(url)
         _niet_leeg(voor)
-        _migrate_op(monkeypatch, url, tmp_path)
-        capsys.readouterr()
-        gezien = _serve(monkeypatch)  # geen SystemExit: geen herstartlus
-        app = gezien["app"]
-        assert isinstance(app, HerstelApp)
-        assert "db_detail" in gezien["kw"]["log_config"]["filters"]  # zelfde logfilter als de gewone app
-        err = capsys.readouterr().err
-        assert "Herstelmodus" in err and TEKST in err
+        async with _app_op(url, tmp_path):  # de app zelf op de proefdatabase: een schrijfactie wordt zichtbaar
+            capsys.readouterr()
+            gezien = _serve(monkeypatch)  # geen SystemExit: geen herstartlus
+            app = gezien["app"]
+            assert isinstance(app, HerstelApp)
+            assert "db_detail" in gezien["kw"]["log_config"]["filters"]  # zelfde logfilter als de gewone app
+            err = capsys.readouterr().err
+            assert "Herstelmodus" in err and TEKST in err
 
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/health")
-            assert r.status_code == 503
-            body = r.json()
-            assert body["status"] == "herstelmodus" and body["version"] == VERSION
-            assert body["detail"] == {"code": "database_newer", "message": cli.DATABASE_NIEUWER_TEKST}
-            assert cli.DATABASE_NIEUWER_TEKST.startswith(TEKST)
-            assert r.headers["cache-control"] == "no-store"
-            assert r.headers["x-content-type-options"] == "nosniff"
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
+                r = await c.get("/api/v1/health")
+                assert r.status_code == 503
+                body = r.json()
+                assert body["status"] == "herstelmodus" and body["version"] == VERSION
+                assert body["detail"] == {"code": "database_newer", "message": cli.DATABASE_NIEUWER_TEKST}
+                assert cli.DATABASE_NIEUWER_TEKST.startswith(TEKST)
+                assert r.headers["cache-control"] == "no-store"
+                assert r.headers["x-content-type-options"] == "nosniff"
 
-            r = await c.get("/api/v1/system/recovery")  # herstelinfo, zonder aanmelding
-            assert r.status_code == 200
-            info = r.json()
-            assert info["mode"] == "herstelmodus" and info["code"] == "database_newer"
-            assert info["message"] == cli.DATABASE_NIEUWER_TEKST
-            assert info["database_revision"] == "0099_toekomst"
-            assert info["newest_known_revision"] == bk.head_revision()
-            assert info["version"] == VERSION
+                r = await c.get("/api/v1/system/recovery")  # herstelinfo, zonder aanmelding
+                assert r.status_code == 200
+                info = r.json()
+                assert info["mode"] == "herstelmodus" and info["code"] == "database_newer"
+                assert info["message"] == cli.DATABASE_NIEUWER_TEKST
+                assert info["database_revision"] == "0099_toekomst"
+                assert info["newest_known_revision"] == bk.head_revision()
+                assert info["version"] == VERSION
 
-            geteld = {m: 0 for m in ("GET", *UNSAFE)}
-            for methode, pad in _routes():
-                if pad == "/api/v1/health":
-                    continue
-                r = await c.request(methode, pad, json={} if methode in UNSAFE else None)
-                assert r.status_code == 503, (methode, pad, r.status_code)
-                assert r.json() == {"detail": {"code": "database_newer", "message": cli.DATABASE_NIEUWER_TEKST}}
-                geteld[methode] = geteld.get(methode, 0) + 1
-            assert geteld["GET"] >= 20 and sum(geteld[m] for m in UNSAFE) >= 40, geteld  # echt alle routes
-            for methode, pad in (
-                ("POST", "/api/v1/auth/login"),
-                ("POST", "/api/v1/auth/setup"),
-                ("GET", "/api/v1/auth/status"),
-                ("POST", "/api/v1/health"),
-                ("GET", "/api/v1/bestaat-niet"),
-                ("GET", "/"),
-            ):
-                r = await c.request(methode, pad)
-                assert r.status_code == 503, (methode, pad)
-                assert r.json()["detail"]["code"] == "database_newer"
+                geteld = {m: 0 for m in ("GET", *UNSAFE)}
+                for methode, pad in _routes():
+                    if pad == "/api/v1/health":
+                        continue
+                    r = await c.request(methode, pad, json={} if methode in UNSAFE else None)
+                    assert r.status_code == 503, (methode, pad, r.status_code)
+                    assert r.json() == {"detail": {"code": "database_newer", "message": cli.DATABASE_NIEUWER_TEKST}}
+                    geteld[methode] = geteld.get(methode, 0) + 1
+                assert geteld["GET"] >= 20 and sum(geteld[m] for m in UNSAFE) >= 40, geteld  # echt alle routes
+                for methode, pad in (
+                    ("POST", "/api/v1/auth/login"),
+                    ("POST", "/api/v1/auth/setup"),
+                    ("GET", "/api/v1/auth/status"),
+                    ("POST", "/api/v1/health"),
+                    ("GET", "/api/v1/bestaat-niet"),
+                    ("GET", "/"),
+                ):
+                    r = await c.request(methode, pad)
+                    assert r.status_code == 503, (methode, pad)
+                    assert r.json()["detail"]["code"] == "database_newer"
 
         assert list(tmp_path.iterdir()) == []  # geen dump
         assert await _inhoud(url) == voor  # niets geschreven (ook geen audit_log, sessie of melding)
@@ -267,8 +298,8 @@ async def test_herstelmodus_sluit_websocket_en_start_zonder_achtergrondtaken():
         return {"type": "websocket.connect"}
 
     await app({"type": "websocket", "path": "/api/v1/ws", "headers": []}, connect, send)
-    assert len(verzonden) == 1
-    assert verzonden[0]["type"] == "websocket.close" and verzonden[0]["code"] == 1013
+    assert [m["type"] for m in verzonden] == ["websocket.accept", "websocket.close"]  # geen bericht ertussen
+    assert verzonden[1]["code"] == 1013 and verzonden[1]["reason"] == "database_newer"
 
     verzonden.clear()
     berichten = iter([{"type": "lifespan.startup"}, {"type": "lifespan.shutdown"}])
@@ -280,15 +311,55 @@ async def test_herstelmodus_sluit_websocket_en_start_zonder_achtergrondtaken():
     assert verzonden == [{"type": "lifespan.startup.complete"}, {"type": "lifespan.shutdown.complete"}]
 
 
-async def test_worker_start_niet_bij_nieuwer_schema_en_wacht(monkeypatch, caplog):
+async def test_herstelmodus_websocket_client_ziet_1013_met_reden():
+    """R-TECH-3: wat een echte client ontvangt. Een echte uvicorn (zoals ``shc-api serve``) met de HerstelApp op een vrije
+    poort van 127.0.0.1 en een echte websocket-client: de handshake slaagt en de verbinding sluit met code 1013 en reden
+    ``database_newer``. Een sluiting vóór de accept gaf hier HTTP 403 bij de handshake, zonder code en reden."""
+    import uvicorn
+    from websockets.asyncio.client import connect
+    from websockets.exceptions import ConnectionClosed
+
+    from shc_api.herstel import HerstelApp
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))  # vrije poort van het besturingssysteem (V-008)
+    poort = sock.getsockname()[1]
+    beleid = asyncio.get_event_loop_policy()
+    # loop="asyncio": met "auto" zet uvicorn het uvloop-beleid voor het hele proces, en dan falen latere tests die een
+    # subproces starten in de lus van de suite (NotImplementedError). Voor de websocket-handshake maakt de lus niets uit.
+    config = uvicorn.Config(HerstelApp("0099_toekomst", bk.head_revision()), log_level="warning", loop="asyncio")
+    server = uvicorn.Server(config)
+    draad = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+    draad.start()
+    try:
+        grens = time.monotonic() + 20
+        while not server.started and draad.is_alive() and time.monotonic() < grens:
+            await asyncio.sleep(0.05)
+        assert server.started, "uvicorn startte niet"
+        async with connect(f"ws://127.0.0.1:{poort}/api/v1/ws", proxy=None, open_timeout=10) as ws:  # 101: geaccepteerd
+            with pytest.raises(ConnectionClosed) as ei:
+                await asyncio.wait_for(ws.recv(), timeout=10)  # er komt geen bericht, alleen de sluiting
+        assert ei.value.rcvd is not None, ei.value
+        assert (ei.value.rcvd.code, ei.value.rcvd.reason) == (1013, "database_newer")
+        async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{poort}", trust_env=False) as c:  # dezelfde server
+            r = await c.get("/api/v1/health")
+        assert r.status_code == 503 and r.json()["status"] == "herstelmodus"
+    finally:
+        server.should_exit = True
+        await asyncio.to_thread(draad.join, 10)
+        sock.close()
+    assert not draad.is_alive()
+    assert asyncio.get_event_loop_policy() is beleid
+
+
+@pytest.mark.parametrize("revisie", NIEUWER)
+async def test_worker_start_niet_bij_nieuwer_schema_en_wacht(monkeypatch, caplog, tmp_path, revisie):
     from shc_api.worker import core
 
-    cm, url = await _database_nieuwer("0099_toekomst")
+    cm, url = await _database_nieuwer(revisie)
     try:
         voor = await _inhoud(url)
         _niet_leeg(voor)
-        echte = cli.current_revision
-        monkeypatch.setattr(cli, "current_revision", lambda _url=None: echte(url))
         gestart: list[str] = []
 
         async def run(self) -> None:
@@ -296,11 +367,17 @@ async def test_worker_start_niet_bij_nieuwer_schema_en_wacht(monkeypatch, caplog
 
         monkeypatch.setattr(core.Worker, "run", run)
         caplog.set_level(logging.INFO, logger="shc.worker")
-        with pytest.raises(TimeoutError):  # wacht zonder te stoppen: geen exit, dus geen herstartlus
-            await asyncio.wait_for(core.run(), timeout=1.5)
+        # De worker zelf op de proefdatabase: hij leest de revisie via het echte leespad (cli.current_revision zonder
+        # adres) en elke schrijfactie via zijn sessionmaker komt in de vergelijking hieronder (R-TECH-1).
+        async with _app_op(url, tmp_path):
+            assert cli.current_revision() == revisie
+            with pytest.raises(TimeoutError):  # wacht zonder te stoppen: geen exit, dus geen herstartlus
+                await asyncio.wait_for(core.run(), timeout=1.5)
         assert gestart == []
         meldingen = [r for r in caplog.records if r.name == "shc.worker" and "nieuwere my_house-versie" in r.getMessage()]
         assert len(meldingen) == 1 and meldingen[0].levelno == logging.ERROR
+        assert f"Databaserevisie {revisie};" in meldingen[0].getMessage()
+        assert list(tmp_path.iterdir()) == []
         assert await _inhoud(url) == voor  # geen hartslag, geen lus, niets geschreven
     finally:
         await cm.__aexit__(None, None, None)
@@ -356,15 +433,39 @@ async def test_huidig_schema_start_gewoon(monkeypatch, tmp_path):
 
 
 async def test_ouder_schema_migreert_met_dump(monkeypatch, tmp_path):
-    import gzip
-
+    """Een GEVULDE database op schema 0003 (V-003, R-HARDE-EIS-1): na ``shc-api migrate`` is per tabel het aantal rijen
+    en de md5 gelijk (alleen alembic_version gaat naar de nieuwste revisie), en de dump van vóór de migratie bevat de
+    gegevens: teruggezet in een lege database geeft hij precies de inhoud van vóór de migratie. Een dump met alleen het
+    schema (``--schema-only``) valt hier dus op."""
     async with temp_db("0003") as url:
-        _migrate_op(monkeypatch, url, tmp_path)
+        await _vul(url)
+        voor = await _inhoud(url)
+        _niet_leeg(voor)
+        assert voor["alembic_version"][0] == 1
+        backups = tmp_path / "backups"
+        _migrate_op(monkeypatch, url, backups)
         cli.main(["migrate"])
-        dumps = sorted(tmp_path.glob("pre-migrate-0003-*.sql.gz"))
-        assert len(dumps) == 1, list(tmp_path.iterdir())
-        assert b"CREATE TABLE" in gzip.decompress(dumps[0].read_bytes())
         assert cli.current_revision(url) == bk.head_revision()
+        na = await _inhoud(url)
+        assert {t: v for t, v in na.items() if t != "alembic_version"} == {
+            t: v for t, v in voor.items() if t != "alembic_version"
+        }
+        dumps = sorted(backups.glob("pre-migrate-0003-*.sql.gz"))
+        assert len(dumps) == 1, list(backups.iterdir())
+        sql = gzip.decompress(dumps[0].read_bytes())
+        assert b"bewoner" in sql and b"proef_s_p3_700" in sql  # de ingevoegde waarden staan in de dump
+
+    # Terugzetten zoals in docs/onderhoud.md: de dump in een lege database. Nooit twee dumps letterlijk vergelijken
+    # (pg_dump 16.10+ zet een willekeurige \restrict-regel); de vergelijking gaat over de inhoud per tabel.
+    psql = shutil.which("psql")
+    assert psql, "psql ontbreekt (PATH=/usr/lib/postgresql/16/bin:$PATH)"
+    async with temp_db(None) as terug:
+        dsn, _pw = cli._libpq(terug)
+        r = await asyncio.to_thread(
+            subprocess.run, [psql, "-X", "-q", "-v", "ON_ERROR_STOP=1", f"--dbname={dsn}"], input=sql, capture_output=True
+        )
+        assert r.returncode == 0, r.stderr.decode(errors="replace")[-2000:]
+        assert await _inhoud(terug) == voor  # alle tabellen, met dezelfde rijen als vóór de migratie
 
 
 def test_herstelinfo_is_vaste_json():
