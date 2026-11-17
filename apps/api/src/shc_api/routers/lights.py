@@ -19,7 +19,7 @@ from sqlalchemy import delete, select
 
 from .. import climate as cl
 from .. import views
-from ..commanding import CommandRejected, queue_command, request_zone_command
+from ..commanding import CommandRejected, check_scene_group_policy, queue_command, request_zone_command
 from ..deps import DB, Admin, Auth, Control, get_home
 from ..errors import api_error, not_found
 from ..models import ButtonMapping, ClimateZone, Device, Home
@@ -38,6 +38,7 @@ async def _check_target(db: DB, target: Device, action: str) -> None:
     roles, protected = await roles_of(db, target.id)
     try:
         check_command(DeviceFacts(target.kind, roles, protected), action, {})
+        await check_scene_group_policy(db, target, action, {})
     except PolicyDenied as e:
         raise api_error(409, "policy_denied", e.message) from e
 
@@ -419,6 +420,15 @@ async def patch_mapping(mapping_id: uuid.UUID, body: MappingPatch, db: DB, p: Ad
         await audit(db, p.actor, "button_mapping_updated", d.name, mapping=str(m.id))
         await db.commit()
         return button_view(d, await _maps(db, d.id))
+    # Oude beschermde scènekoppelingen mogen uitsluitend worden uitgezet, ook bij een nieuw doel.
+    for step in mapping_steps(m.action):
+        target_id = _uuid(step.get("device_id")) if step["type"] == "light" else None
+        target = await db.get(Device, target_id) if target_id else None
+        if target is not None and target.home_id == d.home_id:
+            try:
+                await check_scene_group_policy(db, target, str(step.get("action") or "recall_scene"), {})
+            except PolicyDenied as e:
+                raise api_error(409, "policy_denied", e.message) from e
     data = {**_mapping_dict(m)}
     data.pop("id")
     for f in body.model_fields_set:
@@ -488,6 +498,7 @@ async def _dry_run(db: DB, home: Home, dev: Device, step: dict, mapping_mode: st
     roles, protected = await roles_of(db, target.id)
     try:
         check_command(DeviceFacts(target.kind, roles, protected), action, params)
+        await check_scene_group_policy(db, target, action, params)
     except PolicyDenied as e:
         return {**out, "result": "refused", "code": "policy_denied", "reason": e.message}
     if mapping_mode == "climate":

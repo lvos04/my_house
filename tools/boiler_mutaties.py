@@ -125,6 +125,27 @@ for target in ("licht", "zone"):
 case("lamp-vervangen-toegestaan", "stapsoort-te-streng",
      "test_boiler_herstel_2.py::test_lamp_door_lamp_vervangen_blijft_werken")
 
+# Ronde 3: iedere nieuwe ingang en beide historische UUID-notaties afzonderlijk rood maken.
+for method in ("post", "put", "patch"):
+    case(f"scene-groep-{method}", "scene-opslag",
+         f"test_boiler_herstel_3.py::test_scene_beschermde_groep_opslaan_atomair[{method}]")
+case("scene-oud-doel", "scene-opslag",
+     "test_boiler_herstel_3.py::test_oude_scene_groep_alleen_uitzetten[ander-doel]")
+case("scene-groep-simulatie", "scene-simulatie", "test_boiler_herstel_3.py::test_scene_beschermde_groep_simulatie")
+case("scene-groep-knopdruk", "scene-wachtrij", "test_boiler_herstel_3.py::test_scene_beschermde_groep_worker")
+case("scene-groep-hercontrole", "scene-hercontrole",
+     "test_boiler_herstel_3.py::test_scene_groep_worker_hercontrole_na_rolwijziging")
+for enabled in (True, False):
+    for way in ("binden", "bestaand-doel", "meeverhuizen"):
+        case(f"scene-verwijzing-{enabled}-{way}", "scene-verwijzingen",
+             f"test_boiler_herstel_3.py::test_scene_groep_verwijzing_atomair[{enabled}-{way}]")
+for notation in ("hoofdletters", "zonder-streepjes"):
+    for way in ("binden", "bestaand-doel", "meeverhuizen"):
+        case(f"uuid-verwijzing-{way}-{notation}", "uuid-tekst",
+             f"test_boiler_herstel_3.py::test_oude_uuid_verwijzing_atomair[{way}-{notation}]")
+case("scene-onbeschermd-toegestaan", "scene-te-streng",
+     "test_boiler_herstel_3.py::test_onbeschermde_scene_blijft_werken")
+
 PLUGIN = r"""
 import json
 import pytest
@@ -136,6 +157,39 @@ def beschadig_controle(monkeypatch):
     from shc_api.worker import commands
     from shc_integrations.homewizard import HomeWizardAdapter
     kind = MUTATION
+    if kind.startswith("scene-"):
+        async def zonder_groepscontrole(*a):
+            pass
+        if kind == "scene-opslag":
+            monkeypatch.setattr(lights, "check_scene_group_policy", zonder_groepscontrole)
+        if kind == "scene-simulatie":
+            monkeypatch.setattr(lights, "check_scene_group_policy", zonder_groepscontrole)
+            monkeypatch.setattr(commanding, "check_scene_group_policy", zonder_groepscontrole)
+        if kind == "scene-wachtrij":
+            monkeypatch.setattr(commanding, "check_scene_group_policy", zonder_groepscontrole)
+        if kind == "scene-hercontrole":
+            monkeypatch.setattr(commands, "check_scene_group_policy", zonder_groepscontrole)
+        if kind == "scene-verwijzingen":
+            import inspect
+            func = devices._check_reference_policy
+            source = inspect.getsource(func)
+            old = ('target_ids = ids | {scene.id for scene in scenes if _reference_uuid(\n'
+                   '        (scene.state or {}).get("group_device_id")) in ids}')
+            assert old in source, "Scèneverwijzingsmutatie vond de controle niet."
+            source = source.replace(old, 'target_ids = ids')
+            functions = {}
+            exec(compile(source, "<mutatie-sceneverwijzing>", "exec"), func.__globals__, functions)
+            monkeypatch.setattr(func, "__code__", functions[func.__name__].__code__)
+        if kind == "scene-te-streng":
+            async def elke_scene_weigeren(*a):
+                raise commanding.PolicyDenied("Mutatie weigert ook een onbeschermde scène.")
+            monkeypatch.setattr(lights, "check_scene_group_policy", elke_scene_weigeren)
+    if kind == "uuid-tekst":
+        original_uuid = devices._reference_uuid
+        def alleen_canoniek(value):
+            parsed = original_uuid(value)
+            return parsed if str(parsed) == value else None
+        monkeypatch.setattr(devices, "_reference_uuid", alleen_canoniek)
     if kind == "zone-typen":
         import inspect
         source = inspect.getsource(zones.patch_zone)

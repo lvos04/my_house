@@ -381,3 +381,97 @@ zonder skips; integraties `188 passed, 1 skipped in 13.61s`. De bestaande skip i
 `geen readback om te vervalsen` uit `integrations/tests/contract_kit.py` en telt niet als groen
 bewijs. Ruff voor API, tools/infra en integraties, contract-/Peil-controles en online vergelijkingen
 zijn groen. OpenAPI is opnieuw geëxporteerd en byte-gelijk aan de momentopname.
+
+
+## Herstelronde 3: scène van een beschermde groep en UUID-notaties
+
+Besluit `BESLUIT-SCENE-VAN-BESCHERMDE-GROEP`, optie A, sluit de omweg uit proef P4 van
+de veiligheidsherreview. `commanding.check_scene_group_policy` geeft de groep uit
+`state.group_device_id` door aan de bestaande `policy.check_command`. De opslagcontrole,
+simulatie, commandowachtrij en workerhercontrole gebruiken deze functie. De code van
+`POST /lights/groups/{id}` is ongewijzigd. Er is geen migratie en geen tweede beleidslaag.
+
+`apps/api/tests/test_boiler_herstel_3.py` controleert:
+
+- Knop POST, PUT en PATCH weigeren een scène van een beschermde groep met `409 policy_denied`.
+  Alle data en sequenties blijven bytegelijk in de logische databasevergelijking.
+- De simulatie weigert met `refused/policy_denied`, `would_run=false`, zonder databasewijziging.
+- Een echte `ButtonEvent`, inclusief replay, laat de wachtrij leeg en bereikt de registrerende
+  nepadapter niet. Wordt de groep pas na het inplannen beschermd, dan bewaart de worker het
+  bestaande commandorecord als `denied` en zijn er nul adapteraanroepen.
+- Binden en vervangen tellen knopstappen naar scènes van de groep mee, zowel bestaande
+  doelverwijzingen als verwijzingen vanaf het oude apparaat. Ook uitgezette koppelingen tellen mee.
+  Alle drie wegen gebruiken de oude standaardmeetrol `boiler_energy`, waarvoor de soortcontrole
+  geen alternatief vangnet vormt. Weigering blijft atomair.
+- Oude beschermde scènekoppelingen blijven bewaard en kunnen uitsluitend worden uitgezet;
+  aanzetten, modus wijzigen en gecombineerd uitzetten/wijzigen worden geweigerd.
+- V1: de verwijzingscontrole leest UUID’s zoals de worker. Hoofdletters en hex zonder streepjes
+  worden herkend bij binden en beide vervangingsrichtingen, telkens zonder databasewijziging.
+- Een onbeschermde scène blijft op te slaan, droog te simuleren en via de worker uit te voeren
+  op een registrerende nepadapter. Dit bewijst dat de groepscontrole niet alles weigert.
+
+De nulmeting op de oude productiecode gaf `20 failed, 1 passed in 38.67s`. De gerichte set na
+herstel, inclusief de aanvullende workerhercontrole, gaf `22 passed in 12.32s`.
+De exacte commando’s en letterlijke slotregels staan in het externe `RAPPORT-A-HERSTEL-3.md`
+van keten S-P3-705. De mutatietool bevat afzonderlijke tegenproeven voor opslagmethoden,
+simulatie, wachtrij, workerhercontrole, scèneverwijzingen, UUID-notaties en de positieve scèneproef.
+
+Buiten deze ronde blijven de vastgelegde vervolgpunten:
+
+- V2: gelijktijdig binden en opslaan heeft nog geen gezamenlijke vergrendeling. Dit restrisico
+  hoort bij de volgende stap in deze repo; de worker hercontroleert het beleid bij uitvoering.
+- V3: de weigering bij vervangen van een boiler met een oude koppeling noemt de koppeling nog
+  niet expliciet in de tekst.
+- V4: een oude nooit uitvoerbare stap kan vervangen door dezelfde soort blokkeren.
+
+B06-003 en EX27 behouden hun status en validatie. Dit is Sim-getest, NIET GEVALIDEERD (hardware).
+Ondertekende connector, Hub-integratie en fysieke acceptatie blijven open; er rest meer dan een NAS-test.
+
+De volledige mutatieronde gaf `129 mutaties gedraaid; 0 niet bewezen`: de 110 bestaande
+en 19 nieuwe mutaties. Hieronder de letterlijke slotregels van de nieuwe subprocessen
+(ieder exitcode 1 op de bedoelde assertie). De onbewerkte uitvoer en alle 129 exacte
+subprocesscommando’s staan in het externe ketenrapport en de bijbehorende logmap.
+
+| Weg | Letterlijke pytest-slotregel |
+|---|---|
+| `scene-groep-post` | `1 failed in 2.91s` |
+| `scene-groep-put` | `1 failed in 2.98s` |
+| `scene-groep-patch` | `1 failed in 3.29s` |
+| `scene-groep-simulatie` | `1 failed in 3.23s` |
+| `scene-groep-knopdruk` | `1 failed in 3.57s` |
+| `scene-groep-hercontrole` | `1 failed in 3.06s` |
+| `scene-verwijzing-True-binden` | `1 failed in 24.23s` |
+| `scene-verwijzing-True-bestaand-doel` | `1 failed in 4.09s` |
+| `scene-verwijzing-True-meeverhuizen` | `1 failed in 4.31s` |
+| `scene-verwijzing-False-binden` | `1 failed in 3.38s` |
+| `scene-verwijzing-False-bestaand-doel` | `1 failed in 2.18s` |
+| `scene-verwijzing-False-meeverhuizen` | `1 failed in 3.63s` |
+| `uuid-verwijzing-binden-hoofdletters` | `1 failed in 3.16s` |
+| `uuid-verwijzing-bestaand-doel-hoofdletters` | `1 failed in 3.63s` |
+| `uuid-verwijzing-meeverhuizen-hoofdletters` | `1 failed in 2.73s` |
+| `uuid-verwijzing-binden-zonder-streepjes` | `1 failed in 2.97s` |
+| `uuid-verwijzing-bestaand-doel-zonder-streepjes` | `1 failed in 2.90s` |
+| `uuid-verwijzing-meeverhuizen-zonder-streepjes` | `1 failed in 2.98s` |
+| `scene-onbeschermd-toegestaan` | `1 failed in 3.18s` |
+
+Na het nalezen van de eerste mutatielogs zijn de vier vervangingsproeven aangescherpt:
+ook de oude rol op het te vervangen apparaat is nu `boiler_energy`, zodat een soortweigering
+het ontbreken van de scèneverwijzingscontrole niet kan verhullen. De zes scèneverwijzingsmutaties
+zijn daarna opnieuw gedraaid: elk faalt op de databasebytevergelijking. De tabel toont voor deze
+zes de slotregel van die herhaling. De overige 123 mutaties zijn sinds hun run niet gewijzigd.
+
+Ook het vervangen van het oude scènedoel door een onbeschermd doel met PATCH is afzonderlijk
+getoetst: de aanvullende nulmeting gaf `1 failed in 3.55s` op de databasebytevergelijking.
+PATCH toetst nu vóór een inhoudelijke wijziging ook de groep van de bestaande scènestappen.
+Uitsluitend uitzetten blijft toegestaan; gegevens worden niet herschreven of gemigreerd.
+De volledige gerichte set gaf daarna `23 passed in 6.72s`.
+De aanvullende mutatie `scene-oud-doel` gaf exitcode 1 met slotregel `1 failed in 1.99s`.
+Daarmee zijn 130 verschillende mutaties beproefd: de volledige ronde van 129, zes
+aangescherpte herhalingen en één aanvullende mutatie. Geen collectie- of setupfout telt mee.
+
+Definitieve lokale poort van ronde 3: API `729 passed, 3 warnings in 177.05s (0:02:57)`,
+zonder skips. Integraties: `188 passed, 1 skipped in 13.76s`; de bestaande skip is
+`geen readback om te vervalsen` uit `integrations/tests/contract_kit.py` en telt niet als groen.
+Ruff, contract-/Peil-controles en online vergelijkingen zijn groen. OpenAPI is bytegelijk.
+De eerste volledige API-run vóór de laatste PATCH-aanvulling gaf 728 groen; uitsluitend de
+bovenstaande definitieve run omvat alle 23 nieuwe regressiegevallen.

@@ -340,11 +340,20 @@ Een oude of geïmporteerde beschermde koppeling mag met uitsluitend `PATCH {"ena
 worden uitgezet. Aanzetten of inhoudelijk wijzigen blijft `409 policy_denied`; tegelijk uitzetten
 en een ander veld wijzigen valt ook onder die controle.
 
+Bij een scènestap telt ook de groep uit `state.group_device_id` mee voor het bestaande beleid.
+Knop POST, PUT en PATCH geven bij een beschermde groep `409 policy_denied` zonder databasewijziging;
+de simulatie geeft `refused/policy_denied` en `would_run=false`. De worker weigert vóór het
+inplannen en controleert de groep opnieuw vóór adapteruitvoering. Oude gegevens blijven bewaard;
+een oude beschermde scènekoppeling kan uitsluitend met `PATCH {"enabled": false}` worden uitgezet.
+De verwijzingscontrole leest stap-ID’s als UUID, net als de worker: oude hoofdletters en
+hexnotatie zonder streepjes tellen dus ook mee, inclusief uitgezette koppelingen.
+
 `POST /devices/{id}/bind` en `POST /devices/{id}/replace` toetsen vóór iedere wijziging de bestaande
 policy met alle rollen die het doel daarna heeft, inclusief de beschermde rollen die meeverhuizen.
 Wijzen zones (unit of sensor), knopkoppelingen of knopstappen in dezelfde woning al naar dat doel,
-of verhuizen zulke verwijzingen mee, dan geeft een beschermd doel `409 policy_denied` zonder
-databasewijziging. Dit geldt ook voor oude rollen zoals `boiler_energy` en eigen beschermde rollen.
+ook via een scène van die groep, of verhuizen zulke verwijzingen mee, dan geeft een beschermd doel
+`409 policy_denied` zonder databasewijziging. Dit geldt ook voor oude rollen zoals `boiler_energy`
+en eigen beschermde rollen.
 De boiler zelf vervangen door een meetstekker zonder bestaande of meeverhuizende verwijzingen
 blijft toegestaan: de boilerrol verhuist mee.
 

@@ -271,6 +271,14 @@ async def _role(db: DB, home_id: uuid.UUID, key: str) -> LogicalRole:
     return role
 
 
+def _reference_uuid(value: Any) -> uuid.UUID | None:
+    """Lees oude verwijzingen op dezelfde manier als een workerstap."""
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, TypeError):
+        return None
+
+
 async def _check_reference_policy(
     db: DB, d: Device, extra_roles: list[LogicalRole], moving_from: uuid.UUID | None = None
 ) -> None:
@@ -281,8 +289,17 @@ async def _check_reference_policy(
         (ClimateZone.unit_device_id.in_(ids)) | (ClimateZone.sensor_device_id.in_(ids)),
     ))).scalars().all()
     maps = (await db.execute(select(ButtonMapping).where(ButtonMapping.home_id == d.home_id))).scalars().all()
+    # Scènes zijn indirecte verwijzingen naar hun groep, ook bij uitgezette koppelingen.
+    scenes = (await db.execute(select(Device).where(
+        Device.home_id == d.home_id, Device.kind == "scene",
+    ))).scalars().all()
+    target_ids = ids | {scene.id for scene in scenes if _reference_uuid(
+        (scene.state or {}).get("group_device_id")) in ids}
     referenced = zones or any(
-        m.device_id in ids or any(str(i) in json.dumps(m.action or {}) for i in ids) for m in maps
+        m.device_id in ids or any(
+            step["type"] == "light" and _reference_uuid(step.get("device_id")) in target_ids
+            for step in mapping_steps(m.action)
+        ) for m in maps
     )
     if referenced:
         roles, protected = await roles_of(db, d.id)

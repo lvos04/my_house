@@ -71,6 +71,21 @@ async def lock_outdoor_group(db: AsyncSession, zone: ClimateZone) -> None:
     await db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"), {"k": outdoor_lock_key(zone)})
 
 
+async def check_scene_group_policy(db: AsyncSession, device: Device, action: str, params: dict) -> None:
+    """Toets bij een scène ook haar groep met het bestaande apparaatbeleid."""
+    if device.kind != "scene":
+        return
+    try:
+        group_id = uuid.UUID(str((device.state or {}).get("group_device_id")))
+    except (ValueError, TypeError):
+        return
+    group = await db.get(Device, group_id)
+    if group is None or group.home_id != device.home_id:
+        return
+    roles, protected = await roles_of(db, group.id)
+    check_command(DeviceFacts(group.kind, roles, protected), action, params)
+
+
 async def queue_command(
     db: AsyncSession,
     home_id: uuid.UUID,
@@ -88,6 +103,7 @@ async def queue_command(
         action,
         params,
     )
+    await check_scene_group_policy(db, device, action, params)
     now = datetime.now(UTC)
     cmd = CommandRecord(
         home_id=home_id,
