@@ -20,8 +20,10 @@ from ..commanding import (
 from ..deps import DB, Admin, Auth, Control, get_home
 from ..errors import api_error, not_found
 from ..models import ClimateZone, ComfortProfile, Device, Home, ScheduleBlock, SensorReading, ZoneLog
-from ..store import audit, device_for_role
+from ..policy import DeviceFacts, PolicyDenied, check_command
+from ..store import audit, device_for_role, roles_of
 from ..views.common import CLIMATE_ROLES, caps_of
+from .devices import SENSOR_KINDS
 
 router = APIRouter(tags=["climate"])
 
@@ -280,6 +282,15 @@ async def patch_zone(zone_id: uuid.UUID, body: ZoneConfig, db: DB, p: Admin) -> 
             d = await db.get(Device, getattr(body, f))
             if d is None or d.home_id != z.home_id:
                 raise api_error(422, "validation_error", "Dit apparaat hoort niet bij deze woning.")
+            roles, protected = await roles_of(db, d.id)
+            try:
+                check_command(DeviceFacts(d.kind, roles, protected), "set_hvac", {})
+            except PolicyDenied as e:
+                raise api_error(409, "policy_denied", e.message) from e
+            if f == "unit_device_id" and d.kind != "ac_unit":
+                raise api_error(422, "validation_error", "Koppel als unit alleen een airco-unit.")
+            if f == "sensor_device_id" and d.kind not in SENSOR_KINDS:
+                raise api_error(422, "validation_error", "Koppel als sensor alleen een Zigbee-sensor.")
     await lock_outdoor_group(db, z)
     await db.refresh(z)
     unit_changed = "unit_device_id" in body.model_fields_set and body.unit_device_id != z.unit_device_id
