@@ -679,6 +679,11 @@ server eerst `{"type":"error","data":{"code":..., "reason":...}}` en sluit daarn
 |---|---|---|
 | 4401 | auth_required | Opnieuw inloggen (web-sessie verlopen of uitgelogd, geen of ongeldige inlog, Origin klopt niet) |
 | 4403 | token_revoked / token_expired | Deze telefoon is niet meer gekoppeld: opnieuw koppelen met een QR-code |
+| 1013 | geen bericht; reden van het sluiten `database_newer` | Herstelmodus (zie Systeem): later opnieuw proberen met een groeiende wachttijd; telt niet als "geen verbinding" |
+
+Een client zet zijn wachttijd tussen pogingen pas terug na `hello`, niet al bij het openen van de verbinding.
+Anders raakt hij in een snelle lus tegen een server die de verbinding accepteert en meteen sluit (1013, een
+geweigerde inlog). De web-app en de Android-app doen dit zo; de web-app haalt pas na `hello` alles opnieuw op.
 
 Open verbindingen worden zo gesloten bij uitloggen, een wachtwoordwijziging, een uitgeschakelde of
 verwijderde gebruiker en een ingetrokken telefoon. Elke minuut controleert de server bovendien of de

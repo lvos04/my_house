@@ -59,6 +59,8 @@ export interface ConnectionValue {
   wsOpened: () => void;
   wsFailed: () => void;
   wsDenied: (reason: string) => void;
+  /** Close 1013 (recovery mode): the server answered, so not a failure; still connecting. */
+  wsUnavailable: () => void;
   wsStopped: () => void;
   setHello: (h: HelloData | null) => void;
   setAuthNotice: (n: AuthNotice | null) => void;
@@ -140,6 +142,10 @@ export function ConnectionProvider({ children, initial }: { children: ReactNode;
     setWsStateRaw('denied');
     setLiveDenied(reason);
   }, []);
+  const wsUnavailable = useCallback(() => {
+    setWs(NO_FAILURES);
+    setWsStateRaw('connecting');
+  }, []);
   const wsStopped = useCallback(() => {
     setWs(NO_FAILURES);
     setWsStateRaw('idle');
@@ -174,12 +180,13 @@ export function ConnectionProvider({ children, initial }: { children: ReactNode;
       wsOpened,
       wsFailed,
       wsDenied,
+      wsUnavailable,
       wsStopped,
       setHello,
       setAuthNotice,
       markSeen,
     };
-  }, [api, ws, wsState, now, starting, accessLoginUrl, liveDenied, hello, authNotice, lastSeen, setWsState, wsConnecting, wsOpened, wsFailed, wsDenied, wsStopped, markSeen]);
+  }, [api, ws, wsState, now, starting, accessLoginUrl, liveDenied, hello, authNotice, lastSeen, setWsState, wsConnecting, wsOpened, wsFailed, wsDenied, wsUnavailable, wsStopped, markSeen]);
   return <ConnectionContext.Provider value={value}>{children}</ConnectionContext.Provider>;
 }
 

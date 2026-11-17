@@ -410,23 +410,24 @@ async def test_huidig_schema_start_gewoon(monkeypatch, tmp_path):
     async with temp_db("head") as url:
         await _vul(url)
         voor = await _inhoud(url)
-        _migrate_op(monkeypatch, url, tmp_path)
-        cli.main(["migrate"])  # geen SystemExit
-        gezien = _serve(monkeypatch)
-        assert gezien["app"] == "shc_api.main:app"
-        assert list(tmp_path.iterdir()) == []  # niets te migreren: geen dump
-        assert await _inhoud(url) == voor
+        # De hele app op de proefdatabase: migrate, serve en de worker lezen de revisie via het echte leespad
+        # (cli.current_revision zonder adres), niet via een nagebootste functie.
+        async with _app_op(url, tmp_path):
+            assert cli.current_revision() == bk.head_revision()
+            cli.main(["migrate"])  # geen SystemExit
+            gezien = _serve(monkeypatch)
+            assert gezien["app"] == "shc_api.main:app"
+            assert list(tmp_path.iterdir()) == []  # niets te migreren: geen dump
+            assert await _inhoud(url) == voor
 
-        echte = cli.current_revision
-        monkeypatch.setattr(cli, "current_revision", lambda _url=None: echte(url))
-        gestart: list[str] = []
+            gestart: list[str] = []
 
-        async def run(self) -> None:
-            gestart.append("run")
+            async def run(self) -> None:
+                gestart.append("run")
 
-        monkeypatch.setattr(core.Worker, "run", run)
-        await asyncio.wait_for(core.run(), timeout=30)
-        assert gestart == ["run"]
+            monkeypatch.setattr(core.Worker, "run", run)
+            await asyncio.wait_for(core.run(), timeout=30)
+            assert gestart == ["run"]
 
 
 # --- (d) ouder schema: migreren met dump, zoals voorheen ----------------------------------------------------------------

@@ -17,13 +17,16 @@ export function backoffMs(attempt: number, rand: () => number = Math.random): nu
   return Math.round(base / 2 + rand() * (base / 2));
 }
 
-/** Server close codes: 4401 = log in again (web session ended), 4403 = this device's access was revoked. */
+/** Server close codes: 4401 = log in again (web session ended), 4403 = this device's access was revoked,
+ * 1013 = try again later (the API is in recovery mode, S-P3-700). */
 export const CLOSE_AUTH_REQUIRED = 4401;
 export const CLOSE_REVOKED = 4403;
-export type CloseKind = 'reauth' | 'revoked' | 'failure';
+export const CLOSE_TRY_AGAIN_LATER = 1013;
+export type CloseKind = 'reauth' | 'revoked' | 'unavailable' | 'failure';
 export function classifyClose(code: number): CloseKind {
   if (code === CLOSE_AUTH_REQUIRED) return 'reauth';
   if (code === CLOSE_REVOKED) return 'revoked';
+  if (code === CLOSE_TRY_AGAIN_LATER) return 'unavailable';
   return 'failure';
 }
 /** Retry interval while live updates are refused but the session itself is valid. */
@@ -100,12 +103,15 @@ export function applyWsMessage(qc: QueryClient, homeId: string, msg: WsMessage) 
 /* ---------- connection ---------- */
 
 export interface LiveHandlers {
-  /** `reconnected`: messages may have been missed, refetch. */
+  /** The server said hello (not merely accepted the socket). `reconnected`: messages may have been missed, refetch. */
   onOpen: (reconnected: boolean) => void;
   onMessage: (msg: WsMessage) => void;
   onHello: (h: HelloData) => void;
   /** Connection lost or refused for another reason (counts towards "offline"). */
   onFailure: () => void;
+  /** Close 1013: the server is reachable but serves no live updates now (recovery mode). Not "offline";
+   * the backoff keeps growing. */
+  onUnavailable: () => void;
   /** Close 4401. Call conn.retryIn(ms) to try again (e.g. when the HTTP session is still valid). */
   onReauth: (err: WsErrorData | null) => void;
   /** Close 4403: access revoked; no reconnect. */
@@ -185,9 +191,8 @@ export class LiveConnection {
     this.ws = ws;
     ws.onopen = () => {
       if (this.ws !== ws) return;
-      const reconnected = this.everOpened;
-      this.everOpened = true;
-      this.attempt = 0;
+      // The backoff and "reconnected" wait for the server's hello: a server that accepts and then closes at once
+      // (1013 in recovery mode, a refused login) must not cause a tight reconnect loop (as Android, Realtime.kt).
       clearInterval(this.keepalive);
       const every = this.opts.keepaliveMs ?? KEEPALIVE_MS;
       if (every > 0)
@@ -198,7 +203,6 @@ export class LiveConnection {
             /* closing */
           }
         }, every);
-      this.h.onOpen(reconnected);
     };
     ws.onmessage = (ev: MessageEvent) => {
       if (this.ws !== ws) return;
@@ -214,6 +218,11 @@ export class LiveConnection {
         return;
       }
       if (msg.type === 'hello') {
+        // Refetch when this is not the very first try: messages (or the end of recovery mode) may have been missed.
+        const reconnected = this.everOpened || this.attempt > 0;
+        this.everOpened = true;
+        this.attempt = 0;
+        this.h.onOpen(reconnected);
         this.h.onHello(msg.data);
         return;
       }
@@ -230,15 +239,16 @@ export class LiveConnection {
         this.stopped = true;
         return this.h.onRevoked(this.lastError);
       }
-      this.h.onFailure();
+      if (kind === 'unavailable') this.h.onUnavailable();
+      else this.h.onFailure();
       this.retryIn(this.backoff(this.attempt++));
     };
   }
 }
 
-/** Live updates for the selected home. Reconnects with backoff, refetches after a reconnect, treats
- * close 4401 as "log in again" (or "live updates refused" when the session is still fine) and 4403 as
- * "access revoked" — neither counts as offline. */
+/** Live updates for the selected home. Reconnects with backoff, refetches after a reconnect (after the
+ * server's hello), treats close 4401 as "log in again" (or "live updates refused" when the session is still
+ * fine), 4403 as "access revoked" and 1013 as "recovery mode, try later" — none counts as offline. */
 export function useLiveUpdates(homeId: string | null) {
   const qc = useQueryClient();
   const conn = useConnection();
@@ -267,6 +277,8 @@ export function useLiveUpdates(homeId: string | null) {
         if (msg.type === 'lights.updated' && !['queued', 'sending'].includes(msg.data.last_command?.status ?? '')) ref.current.confirm(`group:${msg.data.id}`);
       },
       onFailure: () => c().wsFailed(),
+      // Recovery mode: the reachable server explains itself over HTTP (503 database_newer); no offline banner.
+      onUnavailable: () => c().wsUnavailable(),
       onReauth: (err) => {
         api.authStatus().then(
           (s) => {

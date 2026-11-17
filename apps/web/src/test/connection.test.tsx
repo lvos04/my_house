@@ -82,6 +82,7 @@ describe('LiveConnection close codes', () => {
       onMessage: vi.fn(),
       onHello: vi.fn(),
       onFailure: vi.fn(),
+      onUnavailable: vi.fn(),
       onReauth: vi.fn(),
       onRevoked: vi.fn(),
     } satisfies LiveHandlers;
@@ -91,6 +92,7 @@ describe('LiveConnection close codes', () => {
   it('classifies 4401 / 4403 / others', () => {
     expect(classifyClose(4401)).toBe('reauth');
     expect(classifyClose(4403)).toBe('revoked');
+    expect(classifyClose(1013)).toBe('unavailable');
     expect(classifyClose(1006)).toBe('failure');
     expect(classifyClose(1000)).toBe('failure');
   });
@@ -129,18 +131,23 @@ describe('LiveConnection close codes', () => {
     expect(FakeWebSocket.instances).toHaveLength(1);
   });
 
+  const hello = { type: 'hello', data: { user: { id: 'u', username: 'a', role: 'admin' }, via: 'cookie', client_role: null, can_control: true } };
+
   it('other closes count as failures, reconnect with backoff and report reconnected=true', () => {
     vi.useFakeTimers();
     const h = handlers();
     const live = new LiveConnection('ws://x', h, opts);
     live.start();
     FakeWebSocket.last().open();
+    expect(h.onOpen).not.toHaveBeenCalled(); // "open" only counts after the server's hello
+    FakeWebSocket.last().message(hello);
     expect(h.onOpen).toHaveBeenLastCalledWith(false);
     FakeWebSocket.last().serverClose(1006);
     expect(h.onFailure).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(1000);
     expect(FakeWebSocket.instances).toHaveLength(2);
     FakeWebSocket.last().open();
+    FakeWebSocket.last().message(hello);
     expect(h.onOpen).toHaveBeenLastCalledWith(true);
     FakeWebSocket.last().message({ type: 'zone.updated', data: { id: 'z1' } });
     FakeWebSocket.last().message('pong');
