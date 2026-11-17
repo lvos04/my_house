@@ -145,10 +145,6 @@ async def request_zone_command(
     if unit is None:
         raise CommandRejected(409, "unsupported", "Aan deze zone is nog geen airco-unit gekoppeld.")
     await db.refresh(unit)
-    if not unit.online:
-        raise CommandRejected(503, "device_offline", "Airco niet bereikbaar. Gebruik de afstandsbediening.")
-    if mode is None and target_c is None and fan is None:
-        raise CommandRejected(422, "validation_error", "Geen wijziging opgegeven.")
     caps = caps_of(unit)
     now = datetime.now(UTC)
     # Safety policy first (safe mode, protected roles): it outranks every other answer.
@@ -161,6 +157,10 @@ async def request_zone_command(
         )
     except PolicyDenied as e:
         raise CommandRejected(409, "policy_denied", e.message) from e
+    if not unit.online:
+        raise CommandRejected(503, "device_offline", "Airco niet bereikbaar. Gebruik de afstandsbediening.")
+    if mode is None and target_c is None and fan is None:
+        raise CommandRejected(422, "validation_error", "Geen wijziging opgegeven.")
     current = await effective_mode(db, unit, now)
     if mode is None and current in (None, "off"):
         raise CommandRejected(

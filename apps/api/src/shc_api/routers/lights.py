@@ -23,14 +23,23 @@ from ..commanding import CommandRejected, queue_command, request_zone_command
 from ..deps import DB, Admin, Auth, Control, get_home
 from ..errors import api_error, not_found
 from ..models import ButtonMapping, ClimateZone, Device, Home
-from ..policy import PolicyDenied
-from ..store import audit
+from ..policy import DeviceFacts, PolicyDenied, check_command
+from ..store import audit, roles_of
 from ..views.lights import LIGHT_ACTIONS, light_command, mapping_steps
 
 router = APIRouter(tags=["lights"])
 
 ID_MAX = 64
 FAN_SPEEDS = ("auto", "low", "medium_low", "medium", "medium_high", "high", "quiet", "turbo")
+
+
+async def _check_target(db: DB, target: Device, action: str) -> None:
+    """Gebruik de bestaande apparaatpolicy ook vóór typevalidatie en bij koppelingen."""
+    roles, protected = await roles_of(db, target.id)
+    try:
+        check_command(DeviceFacts(target.kind, roles, protected), action, {})
+    except PolicyDenied as e:
+        raise api_error(409, "policy_denied", e.message) from e
 
 
 @router.get("/homes/{home_id}/lights")
@@ -48,12 +57,18 @@ class GroupCommand(BaseModel):
 @router.post("/lights/groups/{group_id}", status_code=202)
 async def group_command(group_id: uuid.UUID, body: GroupCommand, db: DB, p: Control):
     g = await db.get(Device, group_id)
-    if not g or g.kind != "light_group" or g.lifecycle == "archived":
+    if not g:
+        raise not_found("Lichtgroep")
+    await _check_target(db, g, "set_group")
+    if g.kind != "light_group" or g.lifecycle == "archived":
         raise not_found("Lichtgroep")
     try:
         if body.scene_id:
             scene = await db.get(Device, body.scene_id)
-            if not scene or scene.kind != "scene" or scene.home_id != g.home_id:
+            if not scene or scene.home_id != g.home_id:
+                raise not_found("Scène")
+            await _check_target(db, scene, "recall_scene")
+            if scene.kind != "scene":
                 raise not_found("Scène")
             cmd = await queue_command(db, g.home_id, scene, "recall_scene", {}, "user", p.actor)
             await audit(
@@ -233,6 +248,7 @@ async def normalize_mapping(db: DB, dev: Device, m: dict) -> tuple[dict, list[st
             if target is None or target.home_id != dev.home_id or target.lifecycle == "archived":
                 errors.append(where + "lamp, groep of scène niet gevonden.")
                 continue
+            await _check_target(db, target, "recall_scene" if target.kind == "scene" else "set_group")
             allowed = LIGHT_ACTIONS.get(target.kind)
             if not allowed:
                 errors.append(where + "alleen lampen, lichtgroepen en scènes kunnen worden bediend.")
@@ -273,6 +289,10 @@ async def normalize_mapping(db: DB, dev: Device, m: dict) -> tuple[dict, list[st
             if zone is None or zone.home_id != dev.home_id:
                 errors.append(where + "klimaatzone niet gevonden.")
                 continue
+            if zone.unit_device_id:
+                unit = await db.get(Device, zone.unit_device_id)
+                if unit is not None:
+                    await _check_target(db, unit, "set_hvac")
             if step.get("action") == "resume":
                 out_steps.append({"type": "zone", "zone_id": str(zone.id), "action": "resume"})
                 continue

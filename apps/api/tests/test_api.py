@@ -149,9 +149,9 @@ async def test_boiler_socket_can_never_switch(admin, home):
         for action in ("set_relay", "set_power", "switch", "set_group", "set_hvac"):
             with pytest.raises(PolicyDenied):
                 await queue_command(db, dev.home_id, dev, action, {"on": False}, "engine", "test")
-    # Lights route refuses non-group devices; button mapping steps targeting the boiler are denied by the worker.
+    # Ook de lichtroute geeft de beleidsweigering vóór de typecontrole.
     r = await admin.post(f"/lights/groups/{boiler}", json={"on": False})
-    assert r.status_code == 404
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "policy_denied"
     async with sessionmaker()() as db:
         db.add(
             CommandRecord(
