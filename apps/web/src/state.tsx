@@ -43,7 +43,7 @@ export interface ConnectionValue {
   wsState: WsState;
   /** Show the offline banner and disable all actions. */
   offline: boolean;
-  /** nginx says the API is starting/updating (503 api_unavailable): Dutch message, else null. */
+  /** The API is starting/updating (503 api_unavailable) or in recovery mode (503 database_newer): Dutch message, else null. */
   starting: string | null;
   /** Cloudflare Access needs a new login and the automatic reload did not help: link to open. */
   accessLoginUrl: string | null;

@@ -104,6 +104,22 @@ describe('api client errors', () => {
     expect(isTransientError(new AccessLoginRequired())).toBe(false);
   });
 
+  it('503 database_newer (herstelmodus, S-P3-700) is "starting" with the server text, like api_unavailable', async () => {
+    const tekst = 'De database is van een nieuwere my_house-versie; kies de bijpassende versie.';
+    const events: ConnectionEvent[] = [];
+    const off = onConnectionEvent((e) => events.push(e));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ detail: { code: 'database_newer', message: tekst } }), { status: 503, headers: { 'content-type': 'application/json' } })),
+    );
+    const err = await api.authStatus().catch((e) => e);
+    off();
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.code).toBe('database_newer');
+    // Alleen "starting": geen "ok" erna (dat wist de tekst) en geen "unreachable" (de server antwoordt wel).
+    expect(events).toEqual([{ type: 'starting', message: tekst }]);
+  });
+
   it('401 outside the login form reports auth_required; a wrong login does not', async () => {
     const events: ConnectionEvent[] = [];
     const off = onConnectionEvent((e) => events.push(e));

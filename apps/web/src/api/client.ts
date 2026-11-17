@@ -54,7 +54,8 @@ export function errorMessage(err: unknown): string {
 export type ConnectionEvent =
   | { type: 'ok' }
   | { type: 'unreachable' }
-  /** nginx 503 api_unavailable: the API starts, migrates or updates. Not "offline". */
+  /** 503 api_unavailable (nginx: the API starts, migrates or updates) or 503 database_newer (the API's recovery
+   * mode, S-P3-700): the server answers but cannot serve now; `message` is its Dutch text. Not "offline". */
   | { type: 'starting'; message: string }
   /** A request got 401: the web session ended (not for wrong passwords at login). */
   | { type: 'auth_required'; code: string; message: string }
@@ -188,6 +189,10 @@ function retryAfterOf(h: Headers | null | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Error codes that mean "the server answers but cannot serve now": nginx's api_unavailable and the API's recovery
+ * mode database_newer (S-P3-700). The connection status shows the server's text ("starting"), not "ok". */
+const NOT_SERVING = new Set(['api_unavailable', 'database_newer']);
+
 function errorFrom(status: number, data: unknown, path: string, retryAfter: number | null): ApiError {
   const d = (data as T.ApiErrorBody | undefined)?.detail;
   const detail: T.ApiErrorDetail =
@@ -197,7 +202,7 @@ function errorFrom(status: number, data: unknown, path: string, retryAfter: numb
   if (status === 401 && !AUTH_FORM_PATHS.includes(path)) {
     emitConnectionEvent({ type: 'auth_required', code: err.code, message: err.message });
   }
-  if (status === 503 && err.code === 'api_unavailable') emitConnectionEvent({ type: 'starting', message: err.message });
+  if (status === 503 && NOT_SERVING.has(err.code)) emitConnectionEvent({ type: 'starting', message: err.message });
   return err;
 }
 
@@ -242,7 +247,7 @@ export async function request<R>(method: string, path: string, body?: unknown): 
   }
   if (!res.ok) {
     const err = errorFrom(res.status, data, path, retryAfterOf(res.headers));
-    if (err.code !== 'api_unavailable') emitConnectionEvent({ type: 'ok' });
+    if (!NOT_SERVING.has(err.code)) emitConnectionEvent({ type: 'ok' });
     throw err;
   }
   emitConnectionEvent({ type: 'ok' });

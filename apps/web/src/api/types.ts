@@ -70,6 +70,7 @@ export type ApiErrorCode =
   | 'setup_done'
   | 'invalid_code'
   | 'secret_key_invalid'
+  | 'database_newer'
   | (string & {});
 
 /* ------------------------------------------------------------------ auth & users */
