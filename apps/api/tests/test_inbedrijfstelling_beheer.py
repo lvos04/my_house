@@ -5,6 +5,7 @@ import socket
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -311,16 +312,21 @@ def test_nieuwe_mutaties_publiceren_idempotentie_en_preconditie(app):
     assert len(checked) == 3
 
 
-async def test_onbereikbare_database_geeft_contractfout(admin, monkeypatch):
+async def test_onbereikbare_database_geeft_contractfout(admin, app, monkeypatch):
     assert (await admin.get(BASE)).status_code == 200
     with socket.socket() as gesloten:
         gesloten.bind(("127.0.0.1", 0))
         url = database_module.engine().url.set(port=gesloten.getsockname()[1])
         unavailable = create_async_engine(url)
-        monkeypatch.setattr(database_module, "_engine", unavailable)
-        monkeypatch.setattr(database_module, "_sessionmaker", async_sessionmaker(unavailable))
         try:
-            response = await admin.get(BASE)
+            with monkeypatch.context() as local:
+                local.setattr(database_module, "_engine", unavailable)
+                local.setattr(database_module, "_sessionmaker", async_sessionmaker(unavailable))
+                transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+                async with httpx.AsyncClient(
+                    transport=transport, base_url=admin.c.base_url, cookies=admin.c.cookies,
+                ) as c:
+                    response = await c.get(f"/api/v1{BASE}")
             assert error(response, 503, "dependency_unavailable") == {}
             assert int(response.headers["retry-after"]) > 0
         finally:

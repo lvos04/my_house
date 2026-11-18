@@ -13,7 +13,7 @@ from shc_integrations.homewizard import HomeWizardAdapter
 from sqlalchemy import select
 
 from shc_api.db import sessionmaker
-from shc_api.models import ButtonMapping, ClimateZone, Device, ProcessedEvent
+from shc_api.models import ButtonMapping, ClimateZone, Device, ProcessedEvent, ScheduleBlock
 from shc_api.store import get_setting, ingest_reading, set_setting
 from shc_api.worker import Worker
 
@@ -76,11 +76,9 @@ async def test_echte_knopdruk_en_replay(admin, boiler_rig, weg):
     w.started_at = datetime.now(UTC) - timedelta(minutes=1)
     w._adapter_for = lambda d: adapter
     if weg == "hervatten":
-        response = await admin.put(f"/zones/{r.zone}/schedule", json={"blocks": [
-            {"days": list(range(7)), "start": "00:00", "target_c": 23, "mode": "heat"},
-        ]})
-        assert response.status_code == 200, response.text
+        # Oud schema dat al in de database stond voordat het doel werd beschermd.
         async with sessionmaker()() as db:
+            db.add(ScheduleBlock(zone_id=r.zone, days=list(range(7)), start="00:00", target_c=23, mode="heat"))
             (await db.get(ClimateZone, r.zone)).control = "off"
             await db.commit()
     await _press(r, w)
@@ -117,31 +115,36 @@ async def test_automatisering_tot_aan_adapter(admin, home, weg):
     zid, unit = rig.zones["Woonkamer"], rig.units["Woonkamer"]
     await sensor_value(rig, "Woonkamer", 18)
     await rig.schedule("Woonkamer", 23, "heat")
-    await protect(rig.home_id, unit)
+    method = "POST"
+    body = None
     if weg == "beleid":
-        response = await admin.put(f"/zones/{zid}/policy", json={"band_c": 0.6, "min_interval_s": 300})
+        method, path = "PUT", f"/zones/{zid}/policy"
+        body = {"band_c": 0.6, "min_interval_s": 300}
     elif weg == "hervatten":
         await rig.set_zone("Woonkamer", control="off")
-        response = await admin.post(f"/zones/{zid}/resume")
+        path = f"/zones/{zid}/resume"
     elif weg in ("profiel", "profielwijziging", "planner"):
         created = await admin.post(f"/homes/{rig.home_id}/profiles", json={"name": "Warm", "target_c": 23, "mode": "heat"})
         assert created.status_code == 200, created.text
         pid = created.json()["id"]
         if weg == "planner":
             now = datetime.now(UTC)
-            response = await admin.post(f"/homes/{rig.home_id}/experiments", json={
+            path = f"/homes/{rig.home_id}/experiments"
+            body = {
                 "name": "Boilerplanner", "zone_id": str(zid), "auto_apply": True, "variants": [
                     {"label": "Nu", "start": (now-timedelta(hours=1)).isoformat(),
                      "end": (now+timedelta(hours=1)).isoformat(), "profile_id": pid},
                     {"label": "Later", "start": (now+timedelta(hours=1)).isoformat(),
                      "end": (now+timedelta(hours=2)).isoformat(), "profile_id": pid},
                 ],
-            })
+            }
         else:
-            response = await admin.post(f"/zones/{zid}/profile", json={"profile_id": pid})
+            path, body = f"/zones/{zid}/profile", {"profile_id": pid}
             if weg == "profielwijziging":
-                assert response.status_code == 200, response.text
-                response = await admin.put(f"/profiles/{pid}", json={"name": "Warm", "target_c": 24, "mode": "heat"})
+                applied = await admin.post(path, json=body)
+                assert applied.status_code == 200, applied.text
+                method, path = "PUT", f"/profiles/{pid}"
+                body = {"name": "Warm", "target_c": 24, "mode": "heat"}
     elif weg == "adaptief":
         # Echte fit uit opgeslagen meetreeksen, geen geïnjecteerd advies of commando.
         at = datetime.now(UTC) - timedelta(hours=30)
@@ -156,12 +159,19 @@ async def test_automatisering_tot_aan_adapter(admin, home, weg):
             await db.commit()
         fitted = await admin.post(f"/zones/{zid}/adaptive/fit")
         assert fitted.status_code == 200 and fitted.json()["params"]["usable"], fitted.text
-        response = await admin.post(f"/zones/{zid}/adaptive/activate", json={"model_id": fitted.json()["id"]})
+        path, body = f"/zones/{zid}/adaptive/activate", {"model_id": fitted.json()["id"]}
     else:
-        response = await admin.put(f"/zones/{zid}/schedule", json={"blocks": [
+        method, path = "PUT", f"/zones/{zid}/schedule"
+        body = {"blocks": [
             {"days": list(range(7)), "start": "00:00", "target_c": 23, "mode": "heat"},
-        ]})
+        ]}
+    response = await admin.c.request(method, "/api/v1" + path, json=body, headers=admin.h())
     assert response.status_code == 200, response.text
+    if weg == "planner":
+        await rig.w._experiments_round(now, rig.homes)
+    await protect(rig.home_id, unit)
+    denied = await admin.c.request(method, "/api/v1" + path, json=body, headers=admin.h())
+    assert denied.status_code == 409 and denied.json()["detail"]["code"] == "policy_denied", denied.text
     await rig.round()
     zone = await rig.zone("Woonkamer")
     assert zone.last_decision.endswith("policy_denied"), zone.last_decision
@@ -171,7 +181,7 @@ async def test_automatisering_tot_aan_adapter(admin, home, weg):
         assert str(zone.profile_id) == pid
     if weg == "adaptief":
         assert zone.adaptive_enabled
-        assert (await admin.post(f"/zones/{zid}/adaptive/disable")).status_code == 200
+        assert (await admin.post(f"/zones/{zid}/adaptive/disable")).status_code == 409
     assert await rig.commands("Woonkamer") == []
     await rig.run_commands()
     assert rig.fakes["Woonkamer"].calls == []
@@ -523,7 +533,6 @@ async def test_planner_overgangen_met_profielherstel(admin, home, weg):
     rig = await make_rig(admin, living=("heat", 20), sensor=True)
     zid = rig.zones["Woonkamer"]
     await sensor_value(rig, "Woonkamer", 18)
-    await protect(rig.home_id, rig.units["Woonkamer"])
     profiles = []
     for name, target in (("Basis", 23), ("Variant", 24)):
         response = await admin.post(f"/homes/{rig.home_id}/profiles", json={"name": name, "target_c": target, "mode": "heat"})
@@ -556,6 +565,7 @@ async def test_planner_overgangen_met_profielherstel(admin, home, weg):
         assert (await admin.delete(f"/experiments/{eid}")).status_code == 204
     if weg in ("stoppen", "verwijderen"):
         assert str((await rig.zone("Woonkamer")).profile_id) == profiles[0]
+    await protect(rig.home_id, rig.units["Woonkamer"])
     await rig.round()
     assert (await rig.zone("Woonkamer")).last_decision.endswith("policy_denied")
     assert await rig.commands("Woonkamer") == []

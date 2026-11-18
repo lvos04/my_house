@@ -11,7 +11,7 @@ from shc_api.store import ingest_reading
 from .boiler_support import protect
 from .test_inbedrijfstelling_groepen import change
 from .test_inbedrijfstelling_handhaving import commissioning_state as commissioning_state
-from .test_inbedrijfstelling_handhaving import snapshot
+from .test_inbedrijfstelling_handhaving import set_gate, snapshot
 from .test_inbedrijfstelling_klimaat import LIVING, PROFILE
 from .test_inbedrijfstelling_klimaat import climate_rig as climate_rig
 
@@ -20,14 +20,16 @@ async def condition_code(rig, condition):
     if condition == "untested":
         await change(rig.units[LIVING], compatibility="untested", tested_at=None)
         return "device_not_tested"
-    if condition == "protected":
+    if condition in {"protected", "protected_gate_uit"}:
         await protect(rig.home_id, rig.units[LIVING])
+        if condition == "protected_gate_uit":
+            await set_gate(False)
         return "policy_denied"
     return None
 
 
 @pytest.mark.parametrize("operation", ["create", "resume", "stop", "delete", "worker", "worker-paused"])
-@pytest.mark.parametrize("condition", ["tested", "untested", "protected"])
+@pytest.mark.parametrize("condition", ["tested", "untested", "protected", "protected_gate_uit"])
 async def test_experiment_vroege_controle_en_adapter(admin, climate_rig, operation, condition):
     rig = climate_rig
     zid = rig.zones[LIVING]
