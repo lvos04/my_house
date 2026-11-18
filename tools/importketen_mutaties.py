@@ -27,15 +27,18 @@ def beschadig(monkeypatch):
         old, new = 'await lock_commissioning(db)', 'pass'
     elif MUTATION == "archief-wachtrij":
         func = commanding.queue_command
-        old, new = 'await check_active_target(db, home_id, device)', 'pass'
+        old, new = 'await check_active_target(db, home_id, device, climate=action == "set_hvac")', 'pass'
     elif MUTATION == "archief-worker":
         func = CommandsMixin._precheck
-        old, new = 'await check_active_target(db, cmd.home_id, dev)', 'pass'
+        old, new = 'await check_active_target(db, cmd.home_id, dev, climate=cmd.action == "set_hvac")', 'pass'
     else:
         async def vrijgave_zet_gate_uit(db, key, value):
             await original(db, key, value)
             if key == 'safe_mode' and value is False:
-                await original(db, 'commissioning_gate', {'version': 1, 'enabled': False, 'origin': 'existing_devices'})
+                await original(db, 'commissioning_gate', {
+                    'version': 1, 'enabled': False, 'origin': 'existing_devices',
+                    'enabled_at': None, 'enabled_by': None,
+                })
         original = system.set_setting
         monkeypatch.setattr(system, 'set_setting', vrijgave_zet_gate_uit)
         return
