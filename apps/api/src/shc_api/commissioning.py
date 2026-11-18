@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import select, text
@@ -14,11 +15,26 @@ from .store import audit, get_setting, roles_of
 KEY = "commissioning_gate"
 TEST_CONFIRMED_ACTION = "device_marked_tested"
 LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtextextended('shc-commissioning', 0))"
+SHARED_LOCK_SQL = "SELECT pg_advisory_xact_lock_shared(hashtextextended('shc-commissioning', 0))"
 
 
 async def lock_commissioning(db: AsyncSession) -> None:
-    """Altijd vóór apparaat- en buitenunitlocks; geldt tot commit of rollback."""
+    """Exclusief voor installatiebrede wijzigingen, vóór woning- en buitenunitlocks."""
     await db.execute(text(LOCK_SQL))
+
+
+async def lock_commissioning_shared(db: AsyncSession) -> None:
+    await db.execute(text(SHARED_LOCK_SQL))
+
+
+async def lock_home_commands(db: AsyncSession, home_id: uuid.UUID, *, skip_busy: bool = False) -> bool:
+    """Deel de installatielock en houd uitvoering per woning exclusief tot commit of rollback."""
+    await lock_commissioning_shared(db)
+    key = {"name": f"shc-commissioning-home:{home_id}"}
+    if skip_busy:
+        return bool(await db.scalar(text("SELECT pg_try_advisory_xact_lock(hashtextextended(:name, 0))"), key))
+    await db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:name, 0))"), key)
+    return True
 
 
 def gate_state(value) -> dict:
@@ -82,7 +98,7 @@ def restored_gate(prior: dict | None, loaded: dict, mode: str, at: str) -> dict:
 
 
 async def command_facts(db: AsyncSession, device: Device, *, safe_mode: bool = False) -> DeviceFacts:
-    await lock_commissioning(db)
+    await lock_home_commands(db, device.home_id)
     await db.refresh(device)
     roles, protected = await roles_of(db, device.id)
     return DeviceFacts(

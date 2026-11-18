@@ -15,17 +15,19 @@ from shc_api import db as db_module
 from shc_api.commissioning import lock_commissioning, read_gate
 from shc_api.config import get_settings
 from shc_api.db import sessionmaker
-from shc_api.models import ButtonMapping, Device, Home
+from shc_api.models import ButtonMapping, CommandRecord, Device, Home
 from shc_api.routers import system
 from shc_api.store import get_setting, set_setting
 
 from .boiler_support import commands, protect
 from .conftest import ADMIN_PW, Session
+from .test_inbedrijfstelling_beheer import wait_for_lock_queue
 from .test_inbedrijfstelling_groepen import change, mapping
 from .test_inbedrijfstelling_groepen import group_rig as group_rig
-from .test_inbedrijfstelling_handhaving import set_gate, snapshot
+from .test_inbedrijfstelling_handhaving import mark, set_gate, snapshot
 from .test_ws_backup_api import _upload
-from .test_ws_backup_format import make_v1, temp_db
+from .test_ws_backup_format import PW, make_v1, temp_db
+from .test_ws_climate_worker import make_rig
 from .ws_devices_support import add_integration, new_home
 
 
@@ -99,6 +101,53 @@ async def restore_backup(admin, tmp_path, path, password, entrance, mode):
     login = await admin.c.post("/api/v1/auth/login", json={"username": "beheer", "password": ADMIN_PW})
     assert login.status_code == 200, login.text
     return Session(admin.c, login.json()["csrf_token"])
+
+
+async def test_resultaat_van_voor_webherstel_overschrijft_geen_archiefrij(admin, tmp_path, monkeypatch):
+    monkeypatch.setattr(system, "MAINTENANCE_SETTLE_S", 0.0)
+    rig = await make_rig(admin)
+    await mark(rig, "tested")
+    z = rig.zones["Woonkamer"]
+    queued = await admin.post(f"/zones/{z}/command", json={"mode": "heat"})
+    assert queued.status_code == 202
+    cid = uuid.UUID(queued.json()["command_id"])
+    backup_path = await save_backup(admin, tmp_path, PW, "v2")
+    entered, send, recording, record = [asyncio.Event() for _ in range(4)]
+    adapter = rig.fakes["Woonkamer"]
+    execute = adapter.execute
+    record_result = rig.w._record_result
+
+    async def wait_to_send(command):
+        entered.set()
+        await send.wait()
+        return await execute(command)
+
+    async def wait_to_record(*args, **kwargs):
+        recording.set()
+        await record.wait()
+        return await record_result(*args, **kwargs)
+
+    monkeypatch.setattr(adapter, "execute", wait_to_send)
+    monkeypatch.setattr(rig.w, "_record_result", wait_to_record)
+    work = asyncio.create_task(rig.run_commands())
+    restore = None
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        restore = asyncio.create_task(restore_backup(admin, tmp_path, backup_path, PW, "web", "same_home"))
+        await wait_for_lock_queue(1)
+        send.set()
+        await asyncio.wait_for(recording.wait(), 5)
+        done, _ = await asyncio.wait({restore}, timeout=1)
+        assert not done, "Herstel kreeg de vergrendeling vóór boeking van het adapterresultaat."
+    finally:
+        send.set()
+        record.set()
+        await asyncio.wait_for(asyncio.gather(*(task for task in (work, restore) if task)), 15)
+    async with sessionmaker()() as db:
+        row = await db.get(CommandRecord, cid)
+        assert (row.status, row.attempts) == ("queued", 0)
+        assert await get_setting(db, "safe_mode") is True
+    assert len(adapter.calls) == 1
 
 
 @pytest.mark.parametrize("entrance", ["web", "cli"])

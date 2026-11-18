@@ -85,13 +85,18 @@ def beschadig(monkeypatch):
         if kind == "lock-inventaris":
             import textwrap
             source = textwrap.dedent(inspect.getsource(func))
-            old = '        await lock_commissioning(db)'
+            old = '        await lock_home_commands(db, integ.home_id)'
             assert old in source
             namespace = {}
             exec(compile(source.replace(old, '', 1), "<inventarismutatie>", "exec"), func.__globals__, namespace)
             monkeypatch.setattr(func, "__code__", namespace[func.__name__].__code__)
         else:
-            wijzig(func, '    await lock_commissioning(db)\\n', '')
+            old = {
+                "lock-feiten": 'await lock_home_commands(db, device.home_id)',
+                "lock-buitenunit": 'await lock_home_commands(db, zone.home_id)',
+                "lock-koppeling": 'await lock_commissioning(db)',
+            }[kind]
+            wijzig(func, f'    {old}\\n', '')
     elif kind.startswith("lock-"):
         wijzig(getattr(devices, kind[5:]), '    await lock_commissioning(db)\\n', '')
     else:

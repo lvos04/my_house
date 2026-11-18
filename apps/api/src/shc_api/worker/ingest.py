@@ -30,7 +30,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from .. import events, views
 from ..commanding import CommandRejected, check_button_targets, queue_command, request_zone_command, resume_zone
-from ..commissioning import invalidate_device_test, lock_commissioning
+from ..commissioning import invalidate_device_test, lock_home_commands
 from ..db import sessionmaker
 from ..models import ButtonMapping, ClimateZone, Device, Home, Integration, ProcessedEvent, ZoneLog
 from ..policy import DEFAULT_PROTECTED_ROLES, PolicyDenied
@@ -199,7 +199,7 @@ class IngestMixin:
         rest = [e for e in evs if isinstance(e, Reading | StateUpdate)]
         presses = [e for e in evs if isinstance(e, ButtonEvent)]
         async with sessionmaker()() as db:
-            await lock_commissioning(db)
+            await lock_home_commands(db, integ.home_id)
             home = await db.get(Home, integ.home_id)
             if home is None or home.active_to is not None:
                 return  # archived home: nothing is stored any more (verbeterlijst 24)

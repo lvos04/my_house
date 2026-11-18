@@ -208,8 +208,8 @@ async def test_worker_hercontrole_na_claim(admin, monkeypatch, change):
     assert response.status_code == 202, response.text
     original = rig.w._claim_next
 
-    async def claim(home_ids):
-        result = await original(home_ids)
+    async def claim(home_ids, **kwargs):
+        result = await original(home_ids, **kwargs)
         if result:
             if change == "beschermd":
                 await protect(rig.home_id, rig.units["Woonkamer"])
@@ -234,6 +234,52 @@ async def test_claim_weigert_al_voor_sending(admin):
     assert await rig.w._claim_next(rig.homes) is False
     assert (await rig.commands("Woonkamer"))[0].status == "denied"
     assert rig.fakes["Woonkamer"].calls == []
+
+
+async def test_adapterwacht_blokkeert_geen_onafhankelijke_woning(admin):
+    from shc_api.worker import Worker
+
+    from .test_ws_climate_worker import FakeUnit
+    from .ws_devices_support import add_device, new_home
+
+    await set_gate(False)
+    first, second = [await new_home(admin, name) for name in ("Proefwoning A", "Proefwoning B")]
+    group_a, group_b = [await add_device(h, "light_group", "Proefgroep") for h in (first, second)]
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    class Slow(FakeUnit):
+        async def execute(self, command):
+            entered.set()
+            await release.wait()
+            return await super().execute(command)
+
+    slow, fast = Slow(), FakeUnit()
+    worker_a, worker_b = Worker(), Worker()
+    worker_a._adapter_for = lambda _: slow
+    worker_b._adapter_for = lambda _: fast
+    assert (await admin.post(f"/lights/groups/{group_a.id}", json={"on": True})).status_code == 202
+
+    async def other_home():
+        response = await admin.post(f"/lights/groups/{group_b.id}", json={"on": True})
+        assert response.status_code == 202, response.text
+        await worker_b.process_commands({second})
+        return uuid.UUID(response.json()["command_id"])
+
+    work_a = asyncio.create_task(worker_a.process_commands({first}))
+    work_b = None
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        work_b = asyncio.create_task(other_home())
+        done, _ = await asyncio.wait({work_b}, timeout=1)
+        assert done, "Een onafhankelijke aanvraag en uitvoering wachten op de eerste woning."
+        async with sessionmaker()() as db:
+            row = await db.get(CommandRecord, work_b.result())
+            assert (row.status, row.action, row.attempts) == ("confirmed", "set_group", 1)
+        assert len(fast.calls) == 1
+    finally:
+        release.set()
+        await asyncio.wait_for(asyncio.gather(*(work for work in (work_a, work_b) if work)), 5)
+    assert len(slow.calls) == 1
 
 
 @pytest.mark.parametrize("method,path,body", [

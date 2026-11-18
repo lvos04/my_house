@@ -1,10 +1,8 @@
 """Wachtrij naar adapters met hercontrole bij claimen én vlak voor uitvoering.
 
-Eerst claimen en ``sending`` vastleggen. Daarna de installatiebrede vergrendeling
-opnieuw nemen, actuele feiten en klimaatvoorwaarden lezen en toetsen. Die tweede
-transactie houdt de vergrendeling tot de adapteraanroep klaar is: teststatus,
-bescherming en inschakeling kunnen niet tijdens de uitvoering voorbijlopen.
-Daarna volgen readback, zoneboekhouding, begrensde retries en ``command.updated``.
+Eerst claimen en ``sending`` vastleggen. Toets daarna de actuele feiten en boek
+het resultaat onder dezelfde woninglock als de adapteraanroep. De gedeelde
+installatielock houdt herstel en wijzigingen aan het beleid buiten die transactie.
 """
 
 from __future__ import annotations
@@ -13,7 +11,7 @@ import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from .. import climate as cl
 from .. import events
@@ -26,11 +24,12 @@ from ..commanding import (
     zone_command_confirmed,
     zone_command_failed,
 )
-from ..commissioning import command_facts, lock_commissioning
+from ..commissioning import command_facts, lock_commissioning_shared, lock_home_commands
 from ..db import sessionmaker
 from ..logfilter import fouttekst
 from ..models import ClimateZone, CommandRecord, Device, Home, ZoneLog
 from ..policy import PolicyDenied, check_command
+from ..store import get_setting
 from ..views.common import caps_of, other_zone_modes
 from ..views.lights import BRIDGE_ERROR_PREFIX
 
@@ -39,6 +38,7 @@ log = logging.getLogger("shc.worker")
 MAX_AGE_FIRST = timedelta(minutes=2)  # a command not started within this is not executed any more
 MAX_AGE_RETRY = timedelta(minutes=5)
 SENDING_STUCK = timedelta(minutes=2)
+ANY_RESTORE = object()
 
 
 class CommandsMixin:
@@ -46,40 +46,43 @@ class CommandsMixin:
 
     async def process_commands(self, home_ids: set[uuid.UUID] | None = None) -> None:
         """Run every queued command that is due. ``home_ids`` limits the run (tests, diagnostics)."""
-        await self._recover_interrupted(home_ids)
+        restore_marker = await self._recover_interrupted(home_ids)
         while True:
-            claimed = await self._claim_next(home_ids)
+            claimed = await self._claim_next(home_ids, restore_marker=restore_marker)
             if claimed is None:
                 return
             if claimed is False:
                 continue
-            cmd_id, dev = claimed
-            ok, confirmed, detail, state, denied = False, False, "", None, False
-            try:
-                async with sessionmaker()() as db:
-                    # Houd dezelfde transactielock ook tijdens de laatste controle en uitvoering.
-                    # Inschakelen/binden kan dan niet tussen controle en adapteraanroep komen.
-                    await lock_commissioning(db)
-                    cmd = await db.get(CommandRecord, cmd_id)
-                    dev = await db.get(Device, cmd.device_id)
-                    zone = await self._zone_of(db, cmd, dev)
-                    verdict = await self._precheck(db, cmd, dev, zone, datetime.now(UTC), cmd.attempts > 1)
-                    if verdict is not None:
-                        cmd.status, cmd.detail = verdict
-                        await self._settle(db, cmd, dev, zone, datetime.now(UTC), allow_retry=False)
-                        await db.commit()
-                        continue
-                    res = await self._execute_command(db, cmd, dev)
-                    ok, confirmed, detail, state = res.ok, res.confirmed, res.detail, res.state
-                if not confirmed and device_reported_error(res):
-                    # Received but refused by the device/hub (e.g. Hue Bridge "errors"): store it as
-                    # failed with the message, the same as the lights view shows it (item 27).
-                    ok = False
-            except PolicyDenied as e:
-                detail, denied = e.message, True
-            except Exception as e:  # adapter errors, timeouts, unsupported
-                ok, confirmed, detail = False, False, fouttekst(e)[:500] or type(e).__name__
-            await self._record_result(cmd_id, ok, confirmed, detail, state, denied=denied)
+            cmd_id, home_id, attempts, claimed_at = claimed
+            async with sessionmaker()() as db:
+                await lock_home_commands(db, home_id)
+                if await get_setting(db, "restored_from") != restore_marker:
+                    return
+                cmd = await db.get(CommandRecord, cmd_id, with_for_update=True)
+                if cmd is None or (cmd.status, cmd.attempts, cmd.updated_at) != ("sending", attempts, claimed_at):
+                    continue
+                dev = await db.get(Device, cmd.device_id)
+                zone = await self._zone_of(db, cmd, dev)
+                verdict = await self._precheck(db, cmd, dev, zone, datetime.now(UTC), cmd.attempts > 1)
+                if verdict is not None:
+                    cmd.status, cmd.detail = verdict
+                    await self._settle(db, cmd, dev, zone, datetime.now(UTC), allow_retry=False)
+                else:
+                    status, detail, state = await self._send_command(db, cmd, dev)
+                    await self._record_result(db, cmd, dev, zone, status, detail, state)
+                await db.commit()
+
+    async def _send_command(self, db, cmd: CommandRecord, dev: Device):
+        try:
+            res = await self._execute_command(db, cmd, dev)
+        except PolicyDenied as exc:
+            return "denied", exc.message, None
+        except Exception as exc:  # time-out, adapterfout, niet ondersteund
+            return "failed", fouttekst(exc)[:500] or type(exc).__name__, None
+        status = "confirmed" if res.confirmed else "failed"
+        if not res.confirmed and res.ok and not device_reported_error(res):
+            status = "sent"
+        return status, res.detail or "", res.state
 
     async def _execute_command(self, db, cmd: CommandRecord, dev: Device):
         from shc_integrations.base import Command
@@ -100,9 +103,11 @@ class CommandsMixin:
             return await adapter.execute(command, check_targets=check_targets)
         return await adapter.execute(command)
 
-    async def _recover_interrupted(self, home_ids) -> None:
+    async def _recover_interrupted(self, home_ids):
         """Commands left in 'sending' by a crash/restart: their outcome is unknown, mark them failed."""
         async with sessionmaker()() as db:
+            await lock_commissioning_shared(db)
+            marker = await get_setting(db, "restored_from")
             q = (
                 update(CommandRecord)
                 .where(
@@ -115,25 +120,29 @@ class CommandsMixin:
                 q = q.where(CommandRecord.home_id.in_(home_ids))
             await db.execute(q)
             await db.commit()
+            return marker
 
-    async def _claim_next(self, home_ids):
-        """Returns (command id, device) to execute, False when a command was settled without
-        executing it, or None when the queue is empty."""
+    async def _claim_next(self, home_ids, *, restore_marker=ANY_RESTORE):
+        """Kies de oudste beschikbare woning en claim onder haar vergrendeling."""
         now = datetime.now(UTC)
         async with sessionmaker()() as db:
-            await lock_commissioning(db)
-            q = (
-                select(CommandRecord)
-                .where(CommandRecord.status == "queued", CommandRecord.updated_at <= now)
-                .order_by(CommandRecord.created_at)
-                .limit(1)
-                .with_for_update(skip_locked=True)
-            )
-            if home_ids:
-                q = q.where(CommandRecord.home_id.in_(home_ids))
-            cmd = (await db.execute(q)).scalar_one_or_none()
-            if cmd is None:
+            await lock_commissioning_shared(db)
+            if restore_marker is not ANY_RESTORE and await get_setting(db, "restored_from") != restore_marker:
                 return None
+            due = [CommandRecord.status == "queued", CommandRecord.updated_at <= now]
+            if home_ids:
+                due.append(CommandRecord.home_id.in_(home_ids))
+            homes = await db.scalars(select(CommandRecord.home_id).where(*due).group_by(CommandRecord.home_id)
+                                     .order_by(func.min(CommandRecord.created_at)))
+            for home_id in homes:
+                if await lock_home_commands(db, home_id, skip_busy=True):
+                    break
+            else:
+                return None
+            cmd = await db.scalar(select(CommandRecord).where(*due, CommandRecord.home_id == home_id)
+                                  .order_by(CommandRecord.created_at).limit(1).with_for_update(skip_locked=True))
+            if cmd is None:
+                return False
             dev = await db.get(Device, cmd.device_id)
             retry = cmd.attempts > 0
             cmd.attempts += 1
@@ -147,14 +156,17 @@ class CommandsMixin:
                 return False
             cmd.status = "sending"
             await db.commit()
-            return cmd.id, dev
+            return cmd.id, home_id, cmd.attempts, now
 
     async def _zone_of(self, db, cmd: CommandRecord, dev: Device | None) -> ClimateZone | None:
         if cmd.action != "set_hvac" or dev is None:
             return None
         if cmd.zone_id:
-            return await db.get(ClimateZone, cmd.zone_id)
-        return (await db.execute(select(ClimateZone).where(ClimateZone.unit_device_id == dev.id))).scalars().first()
+            zone = await db.get(ClimateZone, cmd.zone_id)
+            return zone if zone is not None and zone.home_id == cmd.home_id else None
+        return (await db.scalars(select(ClimateZone).where(
+            ClimateZone.unit_device_id == dev.id, ClimateZone.home_id == cmd.home_id,
+        ))).first()
 
     async def _precheck(
         self, db, cmd: CommandRecord, dev: Device | None, zone: ClimateZone | None, now: datetime, retry: bool
@@ -162,6 +174,8 @@ class CommandsMixin:
         """(status, detail) when the command must not run, else None. Takes the outdoor-unit lock for climate."""
         if dev is None:
             return "failed", "Apparaat bestaat niet meer"
+        if dev.home_id != cmd.home_id:
+            return "denied", "Dit apparaat hoort niet bij de woning van deze bediening."
         try:
             if dev.provider == "hue" and "id" in cmd.params and cmd.params["id"] != dev.stable_identity:
                 raise PolicyDenied("Het opgeslagen Hue-doel wijkt af van het getoetste apparaat.")
@@ -194,28 +208,15 @@ class CommandsMixin:
         return None
 
     async def _record_result(
-        self, cmd_id: uuid.UUID, ok: bool, confirmed: bool, detail: str, state, *, denied: bool = False,
+        self, db, cmd: CommandRecord, dev: Device, zone: ClimateZone | None, status: str, detail: str, state,
     ) -> None:
         now = datetime.now(UTC)
-        async with sessionmaker()() as db:
-            await lock_commissioning(db)
-            cmd = await db.get(CommandRecord, cmd_id)
-            dev = await db.get(Device, cmd.device_id)
-            # Device row first, outdoor-unit lock after: nothing that holds that lock waits for a device row.
-            if state and dev is not None and dev.provider == "gree":
-                mode = "off" if state.get("power") is False else state.get("mode")
-                dev.state = {**(dev.state or {}), **{k: v for k, v in state.items() if k != "raw"}, "mode": mode}
-                dev.last_seen, dev.online = now, True
-                await db.flush()
-            zone = await self._zone_of(db, cmd, dev)
-            if zone is not None:
-                await lock_outdoor_group(db, zone)
-                await db.refresh(zone)
-            cmd.status = "denied" if denied else ("confirmed" if confirmed else ("sent" if ok else "failed"))
-            cmd.detail = detail or ""
-            cmd.updated_at = now
-            await self._settle(db, cmd, dev, zone, now)
-            await db.commit()
+        if state and dev.provider == "gree":
+            mode = "off" if state.get("power") is False else state.get("mode")
+            dev.state = {**(dev.state or {}), **{k: v for k, v in state.items() if k != "raw"}, "mode": mode}
+            dev.last_seen, dev.online = now, True
+        cmd.status, cmd.detail, cmd.updated_at = status, detail, now
+        await self._settle(db, cmd, dev, zone, now)
 
     async def _settle(
         self, db, cmd: CommandRecord, dev: Device | None, zone: ClimateZone | None, now, allow_retry: bool = True

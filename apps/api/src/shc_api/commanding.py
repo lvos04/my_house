@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import climate as cl
 from . import events
-from .commissioning import command_facts, lock_commissioning, read_gate
+from .commissioning import command_facts, lock_home_commands, read_gate
 from .models import (
     ClimateZone,
     ComfortProfile,
@@ -72,7 +72,7 @@ def outdoor_lock_key(zone: ClimateZone) -> str:
 
 async def lock_outdoor_group(db: AsyncSession, zone: ClimateZone) -> None:
     """Transaction-scoped advisory lock per outdoor unit; released on commit/rollback."""
-    await lock_commissioning(db)
+    await lock_home_commands(db, zone.home_id)
     await db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"), {"k": outdoor_lock_key(zone)})
 
 
@@ -87,7 +87,7 @@ async def check_scene_group_policy(
     De aanroeper toetst daarna het hoofddoel met dezelfde apparaatpolicy.
     Ontbrekende ledengegevens geven bij gate aan nooit een vrijstelling.
     """
-    await lock_commissioning(db)
+    await lock_home_commands(db, device.home_id)
     await db.refresh(device)
     if device.kind not in {"scene", "light_group"}:
         return
@@ -166,7 +166,7 @@ async def check_button_targets(
     db: AsyncSession, home_id: uuid.UUID, steps: Iterable[dict], *, safe_mode: bool = False,
 ) -> None:
     """Toets de bekende doelen van de hele koppeling vóór de eerste stap effect heeft."""
-    await lock_commissioning(db)
+    await lock_home_commands(db, home_id)
     if not (await read_gate(db))["enabled"]:
         return
     targets: list[tuple[Device, str]] = []
@@ -196,7 +196,8 @@ async def check_button_targets(
 
 async def check_zone_configuration(db: AsyncSession, *zones: ClimateZone) -> None:
     """Gebruik de actuele policy voor alle zones die een wijziging kan activeren."""
-    await lock_commissioning(db)
+    for home_id in sorted({zone.home_id for zone in zones}):
+        await lock_home_commands(db, home_id)
     targets = []
     for zone in zones:
         await db.refresh(zone)

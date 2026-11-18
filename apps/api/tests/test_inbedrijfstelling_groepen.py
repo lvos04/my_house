@@ -172,8 +172,8 @@ async def test_worker_herleest_ieder_lid(admin, group_rig, monkeypatch, scene, a
     if after_claim:
         original = r.worker._claim_next
 
-        async def claim(home_ids):
-            result = await original(home_ids)
+        async def claim(home_ids, **kwargs):
+            result = await original(home_ids, **kwargs)
             if result:
                 await revoke()
             return result
