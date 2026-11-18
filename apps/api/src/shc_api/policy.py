@@ -69,7 +69,7 @@ def check_command(device: DeviceFacts, action: str, params: dict) -> None:
                 "Dit apparaat is nog niet getest. Laat een beheerder het eerst onder Apparaten testen en "
                 "als getest bevestigen in de web-app. Er is geen bedienopdracht verstuurd."
             )
-    if device.kind in MEASURE_ONLY_KINDS and action in POWER_ACTIONS:
+    if device.kind in MEASURE_ONLY_KINDS and (action in POWER_ACTIONS or action == "set_light"):
         raise PolicyDenied("Energiemeters worden alleen gebruikt om te meten; schakelen is uitgeschakeld.")
     if action in POWER_ACTIONS and device.kind not in {"light", "ac_unit"}:
         raise PolicyDenied("Schakelen wordt voor dit type apparaat niet ondersteund.")

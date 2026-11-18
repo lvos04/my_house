@@ -4,6 +4,7 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from sqlalchemy import func, select
 
@@ -19,6 +20,7 @@ from shc_api.models import (
     SensorReading,
 )
 
+from .boiler_support import mapping
 from .ws_devices_support import add_device, add_integration, attach, fetch, hue_inventory, make_worker, new_home
 
 NEW = "0x00158d0009f1e2d3"
@@ -301,6 +303,42 @@ async def test_protected_socket_relay_and_switch_lock_alerts(admin):
         integ, [StateUpdate("SKT01", {"relay_on": None, "switch_lock": None, "relay_state": "unsupported"}, now)]
     )
     assert (await admin.get(f"/devices/{sock.id}")).json()["details"]["relay"]["state"] == "unsupported"
+
+
+async def test_set_light_off_is_refused_for_an_unprotected_energy_socket(admin, monkeypatch):
+    from shc_integrations.homewizard import HomeWizardAdapter
+
+    home_id = await new_home(admin)
+    button = await add_device(home_id, "button", "Testknop")
+    integ = await add_integration(home_id, "homewizard", config={"product_type": "HWE-SKT"})
+    socket = await add_device(home_id, "energy_socket", "Meetstekker", provider="homewizard", integration_id=integ.id)
+    assert (await admin.get(f"/devices/{socket.id}")).json()["protected"] is False
+    action, params = "set_light", {"on": False}
+    step = {"device_id": str(socket.id), "action": action, "params": params}
+    response = await admin.post(f"/buttons/{button.id}/mappings", json=mapping(step))
+    assert response.status_code == 422, response.text
+    assert "alleen lampen, lichtgroepen en scènes" in response.json()["detail"]["message"]
+
+    # Een eerder opgeslagen opdracht moet ook zonder de API-validatie worden geweigerd.
+    async with sessionmaker()() as db:
+        assert await db.scalar(select(CommandRecord.id).where(CommandRecord.home_id == home_id)) is None
+        command = CommandRecord(
+            home_id=home_id, device_id=socket.id, action=action, params=params, source="button", actor="test",
+        )
+        db.add(command)
+        await db.commit()
+    adapter = HomeWizardAdapter(integ.config)
+    request = AsyncMock()
+    execute = AsyncMock(wraps=adapter.execute)
+    monkeypatch.setattr(adapter, "_request", request)
+    monkeypatch.setattr(adapter, "execute", execute)
+    worker = make_worker()
+    attach(worker, integ, adapter)
+    await worker.process_commands({home_id})
+    request.assert_not_called()
+    refused = await fetch(CommandRecord, command.id)
+    assert refused.status == "denied" and "alleen gebruikt om te meten" in refused.detail
+    execute.assert_not_called()
 
 
 # --- item 25: button presses ---------------------------------------------------------------------
