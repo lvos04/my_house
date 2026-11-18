@@ -446,6 +446,62 @@ async def test_hue_toetst_actuele_bridge_voor_schrijven(admin, group_rig, scene,
             assert last_confirmed is None
 
 
+async def test_hue_afwijkend_scenetype_bevestigt_opdracht_niet(admin, group_rig):
+    r = group_rig
+    resources = {item["id"]: item for item in r.inv.full_resources()}
+    scene = resources[r.inv.S_EVENING]
+    scene_path = f"/clip/v2/resource/scene/{r.inv.S_EVENING}"
+    lamps = (r.inv.L1, r.inv.L2)
+    scene["actions"] = [{"target": {"rid": lamp, "rtype": "light"}, "action": {"on": {"on": True}}}
+                        for lamp in lamps]
+    scene_type = "scene"
+    writes = []
+    scene_reads = []
+
+    def bridge(request):
+        path = request.url.path
+        if path == "/clip/v2/resource":
+            return httpx.Response(200, json={"data": list(resources.values()), "errors": []})
+        resource = resources[path.rsplit("/", 1)[-1]]
+        if request.method == "PUT":
+            writes.append(path)
+            resource.update(json.loads(request.content))
+        if request.method == "GET" and path == scene_path:
+            scene_reads.append(scene_type)
+            resource = {"id": scene["id"], "type": scene_type, "status": {"active": "static"}}
+        return httpx.Response(200, json={"data": [resource], "errors": []})
+
+    async def last_confirmed():
+        response = await admin.get(f"/commissioning/devices/{r.scene}")
+        assert response.status_code == 200
+        return response.json()["last_confirmed_command"]
+
+    adapter = HueAdapter({"host": "bridge.test"}, {"application_key": "proef"},
+                         http_factory=lambda base, _: httpx.AsyncClient(
+                             base_url=base, transport=httpx.MockTransport(bridge)))
+    r.worker._adapter_for = lambda _: adapter
+    try:
+        assert (await send(admin, r, True)).status_code == 202
+        await r.worker.process_commands({r.home})
+        previous = await last_confirmed()
+        assert previous["action"] == "recall_scene"
+        scene_type = "room"
+        scene["status"]["active"] = "inactive"
+        for lamp in lamps:
+            resources[lamp]["on"]["on"] = False
+        writes.clear()
+        assert (await send(admin, r, True)).status_code == 202
+        await r.worker.process_commands({r.home})
+    finally:
+        await adapter.close()
+
+    assert scene_reads == ["scene", "room"]
+    assert writes == [f"/clip/v2/resource/light/{lamp}" for lamp in lamps]
+    assert all(resources[lamp]["on"]["on"] for lamp in lamps)
+    assert sorted(row.status for row in await commands(r)) == ["confirmed", "sent"]
+    assert await last_confirmed() == previous
+
+
 @pytest.mark.parametrize("scene", [False, True], ids=["groep", "scene"])
 @pytest.mark.parametrize("late_change", [False, True], ids=["derde_lid_getoetst", "derde_lid_na_lezing"])
 async def test_hue_schrijft_alleen_naar_gelezen_en_getoetste_lampen(admin, group_rig, scene, late_change):

@@ -733,7 +733,9 @@ class HueAdapter(Adapter):
             back = await self._get(f"/clip/v2/resource/scene/{rid}")
             rows = back.get("data") if isinstance(back, dict) and not back.get("errors") else None
             scene = rows[0] if isinstance(rows, list) and len(rows) == 1 else None
-            status = scene.get("status") if isinstance(scene, dict) and scene.get("id") == rid else None
+            status = None
+            if isinstance(scene, dict) and scene.get("id") == rid and scene.get("type", "scene") == "scene":
+                status = scene.get("status")
             if not isinstance(status, dict) or status.get("active") not in ("static", "dynamic_palette"):
                 return CommandResult(ok=True, confirmed=False, detail="De Hue Bridge meldt de scène niet als actief.")
         return CommandResult(ok=True, confirmed=True)
