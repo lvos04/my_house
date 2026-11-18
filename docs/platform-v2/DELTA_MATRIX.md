@@ -27,6 +27,9 @@ verwijzen naar §9).
 
 ## 0. Samenvatting
 
+Deze samenvatting beschrijft de P0-peildatum. Voor de inbedrijfstellingsgate is de
+[P3-stand van 18 november 2026](#stand-op-18-november-2026-s-p3-710) leidend.
+
 - my_house 0.2.0 dekt de **functionele** kern van B06 al grotendeels: boilerblokkade op drie lagen, gedeelde
   buitenunit, afstandsbediening-override, sensorterugval, readback-semantiek, Gree-protocolgate, energie uit tellers
   met kwaliteitslabels/reset/zomertijd, rolbindingen los van apparaten, versleutelde back-up/herstel/verhuizen. Alles
@@ -47,6 +50,21 @@ verwijzen naar §9).
 ---
 
 ## 1. B06-taken (Excel) — per eis
+
+### Stand op 18 november 2026 (S-P3-710)
+
+De tabellen hieronder bewaren de P0-meting. Dit is de stand na de bouw van de gate en de wizard.
+
+| Regel | Gebouwd en beproefd | Open |
+|---|---|---|
+| B06-001 — Productiecompatibiliteit | Bij actieve gate geeft ongeteste bediening 409 `device_not_tested`. De API controleert vóór plaatsing en de worker vóór uitvoering of retry. Migratie 0005 start de gate aan bij een lege installatie en uit bij bestaande apparaatrijen zonder eerdere toestand. De migratie bewaart bestaande testmarkeringen en de eerdere gate-instelling. De wizard gaat van meters naar Hue uitlezen, testen en bevestigen, en wacht voor Gree op D12. | P3-07 heeft nog een API-hiaat. `/integrations/compatibility` geeft protocol per rij en per bijpassend, niet-gearchiveerd apparaat identificatie, naam, model, teststatus en datum. Per-apparaatfirmware, protocolversie, gemaskeerde host, detectiemethode en terugval ontbreken. De optionele kolommen voor detectie en terugval bestaan sinds 0005. |
+| B06-002 — Apparaatconnecties | Ontdekking, koppeling en leestest markeren een apparaat nooit automatisch als getest. De beheerder bevestigt een apparaat of een selectie. De beheer-API en het apparaatscherm leveren de gepagineerde historie uit `device_marked_tested`. Bij een afwijkend Hue-resourcetype blijft een scèneopdracht verzonden (`sent`). | P3-01 (standaard Custom App, inclusief dongle via het formulier) en P3-12 (wisselvallige streamtest) blijven afzonderlijke vervolgpunten. Hardware- en NAS-validatie staan open. |
+| B06-009 — Hardwarecontrole | De P3-softwareproeven bestrijken de bedienweigering, bevestiging en historie, wizard en terugval. Rechtstreekse wizardterugval is beproefd voor beide oudere indelingen. Via de nooit uitgebrachte tussencommits `098732a` en `d9ec105` kan bij heropenen van `bac9422` de oorspronkelijke stap met markeringen verloren gaan doordat een intacte reservekopie wordt overschreven. | Android-emulatorproef op een omgeving met KVM. Fysieke acceptatie volgens `STAPPEN_P6.md` onderdeel N-P6-06. Daaronder vallen echte Hue, HomeWizard en Gree (D12) en de Custom App met herstart op de NAS. De accountproef voor de tunnel staat afzonderlijk open. B06-009 blijft **Geblokkeerd**. |
+
+Het kern- en migratiebewijs staat in de API-proeven `test_inbedrijfstelling_handhaving.py`,
+`test_inbedrijfstelling_migratie.py` en `test_inbedrijfstelling_behoud.py`. De web- en browserproeven staan in
+`commissioning.test.tsx`, `commissioning-herstel.test.tsx` en `13-inbedrijfstelling.e2e.ts`.
+De drie regels in [EVIDENCE.json](EVIDENCE.json) geven per proef de broncommit en de validatiegrenzen.
 
 ### B06-001 — Productiecompatibiliteit (F0, P0, risico hoog)
 
@@ -299,7 +317,7 @@ de Hub" (bij installatie via de Hub zet de vertaling alleen `HUB_URL`, nooit een
 | **P3-04** | P0 | Dienstidentiteit: `api_clients.kind` (`phone\|service`, migratie **0005** met downgrade); `service` maximaal `viewer` op gewone routes; outbox `connector_outbox` (migratie 0005) gevuld bij `events.publish`/`raise_alert`/`resolve_alert`/uurtotaal; `GET /connector/v1/events?cursor=` (de Hub pollt; ~~optioneel push naar Hub-inbox na enrollment~~ vervallen, contract 1.3 §2.3, C1.3-MH-07) | B06-006, EX12 | Geen exact-once; geen geheimen in events; geen enrollment |
 | **P3-05** | P0 | `POST /connector/v1/propose` + `/apply` + `/rollback` (501): Ed25519-verificatie (publieke policy-sleutel uit de koppeling), vervaltijd, nonce (`connector_nonces`), `Idempotency-Key` (`idempotency_keys`), ETag op zone/lichtgroep, allowlist (`light.group.set`, `light.scene.recall`, `zone.command`, `zone.resume`, `zone.schedule.propose`), aanroep van `request_zone_command`/`queue_command`; evidence met before/after + readback | B06-006, B06-007, EX17/18/20/45 | Geen eigen beleid naast `policy.py`; `risk_claim` nooit gebruiken |
 | **P3-06** | P0 | S-P3-705 bouwt en test de bestaande my_house-ingangen; ondertekende connector volgt in S-P3-742. Boiler-regressie EX27: 409 `policy_denied` voor elk beschermd doel op lichtroute, zone-route, knopkoppeling, connector (ook `actor.type=ai`); `PATCH /zones/{id}` alleen `ac_unit` als unit | B06-003, EX27 | Bestaande drie lagen niet vervangen |
-| **P3-07** | P0 | Inbedrijfstellingsgate (ADR-0005): `check_command` weigert `untested` apparaten; wizardvolgorde meters → Hue lezen → Hue test → Gree na D12; testlog per apparaat; matrix uitbreiden (protocolversie, detectie, terugval) | B06-001, B06-002, B06-009 | Niet automatisch `tested` zetten |
+| **P3-07** | P0 | Inbedrijfstellingsgate, wizard, bevestigingshistorie en twee optionele migratiekolommen gebouwd (18 november 2026). De uitbreiding van de compatibiliteits-API blijft open. Zie [§1](#stand-op-18-november-2026-s-p3-710) en §11.6. | B06-001, B06-002, B06-009 | Expliciete beheerbevestiging vereist. Fysieke acceptatie in N-P6-06. |
 | **P3-08** | P1 | Test voor sensorveroudering-melding (`worker/health.py:231-263`) | B06-004, EX29 | — |
 | **P3-09** | P1 | Startweigering bij nieuwer schema (oudere image): API start in herstelmodus met NL-pagina i.p.v. crashlus; geen migratie | EX15, §7 Proof of done | Nooit automatisch downgraden |
 | **P3-10** | P1 | CI: OpenAPI-driftcontrole (`docs/openapi/my_house.openapi.json`), alembic up/down/up, E2E twee alles-in-één containers (back-up A → herstel B, ander IP) | EX50, B06-008, contract §5 | — |
@@ -443,7 +461,7 @@ Daarnaast **14 aangevulde rijen** (11.5) voor eisen zonder rij.
 | P3-04 | P0: `api_clients.kind=service` + outbox + events | **P2, optioneel** (W3): een viewer-token volstaat voor "Hub kan niet schakelen"; meldingen en status zijn te pollen. Alleen bouwen als de Hub-adapter replay/push nodig heeft |
 | P3-05 | P0 | **Blijft P0** — het enige echte Hub-hiaat: ondertekende `propose`/`apply`/`evidence`. Hergebruik de bestaande TTL (G2), zone-capabilities als parameterschema (G4); nieuw: versiekolom voor ETag (G6, migratie 0005), nonce, `Idempotency-Key`, vervaltijd uit het `ExecutionRequest` |
 | P3-06 | P0 | Plus: `PATCH /zones/{id}` accepteert als unit alleen `ac_unit` en als sensor alleen een sensor; tests met `detail.code == "policy_denied"` voor zone-route, lichtroute, knop en (later) connector; de bestaande 404-assert aanpassen |
-| P3-07 | P0 | Geen nieuwe velden voor host/protocolversie/firmware/testlog (G1, G5). Wel: gate `untested` → 409, detectiemethode + terugvalkolom, historie van `device_marked_tested` tonen |
+| P3-07 | P0 | Stand 18 november 2026. Actieve gate geeft 409 `device_not_tested`. Migratie 0005 voegt `detection_method` en `fallback` toe. De historie komt uit het bestaande auditlog. Beheer en wizard tonen de bevestigingshistorie respectievelijk de D12-wachtstand. Open blijft het samenbrengen van firmware, protocolversie, gemaskeerde host, detectiemethode en terugval per apparaat in `GET /integrations/compatibility` (G1, G5). Deze API-uitbreiding valt buiten S-P3-710c. Fysieke acceptatie volgt in N-P6-06. |
 | P3-08 | P1 | Plus tests voor de commando-TTL (G2) en `_recover_interrupted` (A6) |
 | P3-09 | P1 | **P0** (11.4): onbekende (nieuwere) revisie herkennen **vóór** de dump; geen dump; nette weigering + herstelpagina |
 | P3-10 | P1 | alembic: alleen één test `head → base → head` (G9); EX50 blijft; OpenAPI-drift gedaan (`test_openapi_snapshot.py`, QA-review Peil-ronde) |

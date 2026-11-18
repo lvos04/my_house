@@ -18,6 +18,27 @@ apparaat in dit huis is gecontroleerd; noteer dan datum, firmware en wie het tes
 | Zigbee | Aqara WSDCGQ11LM (temp/vocht/druk) | Zigbee2MQTT via MQTT | Temperatuur, vochtigheid, druk, batterij, linkkwaliteit | Geen | nog niet getest met echte hardware |
 | Zigbee | Coördinator: SONOFF ZBDongle-E (EFR32MG21, driver `ember`) of ZBDongle-P (CC2652P, driver `zstack`) | Zigbee2MQTT | Status: verbinding met MQTT en Zigbee2MQTT online/offline apart zichtbaar | Firmware volgens Zigbee2MQTT-adapterlijst | nog niet gekocht / nog niet getest |
 
+## Detectie, protocol en terugval
+
+De tabel hierboven geeft het protocol per producttype. De versie en firmware van een concreet apparaat
+zijn onbekend totdat de koppeling ze heeft vastgesteld. Het LAN-adres van elk apparaat is hier onbekend.
+Voor koppelingen op het LAN kan een DHCP-reservering adreswissels voorkomen. Leg bij de fysieke
+proef alleen een gemaskeerde host vast in de compatibiliteitsmatrix.
+
+| Koppeling | Detectie en vaststelling van de versie | Terugval als verbinden of bedienen uitvalt |
+|---|---|---|
+| Philips Hue | Zoek de bridge met mDNS. Voer het adres handmatig in als de bridge niet verschijnt. De bridge levert lampen, groepen, scènes en knoppen via CLIP API v2. | Gebruik de Hue-app of bestaande bediening op de bridge zolang die beschikbaar is. |
+| HomeWizard | Zoek met mDNS of voer het adres handmatig in. De adapter stelt de API-versie vast bij koppelen en controleert de identiteit bij uitlezen. | Lees beschikbare waarden in de HomeWizard-app. Controleer bij een identiteitsfout eerst de DHCP-reservering en de koppeling. De boilerstekker blijft alleen voor meten. |
+| Gree | Zoek via UDP-scan of voer het adres handmatig in. De werkende protocolversie volgt uit binden en teruglezen. Voor het eigen apparaat blijft dit onbekend tot D12. | Gebruik de originele afstandsbediening. De app laat de unit bij geweigerde klimaatsturing zelf regelen. |
+| Zigbee | Start koppelen op de bridge. Zigbee2MQTT meldt het apparaat en vult de gegevens aan na het interview. De firmwareversie van het concrete apparaat is onbekend tot de fysieke controle. | Controleer MQTT en de coördinator afzonderlijk. Een alternatieve uitlezing voor een onbereikbare sensor is onbekend. |
+
+`GET /api/v1/integrations/compatibility` geeft het protocol **per tabelrij**. Per bijpassend,
+niet-gearchiveerd apparaat staan alleen `id`, `name`, `model`, `compatibility` en `tested_at` in het antwoord.
+**Open onder P3-07** blijft het tonen van per-apparaatfirmware, protocolversie, gemaskeerde host,
+detectiemethode en terugval. Migratie 0005 voegt `detection_method` (`scan` of `manual`) en `fallback`
+toe als optionele velden. De app vult of toont die velden voor de matrix nog niet. Zie de
+[deltamatrix](platform-v2/DELTA_MATRIX.md#stand-op-18-november-2026-s-p3-710).
+
 ## Apparaten in bedrijf stellen
 
 Open **Apparaten → Apparaten beoordelen** voor de teststatus en de laatste bevestigde bediening per apparaat.

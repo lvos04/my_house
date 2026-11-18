@@ -1,6 +1,6 @@
 # ADR-0005 — "Geen ongeteste Gree-bediening": inbedrijfstellingsgate per apparaat
 
-- **Status:** voorgesteld (interpretatie in P0, bouwen in P3)
+- **Status:** vastgesteld op 18 november 2026 en gebouwd in P3. Fysieke acceptatie volgt in N-P6-06.
 - **Context-ID's:** B06-001, B06-002, B06-007, EX30, D12; `01_ARCHITECTUUR/06_FASERING_EN_GATES.md` (gate *my_house fysieke
   apparaten gevalideerd* vóór climate actuation)
 
@@ -10,28 +10,38 @@ B06-001 eist: "Geen ongeteste Gree-bediening; Hue en P1 als eerste read-only." m
 
 1. **Protocolgate** (bestaand): een Gree-unit wordt alleen gekoppeld als scan + bind + statusuitlezing slagen;
    anders `unsupported`, integratie uit, geen bediening (`gree/adapter.py:380-410`, `routers/devices.py:1100-1188`).
-2. **Compatibiliteitslabel** (bestaand): `devices.compatibility` = `untested|tested|unsupported` met `tested_at`;
-   `POST /devices/{id}/test` leest alleen, `POST /devices/{id}/tested` zet het label (beheerder).
+2. **Inbedrijfstellingsgate** (P3): `devices.compatibility` = `untested|tested|unsupported` met `tested_at`.
+   Ontdekking en de leestest zijn hulpmiddelen voor de beheerder, die het resultaat expliciet bevestigt.
 
-Het label wordt nu **niet** gebruikt bij bediening: een gekoppelde maar `untested` unit kan meteen door gebruiker,
-schema en regelaar worden bediend. Het pakket laat open of "ongetest" de protocolgate of de menselijke bevestiging
-bedoelt.
+Vóór P3 kon de app een gekoppelde, ongeteste unit bedienen via de gebruiker, een schema of de regelaar.
+Het compatibiliteitslabel maakt nu deel uit van het centrale bedienbeleid.
 
-## Besluit (veiligste interpretatie)
+## Besluit
 
-1. **Bediening (`set_hvac`, licht-commando's) alleen voor apparaten met `compatibility == "tested"`.** Anders weigert
-   `policy.check_command` met `409 policy_denied` en de uitleg *"Dit apparaat is nog niet getest. Doe eerst de leestest
-   en markeer het als getest op Apparaten."* Dit komt in de bestaande beleidsfunctie (API én worker), niet in een
-   nieuwe laag.
-2. **Volgorde van inbedrijfstelling** (installatiewizard + I05): eerst HomeWizard P1/meters (alleen lezen, kunnen
-   nooit schakelen), dan Hue **alleen lezen** tot de beheerder één lamp met readback heeft getest en *getest* kiest,
-   dan Gree pas na D12 (echte bind/readback op het eigen model/firmware) en één bevestigde setpointwijziging.
-3. **Gevolg voor de regelaar:** een `untested` unit valt onder *OEM regelt zelf* (zoals bij een verouderde sensor);
-   de zone toont de reden. Er wordt nooit iets aangezet om te testen; de leestest schakelt niets.
-4. **Bestaande installaties:** bij de update krijgen apparaten met minstens één bevestigd (`confirmed`) commando een
-   eenmalige melding *"Bevestig dat dit apparaat werkt"*; ze worden **niet** automatisch op `tested` gezet (dat zou
-   een niet-uitgevoerde menselijke test claimen). Tot de bevestiging valt bediening terug op de afstandsbediening.
-5. EX30 blijft: protocolfout bij binden → `unsupported`, nooit pseudo-bediening.
+1. **Bediening bij een actieve gate** vereist de actuele status `tested` voor het doel en de betrokken
+   groeps- of scèneleden. `policy.check_command` weigert ongeteste bediening met `409 device_not_tested`
+   en verwijst naar testen en bevestigen onder **Apparaten** in de web-app. Veilige modus, boilerbescherming
+   en blokkade bij een onbruikbaar protocol hebben voorrang. `permit_join` op een actieve Zigbee-bridge
+   is een beheerhandeling waarop de teststatuscheck geen blokkade zet.
+2. **Uitrolbesluit van 18 november 2026.** Migratie 0005 begint met de gate aan als er geen apparaatrijen
+   zijn. Als er al apparaten zijn, inclusief gearchiveerde, begint de gate uit. Een eerder vastgelegde
+   gatetoestand blijft behouden bij migratie omlaag en weer omhoog. Bij een onbekende toestand past
+   de server de beveiliging toe. De migratie voegt ook de optionele velden `detection_method`
+   (`scan` of `manual`) en `fallback` toe.
+3. **Beheerbevestiging.** Ontdekking, koppeling en de leestest zetten een apparaat nooit automatisch op
+   `tested`. Een beheerder beoordeelt de leestest en kan de laatste bevestigde bediening als aanwijzing
+   gebruiken. De beheerder bevestigt een apparaat of een expliciet gekozen selectie. Het apparaatscherm
+   toont de bevestigingshistorie uit `device_marked_tested`. De beheerder schakelt de gate bewust in na
+   inzage in de gevolgen voor alle woningen.
+4. **Handhaving.** De API controleert vóór het plaatsen van de bedienopdracht. De worker herleest vóór
+   verzending de actuele gate, doelen en teststatus, ook voor eerder opgeslagen opdrachten en retries.
+   De controle geldt ook voor knopkoppelingen, schema’s en klimaatregeling. Wanneer de gate klimaatsturing
+   tegenhoudt, regelt de unit zelf en toont de zone de reden.
+5. **Wizardvolgorde.** Eerst **Meters uitlezen**, daarna **Hue uitlezen** en **Hue testen en bevestigen**.
+   De Hue-leestest schakelt niets. Voor de te bevestigen lamp is een eigen geslaagde leestest nodig.
+   De wizard toont voor Gree de wachtstand voor D12 en biedt **Gree later instellen**. De fysieke koppel-
+   en terugleesproef blijft vereist. Bij een protocolfout tijdens binden blijft EX30 van toepassing
+   (`unsupported`). Gebruik voor Gree zolang nodig de eigen afstandsbediening.
 
 ## Afgewezen alternatief
 
@@ -40,7 +50,13 @@ bedoelt.
 
 ## Gevolgen
 
-- Gedragswijziging voor wie 0.2.0 al gebruikt (klimaatbediening pauzeert tot bevestiging). Dit wordt in de
-  release-notes en in de app uitgelegd; de eigenaar kan dit besluit in P3 nog aanpassen (bijv. alleen voor Gree).
-- Tests in P3: `untested` → 409 `policy_denied` op API, worker en connector; `tested` → bediening; leestest schakelt
-  niets.
+- Bij de eerste opwaardering naar 0005 met bestaande apparaten en zonder eerdere gatetoestand blijft
+  de bestaande bediening beschikbaar onder het overige veiligheidsbeleid. Zodra de beheerder de gate
+  inschakelt, stopt my_house de bediening van ongeteste doelen.
+- De P3-proeven dekken de API-weigering, worker-hercontrole, bediening tot aan de testadapter,
+  bevestiging en audit, leestest en migratiebehoud. De toekomstige connector moet in S-P3-742
+  hetzelfde commandopad gebruiken en de weigering afzonderlijk toetsen.
+- De [API-handleiding](../api.md#inbedrijfstellingsbeheer) beschrijft de beheerroutes. De
+  [compatibiliteitsmatrix](../compatibility.md#detectie-protocol-en-terugval) noemt de open API-velden
+  onder P3-07. De [deltamatrix](../platform-v2/DELTA_MATRIX.md#stand-op-18-november-2026-s-p3-710)
+  koppelt het softwarebewijs aan de open fysieke acceptatie.

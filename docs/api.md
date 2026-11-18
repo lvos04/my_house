@@ -49,7 +49,10 @@ telefoon sluiten ook de open WebSocket-verbindingen van die sessie of dat token 
 
 ## Fouten
 
-HTTP-status + `{"detail": {"code": "string", "message": "Nederlandse uitleg"}}`. Validatiefouten
+De bestaande routes gebruiken de HTTP-status en `{"detail": {"code": "string", "message": "Nederlandse uitleg"}}`.
+De routes onder `/commissioning` gebruiken de contractvelden `code`, `message`, `details` en `trace_id`
+op het hoogste niveau. Zie [Inbedrijfstellingsbeheer](#inbedrijfstellingsbeheer) voor de bijbehorende codes.
+Validatiefouten op de bestaande routes
 (422) hebben daarnaast `errors: [{loc, msg, type}]`; een conflict bij knopkoppelingen (409) heeft
 `conflicts: [{index, message}]`; een mislukte koppeling (502/504/409) heeft `integration_id`,
 `device_id` en `diagnostics`. Bij 429 staat er een `Retry-After`-header bij.
@@ -70,6 +73,7 @@ HTTP-status + `{"detail": {"code": "string", "message": "Nederlandse uitleg"}}`.
 | 409 | `username_taken`, `last_admin`, `self_change`, `self_delete` | Gebruikersbeheer: naam bestaat al, laatste actieve beheerder, eigen rol/account |
 | 409 | `lan_url_required`, `lan_url_invalid`, `remote_url_invalid` | Eerst een geldig thuisadres (en tunneladres) instellen |
 | 409 | `policy_denied` | Veiligheidsbeleid weigert (boiler, gedeelde buitenunit, veilige modus, model te onbetrouwbaar) |
+| 409 | `device_not_tested` | De inbedrijfstellingsgate is actief en het bedieningsdoel of een betrokken groeps- of scènelid is ongetest. Een beheerder kan het apparaat testen en bevestigen onder **Apparaten**. Er is geen bedienopdracht verstuurd. |
 | 409 | `mode_required` | Airco staat uit: kies eerst een modus voordat je temperatuur of ventilator wijzigt |
 | 409 | `unsupported` | Kan dit apparaat niet (geen airco gekoppeld, geen ventilator, niet te kalibreren) |
 | 409 | `role_mismatch`, `not_bound`, `archived` | Rol past niet bij het apparaat, apparaat heeft die rol niet, apparaat of woning gearchiveerd |
@@ -270,7 +274,7 @@ Policy = {
 |---|---|---|---|---|
 | GET | `/homes/{home_id}/zones` | `auth` | – | `[Zone]` |
 | GET | `/zones/{id}` | `auth` | – | `Zone` |
-| POST | `/zones/{id}/command` | `control` | `{mode?, target_c? (5–35), fan?: "auto"\|"low"\|"medium"\|"high", override_minutes? (5–1440)}` | 202 `{command_id, status: "queued"}`. Fouten: 409 `policy_denied`, `mode_required`, `unsupported`; 422 `validation_error`; 503 `device_offline` |
+| POST | `/zones/{id}/command` | `control` | `{mode?, target_c? (5–35), fan?: "auto"\|"low"\|"medium"\|"high", override_minutes? (5–1440)}` | 202 `{command_id, status: "queued"}`. Fouten: 409 `policy_denied`, `device_not_tested`, `mode_required`, `unsupported`; 422 `validation_error`; 503 `device_offline` |
 | POST | `/zones/{id}/resume` | `control` | – | `Zone`: handmatige bediening of "uit" weg, terug naar schema |
 | GET | `/zones/{id}/history?hours=24` | `auth` | – | `{temperature: [[ts, v]], target: [[ts, v]]}` (`hours` 1–744) |
 | GET | `/zones/{id}/log?limit=50` | `auth` | – | `[{at, kind, message}]`, nieuwste eerst (`limit` 1–500) |
@@ -419,7 +423,7 @@ Step = {type: "light", device_id, action: "set_group"|"set_light"|"toggle"|"reca
 | Methode | Pad | Toegang | Body / antwoord |
 |---|---|---|---|
 | GET | `/homes/{home_id}/lights` | `auth` | → `{groups: [LightGroup], scenes: [Scene], lights: [Light]}` |
-| POST | `/lights/groups/{id}` | `control` | `{on?, brightness? (1–100), scene_id?}` → 202 `{command_id, status: "queued"}`; 409 `policy_denied` |
+| POST | `/lights/groups/{id}` | `control` | `{on?, brightness? (1–100), scene_id?}` → 202 `{command_id, status: "queued"}`; 409 `policy_denied` of `device_not_tested` |
 | GET | `/homes/{home_id}/buttons` | `auth` | → `[Button]` |
 | GET | `/buttons/{id}` | `auth` | → `Button` |
 | PUT | `/buttons/{id}/mappings` | `admin` | `[MappingIn]` → `Button`: vervangt alle koppelingen |
@@ -528,11 +532,11 @@ Integration = {id, provider, label, provider_label, home_id, enabled, identity, 
 | POST | `/devices/{id}/unbind` | `admin` | `{role}` → `Device`. 409 `not_bound` |
 | DELETE | `/devices/{id}` | `admin` | → `Device`: archiveren. Rollen en zonekoppelingen eindigen, wachtende commando's vervallen, historie blijft |
 | POST | `/devices/{id}/replace` | `admin` | `{new_device_id}` → `{old, new, moved: {roles, zones, mappings}}` |
-| POST | `/devices/{id}/test` | `admin` | → `{device_id, ok, checked_at, checks: [Check], readings, note}`. Leest alleen; schakelt nooit iets. 503 `secret_key_invalid` als de koppeling inloggegevens heeft en de sleutel ontbreekt of te kort is |
-| POST | `/devices/{id}/tested` | `admin` | `{note?}` → `Device` met `compatibility: "tested"` |
+| POST | `/devices/{id}/test` | `admin` | → `{device_id, ok, checked_at, checks: [Check], readings, note}`. Leest het apparaat uit en bewaart de proefuitkomst. De proef schakelt niets en zet het apparaat nooit automatisch op `tested`. 503 `secret_key_invalid` als de koppeling inloggegevens heeft en de sleutel ontbreekt of te kort is |
+| POST | `/devices/{id}/tested` | `admin` | Bestaande route voor handmatige bevestiging. `{note?}` → `Device` met `compatibility: "tested"`. Voor de nieuwe beheerflow gelden de precondities hieronder. |
 | GET | `/devices/{id}/diagnostics` | `admin` | → diagnoseblok (apparaat, integratie zonder sleutels, laatste metingen en commando's) |
 | GET | `/integrations?home_id=` | `auth` | → `[Integration]`, plus een regel `not_configured` per aanbieder zonder koppeling |
-| GET | `/integrations/compatibility` | `auth` | → `{providers, rows, note}`: de ondersteuningstabel uit [compatibility.md](compatibility.md) met de apparaten in dit huis |
+| GET | `/integrations/compatibility` | `auth` | → `{providers, rows, note}`. Bijpassende, niet-gearchiveerde apparaten verschijnen onder hun product- of typerij. Zie de [dekking van de compatibiliteits-API](compatibility.md#detectie-protocol-en-terugval). |
 | GET | `/integrations/{integration_id}` | `admin` | → `Integration` + `{health, config, diagnostics, devices}` |
 | GET | `/integrations/{provider}/instructions` | `auth` | → `{provider, label, steps, needs_manufacturer_app, works_locally}` |
 | POST | `/integrations/{provider}/discover` | `admin` | `{home_id, timeout_s? (1–30)}` → `[{provider, stable_identity, kind, name, host, model, firmware}]`; 502 `discovery_failed` |
@@ -559,6 +563,43 @@ code `key_mismatch`).
 
 Een mislukte koppeling wordt bewaard met diagnose (b.v. het scan-antwoord van een Gree-unit, nooit een
 sleutel); de foutmelding bevat `integration_id`, `device_id` en `diagnostics`.
+
+### Inbedrijfstellingsbeheer
+
+Alle zeven routes vereisen een beheerder. De bestaande sessie-, telefoon- en CSRF-regels gelden.
+De gate geldt voor alle woningen. Het overzicht geeft de gatetoestand, de beheerderstaak en de aantallen
+ongeteste, niet-ondersteunde en door inschakeling geraakte apparaten. Per apparaat zie je onder meer
+de teststatus, bescherming, of bevestiging is toegestaan en de laatste bevestigde bediening, indien aanwezig.
+De schema’s staan in de [OpenAPI-momentopname](openapi/my_house.openapi.json).
+
+| Methode | Pad | Antwoord of body |
+|---|---|---|
+| GET | `/commissioning` | Overzicht met `ETag` voor selectiebevestiging en inschakelen. |
+| GET | `/commissioning/devices` | Lijst van actieve apparaten in actieve woningen. Filters `home_id` en `affected_only`. De respons bevat `items`, `next_cursor`, `total`, `observed_at` en `gate_etag`. |
+| GET | `/commissioning/devices/{device_id}` | Apparaatdetail met `ETag` voor individuele bevestiging. |
+| GET | `/commissioning/devices/{device_id}/history` | `{items, next_cursor}` voor `device_marked_tested`, nieuwste auditregels eerst. Elke regel bevat tijd, actor, status en, indien vastgelegd, model en firmware. |
+| POST | `/commissioning/devices/{device_id}/confirm` | `{confirmed: true, note?}` → bijgewerkt apparaat met nieuwe `ETag`. |
+| POST | `/commissioning/devices/confirm` | `{confirmed: true, device_ids, note?}` → `{items}` en nieuwe gate-`ETag`. Geef 1–200 unieke apparaat-ID’s op. De API beoordeelt de hele selectie vóór de eerste wijziging. |
+| POST | `/commissioning/enable` | `{confirmed: true}` → bijgewerkt overzicht met `ETag`. Haal de actuele gevolgen op voordat je bevestigt. |
+
+Geef bij lijst en historie `next_cursor` terug als `cursor` voor de volgende pagina. De lijst gebruikt een
+apparaat-UUID en de historie een audit-ID. `limit` is standaard 50 en toegestaan van 1 tot en met 200.
+Een ontbrekende volgende pagina heeft `next_cursor: null`.
+
+Stuur voor iedere nieuwe POST een unieke UUID in `Idempotency-Key` en de actuele versie in `If-Match`.
+Gebruik de detail-ETag voor één apparaat en de overzichts-ETag voor selectiebevestiging of inschakelen.
+De lijst geeft dezelfde overzichtsversie in `gate_etag`. `confirmed` moet de JSON-waarde `true` zijn.
+`note` is optioneel en maximaal 500 tekens. Een inactief apparaat of een apparaat met een protocolfout
+kan niet worden bevestigd. Een beschermd apparaat kan alleen afzonderlijk voor meten worden bevestigd.
+
+Een herhaling door dezelfde beheerder en client met dezelfde sleutel, route en invoer geeft het
+oorspronkelijke antwoord met `ETag` en `Idempotent-Replay: true`. Bij die herhaling mag `If-Match` ontbreken.
+Een ontbrekende of ongeldige UUID in `Idempotency-Key` geeft 400 `idempotency_key_required` of
+`idempotency_key_invalid`. Bij gewijzigde invoer met dezelfde sleutel volgt 422 `idempotency_key_reused`.
+Een sleutel die nog wordt verwerkt geeft 409 `idempotency_in_progress`. Voor een nieuwe handeling zonder `If-Match` volgt
+428 `precondition_required`. Een verouderde versie geeft 412 `precondition_failed` met
+`details.huidige_etag`. Haal dan de actuele toestand op en laat de beheerder opnieuw beoordelen.
+Een tijdelijke databasefout geeft 503 `dependency_unavailable` met `Retry-After`.
 
 ## Systeem
 
