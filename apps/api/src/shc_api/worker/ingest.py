@@ -30,7 +30,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from .. import events, views
 from ..commanding import CommandRejected, check_button_targets, queue_command, request_zone_command, resume_zone
-from ..commissioning import lock_commissioning
+from ..commissioning import invalidate_device_test, lock_commissioning
 from ..db import sessionmaker
 from ..models import ButtonMapping, ClimateZone, Device, Home, Integration, ProcessedEvent, ZoneLog
 from ..policy import DEFAULT_PROTECTED_ROLES, PolicyDenied
@@ -172,6 +172,7 @@ class IngestMixin:
         if reactivate and d.lifecycle == "archived" and (d.diagnostics or {}).get("archived_by") == "adapter":
             d.lifecycle = "active"  # it is back on the hub
             d.diagnostics = {k: v for k, v in (d.diagnostics or {}).items() if k not in ("archived_by", "removed_at")}
+            invalidate_device_test(d)
         return d
 
     @staticmethod
@@ -255,6 +256,7 @@ class IngestMixin:
             if should_upgrade_kind(d.kind, ev.kind):
                 log.info("Apparaat %s: type %s -> %s", d.name, d.kind, ev.kind)
                 d.kind = ev.kind
+                invalidate_device_test(d)
             if ev.name and ev.name != d.name and self._rename_allowed(d):
                 d.name = ev.name[:100]
         if ev.model:
@@ -322,6 +324,7 @@ class IngestMixin:
         metric = METRIC_MAP.get(ev.metric, ev.metric)
         if b.integ.provider == "zigbee" and metric in SENSOR_METRICS and should_upgrade_kind(d.kind, "zigbee_sensor"):
             d.kind = "zigbee_sensor"
+            invalidate_device_test(d)
         value, raw = calibrate(d, metric, ev.value)
         await ingest_reading(db, d.id, metric, value, ev.unit, ev.observed_at, str(ev.quality), ev.event_id, raw)
         if d.last_seen is None or ev.observed_at > d.last_seen:
@@ -363,6 +366,7 @@ class IngestMixin:
 
             if should_upgrade_kind(d.kind, kind):
                 d.kind = kind
+                invalidate_device_test(d)
             name = st.get("name")
             if name and name != d.name and self._rename_allowed(d):
                 d.name = str(name)[:100]
@@ -458,6 +462,7 @@ class IngestMixin:
             return
         if should_upgrade_kind(dev.kind, "button"):
             dev.kind = "button"
+            invalidate_device_test(dev)
         if ev.event_id:
             key = f"{b.integ.provider}:{ev.event_id}"
         else:
@@ -535,7 +540,7 @@ class IngestMixin:
         except ValueError:
             return
         target = await db.get(Device, target_id)
-        if target is None or target.home_id != dev.home_id or target.lifecycle == "archived":
+        if target is None or target.home_id != dev.home_id or target.lifecycle != "active":
             return
         action, params = light_command(target, step)
         try:

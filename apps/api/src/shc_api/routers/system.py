@@ -22,6 +22,7 @@ from sqlalchemy import select, text, update
 from .. import backup as bk
 from .. import events, notify, views
 from ..adaptive import BASELINE_DAYS
+from ..commissioning import lock_commissioning
 from ..config import VERSION, get_settings
 from ..deps import DB, Admin, Auth, WebAdmin
 from ..errors import SECRET_KEY_INVALID_RESPONSE, api_error, not_found, require_secret_box, secret_key_invalid
@@ -119,6 +120,7 @@ async def put_settings(body: Addresses, db: DB, p: WebAdmin) -> dict:
 @router.post("/system/safe-mode/release")
 async def release_safe_mode(db: DB, p: Admin) -> dict:
     """User confirms device matching after restore/move; commands are allowed again."""
+    await lock_commissioning(db)
     await set_setting(db, "safe_mode", False)
     await audit(db, p.actor, "safe_mode_released")
     await db.flush()
@@ -983,6 +985,7 @@ async def restore_compare(db: DB, p: WebAdmin, home_id: uuid.UUID | None = None)
 async def archive_home(home_id: uuid.UUID, db: DB, p: Admin) -> dict:
     """Moving out: the old home and its history stay, but become read-only/inactive. Its integrations
     are switched off, so the worker stops talking to the old devices."""
+    await lock_commissioning(db)
     h = await db.get(Home, home_id)
     if not h:
         raise not_found("Woning")

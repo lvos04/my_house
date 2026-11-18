@@ -257,7 +257,7 @@ async def normalize_mapping(db: DB, dev: Device, m: dict) -> tuple[dict, list[st
                 errors.append(where + "lamp, groep of scène niet gevonden.")
                 continue
             await _check_target(db, target, "recall_scene" if target.kind == "scene" else "set_group")
-            if target.lifecycle == "archived":
+            if target.lifecycle != "active":
                 errors.append(where + "lamp, groep of scène niet gevonden.")
                 continue
             if mode == "climate":
@@ -532,7 +532,7 @@ async def _dry_run(db: DB, home: Home, dev: Device, step: dict, mapping_mode: st
         return {**out, "result": "refused", "code": e.code, "reason": e.message}
     if mapping_mode == "climate":
         return {**out, "result": "invalid", "reason": "Stap past niet bij de koppeling."}
-    if target.lifecycle == "archived":
+    if target.lifecycle != "active":
         return {"type": "light", "result": "invalid", "reason": "Lamp, groep of scène niet gevonden."}
     sp = await db.begin_nested()
     try:

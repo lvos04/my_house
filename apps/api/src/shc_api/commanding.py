@@ -183,6 +183,14 @@ async def check_zone_configuration(db: AsyncSession, *zones: ClimateZone) -> Non
             check_command(replace(facts, commissioning_gate=False) if protection_only else facts, "set_hvac", {})
 
 
+async def check_active_target(db: AsyncSession, home_id: uuid.UUID, device: Device) -> None:
+    if device.lifecycle != "active":
+        raise PolicyDenied("Dit apparaat is gearchiveerd of vervangen.")
+    home = await db.get(Home, home_id, populate_existing=True)
+    if home is None or home.active_to is not None or device.home_id != home_id:
+        raise PolicyDenied("Dit apparaat hoort niet bij een actieve woning voor deze bediening.")
+
+
 async def queue_command(
     db: AsyncSession,
     home_id: uuid.UUID,
@@ -200,6 +208,7 @@ async def queue_command(
         action,
         params,
     )
+    await check_active_target(db, home_id, device)
     now = datetime.now(UTC)
     cmd = CommandRecord(
         home_id=home_id,

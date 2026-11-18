@@ -75,3 +75,10 @@ async def command_facts(db: AsyncSession, device: Device, *, safe_mode: bool = F
         device.compatibility,
         (await read_gate(db))["enabled"],
     )
+
+
+def invalidate_device_test(device: Device) -> None:
+    """Trek de actuele bevestiging in en behoud de bestaande auditgeschiedenis."""
+    device.compatibility = "untested"
+    device.tested_at = None
+    device.diagnostics = {k: v for k, v in (device.diagnostics or {}).items() if k != "tested"}

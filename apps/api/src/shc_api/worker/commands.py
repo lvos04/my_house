@@ -18,6 +18,7 @@ from sqlalchemy import select, update
 from .. import climate as cl
 from .. import events
 from ..commanding import (
+    check_active_target,
     check_scene_group_policy,
     command_still_wanted,
     lock_outdoor_group,
@@ -154,6 +155,7 @@ class CommandsMixin:
                 cmd.action,
                 cmd.params,
             )
+            await check_active_target(db, cmd.home_id, dev)
         except PolicyDenied as e:
             return "denied", e.message
         if now - cmd.created_at > (MAX_AGE_RETRY if retry else MAX_AGE_FIRST):

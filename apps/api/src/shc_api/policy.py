@@ -55,6 +55,8 @@ def check_command(device: DeviceFacts, action: str, params: dict) -> None:
             "Dit apparaat is beveiligd als alleen-meten (boiler). Schakelen is geblokkeerd door de "
             "app; let op: de HomeWizard-app zelf kan de stekker nog wel schakelen."
         )
+    if action == "permit_join" and device.kind != "zigbee_bridge":
+        raise PolicyDenied("Alleen een actieve Zigbee-bridge kan nieuwe apparaten toelaten.")
     if device.commissioning_gate and device.compatibility != "tested":
         # Alleen een bridge-beheercommando; gewone bediening krijgt nooit een beheeruitzondering.
         if not (device.kind == "zigbee_bridge" and action == "permit_join"):

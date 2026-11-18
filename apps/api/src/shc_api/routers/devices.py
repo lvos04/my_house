@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, update
 
 from .. import events
-from ..commissioning import lock_commissioning
+from ..commissioning import invalidate_device_test, lock_commissioning
 from ..config import VERSION, get_settings
 from ..deps import DB, Admin, Auth, get_home
 from ..errors import SECRET_KEY_INVALID_RESPONSE, api_error, not_found, require_secret_box
@@ -218,6 +218,7 @@ async def patch_device(device_id: uuid.UUID, body: DevicePatch, db: DB, p: Admin
     if "lifecycle" in fields and body.lifecycle == "active" and d.lifecycle == "archived":
         d.lifecycle = "active"
         d.diagnostics = {k: v for k, v in (d.diagnostics or {}).items() if k not in ("archived_by", "archived_at")}
+        invalidate_device_test(d)
         await audit(db, p.actor, "device_restored", d.name, device=str(d.id))
     await db.commit()
     return await device_view(db, d)
@@ -297,20 +298,23 @@ async def _check_reference_policy(
     ))).scalars().all()
     target_ids = ids | {scene.id for scene in scenes if _reference_uuid(
         (scene.state or {}).get("group_device_id")) in ids}
-    referenced = zones or any(
+    button_reference = any(
         m.device_id in ids or any(
             step["type"] == "light" and _reference_uuid(step.get("device_id")) in target_ids
             for step in mapping_steps(m.action)
         ) for m in maps
     )
-    if referenced:
+    if zones or button_reference:
         roles, protected = await roles_of(db, d.id)
         roles = roles | frozenset(r.key for r in extra_roles)
         protected = protected | frozenset(r.key for r in extra_roles if r.protected)
         try:
             check_command(DeviceFacts(d.kind, roles, protected), "set_hvac" if zones else "set_group", {})
         except PolicyDenied as e:
-            raise api_error(409, "policy_denied", e.message) from e
+            message = e.message
+            if moving_from is not None and button_reference:
+                message += " Een knopkoppeling gebruikt dit doel. Verwijder die koppeling vóór het vervangen."
+            raise api_error(409, "policy_denied", message) from e
 
 
 @router.post("/devices/{device_id}/bind")
@@ -432,19 +436,37 @@ class ReplaceIn(BaseModel):
     new_device_id: uuid.UUID
 
 
-def _swap_step_ids(action: dict, old: str, new: str) -> tuple[dict, bool]:
-    raw = json.dumps(action)
-    if old not in raw:
-        return action, False
-    return json.loads(raw.replace(old, new)), True
+def _mapped_action(step: dict, old: Device) -> str | None:
+    return step.get("action") or (LIGHT_ACTIONS.get(old.kind) or (None,))[0]
+
+
+def _swap_step_ids(action: dict, old: Device, new: Device) -> tuple[dict, bool]:
+    def move(raw):
+        steps = mapping_steps({"steps": [raw]})
+        if not steps:
+            return raw
+        step = steps[0]
+        if step["type"] != "light" or _reference_uuid(step.get("device_id")) != old.id:
+            return raw
+        if old.kind == new.kind and _mapped_action(step, old) not in LIGHT_ACTIONS.get(new.kind, ()):
+            return raw  # Dezelfde soort kan deze oude stap ook niet uitvoeren.
+        return {**raw, "device_id": str(new.id)}
+
+    if isinstance(action.get("steps"), list):
+        updated = {**action, "steps": [move(raw) for raw in action["steps"]]}
+    else:
+        updated = move(action)
+    return updated, updated != action
 
 
 def _check_step_kinds(maps: list[ButtonMapping], old: Device, new: Device) -> None:
     """Een verhuisde lichtstap moet zijn actie op het nieuwe soort kunnen uitvoeren."""
+    if old.kind == new.kind:
+        return  # Een oude onuitvoerbare stap blijft staan, zie _swap_step_ids.
     for m in maps:
         for step in mapping_steps(m.action):
-            if step["type"] == "light" and step.get("device_id") == str(old.id):
-                action = step.get("action") or (LIGHT_ACTIONS.get(old.kind) or (None,))[0]
+            if step["type"] == "light" and _reference_uuid(step.get("device_id")) == old.id:
+                action = _mapped_action(step, old)
                 if action not in LIGHT_ACTIONS.get(new.kind, ()):
                     raise api_error(409, "role_mismatch", "De knopstap past niet bij het nieuwe apparaattype.")
 
@@ -517,7 +539,7 @@ async def replace_device(device_id: uuid.UUID, body: ReplaceIn, db: DB, p: Admin
         m.device_id = new.id
     steps_moved = 0
     for m in home_maps:
-        action, changed = _swap_step_ids(m.action or {}, str(old.id), str(new.id))
+        action, changed = _swap_step_ids(m.action or {}, old, new)
         if changed:
             m.action = action
             steps_moved += 1
@@ -1429,6 +1451,9 @@ async def pair(provider: str, body: PairIn, db: DB, p: Admin):
     else:
         if should_upgrade_kind(d.kind, dev.kind):
             d.kind = dev.kind
+            invalidate_device_test(d)
+        elif d.lifecycle != "active":
+            invalidate_device_test(d)
         if body.name:
             d.name = body.name
         d.diagnostics = {k: v for k, v in (d.diagnostics or {}).items() if k not in ("archived_by", "archived_at")}
@@ -1637,14 +1662,20 @@ class PermitJoin(BaseModel):
 async def zigbee_permit_join(body: PermitJoin, db: DB, p: Admin):
     from ..commanding import queue_command
 
+    await lock_commissioning(db)
     bridge = (
-        (await db.execute(select(Device).where(Device.home_id == body.home_id, Device.kind == "zigbee_bridge")))
+        (await db.execute(select(Device).where(
+            Device.home_id == body.home_id, Device.kind == "zigbee_bridge", Device.lifecycle == "active",
+        )))
         .scalars()
         .first()
     )
     if bridge is None:
         raise api_error(409, "not_configured", "Zigbee is nog niet ingesteld.")
-    cmd = await queue_command(db, body.home_id, bridge, "permit_join", {"seconds": body.seconds}, "user", p.actor)
+    try:
+        cmd = await queue_command(db, body.home_id, bridge, "permit_join", {"seconds": body.seconds}, "user", p.actor)
+    except PolicyDenied as exc:
+        raise api_error(409, exc.code, exc.message) from exc
     await audit(db, p.actor, "zigbee_permit_join", bridge.name, home=str(body.home_id), seconds=body.seconds)
     await db.commit()
     until = datetime.now(UTC).timestamp() + body.seconds
