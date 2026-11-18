@@ -60,7 +60,7 @@ from sqlalchemy.pool import NullPool
 
 from .config import VERSION, get_settings
 from .logfilter import db_error_text
-from .models import Base
+from .models import Base, Setting
 
 log = logging.getLogger(__name__)
 
@@ -843,6 +843,8 @@ async def write_backup(
             snap = await conn.execution_options(isolation_level="REPEATABLE READ")
             async with snap.begin():
                 await snap.execute(text("SET TRANSACTION READ ONLY"))
+                restore_report = await snap.scalar(select(Setting.value["v"]).where(Setting.key == "restore_report"))
+                interrupted = _interrupted_backup_ids(restore_report)
                 for table in Base.metadata.sorted_tables:
                     if table.name in SKIP_TABLES:
                         continue
@@ -855,8 +857,8 @@ async def write_backup(
                     async for partition in result.partitions(FETCH_ROWS):
                         for r in partition:
                             obj = dict(zip(keys, r, strict=True))
-                            if table.name == "backups" and obj.get("status") == "running":
-                                continue  # in-progress backups (this one too) mean nothing after a restore
+                            if table.name == "backups" and obj["status"] == "running" and obj["id"] not in interrupted:
+                                continue  # Laat werkelijk lopende taken weg, inclusief deze export.
                             if redact:
                                 if table.name == "settings" and obj.get("key") in SECRET_SETTING_KEYS:
                                     continue
@@ -1222,7 +1224,10 @@ class RestoreReport:
 async def restored_interrupted_backup_ids(db: AsyncSession) -> set[uuid.UUID]:
     from .store import get_setting
 
-    report = await get_setting(db, "restore_report")
+    return _interrupted_backup_ids(await get_setting(db, "restore_report"))
+
+
+def _interrupted_backup_ids(report: Any) -> set[uuid.UUID]:
     if not isinstance(report, dict) or not isinstance(report.get("interrupted_backups"), list):
         return set()
     ids = set()

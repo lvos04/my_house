@@ -204,6 +204,38 @@ async def test_oud_archief_bewaart_open_backuptaak_en_meldt_onderbreking(tmp_pat
         ]
 
 
+async def test_opnieuw_exporteren_bewaart_historische_taken_en_slaat_actieve_taak_over(tmp_path):
+    async with temp_db() as source, temp_db() as target:
+        engine = create_async_engine(source, poolclass=NullPool)
+        try:
+            async with AsyncSession(engine, expire_on_commit=False) as db:
+                historical = BackupRecord(kind="export", filename="historisch", status="running",
+                                          detail={"bron": "oude back-up"})
+                completed = BackupRecord(kind="export", filename="afgerond", status="ok",
+                                         detail={"bron": "controlerij"})
+                db.add_all([historical, completed])
+                await db.commit()
+            rows = await tables(source)
+            v1 = tmp_path / "oud.shcbak"
+            v1.write_bytes(make_v1(rows, bk.head_revision()))
+            await bk.restore_file(v1, PW, url=source)
+            async with AsyncSession(engine) as db:
+                db.add(BackupRecord(kind="export", filename="actief", status="running"))
+                await db.commit()
+            v2 = tmp_path / "nieuw.shcbak"
+            async with engine.connect() as conn:
+                await bk.write_backup(conn, v2, PW, include_secrets=True)
+            verified = bk.verify_file(v2, PW)
+            assert verified.format_version == 2
+            assert verified.manifest["tables"]["backups"]["rows"] == 2
+            report = await bk.restore_file(v2, PW, url=target)
+            assert report.interrupted_backups == [str(historical.id)]
+            after = await tables(target)
+            assert row_bytes(after)["backups"] == row_bytes(rows)["backups"]
+        finally:
+            await engine.dispose()
+
+
 async def test_gate_leest_verse_instelling_zonder_automatisch_te_schrijven():
     async with temp_db() as url:
         engine = create_async_engine(url, poolclass=NullPool)
