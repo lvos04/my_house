@@ -12,13 +12,13 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, update
 
 from .. import events
-from ..commissioning import invalidate_device_test, lock_commissioning
+from ..commissioning import confirmation_block, invalidate_device_test, lock_commissioning, record_test_confirmation
 from ..config import VERSION, get_settings
 from ..deps import DB, Admin, Auth, get_home
 from ..errors import SECRET_KEY_INVALID_RESPONSE, api_error, not_found, require_secret_box
@@ -604,7 +604,7 @@ def _seen_check(d: Device, now: datetime) -> dict:
 
 
 @router.post("/devices/{device_id}/test", responses=SECRET_KEY_INVALID_RESPONSE)
-async def test_device(device_id: uuid.UUID, db: DB, p: Admin) -> dict:
+async def test_device(device_id: uuid.UUID, db: DB, p: Admin, request: Request) -> dict:
     """Non-destructive check: reads only (health probe of the integration, last messages, latest
     readings). Never switches anything — not the boiler, not a socket, not a lamp."""
     from ..worker.core import error_code, error_text
@@ -714,12 +714,19 @@ async def test_device(device_id: uuid.UUID, db: DB, p: Admin) -> dict:
         "readings": readings,
         "note": "Er is niets geschakeld; alleen uitgelezen.",
     }
+    # De adapter kan lang bezig zijn. Voeg het proefresultaat toe aan de actuele diagnose
+    # zodat een gelijktijdige bevestiging of intrekking niet wordt overschreven.
+    await lock_commissioning(db)
+    d = await db.get(Device, device_id, populate_existing=True)
+    if d is None:
+        raise not_found("Apparaat")
     d.diagnostics = {
         **(d.diagnostics or {}),
         "last_test": json.loads(json.dumps({k: v for k, v in result.items() if k != "readings"}, default=str)),
     }
     await audit(db, p.actor, "device_tested_probe", d.name, device=str(d.id), ok=ok)
     await db.commit()
+    request.state.domain_audit = True
     return result
 
 
@@ -728,19 +735,15 @@ class TestedIn(BaseModel):
 
 
 @router.post("/devices/{device_id}/tested")
-async def mark_tested(device_id: uuid.UUID, db: DB, p: Admin, body: TestedIn | None = None) -> dict:
+async def mark_tested(device_id: uuid.UUID, db: DB, p: Admin, request: Request, body: TestedIn | None = None) -> dict:
     """Manual confirmation that this device works in this home ("getest")."""
     await lock_commissioning(db)
     d = await _device(db, device_id)
-    now = datetime.now(UTC)
-    d.tested_at = now
-    d.compatibility = "tested"
-    d.diagnostics = {
-        **(d.diagnostics or {}),
-        "tested": {"at": now.isoformat(), "by": p.user.username, "note": body.note if body else None},
-    }
-    await audit(db, p.actor, "device_marked_tested", d.name, device=str(d.id), model=d.model, firmware=d.firmware)
+    if confirmation_block(d, await get_home(db, d.home_id)):
+        raise api_error(409, "conflict", "Alleen een actief apparaat zonder protocolfout kan worden bevestigd.")
+    await record_test_confirmation(db, d, actor=p.actor, username=p.user.username, note=body.note if body else None)
     await db.commit()
+    request.state.domain_audit = True
     return await device_view(db, d)
 
 

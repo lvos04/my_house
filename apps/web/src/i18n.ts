@@ -156,6 +156,11 @@ export const RESTORE_STATE_LABEL: Dict = { running: 'Bezig', done: 'Klaar', fail
 /** Audit log actions (GET /audit). "request" rows are generic API calls. Also the options of the
  * "Soort" filter, so every action the backend writes needs a label here, including the rows that
  * database migrations insert themselves (both checked in account.test.tsx). */
+export const COMMISSIONING_GATE_ENABLED_LABEL = {
+  nl: 'Inbedrijfstellingsbeveiliging ingeschakeld',
+  en: 'Commissioning protection enabled',
+} as const;
+
 export const AUDIT_ACTION_LABEL: Dict = {
   request: 'Wijziging via de app',
   setup_admin: 'Beheerder aangemaakt (eerste start)',
@@ -193,6 +198,7 @@ export const AUDIT_ACTION_LABEL: Dict = {
   device_calibrated: 'Apparaat gekalibreerd',
   device_tested_probe: 'Apparaat getest (uitlezen)',
   device_marked_tested: 'Apparaat als getest gemarkeerd',
+  commissioning_gate_enabled: COMMISSIONING_GATE_ENABLED_LABEL.nl,
   schedule_updated: 'Schema aangepast',
   zone_policy_updated: 'Regelgrenzen aangepast',
   zone_updated: 'Zone-koppeling aangepast',

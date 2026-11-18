@@ -497,15 +497,18 @@ async def test_ontdekken_koppelen_adres_diagnose_schakelen_nooit(admin, boiler_r
     monkeypatch.setattr(devices, "providers", lambda: {"homewizard": info})
     found = await admin.post("/integrations/homewizard/discover", json={"home_id": str(r.home), "timeout_s": 1})
     assert found.status_code == 200 and found.json()[0]["stable_identity"] == identity, found.text
+    assert (await fetch(Device, r.boiler)).compatibility == "untested"
     paired = await admin.post("/integrations/homewizard/pair", json={"home_id": str(r.home), "host": "boilertest.local"})
     assert paired.status_code == 200, paired.text
     d = await fetch(Device, r.boiler)
     assert d.integration_id is not None
+    assert d.compatibility == "untested"
     changed = await admin.c.patch(f"/api/v1/integrations/{d.integration_id}",
                                  json={"host": "andere-boilertest.local"}, headers=admin.h())
     assert changed.status_code == 200, changed.text
     tested = await admin.post(f"/devices/{r.boiler}/test")
     assert tested.status_code == 200 and tested.json()["ok"], tested.text
+    assert (await fetch(Device, r.boiler)).compatibility == "untested"
     diagnosis = await admin.get(f"/devices/{r.boiler}/diagnostics")
     assert diagnosis.status_code == 200, diagnosis.text
     assert (await admin.post(f"/devices/{r.boiler}/tested")).status_code == 200

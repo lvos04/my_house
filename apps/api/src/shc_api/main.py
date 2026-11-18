@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from sqlalchemy.exc import DBAPIError
 
 from .config import VERSION, get_settings
+from .contract_http import problem
 from .db import dispose, sessionmaker
 from .deps import UNSAFE, Admin
 from .events import dumps, hub
@@ -18,6 +19,7 @@ from .logfilter import db_error_text, install_log_filter
 from .models import AuditLog
 from .routers import (
     auth,
+    commissioning,
     devices,
     energy,
     homes,
@@ -35,6 +37,8 @@ from .watch import watch
 API_PREFIX = "/api/v1"
 # Restore uploads may be large (contract C6); everything else is small JSON.
 UPLOAD_PREFIX = f"{API_PREFIX}/system/restore"
+COMMISSIONING_PREFIX = f"{API_PREFIX}{commissioning.router.prefix}"
+CONTRACT_BODY_LIMIT = 1 << 20
 log = logging.getLogger(__name__)
 
 
@@ -153,20 +157,58 @@ class BodyLimitMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+        path = scope.get("path", "")
+        contract = path == COMMISSIONING_PREFIX or path.startswith(COMMISSIONING_PREFIX + "/")
         s = get_settings()
-        limit = s.max_upload_bytes if scope.get("path", "").startswith(UPLOAD_PREFIX) else s.max_body_bytes
+        limit = s.max_upload_bytes if path.startswith(UPLOAD_PREFIX) else s.max_body_bytes
+        if contract:
+            limit = CONTRACT_BODY_LIMIT
+
+        async def too_large() -> None:
+            detail = BodyTooLarge(limit).detail
+            body = problem(**detail, max_bytes=limit) if contract else {"detail": detail}
+            await _send_json(send, 413, body)
+
         for name, value in scope.get("headers") or ():
             if name == b"content-length":
                 try:
                     declared = int(value)
                 except ValueError:
-                    await _send_json(
-                        send, 400, {"detail": {"code": "validation_error", "message": "Ongeldige Content-Length."}}
-                    )
+                    detail = {"code": "validation_error", "message": "Ongeldige Content-Length."}
+                    if contract:
+                        await _send_json(send, 422, problem(**detail, fouten=[{"loc": ["header", "content-length"]}]))
+                    else:
+                        await _send_json(send, 400, {"detail": detail})
                     return
                 if declared > limit:
-                    await _send_json(send, 413, {"detail": BodyTooLarge(limit).detail})
+                    await too_large()
                     return
+        if contract:
+            # Tel ook gestreamde bodies volledig vóór authenticatie en routering.
+            body = bytearray()
+            while True:
+                message = await receive()
+                if message["type"] != "http.request":
+                    return
+                part = message.get("body", b"")
+                if len(body) + len(part) > limit:
+                    await too_large()
+                    return
+                body.extend(part)
+                if not message.get("more_body"):
+                    break
+
+            pending = True
+
+            async def replay_body() -> dict:
+                nonlocal pending
+                if pending:
+                    pending = False
+                    return {**message, "body": bytes(body)}
+                return await receive()
+
+            await self.app(scope, replay_body, send)
+            return
         received = 0
         started = False
 
@@ -187,10 +229,10 @@ class BodyLimitMiddleware:
 
         try:
             await self.app(scope, limited_receive, tracking_send)
-        except BodyTooLarge as exc:
+        except BodyTooLarge:
             if started:
                 raise
-            await _send_json(send, 413, {"detail": exc.detail})
+            await too_large()
 
 
 def route_template(scope: dict) -> str:
@@ -209,9 +251,11 @@ def route_template(scope: dict) -> str:
 
 
 class AuditMiddleware:
-    """One audit_log row for every successful mutating request by a logged-in user or phone:
-    actor, method, route template (no ids in the template; they go in detail.params) and status.
-    Request bodies are never logged (they may hold passwords). Domain events keep their own rows."""
+    """Log een geslaagde mutatie van een aangemelde gebruiker of telefoon.
+
+    Bewaar actor, methode, route, status en routeparameters. Handelingen die zelf een
+    transactiegebonden auditregel schrijven kunnen de aanvullende verzoekregel overslaan.
+    """
 
     def __init__(self, app: Any) -> None:
         self.app = app
@@ -232,7 +276,10 @@ class AuditMiddleware:
         await self.app(scope, receive, tracking_send)
         if not 200 <= status < 400 or scope.get("path", "").startswith(UPLOAD_PREFIX):
             return  # restore replaces the database; it audits itself
-        principal = (scope.get("state") or {}).get("principal")
+        state = scope["state"]
+        if state.get("domain_audit"):
+            return  # Het domein heeft dezelfde handeling al in de mutatietransactie vastgelegd.
+        principal = state.get("principal")
         if principal is None:
             return  # login, setup, redeem: audited by the endpoint itself
         template = route_template(scope)
@@ -253,7 +300,9 @@ class AuditMiddleware:
 
 
 # Every router, included under API_PREFIX (tests enumerate routes through this, not app.routes).
-ROUTERS = (auth, users, pairing, homes, zones, profiles, lights, energy, devices, optimization, system, ws)
+ROUTERS = (
+    auth, users, pairing, homes, zones, profiles, lights, energy, devices, commissioning, optimization, system, ws,
+)
 
 
 def create_app() -> FastAPI:
@@ -294,13 +343,21 @@ def create_app() -> FastAPI:
         )
 
     @app.exception_handler(DBAPIError)
-    async def _database_error(req: Request, exc: DBAPIError) -> PlainTextResponse:
-        """Onverwachte databasefout (KLEIN-37): in de log alleen soort, sqlstate, constraint en tabel, nooit de
-        DETAIL-regel van PostgreSQL (sleutelwaarde of hele rij). Het antwoord blijft wat Starlette zonder deze
-        handler gaf: 500 met de platte tekst "Internal Server Error". Een websocket gaat door zoals voorheen."""
+    async def _database_error(req: Request, exc: DBAPIError) -> PlainTextResponse | JSONResponse:
+        """Log soort, sqlstate, constraint en tabel (KLEIN-37).
+
+        Inbedrijfstelling geeft een contractfout bij een onbereikbare database. De bestaande HTTP-routes
+        behouden hun platte 500-antwoord. Websockets geven de uitzondering door.
+        """
         if req.scope.get("type") != "http":
             raise exc
         log.error("Onverwachte databasefout bij %s %s: %s", req.method, route_template(req.scope), db_error_text(exc))
+        if route_template(req.scope).startswith(COMMISSIONING_PREFIX + "/") or req.url.path == COMMISSIONING_PREFIX:
+            return JSONResponse(
+                problem("dependency_unavailable", "De database is tijdelijk niet beschikbaar."),
+                status_code=503,
+                headers={"Retry-After": "5"},
+            )
         return PlainTextResponse("Internal Server Error", status_code=500)
 
     # Pure ASGI middlewares (no BaseHTTPMiddleware: its task group would wrap the 413 raised while

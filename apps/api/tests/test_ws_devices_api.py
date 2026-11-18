@@ -72,6 +72,8 @@ async def test_repair_reuses_integration_and_moves_devices(admin, monkeypatch):
     assert not gone.enabled and gone.credentials_enc is None and gone.identity is None
     assert (await fetch(Device, lamp.id)).integration_id == old_b.id
     assert (await fetch(Device, bridge_dev.id)).integration_id == old_b.id
+    assert (await fetch(Device, lamp.id)).compatibility == "untested"
+    assert (await fetch(Device, bridge_dev.id)).compatibility == "untested"
     # Pairing again changes nothing in the number of integrations.
     r = await admin.post("/integrations/hue/pair", json={"home_id": str(home_id), "host": "192.168.1.20"})
     assert r.status_code == 200
@@ -299,6 +301,8 @@ async def test_device_test_probe_tested_and_diagnostics(admin, monkeypatch):
     checks = {c["key"]: c for c in res["checks"]}
     assert res["ok"] is True and checks["connection"]["state"] == "ok" and checks["seen"]["state"] == "ok"
     assert executed == [] and "niets geschakeld" in res["note"]
+    assert (await admin.get(f"/devices/{lamp.id}")).json()["compatibility"] == "untested"
+    assert (await admin.get(f"/commissioning/devices/{lamp.id}/history")).json()["items"] == []
 
     broken = await add_integration(
         home_id, "hue", "Hue kapot", config={"host": "192.168.1.3"}, raw_credentials=b"\x01zzz"

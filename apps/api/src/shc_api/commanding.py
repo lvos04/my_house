@@ -79,6 +79,7 @@ async def lock_outdoor_group(db: AsyncSession, zone: ClimateZone) -> None:
 async def check_scene_group_policy(
     db: AsyncSession, device: Device, action: str, params: dict, *,
     protection_only: bool = False, safe_mode: bool = False,
+    preview_enabled: bool = False,
 ) -> None:
     """Toets indirecte doelen; bescherming gaat vóór iedere teststatus.
 
@@ -124,6 +125,8 @@ async def check_scene_group_policy(
             for m in members
         ))
     facts = [await command_facts(db, target, safe_mode=safe_mode) for target in targets]
+    if preview_enabled:
+        facts = [replace(item, commissioning_gate=True) for item in facts]
     for item in facts:
         check_command(replace(item, commissioning_gate=False), action, params)
     if protection_only:

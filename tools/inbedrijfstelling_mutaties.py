@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Bewijs behoudcontroles met mutaties in aparte testprocessen, zonder bronwijziging.
 
-Dit gereedschap toetst uitsluitend de migratie en gatetoestand van S-P3-710a.
-Het bewijst geen bedieningsgate of beheer-API. Alleen tijdelijke proefdatabases
-van de bestaande tests worden gebruikt; geen echte apparaten of accounts.
+Dit gereedschap toetst de migratie, gatetoestand en beheer-API van S-P3-710a.
+De uitvoering van bedienopdrachten heeft eigen mutatieproeven. Dit script
+gebruikt alleen tijdelijke proefdatabases en fictieve apparaten.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ RESTORE_TEST = (
     "tests/test_inbedrijfstelling_herstel.py::"
     "test_herstel_gate_en_buiten_settings_exact_de_backup[True-False-True-before]"
 )
+BEHEER_TESTS = "tests/test_inbedrijfstelling_beheer.py::"
 CASES = {
     "bestaande-setting-wijzigen": UPGRADE_TEST,
     "andere-setting-toevoegen": UPGRADE_TEST,
@@ -30,6 +31,12 @@ CASES = {
     "eerder-aan-vergeten": RESTORE_TEST,
     "herstel-audit-toevoegen": RESTORE_TEST,
     "onbekende-gate-open": "tests/test_inbedrijfstelling_herstel.py::test_onbekende_gate_is_dicht[None]",
+    "leestest-markeert-getest": "tests/test_ws_devices_api.py::test_device_test_probe_tested_and_diagnostics",
+    "bevestiging-zonder-audit": BEHEER_TESTS + "test_bevestig_en_historie_en_replay",
+    "herhaling-verliest-antwoord": BEHEER_TESTS + "test_bevestig_en_historie_en_replay",
+    "bulk-aanvaardt-protocolfout": BEHEER_TESTS + "test_bulk_helemaal_of_niets_en_bescherming",
+    "inschakelen-met-verouderd-overzicht": BEHEER_TESTS + "test_inschakelen_herhaling_en_verouderd_gevolg",
+    "historie-zonder-woningfilter": BEHEER_TESTS + "test_bevestig_en_historie_en_replay",
 }
 
 PLUGIN = r'''
@@ -98,6 +105,39 @@ def beschadig_controle(monkeypatch):
         def open_gate(value):
             return {"enabled": False, "known": False}
         monkeypatch.setattr(commissioning.gate_state, '__code__', open_gate.__code__)
+    elif MUTATION == "leestest-markeert-getest":
+        from shc_api.models import Device
+        from shc_api.routers import devices
+        import uuid
+        original = devices.audit
+        async def audit(db, actor, action, target=None, **detail):
+            if action == "device_tested_probe":
+                device = await db.get(Device, uuid.UUID(detail["device"]))
+                device.compatibility = "tested"
+            return await original(db, actor, action, target, **detail)
+        monkeypatch.setattr(devices, 'audit', audit)
+    elif MUTATION == "bevestiging-zonder-audit":
+        async def geen_audit(*args, **kwargs):
+            pass
+        monkeypatch.setattr(commissioning, 'audit', geen_audit)
+    elif MUTATION == "herhaling-verliest-antwoord":
+        from shc_api.routers import commissioning as routes
+        async def leeg(*args, **kwargs):
+            return None
+        monkeypatch.setattr(routes, 'get_setting', leeg)
+    elif MUTATION == "bulk-aanvaardt-protocolfout":
+        from shc_api.routers import commissioning as routes
+        original = routes._check_confirmation
+        def zonder_protocolcontrole(review, device, home, *, bulk):
+            if device.compatibility != "unsupported":
+                original(review, device, home, bulk=bulk)
+        monkeypatch.setattr(routes, '_check_confirmation', zonder_protocolcontrole)
+    elif MUTATION == "inschakelen-met-verouderd-overzicht":
+        from shc_api.routers import commissioning as routes
+        monkeypatch.setattr(routes, '_precondition', lambda *args: None)
+    elif MUTATION == "historie-zonder-woningfilter":
+        from shc_api.routers import commissioning as routes
+        monkeypatch.setattr(routes, 'or_', lambda *args: text("true"))
 '''
 
 

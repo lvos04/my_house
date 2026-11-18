@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import Device, Setting
-from .policy import DeviceFacts
-from .store import get_setting, roles_of
+from .models import Device, Home, Setting
+from .policy import DEFAULT_PROTECTED_ROLES, DeviceFacts
+from .store import audit, get_setting, roles_of
 
 KEY = "commissioning_gate"
+TEST_CONFIRMED_ACTION = "device_marked_tested"
 LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtextextended('shc-commissioning', 0))"
 
 
@@ -82,3 +85,32 @@ def invalidate_device_test(device: Device) -> None:
     device.compatibility = "untested"
     device.tested_at = None
     device.diagnostics = {k: v for k, v in (device.diagnostics or {}).items() if k != "tested"}
+
+
+def confirmation_block(device: Device, home: Home) -> str | None:
+    if home.active_to is not None or device.lifecycle != "active":
+        return "inactive_device"
+    if device.compatibility == "unsupported":
+        return "unsupported_device"
+    return None
+
+
+async def is_protected(db: AsyncSession, device: Device) -> bool:
+    roles, protected = await roles_of(db, device.id)
+    return bool(protected or roles & DEFAULT_PROTECTED_ROLES)
+
+
+async def record_test_confirmation(
+    db: AsyncSession, device: Device, *, actor: str, username: str, note: str | None,
+) -> None:
+    """Leg alleen een bewuste bevestiging vast onder de inbedrijfstellingsvergrendeling."""
+    now = datetime.now(UTC)
+    device.tested_at = now
+    device.compatibility = "tested"
+    device.diagnostics = {
+        **(device.diagnostics or {}), "tested": {"at": now.isoformat(), "by": username, "note": note},
+    }
+    await audit(
+        db, actor, TEST_CONFIRMED_ACTION, device.name, device=str(device.id), home=str(device.home_id),
+        model=device.model, firmware=device.firmware,
+    )
