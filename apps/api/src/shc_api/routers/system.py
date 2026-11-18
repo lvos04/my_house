@@ -24,6 +24,7 @@ from .. import events, notify, views
 from ..adaptive import BASELINE_DAYS
 from ..commissioning import lock_commissioning
 from ..config import VERSION, get_settings
+from ..contract_http import ContractProblem, problem
 from ..deps import DB, Admin, Auth, WebAdmin
 from ..errors import SECRET_KEY_INVALID_RESPONSE, api_error, not_found, require_secret_box, secret_key_invalid
 from ..logfilter import fouttekst as _fouttekst
@@ -62,7 +63,14 @@ async def health(db: DB) -> dict:
     return {"status": "ok", "version": VERSION}
 
 
-@readiness_router.get("/readyz", include_in_schema=False)
+@readiness_router.get(
+    "/readyz", response_model=dict[str, str], summary="Gereedheid van de app",
+    responses={503: {
+        "model": ContractProblem,
+        "description": "`database_unavailable` of `database_newer` (herstelmodus).",
+        "headers": {"Retry-After": {"schema": {"type": "integer"}}},
+    }},
+)
 async def readiness(db: DB) -> JSONResponse:
     # Scope gelijk aan de databasetest op de statuspagina. Worker en koppelingen hebben
     # een eigen levenscyclus en mogen de eerste start van de worker niet blokkeren.
@@ -71,11 +79,10 @@ async def readiness(db: DB) -> JSONResponse:
         ready = await bk.schema_revision(db) == bk.head_revision()
     except Exception:
         ready = False
-    return JSONResponse(
-        {"status": "ok" if ready else "niet_beschikbaar"},
-        status_code=200 if ready else 503,
-        headers={"Cache-Control": "no-store"},
-    )
+    if ready:
+        return JSONResponse({"status": "ok"}, headers={"Cache-Control": "no-store"})
+    return JSONResponse(problem("database_unavailable", "De applicatiedatabase is nog niet beschikbaar."),
+                        status_code=503, headers={"Cache-Control": "no-store", "Retry-After": "5"})
 
 
 @router.get("/system/status")

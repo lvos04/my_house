@@ -25,6 +25,7 @@ from ..store import alert_view, get_setting, raise_alert, resolve_alert
 PROVIDER_LABELS = {"hue": "Hue Bridge", "gree": "Gree airco", "homewizard": "HomeWizard", "zigbee": "Zigbee"}
 WORKER_OK_S = 120  # heartbeat every 30 s
 WORKER_ALERT_S = 180  # same limit as the container healthcheck (contract C3)
+ZIGBEE_HEALTH_MAX_AGE_S = 180  # De worker meet elke minuut.
 BACKUP_WARN_H = 36
 STATES = ("ok", "warn", "error")
 
@@ -265,6 +266,9 @@ def _label(i: Integration, counts: dict[str, int]) -> str:
 
 def zigbee_parts(i: Integration, extra: dict) -> list[dict]:
     """MQTT connection and USB dongle (Zigbee2MQTT bridge) as two separate checks."""
+    age = _age_s(((i.diagnostics or {}).get("health") or {}).get("checked_at"), datetime.now(UTC))
+    if age is None or not 0 <= age <= ZIGBEE_HEALTH_MAX_AGE_S:
+        extra = {}
     mqtt = extra.get("mqtt_connected")
     since = _hhmm(extra.get("mqtt_connected_since"))
     if mqtt is True:

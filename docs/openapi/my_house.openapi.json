@@ -8188,6 +8188,45 @@
           "climate"
         ]
       }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "readiness_readyz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Readiness Readyz Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractProblem"
+                }
+              }
+            },
+            "description": "`database_unavailable` of `database_newer` (herstelmodus).",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Gereedheid van de app"
+      }
     }
   }
 }

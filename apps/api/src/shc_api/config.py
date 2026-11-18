@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     worker_poll_interval_s: int = 15
     climate_interval_s: int = 60
     mqtt_host: str = "mosquitto"
+    mqtt_compose_alias: bool = False  # De alles-in-één-image herkent eerder opgeslagen interne koppelingen.
     mqtt_port: int = 1883
     mqtt_username: str | None = None
     mqtt_password_file: Path | None = None

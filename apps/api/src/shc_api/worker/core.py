@@ -490,15 +490,19 @@ class Worker(IngestMixin, CommandsMixin, ClimateMixin, HealthMixin, BackupMixin,
         kwargs = {}
         if integ.provider == "homewizard":
             kwargs["relay_allowed"] = lambda _identity: False  # sockets are meters here; policy.py agrees
-        if integ.provider == "zigbee" and self.settings.mqtt_password_file:
-            try:
-                creds.setdefault("password", self.settings.mqtt_password_file.read_text().strip())
-            except OSError as exc:
-                log.warning("MQTT-wachtwoordbestand niet leesbaar: %s", exc)
         cfg = dict(integ.config or {})
         if integ.provider == "zigbee":
-            cfg.setdefault("host", self.settings.mqtt_host)
             cfg.setdefault("port", self.settings.mqtt_port)
+            if (self.settings.mqtt_compose_alias and cfg.get("host") == "mosquitto"
+                    and cfg["port"] == self.settings.mqtt_port):
+                cfg["host"] = self.settings.mqtt_host
+            cfg.setdefault("host", self.settings.mqtt_host)
+            internal = (cfg["host"], cfg["port"]) == (self.settings.mqtt_host, self.settings.mqtt_port)
+            if internal and self.settings.mqtt_password_file and "password" not in creds:
+                try:
+                    creds["password"] = self.settings.mqtt_password_file.read_text().strip()
+                except OSError as exc:
+                    log.warning("MQTT-wachtwoordbestand niet leesbaar: %s", exc)
         if integ.provider == "homewizard":
             # Zone-less device timestamps (v2 "timestamp", the gas meter time) are local time of the home.
             tz = await self._home_timezone(integ.home_id)

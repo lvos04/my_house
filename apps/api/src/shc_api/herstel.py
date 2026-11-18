@@ -61,6 +61,10 @@ class HerstelApp:
                 "database_revision": self.database_revision,
                 "newest_known_revision": self.newest_known,
             }
+        if method == "GET" and path == "/readyz":
+            from .contract_http import problem
+
+            return 503, problem(DATABASE_NIEUWER_CODE, DATABASE_NIEUWER_TEKST)
         return 503, {"detail": self._detail()}
 
     async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
@@ -84,7 +88,8 @@ class HerstelApp:
             {
                 "type": "http.response.start",
                 "status": status,
-                "headers": [*_HEADERS, (b"content-length", str(len(raw)).encode())],
+                "headers": [*_HEADERS, (b"content-length", str(len(raw)).encode())]
+                + ([(b"retry-after", b"5")] if status == 503 else []),
             }
         )
         await send({"type": "http.response.body", "body": raw})
