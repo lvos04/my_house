@@ -85,8 +85,10 @@ database-dump). Bij **Gemaakte back-ups** kun je elke back-up downloaden.
   koppelcodes zitten er nooit in.
 - **Database-dump (`.shcdump`):** alleen de database (pg_dump), versleuteld. Geen Zigbee2MQTT-gegevens.
   Terugzetten gaat met de hand, zie [Database-dump terugzetten](#database-dump-terugzetten).
-- **Zonder geheimen** (geredigeerd): geen apparaatsleutels, geen wachtwoord-hashes, en in
-  `zigbee2mqtt/secret.yaml` staan de sleutels zonder waarden. Na terugzetten is
+- **Zonder geheimen** (geredigeerd): de export bewaart bekende gewone Zigbee-instellingen en lege
+  geheimvelden. De netwerksleutel, coördinatorback-ups, overige Zigbee-bestanden, apparaatsleutels en
+  wachtwoord-hashes vallen buiten deze export. Bij herstel blijven bestaande Zigbee-configuratie en
+  geheimen behouden. Na terugzetten is
   `shc-api reset-password` nodig en moet je apparaten opnieuw koppelen.
 - **Versleuteling:** AES-256-GCM in blokken van 1 MB, met een sleutel uit je wachtwoordzin (scrypt).
   Elk bestand in het archief heeft een SHA-256-controlegetal. Een beschadigd of aangepast bestand wordt
@@ -94,8 +96,9 @@ database-dump). Bij **Gemaakte back-ups** kun je elke back-up downloaden.
 
 ### Bewaren buiten de NAS
 
-- Bewaar de **wachtwoordzin** en `secrets/secret_key` in je wachtwoordmanager, buiten de NAS. Zonder
-  `secret_key` zijn de apparaatsleutels in de back-up onleesbaar: dan moet je Hue, HomeWizard (API v2) en
+- Bewaar de **wachtwoordzin** en de oorspronkelijke hoofdsleutel in je wachtwoordmanager buiten de NAS.
+  De Custom App gebruikt `secrets/app-key`. De vorige Compose-installatie gebruikt `secrets/secret_key`.
+  Zonder die sleutel zijn de apparaatsleutels in de back-up onleesbaar. Dan moet je Hue, HomeWizard (API v2) en
   de Gree-units opnieuw koppelen en de wachtwoordzin en het push-adres opnieuw instellen in de app.
 - Maak TrueNAS-snapshots van de dataset (die blijven op de NAS).
 - **Kopie buiten huis (replicatie): kopieer alleen `<root>/backups/`.** Nooit `app/`, `secrets/` of

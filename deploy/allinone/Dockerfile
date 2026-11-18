@@ -37,19 +37,27 @@ RUN mkdir -p /runtime/usr/bin /runtime/usr/lib /runtime/lib \
     && cp -a /usr/lib/*.so* /runtime/usr/lib/ \
     && node -e 'if (process.versions.node.split(".")[0] < 22) process.exit(1)'
 
-FROM docker.io/library/postgres:16.15-trixie@sha256:f9a7b9ebf6f56201f949db745e47bc423c0f0f8294bafe991cc10bf74b029657 AS pgdg
+FROM docker.io/library/postgres:16.16-trixie@sha256:23fdb7b8156ad34bc663ed911f360764c5a5e237d6d70d1e379e025f63439a2f AS postgres
 
 FROM docker.io/library/python:3.12.16-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 LABEL org.opencontainers.image.title="my_house" \
       org.opencontainers.image.description="Smart Home Control als één Custom App"
-COPY --from=pgdg /usr/local/share/keyrings/postgres.gpg.asc /usr/local/share/keyrings/postgres.gpg.asc
+# Server, client, extensies en initialisatiesjablonen komen uit dezelfde PostgreSQL-image.
+COPY --from=postgres /usr/lib/postgresql/16/ /usr/lib/postgresql/16/
+COPY --from=postgres /usr/share/postgresql/16/ /usr/share/postgresql/16/
+# De versiegebonden configuratiesjabloon in het Debian-pakket is een relatieve symlink.
+COPY --from=postgres /usr/share/postgresql/postgresql.conf.sample /usr/share/postgresql/postgresql.conf.sample
 RUN set -eux; \
-    printf '%s\n' 'deb [signed-by=/usr/local/share/keyrings/postgres.gpg.asc] http://apt.postgresql.org/pub/repos/apt trixie-pgdg main 16' \
-      > /etc/apt/sources.list.d/pgdg.list; \
-    apt-get update; \
-    apt-get upgrade -y; \
-    apt-get install -y --no-install-recommends postgresql-16 postgresql-client-16 nginx mosquitto procps; \
-    rm -rf /var/lib/apt/lists/* /var/lib/postgresql/16 /etc/postgresql/16; \
+    rm /etc/apt/sources.list.d/debian.sources; \
+    printf '%s\n' \
+      'deb [check-valid-until=no signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://snapshot.debian.org/archive/debian/20261115T000000Z trixie main' \
+      'deb [check-valid-until=no signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://snapshot.debian.org/archive/debian-security/20261115T000000Z trixie-security main' \
+      > /etc/apt/sources.list; \
+    apt-get -o APT::Update::Error-Mode=any update; \
+    apt-get -y upgrade; \
+    apt-get install -y --no-install-recommends nginx mosquitto procps libpq5 libllvm19 libldap2 libxml2 \
+      libxslt1.1 libicu76 libpam0g libuuid1 liblz4-1 libreadline8t64 libsystemd0; \
+    rm -rf /var/lib/apt/lists/*; \
     groupadd -g 568 apps; \
     useradd -u 568 -g 568 -M -d /appdata -s /usr/sbin/nologin apps; \
     install -d -o 568 -g 568 -m 0700 /appdata
@@ -58,6 +66,7 @@ COPY --from=zigbee /app /opt/zigbee2mqtt
 RUN set -eu; \
     for loader in /opt/zigbee-runtime/lib/ld-musl-*.so.1; do ln -s "$loader" "/lib/${loader##*/}"; done; \
     LD_LIBRARY_PATH=/opt/zigbee-runtime/lib:/opt/zigbee-runtime/usr/lib /opt/zigbee-runtime/usr/bin/node --version; \
+    test -s /usr/share/postgresql/16/postgresql.conf.sample; \
     /usr/lib/postgresql/16/bin/pg_dump --version | grep -q ' 16\.'
 COPY --from=python-build /opt/venv /opt/venv
 COPY --from=web-build /src/dist/ /usr/share/nginx/html/

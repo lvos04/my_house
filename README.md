@@ -1,6 +1,6 @@
 # Smart Home Control
 
-Eén lokaal beheerde app voor je huis: Hue-verlichting en -knoppen, twee Gree-airco-units, HomeWizard-energiemeters en Zigbee-sensoren. Draait op TrueNAS SCALE (nu nog als compose-app via *Install via YAML*, zie hieronder) of op elke Linux-server met Docker, werkt zonder Home Assistant en zonder cloud. Met een web-app (ook te installeren als PWA) en een Android-app.
+Eén lokaal beheerde app voor je huis: Hue-verlichting en -knoppen, twee Gree-airco-units, HomeWizard-energiemeters en Zigbee-sensoren. Draait op TrueNAS SCALE als standaard Custom App met één image, werkt zonder Home Assistant en zonder cloud. Met een web-app (ook te installeren als PWA) en een Android-app.
 
 > **Status:** software compleet voor fase 0–8 van het [implementatieplan](docs/implementatieplan.md), plus de verbeterronde uit de [verbeterlijst](docs/verbeterlijst.md). **Nog niet getest met jouw echte apparaten.** Elke adapter is getest tegen nep-apparaten die het echte protocol spreken, op basis van de officiële documentatie. Zie [testlog](docs/testlog.md) en [compatibiliteit](docs/compatibility.md).
 
@@ -23,15 +23,15 @@ De web-app en de Android-app volgen de ontwerptaal **Peil** 1.1.1 van het TrueNA
 
 ## Snel starten
 
-- **TrueNAS SCALE 25.10:** [docs/installatie-truenas.md](docs/installatie-truenas.md). Dat is de bestaande route van 0.2.0
-  (TrueNAS-shell, `install.sh` en *Install via YAML*); in het platform blijft die alleen voor ontwikkeling en CI
-  (contract 1.3 §2.3 regel 4). De standaard Custom App met één alles-in-één image, zonder terminal en zonder YAML, komt in
-  fase P3 (C1.3-MH-03).
-- **Andere Linux-server:** `sudo infra/scripts/install.sh /pad/naar/data` en daarna `SHC_ROOT=/pad/naar/data SHC_VERSION=$(cat VERSION) docker compose -f infra/compose/compose.yaml up -d` (Zigbee en tunnel: `--profile zigbee` / `--profile tunnel`).
+- **TrueNAS SCALE:** gebruik het formulier voor een standaard Custom App. De installatiehandleiding beschrijft de opslag, poort en terugweg bij een update. [Installatie op TrueNAS](docs/installatie-truenas.md)
 - **Android-app:** [apps/android/README.md](apps/android/README.md). De ondertekende APK staat bij elke GitHub-release (zodra de release-sleutel is ingesteld); een testversie komt uit GitHub Actions (artifact `huis-debug-apk`).
 - **Buiten huis (Cloudflare Tunnel):** [docs/buiten-huis.md](docs/buiten-huis.md)
 
 Open daarna `http://<server>:8088`, maak het beheerdersaccount aan (er is geen standaardwachtwoord), maak de woning aan en volg de **installatiewizard** (`/installatie`). Uitleg per fabrikant staat in de app op **Help** (`/help`). Zet daarna automatische back-ups aan bij **Systeem › Back-ups en bewaren**.
+
+## Alleen voor ontwikkeling
+
+De Compose-stack onder `infra/compose` en het bijbehorende installatiescript zijn bedoeld voor lokale ontwikkeling en CI met testgegevens.
 
 ## Hardware-advies (open punten)
 
@@ -47,7 +47,7 @@ apps/api          FastAPI + worker + klimaat-/energie-engine (Python)
 apps/web          React + TypeScript PWA
 apps/android      Kotlin + Jetpack Compose app
 integrations      Adapters: hue, gree, homewizard, zigbee (+ contracttests)
-infra/compose     Compose-stack (TrueNAS / Linux), broker- en Zigbee-config
+infra/compose     Compose-stack voor ontwikkeling en CI, broker- en Zigbee-config
 infra/scripts     install.sh, render_truenas.py, rooktest en browsertests tegen de stack
 infra/e2e         Browsertests tegen de echte images (nginx, API, worker, nep-airco)
 docs              plan, API-contract, architectuur, beslissingen, handleidingen
