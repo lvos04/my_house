@@ -14,7 +14,7 @@ dumps). Met ``restart: unless-stopped`` werd dat een herstartlus die de opslag v
     in een lege database: dezelfde inhoud als vóór de migratie).
 
 De tabellen worden vergeleken met inhoud (niet leeg, V-003); de herkenning gebruikt de migratieketen, niet de letterlijke
-waarde "0099" (V-086: ook "0005", het eerstvolgende nummer, telt als nieuwer).
+waarde "0099" (V-086: ook "0006", het eerstvolgende nummer, telt als nieuwer).
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ import subprocess
 import threading
 import time
 import uuid
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -50,7 +51,7 @@ TEKST = (
     "De database is van een nieuwere my_house-versie; kies in het formulier van de Custom App de bijpassende versie "
     "of zet de snapshot van vóór de update terug."
 )
-NIEUWER = ["0099_toekomst", "0005"]
+NIEUWER = ["0099_toekomst", "0006"]
 UNSAFE = ("POST", "PUT", "PATCH", "DELETE")
 
 
@@ -83,7 +84,7 @@ async def _zet_revisie(url: str, revisie: str) -> None:
     await engine.dispose()
 
 
-async def _inhoud(url: str) -> dict[str, tuple[int, str]]:
+async def _inhoud(url: str, *, zonder_nieuwe_gate: bool = False) -> dict[str, tuple[int, str]]:
     """Per tabel (ook alembic_version): aantal rijen en een md5 over alle rijen."""
     engine = create_async_engine(url, poolclass=NullPool)
     out: dict[str, tuple[int, str]] = {}
@@ -93,7 +94,8 @@ async def _inhoud(url: str) -> dict[str, tuple[int, str]]:
         ).scalars()
         for t in list(tabellen):
             # tabelnamen uit pg_tables van de eigen proefdatabase
-            sql = f"""SELECT count(*), coalesce(md5(string_agg(x::text, '|' ORDER BY x::text)), '') FROM "{t}" x"""  # noqa: S608
+            where = " WHERE key <> 'commissioning_gate'" if zonder_nieuwe_gate and t == "settings" else ""
+            sql = f"""SELECT count(*), coalesce(md5(string_agg(x::text, '|' ORDER BY x::text)), '') FROM "{t}" x{where}"""  # noqa: S608
             n, h = (await c.execute(text(sql))).one()
             out[t] = (n, h)
     await engine.dispose()
@@ -435,7 +437,7 @@ async def test_huidig_schema_start_gewoon(monkeypatch, tmp_path):
 
 async def test_ouder_schema_migreert_met_dump(monkeypatch, tmp_path):
     """Een GEVULDE database op schema 0003 (V-003, R-HARDE-EIS-1): na ``shc-api migrate`` is per tabel het aantal rijen
-    en de md5 gelijk (alleen alembic_version gaat naar de nieuwste revisie), en de dump van vóór de migratie bevat de
+    en de md5 gelijk (naast alembic_version uitsluitend één exact gecontroleerde gate-instelling erbij), en de dump bevat de
     gegevens: teruggezet in een lege database geeft hij precies de inhoud van vóór de migratie. Een dump met alleen het
     schema (``--schema-only``) valt hier dus op."""
     async with temp_db("0003") as url:
@@ -445,12 +447,34 @@ async def test_ouder_schema_migreert_met_dump(monkeypatch, tmp_path):
         assert voor["alembic_version"][0] == 1
         backups = tmp_path / "backups"
         _migrate_op(monkeypatch, url, backups)
+        started = datetime.now(UTC)
         cli.main(["migrate"])
+        finished = datetime.now(UTC)
         assert cli.current_revision(url) == bk.head_revision()
-        na = await _inhoud(url)
+        na = await _inhoud(url, zonder_nieuwe_gate=True)
         assert {t: v for t, v in na.items() if t != "alembic_version"} == {
             t: v for t, v in voor.items() if t != "alembic_version"
         }
+        # Uitsluitend deze ene nieuwe rij is toegestaan; bestaande settings blijven integraal vergeleken.
+        assert (await _inhoud(url))["settings"][0] == voor["settings"][0] + 1
+        engine = create_async_engine(url, poolclass=NullPool)
+        try:
+            async with engine.connect() as conn:
+                rows = (await conn.execute(text("SELECT value FROM settings WHERE key='commissioning_gate'"))).all()
+            assert len(rows) == 1
+            value = rows[0][0]
+            assert set(value) == {"v"}
+            gate = value["v"]
+            assert type(gate["version"]) is int and gate["enabled"] is True
+            assert gate == {
+                "version": 1, "enabled": True, "origin": "fresh",
+                "enabled_at": gate["enabled_at"], "enabled_by": "systeem",
+            }
+            at = datetime.fromisoformat(gate["enabled_at"])
+            assert at.utcoffset().total_seconds() == 0
+            assert started <= at <= finished
+        finally:
+            await engine.dispose()
         dumps = sorted(backups.glob("pre-migrate-0003-*.sql.gz"))
         assert len(dumps) == 1, list(backups.iterdir())
         sql = gzip.decompress(dumps[0].read_bytes())

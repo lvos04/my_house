@@ -1230,21 +1230,32 @@ def check_restorable(manifest: dict) -> str:
     return rel
 
 
-def _restore_sync(conn, path: Path, passphrase: str, manifest: dict, mode: str, report: RestoreReport) -> None:
+def _restore_sync(conn, path: Path, passphrase: str, manifest: dict, mode: str, report: RestoreReport) -> dict:
     from alembic import command
 
+    from .commissioning import KEY, LOCK_SQL, gate_state, restored_gate
+
+    conn.execute(text("SET LOCAL lock_timeout = '60s'"))
+    conn.execute(text(LOCK_SQL))
     rev = manifest["schema_revision"]
     head = head_revision()
     report.schema_from, report.schema_to = rev, head
-    conn.execute(text("SET LOCAL lock_timeout = '60s'"))
     current = MetaData()
     current.reflect(bind=conn)
+    db_rev = None
+    if "alembic_version" in current.tables:
+        db_rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
+    prior_raw = None
+    if "settings" in current.tables:
+        prior_raw = conn.execute(text("SELECT value FROM settings WHERE key=:key"), {"key": KEY}).scalar()
+    # Alleen vóór invoering mag ontbreken nog de eenmalige classificatie volgen.
+    introduced = db_rev is not None and (db_rev not in known_revisions() or not _is_older(db_rev, "0005"))
+    prior = gate_state(prior_raw.get("v") if isinstance(prior_raw, dict) else None)
+    if prior_raw is None and not introduced:
+        prior = None
     names = [t for t in current.tables if t != "alembic_version"]
     if names:
         conn.execute(text("TRUNCATE " + ", ".join(f'"{n}"' for n in names) + " RESTART IDENTITY CASCADE"))
-    db_rev = None
-    if conn.execute(text("SELECT to_regclass('alembic_version')")).scalar() is not None:
-        db_rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
     cfg = alembic_config(connection=conn)
     if db_rev != rev:
         # Load the rows into the schema they were written with; migrate forward afterwards.
@@ -1253,6 +1264,9 @@ def _restore_sync(conn, path: Path, passphrase: str, manifest: dict, mode: str, 
         else:
             command.upgrade(cfg, rev)
         report.migrated = True
+    # Schemaopbouw in een lege database kan deze ene initialisatierij maken.
+    # De inhoud van de back-up wordt hierna geladen; geen dubbele gate-rij.
+    conn.execute(text("DELETE FROM settings WHERE key=:key"), {"key": KEY})
     target = MetaData()
     target.reflect(bind=conn)
     batch: list[dict] = []
@@ -1309,7 +1323,12 @@ def _restore_sync(conn, path: Path, passphrase: str, manifest: dict, mode: str, 
                     f'COALESCE((SELECT MAX({pkc[0].name}) FROM "{table.name}"), 0) + 1, false)'
                 )
             )
+    loaded_raw = conn.execute(text("SELECT value FROM settings WHERE key='commissioning_gate'")).scalar()
+    loaded = gate_state(loaded_raw.get("v") if isinstance(loaded_raw, dict) else None)
+    merged = restored_gate(prior, loaded, mode, dt.datetime.now(dt.UTC).isoformat())
+    _set(conn, KEY, merged)
     _after_restore(conn, manifest, mode, report)
+    return merged
 
 
 def _is_older(rev: str, than: str | None) -> bool:
@@ -1570,7 +1589,7 @@ async def restore_file(
     try:
         async with engine.connect() as conn:
             async with conn.begin():
-                await conn.run_sync(_restore_sync, path, passphrase, v.manifest, mode, report)
+                gate = await conn.run_sync(_restore_sync, path, passphrase, v.manifest, mode, report)
     except BackupError:
         raise
     except DBAPIError as exc:
@@ -1582,6 +1601,10 @@ async def restore_file(
         raise BackupError(f"Herstel mislukt, er is niets gewijzigd: {db_error_text(exc)}") from exc
     finally:
         await engine.dispose()
+    log.info(
+        "Inbedrijfstellingsgate na terugzetten: aan=%s; eerdere toestand behouden=%s.",
+        gate["enabled"], gate["restored"]["source"] == "before",
+    )
     return report
 
 

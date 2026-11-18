@@ -174,7 +174,10 @@ class Integration(Base):
 
 class Device(Base):
     __tablename__ = "devices"
-    __table_args__ = (UniqueConstraint("home_id", "provider", "stable_identity"),)
+    __table_args__ = (
+        UniqueConstraint("home_id", "provider", "stable_identity"),
+        CheckConstraint("detection_method IN ('scan', 'manual')", name="ck_devices_detection_method"),
+    )
     id: Mapped[uuid.UUID] = pk()
     home_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("homes.id", ondelete="CASCADE"), index=True)
     integration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("integrations.id", ondelete="SET NULL"))
@@ -195,6 +198,8 @@ class Device(Base):
     calibration: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default=JSON_OBJECT)
     diagnostics: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default=JSON_OBJECT)
     tested_at: Mapped[datetime | None]
+    detection_method: Mapped[str | None] = mapped_column(String(16))
+    fallback: Mapped[str | None] = mapped_column(Text)
 
 
 class LogicalRole(Base):
