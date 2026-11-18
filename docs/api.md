@@ -50,8 +50,13 @@ telefoon sluiten ook de open WebSocket-verbindingen van die sessie of dat token 
 ## Fouten
 
 De bestaande routes gebruiken de HTTP-status en `{"detail": {"code": "string", "message": "Nederlandse uitleg"}}`.
-De routes onder `/commissioning` gebruiken de contractvelden `code`, `message`, `details` en `trace_id`
-op het hoogste niveau. Zie [Inbedrijfstellingsbeheer](#inbedrijfstellingsbeheer) voor de bijbehorende codes.
+Tijdens normaal API-bedrijf geven de [beheerroutes onder `/commissioning`](#inbedrijfstellingsbeheer)
+contractfouten met `code`, `message`, `details` en `trace_id` op het hoogste niveau.
+In [herstelmodus](#systeem) geeft ook `/commissioning` een 503 met `detail.code` gelijk aan `database_newer`.
+Voor JSON-fouten die nginx zelf terugstuurt, staat de code eveneens in `detail.code`. Dit geldt voor
+503 `api_unavailable`, 413 `request_too_large` en 429 `rate_limited`. Bij `Accept` met `text/html`
+geeft nginx bij onbereikbaarheid van de API een HTML-pagina. Foutantwoorden van de API geeft nginx ongewijzigd door.
+
 Validatiefouten op de bestaande routes
 (422) hebben daarnaast `errors: [{loc, msg, type}]`; een conflict bij knopkoppelingen (409) heeft
 `conflicts: [{index, message}]`; een mislukte koppeling (502/504/409) heeft `integration_id`,
@@ -73,7 +78,7 @@ Validatiefouten op de bestaande routes
 | 409 | `username_taken`, `last_admin`, `self_change`, `self_delete` | Gebruikersbeheer: naam bestaat al, laatste actieve beheerder, eigen rol/account |
 | 409 | `lan_url_required`, `lan_url_invalid`, `remote_url_invalid` | Eerst een geldig thuisadres (en tunneladres) instellen |
 | 409 | `policy_denied` | Veiligheidsbeleid weigert (boiler, gedeelde buitenunit, veilige modus, model te onbetrouwbaar) |
-| 409 | `device_not_tested` | De inbedrijfstellingsgate is actief en het bedieningsdoel of een betrokken groeps- of scènelid is ongetest. Een beheerder kan het apparaat testen en bevestigen onder **Apparaten**. Er is geen bedienopdracht verstuurd. |
+| 409 | `device_not_tested` | Bij een actieve inbedrijfstellingsgate is het doel of een betrokken lid ongetest, of zijn de leden van de groep of scène onbekend of onvolledig bekend. Lees de apparaten opnieuw uit als ledengegevens ontbreken. Laat een beheerder de doelen beoordelen, testen en bevestigen onder **Apparaten**. De API zet geen bedienopdracht in de wachtrij. |
 | 409 | `mode_required` | Airco staat uit: kies eerst een modus voordat je temperatuur of ventilator wijzigt |
 | 409 | `unsupported` | Kan dit apparaat niet (geen airco gekoppeld, geen ventilator, niet te kalibreren) |
 | 409 | `role_mismatch`, `not_bound`, `archived` | Rol past niet bij het apparaat, apparaat heeft die rol niet, apparaat of woning gearchiveerd |
@@ -99,10 +104,16 @@ Validatiefouten op de bestaande routes
 
 ## Limieten
 
-- **Grootte van een verzoek:** maximaal 256 kB (`SHC_MAX_BODY_BYTES`), anders 413
-  `payload_too_large`. Uploads onder `/system/restore` mogen tot 2 GB (`SHC_MAX_UPLOAD_BYTES`); ze
-  worden direct naar schijf gestreamd. De API controleert de werkelijk ontvangen bytes, niet alleen
-  `Content-Length`.
+- **Grootte van een verzoek:** de algemene API-grens is standaard 256 KiB (262.144 bytes), instelbaar
+  met `SHC_MAX_BODY_BYTES`. Voor uploads onder `/system/restore` geldt standaard 2 GiB
+  (`SHC_MAX_UPLOAD_BYTES`). Die uploads worden direct naar schijf gestreamd. De API weigert een te hoge
+  `Content-Length` direct en telt de bytes tijdens het lezen. Overschrijding geeft 413 met
+  `detail.code` gelijk aan `payload_too_large`.
+- **Inbedrijfstellingsbeheer (`/commissioning` en subroutes):** de vaste API-grens is 1 MiB (1.048.576 bytes).
+  De API controleert `Content-Length` en telt de ontvangen bytes, ook bij een gestreamd verzoek zonder die
+  header. De controle gebeurt vóór authenticatie en routering. Overschrijding geeft 413 `payload_too_large`
+  met `details.max_bytes` gelijk aan `1048576`. Als nginx het verzoek zelf weigert, geeft de proxy 413
+  met `detail.code` gelijk aan `request_too_large`.
 - **Inloggen:** na 5 mislukte pogingen op één gebruikersnaam is die naam 1 minuut geblokkeerd, daarna
   bij elke volgende fout dubbel zo lang, tot maximaal 15 minuten. Per IP-adres maximaal 20 mislukte
   pogingen per 5 minuten. Beide geven 429 `rate_limited` met `Retry-After`. Een beheerder kan een
@@ -599,7 +610,9 @@ Een ontbrekende of ongeldige UUID in `Idempotency-Key` geeft 400 `idempotency_ke
 Een sleutel die nog wordt verwerkt geeft 409 `idempotency_in_progress`. Voor een nieuwe handeling zonder `If-Match` volgt
 428 `precondition_required`. Een verouderde versie geeft 412 `precondition_failed` met
 `details.huidige_etag`. Haal dan de actuele toestand op en laat de beheerder opnieuw beoordelen.
-Een tijdelijke databasefout geeft 503 `dependency_unavailable` met `Retry-After`.
+Voor alle beheerroutes gelden de [verzoeklimieten](#limieten). Een tijdelijke databasefout in de normale API
+geeft 503 met `code` gelijk aan `dependency_unavailable` en de header `Retry-After`. In herstelmodus
+of bij een JSON-fout van nginx staat de code in `detail.code` (zie [Fouten](#fouten)).
 
 ## Systeem
 
@@ -631,8 +644,9 @@ een beheerder hem opheft. **Onderhoudsmodus** staat aan tijdens een herstel: de 
 **Herstelmodus** (database van een nieuwere my_house-versie, zie [onderhoud.md](onderhoud.md#updates-en-terugdraaien)):
 de API gebruikt de database dan niet. `GET /health` geeft 503 `{status: "herstelmodus", version, detail: {code:
 "database_newer", message}}`; `GET /system/recovery` (`public`, alleen in de herstelmodus) geeft 200 `{mode:
-"herstelmodus", code, message, version, database_revision, newest_known_revision}`; elke andere route geeft 503
-`database_newer`. De websocket (`/ws`) wordt geaccepteerd en meteen gesloten met sluitcode 1013 en reden
+"herstelmodus", code, message, version, database_revision, newest_known_revision}`. Elk ander HTTP-verzoek
+krijgt 503 met `detail.code` gelijk aan `database_newer`, ook op de beheerroutes onder `/commissioning`.
+De websocket (`/ws`) wordt geaccepteerd en meteen gesloten met sluitcode 1013 en reden
 `database_newer`, zonder bericht. `shc-api migrate` stopt dan met exitcode 3.
 
 ### Back-ups
