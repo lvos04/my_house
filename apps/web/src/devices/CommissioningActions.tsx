@@ -1,6 +1,6 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
-import { api, isAccessDenied } from '../api/client';
+import { api } from '../api/client';
 import type { CommissioningDevice } from '../api/types';
 import { qk } from '../api/keys';
 import { ErrorNote, Loading } from '../components/bits';
@@ -11,26 +11,18 @@ import { useCan } from '../user';
 import { commissioningText as text } from './commissioning-text';
 
 // Bij een ingetrokken leesrecht is ook de laatst bekende stand niet meer beschikbaar.
-export function useAdminRead() {
+export function useClearOnAccessDenied() {
   const client = useQueryClient();
-  return async function readAdminData<T>(key: QueryKey, read: () => Promise<T>) {
-    try {
-      return await read();
-    } catch (error) {
-      if (isAccessDenied(error)) {
-        client.setQueryData(key, null);
-      }
-      throw error;
-    }
-  };
+  return (key: QueryKey) => () => { client.setQueryData(key, null); };
 }
 
-export function ConfirmationDialog({ title, description, close, busy, returnFocus, children }: {
+export function ConfirmationDialog({ title, description, close, busy, returnFocus, fallbackFocus, children }: {
   title: string;
   description: string;
   close: () => void;
   busy: boolean;
   returnFocus?: HTMLElement | null;
+  fallbackFocus?: RefObject<HTMLElement>;
   children: ReactNode;
 }) {
   const id = useId();
@@ -43,7 +35,8 @@ export function ConfirmationDialog({ title, description, close, busy, returnFocu
     cancel.current?.focus();
     return () => {
       element.close();
-      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+      if (previous instanceof HTMLElement && previous.isConnected && !previous.matches(':disabled')) previous.focus();
+      else fallbackFocus?.current?.focus();
     };
   }, []);
   return (
@@ -80,20 +73,22 @@ export function ConfirmDevice({ id, name, blocked = false, eligible = true, name
   id: string; name: string; blocked?: boolean; eligible?: boolean; named?: boolean;
 }) {
   const { admin } = useCan();
-  const readAdminData = useAdminRead();
+  const clearOnDenial = useClearOnAccessDenied();
   const canAct = useCanAct();
+  const group = useRef<HTMLDivElement>(null);
+  const opener = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState('');
   const [snapshot, setSnapshot] = useState<{ data: CommissioningDevice; etag: string } | null>(null);
   const gate = useQuery({
     queryKey: qk.commissioning,
-    queryFn: (ctx) => readAdminData(ctx.queryKey, api.commissioning),
+    queryFn: (ctx) => api.commissioning(clearOnDenial(ctx.queryKey)),
     enabled: admin && open && canAct,
     staleTime: 0,
   });
   const preview = useQuery({
     queryKey: [...qk.commissioning, 'device', id],
-    queryFn: (ctx) => readAdminData(ctx.queryKey, () => api.commissioningDevice(id)),
+    queryFn: (ctx) => api.commissioningDevice(id, clearOnDenial(ctx.queryKey)),
     enabled: admin && open && canAct,
     staleTime: 0,
   });
@@ -105,30 +100,50 @@ export function ConfirmDevice({ id, name, blocked = false, eligible = true, name
       setSnapshot(preview.data);
     }
   }, [open, snapshot, id, preview.isSuccess, preview.isFetching, preview.data]);
-  const gateKnown = gate.isSuccess && gate.data?.data.gate?.known === true;
+  const gateKnown = gate.isSuccess && gate.data?.data?.gate?.known === true;
   const visible = gate.data && preview.data && snapshot?.data.id === id ? snapshot : null;
   const changed = !!visible && (visible.etag !== preview.data?.etag || visible.data.id !== preview.data.data.id ||
     visible.data.name !== preview.data.data.name);
   const ready = admin && canAct && gateKnown && !gate.isFetching && eligible && !blocked && preview.isSuccess && !preview.isFetching &&
     !!visible && !changed && preview.data.data.confirmation_allowed === true && !confirm.isPending && !confirm.isError;
   async function refresh() {
-    const result = await preview.refetch();
-    if (result.isSuccess && result.data?.data.id === id) {
+    setOpen(true);
+    const [setting, result] = await Promise.all([
+      gate.refetch({ cancelRefetch: false }), preview.refetch({ cancelRefetch: false }),
+    ]);
+    if (setting.isSuccess && setting.data?.data?.gate?.known === true && result.isSuccess && result.data?.data.id === id) {
       setSnapshot(result.data);
       setNote('');
       confirm.reset();
     }
   }
-  if (!admin) return null;
+  if (!admin || (!eligible && !open && confirm.isIdle)) return null;
+  const recovery = (
+    <div className="stack">
+      <p role="alert" className="note warn">{changed && !confirm.isError
+        ? 'De apparaatgegevens zijn gewijzigd. Haal de nieuwe stand op en controleer die opnieuw.'
+        : text('mutationError')}</p>
+      <Button disabled={!canAct || gate.isFetching || preview.isFetching} onClick={refresh}>
+        {text(open ? 'retry' : 'reloadState')}
+      </Button>
+    </div>
+  );
   return (
-    <>
-      {eligible && <Button disabled={!canAct || blocked || confirm.isPending} aria-label={named ? text('markNamed', { name }) : undefined}
-        onClick={() => { setNote(''); setSnapshot(null); confirm.reset(); setOpen(true); }}>
+    <div ref={group} role="group" aria-label={text('markNamed', { name })} tabIndex={-1} className="grid min-w-0 justify-items-start gap-2">
+      {eligible && <Button ref={opener} disabled={!canAct || blocked || confirm.isPending} aria-label={named ? text('markNamed', { name }) : undefined}
+        onClick={() => {
+          setNote('');
+          setSnapshot(null);
+          if (confirm.isSuccess) confirm.reset();
+          setOpen(true);
+        }}>
         {text('mark')}
       </Button>}
+      {!open && confirm.isPending && <p role="status">{text('submitted')}</p>}
+      {!open && confirm.isError && recovery}
       {open && (
         <ConfirmationDialog title={visible ? text('markTitle', { name: visible.data.name }) : text('mark')} description={text('markBody')}
-          busy={confirm.isPending} close={() => setOpen(false)}>
+          busy={confirm.isPending} returnFocus={opener.current} fallbackFocus={group} close={() => setOpen(false)}>
           {!canAct && <p className="note unknown">{text('offline')}</p>}
           {gate.isSuccess && !gateKnown && <p className="note unknown">{text('unknown')}</p>}
           {gate.isError && <ErrorNote error={gate.error} />}
@@ -138,12 +153,7 @@ export function ConfirmDevice({ id, name, blocked = false, eligible = true, name
             <p role="status">{text('tested')}{visible.data.tested_at && ` · ${dateTime(visible.data.tested_at)}`}</p>
           )}
           {visible?.data.protected && <p>{text('protected')}</p>}
-          {(confirm.isError || changed) && (
-            <div className="stack">
-              <p role="alert" className="note warn">{changed ? 'De apparaatgegevens zijn gewijzigd. Haal de nieuwe stand op en controleer die opnieuw.' : text('mutationError')}</p>
-              <Button disabled={!canAct || blocked || !eligible || preview.isFetching} onClick={refresh}>{text('retry')}</Button>
-            </div>
-          )}
+          {(confirm.isError || changed) && recovery}
           {preview.isSuccess && preview.data && !preview.data.data.confirmation_allowed && (
             <p role="status">Dit apparaat komt volgens de actuele teststatus niet in aanmerking voor bevestiging.</p>
           )}
@@ -160,17 +170,17 @@ export function ConfirmDevice({ id, name, blocked = false, eligible = true, name
         </ConfirmationDialog>
       )}
       {confirm.isSuccess && visible && <p role="status">{visible.data.name} is als getest vastgelegd.</p>}
-    </>
+    </div>
   );
 }
 
 export function TestHistory({ id, name }: { id: string; name: string }) {
   const { admin } = useCan();
-  const readAdminData = useAdminRead();
+  const clearOnDenial = useClearOnAccessDenied();
   const [open, setOpen] = useState(false);
   const history = useInfiniteQuery({
     queryKey: qk.commissioningHistory(id),
-    queryFn: (ctx) => readAdminData(ctx.queryKey, () => api.commissioningHistory(id, ctx.pageParam)),
+    queryFn: (ctx) => api.commissioningHistory(id, ctx.pageParam, clearOnDenial(ctx.queryKey)),
     initialPageParam: null as number | null,
     getNextPageParam: (page) => page.next_cursor,
     enabled: admin && open,
@@ -189,7 +199,7 @@ export function TestHistory({ id, name }: { id: string; name: string }) {
               <Button onClick={() => history.refetch()}>{text('retry')}</Button>
             </div>
           )}
-          {history.isSuccess && items.length === 0 && <p>{text('noHistory')}</p>}
+          {history.isSuccess && history.data && items.length === 0 && <p>{text('noHistory')}</p>}
           <ol className="plain-list grid gap-4 break-words">
             {items.map((entry) => (
               <li key={entry.id}>

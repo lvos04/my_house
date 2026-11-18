@@ -132,6 +132,36 @@ it('eist per Hue-lamp de laatste geslaagde leestest en daarna een bewuste bevest
   expect(calls.filter(c => c.method === 'POST').map(c => c.url)).toEqual([...Array(4).fill('/api/v1/devices/lamp/test'), path + '/confirm']);
 });
 
+it.each([401, 403])('wist de auditactor al bij de headers van HTTP %s als de antwoordtekst stilvalt', async status => {
+  const client = newClient();
+  const key = qk.commissioningHistory(device.id);
+  mockApi(() => ({ body: { items: [{ id: 1, at: page.observed_at, actor: 'Proefuitvoerder' }], next_cursor: null } }));
+  render(<Providers client={client}><TestHistory id="lamp" name="Ganglamp" /></Providers>);
+  await userEvent.click(screen.getByText('Testgeschiedenis van Ganglamp'));
+  expect(await screen.findByText(/Proefuitvoerder/)).toBeVisible();
+  expect(client.getQueryData(key)).not.toBeNull();
+
+  let release!: () => void;
+  const waiting = new Promise<void>(resolve => { release = resolve; });
+  const response = new Response(null, { status, headers: { 'content-type': 'application/json' } });
+  vi.spyOn(response, 'text').mockImplementation(async () => {
+    await waiting;
+    throw new TypeError('Antwoordtekst onderbroken.');
+  });
+  vi.mocked(fetch).mockResolvedValue(response);
+  const refetch = client.refetchQueries({ queryKey: key, exact: true });
+  try {
+    await waitFor(() => {
+      expect(client.getQueryData(key)).toBeNull();
+      expect(screen.queryByText(/Proefuitvoerder/)).toBeNull();
+      expect(screen.queryByText('Nog geen testbevestigingen vastgelegd voor dit apparaat.')).toBeNull();
+    });
+  } finally {
+    await act(async () => { release(); await refetch; });
+  }
+  expect(client.getQueryState(key)?.error).toMatchObject({ status });
+});
+
 it('begrenst een stilvallende bevestiging en herleest vóór een volgende beslissing', async () => {
   let applied = false;
   const calls = mockApi((_, url) => url === base ? { body: gate, headers: { etag: '"gate"' } } : {
@@ -190,11 +220,46 @@ it('behoudt het oorspronkelijke v1-record en hervat beide versies onafhankelijk'
   expect(localStorage.getItem(v1)).toBe(legacy);
 });
 
-it('maakt een door de eerste v2-uitgave overschreven hervatpositie weer leesbaar voor v1', () => {
+it('bewaart het bronrecord en maakt de hervatpositie klaar voor elk van beide vorige wizards', async () => {
   const calls = mockApi(() => ({ body: [] }));
-  localStorage.setItem(v1, JSON.stringify({ version: 2, step: 'hue-testen', done: ['meters', 'hue-lezen', 'gree'] }));
-  render(<Providers><InstallPage /></Providers>);
+  const original = JSON.stringify({ version: 2, step: 'hue-testen', done: ['meters', 'hue-lezen', 'gree'] }, null, 2);
+  localStorage.setItem(v1, original);
+  const first = render(<Providers><InstallPage /></Providers>);
+  expect(localStorage.getItem(v1)).toBe(original);
+  await userEvent.click(screen.getByText('Terugval voorbereiden'));
+  await userEvent.click(screen.getByRole('button', { name: 'Wizard met één Hue-stap' }));
   expect(JSON.parse(localStorage.getItem(v1)!)).toEqual({ step: 'hue', done: ['meters', 'hue'] });
   expect(JSON.parse(localStorage.getItem(v2)!)).toEqual({ version: 2, step: 'hue-testen', done: ['meters', 'hue-lezen'] });
+  first.unmount();
+  // De vorige wizard kan tijdens de terugval zijn eigen voortgang bijwerken.
+  const previous = JSON.stringify({ step: 'zigbee', done: ['controle', 'hue'] }, null, 2);
+  localStorage.setItem(v1, previous);
+  render(<Providers><InstallPage /></Providers>);
+  await userEvent.click(screen.getByText('Terugval voorbereiden'));
+  await userEvent.click(screen.getByRole('button', { name: 'Wizard met twee Hue-stappen' }));
+  expect(localStorage.getItem(v1)).toBe(original);
+  await userEvent.click(screen.getByRole('button', { name: 'Wizard met één Hue-stap' }));
+  expect(localStorage.getItem(v1)).toBe(previous);
   expect(calls.filter(c => c.method !== 'GET')).toHaveLength(0);
+});
+
+it('behoudt het gedeelde record als de browser de reservekopie voor terugval weigert', async () => {
+  mockApi(() => ({ body: [] }));
+  const original = JSON.stringify({ step: 'hue', done: ['controle'] });
+  localStorage.setItem(v1, original);
+  const write = Storage.prototype.setItem;
+  const limited = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+    if (key.startsWith('shc.install.rollback.')) throw new DOMException('Opslag vol', 'QuotaExceededError');
+    write.call(this, key, value);
+  });
+  try {
+    render(<Providers><InstallPage /></Providers>);
+    await userEvent.click(screen.getByText('Terugval voorbereiden'));
+    await userEvent.click(screen.getByRole('button', { name: 'Wizard met twee Hue-stappen' }));
+    expect(await screen.findByText(/De terugval kon niet worden voorbereid/)).toBeVisible();
+    expect(localStorage.getItem(v1)).toBe(original);
+    expect(JSON.parse(localStorage.getItem(v2)!)).toMatchObject({ version: 2, step: 'hue-lezen' });
+  } finally {
+    limited.mockRestore();
+  }
 });

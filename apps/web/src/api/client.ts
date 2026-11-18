@@ -43,8 +43,11 @@ export function isTransientError(err: unknown): boolean {
 export function isApiError(err: unknown, code?: string): err is ApiError {
   return err instanceof ApiError && (code === undefined || err.code === code);
 }
+function accessDeniedStatus(status: number) {
+  return status === 401 || status === 403;
+}
 export function isAccessDenied(error: unknown): error is ApiError {
-  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+  return error instanceof ApiError && accessDeniedStatus(error.status);
 }
 /** Dutch message for any error, for display. */
 export function errorMessage(err: unknown): string {
@@ -200,8 +203,9 @@ function errorFrom(status: number, data: unknown, path: string, retryAfter: numb
   const envelope = data as Partial<T.ApiErrorBody & T.ApiErrorDetail> | null;
   const d = envelope?.detail ?? (typeof envelope?.code === 'string' && typeof envelope.message === 'string'
     ? { code: envelope.code, message: envelope.message } : undefined);
+  const fallback = status === 401 ? 'Meld je opnieuw aan.' : status === 403 ? 'Toegang geweigerd.' : `Fout ${status}`;
   const detail: T.ApiErrorDetail =
-    d && typeof d === 'object' ? d : { code: 'error', message: typeof d === 'string' ? d : `Fout ${status}` };
+    d && typeof d === 'object' ? d : { code: 'error', message: typeof d === 'string' ? d : fallback };
   const err = new ApiError(status, detail.code ?? 'error', detail.message ?? `Fout ${status}`, detail);
   err.retryAfter = retryAfter;
   if (status === 401 && !AUTH_FORM_PATHS.includes(path)) {
@@ -213,6 +217,7 @@ function errorFrom(status: number, data: unknown, path: string, retryAfter: numb
 
 async function requestWithHeaders<R>(
   method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>, signal?: AbortSignal,
+  onAccessDenied?: () => void,
 ): Promise<{ data: R; headers: Headers }> {
   const headers: Record<string, string> = { Accept: 'application/json', ...extraHeaders };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -238,6 +243,9 @@ async function requestWithHeaders<R>(
     emitConnectionEvent({ type: 'unreachable' });
     throw new NetworkError();
   }
+  const denied = accessDeniedStatus(res.status);
+  // De headers volstaan om eerder verleende leestoegang in te trekken.
+  if (denied) onAccessDenied?.();
   const ct = (res.headers.get('content-type') ?? '').toLowerCase();
   // A reverse proxy answering 502/503/504 without our JSON body means the API is down.
   if ([502, 503, 504].includes(res.status) && !ct.includes('json')) {
@@ -245,13 +253,16 @@ async function requestWithHeaders<R>(
     throw new NetworkError();
   }
   if (isForeignResponse(res)) foreignAnswer();
-  const text = res.status === 204 ? '' : await res.text();
+  const text = res.status === 204 ? '' : await res.text().catch(error => {
+    if (denied) return '';
+    throw error;
+  });
   let data: unknown = undefined;
   if (text) {
     try {
       data = JSON.parse(text);
     } catch {
-      foreignAnswer();
+      if (!denied) foreignAnswer();
     }
   }
   if (!res.ok) {
@@ -267,18 +278,23 @@ export async function request<R>(method: string, path: string, body?: unknown): 
   return (await requestWithHeaders<R>(method, path, body)).data;
 }
 
-async function commissioningRequest<R>(method: string, path: string, body?: unknown, headers?: Record<string, string>) {
+interface CommissioningRequestOptions {
+  body?: unknown;
+  headers?: Record<string, string>;
+  onAccessDenied?: () => void;
+}
+async function commissioningRequest<R>(method: string, path: string, options: CommissioningRequestOptions = {}) {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), 15_000);
   try {
-    return await requestWithHeaders<R>(method, path, body, headers, controller.signal);
+    return await requestWithHeaders<R>(method, path, options.body, options.headers, controller.signal, options.onAccessDenied);
   } finally {
     window.clearTimeout(timer);
   }
 }
 
-async function commissioningPreview<R>(path: string) {
-  const { data, headers } = await commissioningRequest<R>('GET', path);
+async function commissioningPreview<R>(path: string, onAccessDenied?: () => void) {
+  const { data, headers } = await commissioningRequest<R>('GET', path, { onAccessDenied });
   const etag = headers.get('ETag');
   if (!etag) throw new Error('De server gaf geen versie voor deze bevestiging.');
   return { data, etag };
@@ -291,7 +307,9 @@ async function confirmCommissioning(path: string, etag: string, extra: Record<st
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
   const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
   const key = [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
-  return commissioningRequest('POST', path, { ...extra, confirmed: true }, { 'If-Match': etag, 'Idempotency-Key': key });
+  return commissioningRequest('POST', path, {
+    body: { ...extra, confirmed: true }, headers: { 'If-Match': etag, 'Idempotency-Key': key },
+  });
 }
 
 /* ---------- upload with progress (restore) ---------- */
@@ -534,13 +552,13 @@ export const api = {
   replaceDevice: (id: string, newDeviceId: string) => post<T.ReplaceResult>(`/devices/${id}/replace`, { new_device_id: newDeviceId }),
   /** Read-only check, never switches anything. */
   testDevice: (id: string) => post<T.DeviceTest>(`/devices/${id}/test`),
-  commissioning: () => commissioningPreview<T.CommissioningState>('/commissioning'),
-  commissioningDevices: async (homeId: string, cursor: string | null) =>
-    (await commissioningRequest<T.CommissioningDevicePage>('GET', `/commissioning/devices${query({ home_id: homeId, cursor })}`)).data,
-  commissioningDevice: (id: string) =>
-    commissioningPreview<T.CommissioningDevice>(`/commissioning/devices/${enc(id)}`),
-  commissioningHistory: async (id: string, cursor: number | null) =>
-    (await commissioningRequest<T.CommissioningHistoryPage>('GET', `/commissioning/devices/${enc(id)}/history${query({ cursor })}`)).data,
+  commissioning: (onAccessDenied?: () => void) => commissioningPreview<T.CommissioningState>('/commissioning', onAccessDenied),
+  commissioningDevices: async (homeId: string, cursor: string | null, onAccessDenied?: () => void) =>
+    (await commissioningRequest<T.CommissioningDevicePage>('GET', `/commissioning/devices${query({ home_id: homeId, cursor })}`, { onAccessDenied })).data,
+  commissioningDevice: (id: string, onAccessDenied?: () => void) =>
+    commissioningPreview<T.CommissioningDevice>(`/commissioning/devices/${enc(id)}`, onAccessDenied),
+  commissioningHistory: async (id: string, cursor: number | null, onAccessDenied?: () => void) =>
+    (await commissioningRequest<T.CommissioningHistoryPage>('GET', `/commissioning/devices/${enc(id)}/history${query({ cursor })}`, { onAccessDenied })).data,
   confirmDeviceTest: (id: string, etag: string, note: string) =>
     confirmCommissioning(`/commissioning/devices/${enc(id)}/confirm`, etag, note ? { note } : {}),
   confirmDeviceTests: (ids: string[], etag: string) =>

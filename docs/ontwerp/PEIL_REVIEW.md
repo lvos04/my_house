@@ -606,3 +606,11 @@ R-ONTWERP beoordeelde de beheerderstaak, apparaatlijst, drie bevestigingsdialoge
 De browserregressies staan in `apps/web/e2e/01-onboarding.e2e.ts` en `apps/web/e2e/13-inbedrijfstelling.e2e.ts`. De negatieve webproeven staan in `apps/web/src/test/commissioning-herstel.test.tsx`. De fysieke D12-controle blijft open.
 
 De hermeting omvatte 276 schermafdrukken. De grootste uitloop van de stappenbalk ging van 1.756 naar 0 px bij vergrote tekstafstand. Bij 200% browserzoom en een leesbreedte van 320 CSS-pixels ging de uitloop van 1.443 px in licht en 1.451 px in donker naar 0 px in beide thema’s. Na het stoppen van de lokale test-API bleef de laatste stand in beide thema’s zichtbaar met het label ‘Verouderd’. De inschakelknop was dan uitgeschakeld.
+
+### Gerichte herreview en tweede herstelronde · 18 november 2026
+
+De onafhankelijke herreview vergeleek `098732a` en `d9ec105` met 276 schermmetingen per versie. Op `d9ec105` waren de vijf ontwerpbevindingen hierboven gesloten. De metingen vonden geen axe-overtredingen, pagina-uitloop of aanraakdoelen kleiner dan 44 px. De 394 focusstops van de 18 Tab-doorlopen per versie waren zichtbaar. De kleinste gemeten tekstcontrastverhouding op een effen achtergrond was 8,50:1 op de herstelversie. Het contrast op arcering en van de samengestelde focusring van de spronglink bleef buiten de volledige contrastmeting.
+
+De aanvullende sluitproef vond op `d9ec105` een apart probleem. Op 390 px sloot Escape de individuele apparaatbevestiging terwijl het antwoord uitbleef. De openknop stond uit, de focus viel op de pagina en na 15 seconden ontbrak de herstelmelding bij het apparaat.
+
+De tweede herstelronde herhaalde die proef. Bij sluiten komt de focus op de actiegroep met de apparaatnaam zolang de openknop uitstaat. Bij een onzekere uitkomst kondigt de pagina de fout aan en verschijnt ‘Toestand opnieuw ophalen’. Ook bij heropenen vraagt de dialoog om herlezing. De browserproef controleert een mislukte herlezing, de daarna opgehaalde teststatus en het aantal bevestigingsverzoeken. De metingen van de onafhankelijke review staan in het ketendossier S-P3-710 bij RAPPORT-R-ONTWERP-b2.

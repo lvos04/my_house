@@ -1,6 +1,66 @@
 import { expect, test } from './helpers';
 import { axe, contentOutside, outsideCards, smallTargets, smallText } from './peil-metingen';
 
+test('Escape tijdens verzenden houdt het apparaat bereikbaar en vereist herlezen na een onzekere uitkomst', async ({ adminPage: page }) => {
+  const path = '**/api/v1/commissioning';
+  const devicePath = path + '/devices/proeflamp';
+  const lamp = { id: 'proeflamp', name: 'Ganglamp', compatibility: 'untested', confirmation_allowed: true };
+  await page.route(path, route => route.fulfill({ headers: { etag: '"gate"' }, json: {
+    gate: { known: true, enabled: false }, task_required: true, affected_count: 1, untested_count: 1, unsupported_count: 0,
+  } }));
+  await page.route(path + '/devices?*', route => route.fulfill({ json: {
+    items: [lamp], next_cursor: null, gate_etag: '"lijst"', observed_at: '2026-11-18T10:00:00Z',
+  } }));
+  let read: 'eerste' | 'mislukt' | 'hersteld' = 'eerste';
+  await page.route(devicePath, route => {
+    if (read === 'mislukt') return route.fulfill({ status: 503, json: { detail: 'Tijdelijk onbeschikbaar' } });
+    const tested = read === 'hersteld';
+    return route.fulfill({ headers: { etag: tested ? '"na"' : '"voor"' },
+      json: { ...lamp, compatibility: tested ? 'tested' : 'untested', confirmation_allowed: !tested } });
+  });
+  let writes = 0;
+  let release!: () => void;
+  const waiting = new Promise<void>(resolve => { release = resolve; });
+  await page.route(devicePath + '/confirm', async route => {
+    writes++;
+    await waiting;
+    await route.fulfill({ status: 504, json: { detail: 'De uitkomst is onbekend.' } });
+  });
+
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.goto('/apparaten#teststatus-apparaten');
+  const opener = page.getByRole('button', { name: 'Getest bevestigen: Ganglamp' });
+  const dialog = page.getByRole('alertdialog');
+  const submit = dialog.getByRole('button', { name: 'Als getest markeren' });
+  try {
+    await opener.click();
+    await submit.click();
+    await expect.poll(() => writes).toBe(1);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole('group', { name: 'Getest bevestigen: Ganglamp' })).toBeFocused();
+    await expect(opener).toBeDisabled();
+  } finally {
+    release();
+  }
+  const warning = page.getByRole('alert').filter({ hasText: 'Haal de toestand opnieuw op' });
+  await expect(warning).toBeVisible();
+  await opener.click();
+  await expect(submit).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(opener).toBeFocused();
+  read = 'mislukt';
+  await page.getByRole('button', { name: 'Toestand opnieuw ophalen' }).click();
+  await expect(dialog.getByText('Tijdelijk onbeschikbaar')).toBeVisible();
+  await expect(submit).toBeDisabled();
+  read = 'hersteld';
+  await dialog.getByRole('button', { name: 'Opnieuw proberen' }).click();
+  await expect(dialog.getByText('Getest in dit huis', { exact: true })).toBeVisible();
+  await expect(submit).toBeDisabled();
+  await expect(warning).toHaveCount(0);
+  expect(writes).toBe(1);
+});
+
 test('beheerder ziet gevolg en houdt focus in de inschakeldialoog op smalle en brede schermen', async ({ adminPage: page }) => {
   const path = '**/api/v1/commissioning';
   const stamp = '2026-11-18T10:00:00Z';

@@ -11,7 +11,7 @@ import { dateTime } from '../format';
 import { LIGHT_ACTION_LABEL } from '../i18n';
 import { useCanAct } from '../state';
 import { useCan } from '../user';
-import { ConfirmationDialog, ConfirmDevice, useAdminRead, useCommissioningChange } from './CommissioningActions';
+import { ConfirmationDialog, ConfirmDevice, useClearOnAccessDenied, useCommissioningChange } from './CommissioningActions';
 import { commissioningText as text } from './commissioning-text';
 import { DeviceTestButton } from './DeviceTools';
 
@@ -33,8 +33,8 @@ export function CommissioningPanel({ homeId }: { homeId: string }) {
 function AdminCommissioning({ homeId }: { homeId: string }) {
   const id = useId();
   const canAct = useCanAct();
-  const readAdminData = useAdminRead();
-  const state = useQuery({ queryKey: qk.commissioning, queryFn: (ctx) => readAdminData(ctx.queryKey, api.commissioning), enabled: canAct });
+  const clearOnDenial = useClearOnAccessDenied();
+  const state = useQuery({ queryKey: qk.commissioning, queryFn: (ctx) => api.commissioning(clearOnDenial(ctx.queryKey)), enabled: canAct });
   const { hash } = useLocation();
   const review = hash === '#teststatus-apparaten';
   const title = useRef<HTMLHeadingElement>(null);
@@ -135,7 +135,7 @@ function AdminCommissioning({ homeId }: { homeId: string }) {
 
 function CommissioningDevices({ homeId, current }: { homeId: string; current: boolean }) {
   const canAct = useCanAct();
-  const readAdminData = useAdminRead();
+  const clearOnDenial = useClearOnAccessDenied();
   const headingId = useId();
   const bulkReasonId = useId();
   const section = useRef<HTMLElement>(null);
@@ -147,7 +147,7 @@ function CommissioningDevices({ homeId, current }: { homeId: string; current: bo
   const [notice, setNotice] = useState('');
   const list = useInfiniteQuery({
     queryKey: qk.commissioningDevices(homeId),
-    queryFn: (ctx) => readAdminData(ctx.queryKey, () => api.commissioningDevices(homeId, ctx.pageParam)),
+    queryFn: (ctx) => api.commissioningDevices(homeId, ctx.pageParam, clearOnDenial(ctx.queryKey)),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor,
     enabled: canAct,
@@ -180,7 +180,7 @@ function CommissioningDevices({ homeId, current }: { homeId: string; current: bo
           }}>{text('retry')}</Button>
         </div>
       )}
-      {list.isSuccess && !devices.length && <p>{text('empty')} <a href="#apparaat-toevoegen">{text('add')}</a></p>}
+      {list.isSuccess && list.data && !devices.length && <p>{text('empty')} <a href="#apparaat-toevoegen">{text('add')}</a></p>}
       {observed && <p className="small m-0">{text('source', { time: dateTime(observed) })} {text('historyHint')}</p>}
       {list.data && notice && <p role="status" className="m-0">{notice}</p>}
       {devices.length > 0 && (

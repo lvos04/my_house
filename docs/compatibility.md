@@ -37,6 +37,13 @@ Voor Gree wacht de wizard op een echte koppel- en terugleesproef voor de gebruik
 Met **Gree later instellen** kan de beheerder de overige stappen afmaken. Gebruik zolang de eigen
 afstandsbediening voor Gree.
 
+De wizard bewaart de oorspronkelijke voortgang van een oudere versie in dezelfde browser.
+Open vóór een versiewissel **Terugval voorbereiden** als je naar een andere wizardindeling teruggaat.
+Kies **Wizard met één Hue-stap** voor de versie met ‘Philips Hue’, of **Wizard met twee Hue-stappen**
+voor de versie met ‘Hue uitlezen’ en ‘Hue testen en bevestigen’. Elke indeling hervat haar eigen
+opgeslagen stap en markeringen. Ontbreekt zo'n record, dan gebruikt de wizard de beschikbare
+voortgang. Voor Hue blijft een eigen leestest en bevestiging nodig. Voor Gree geldt de fysieke D12-controle.
+
 Bij een geweigerde bedienopdracht legt Android uit dat een beheerder het apparaat via de web-app moet
 testen en bevestigen.
 

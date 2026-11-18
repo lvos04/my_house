@@ -276,6 +276,10 @@ export const COMMISSIONING_TEXT = {
     "nl": "Opnieuw proberen",
     "en": "Try again"
   },
+  "reloadState": {
+    "nl": "Toestand opnieuw ophalen",
+    "en": "Reload state"
+  },
   "unknown": {
     "nl": "Onbekend — de teststatus kon niet worden opgehaald.",
     "en": "Unknown — the test status could not be retrieved."
@@ -343,6 +347,30 @@ export const COMMISSIONING_TEXT = {
   "wizardNav": {
     "nl": "Stappen van de installatie",
     "en": "Installation steps"
+  },
+  "rollback": {
+    "nl": "Terugval voorbereiden",
+    "en": "Prepare for rollback"
+  },
+  "rollbackHelp": {
+    "nl": "Ga je terug naar een oudere appversie? Kies welke wizard je straks opent in deze browser. Die hervat de eigen voortgang. Bij een eerste gebruik worden de huidige stap en de doorlopen leesstappen overgenomen.",
+    "en": "Going back to an older app version? Choose the wizard you will open in this browser. It resumes its own progress. On first use it starts with your current step and completed reading steps."
+  },
+  "wizardOneHue": {
+    "nl": "Wizard met één Hue-stap",
+    "en": "Wizard with one Hue step"
+  },
+  "wizardTwoHue": {
+    "nl": "Wizard met twee Hue-stappen",
+    "en": "Wizard with two Hue steps"
+  },
+  "rollbackReady": {
+    "nl": "De voortgang staat klaar voor ‘{wizard}’.",
+    "en": "Progress is ready for ‘{wizard}’."
+  },
+  "rollbackFailed": {
+    "nl": "De terugval kon niet worden voorbereid. Controleer of deze browser de wizardvoortgang kan lezen en opslaan.",
+    "en": "Rollback could not be prepared. Check that this browser can read and save wizard progress."
   },
   "previous": {
     "nl": "Vorige",

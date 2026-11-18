@@ -42,11 +42,14 @@ export interface InstallProgress {
   step: InstallStep;
   done: InstallStep[];
 }
-function readProgress(key: string): { step: string; done: string[]; version?: number } | null {
+function parseProgress(raw: string | null): { step: string; done: string[]; version?: number } | null {
+  const record = JSON.parse(raw ?? 'null');
+  return typeof record?.step === 'string' && Array.isArray(record.done) && record.done.every((s: unknown) => typeof s === 'string')
+    ? record : null;
+}
+function readProgress(key: string) {
   try {
-    const record = JSON.parse(localStorage.getItem(key) ?? 'null');
-    return typeof record?.step === 'string' && Array.isArray(record.done) && record.done.every((s: unknown) => typeof s === 'string')
-      ? record : null;
+    return parseProgress(localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -65,19 +68,59 @@ export function loadInstall(): InstallProgress {
   const done = INSTALL_STEPS.map(s => s.key).filter(key => visited.has(key) && key !== 'gree' && key !== 'hue-testen');
   return { step, done };
 }
+type PreviousWizard = 1 | 2;
+const rollbackKey = (version: PreviousWizard) => `shc.install.rollback.v${version}`;
+function previousVersion(raw: string): PreviousWizard {
+  const record = parseProgress(raw);
+  if (record?.version === 2) return 2;
+  if (record && record.version === undefined) return 1;
+  throw new Error('Onbekende wizardvoortgang.');
+}
+function archivePreviousWizard() {
+  const raw = localStorage.getItem(LEGACY_KEY);
+  if (raw === null) return;
+  const key = rollbackKey(previousVersion(raw));
+  if (localStorage.getItem(key) !== raw) localStorage.setItem(key, raw);
+}
 function saveInstall(p: InstallProgress) {
   try {
     localStorage.setItem(INSTALL_KEY, JSON.stringify({ ...p, version: 2 }));
-    // De eerste v2-uitgave schreef in het oude vak. Maak alleen dat record weer leesbaar voor v1.
-    const misplaced = readProgress(LEGACY_KEY);
-    if (misplaced?.version === 2) {
-      const legacyStep = (key: string) => key === 'hue-lezen' || key === 'hue-testen' ? 'hue' : key;
-      const done = [...new Set(misplaced.done.filter(key => key !== 'gree' && key !== 'hue-testen').map(legacyStep))];
-      localStorage.setItem(LEGACY_KEY, JSON.stringify({ step: legacyStep(misplaced.step), done }));
-    }
+    archivePreviousWizard();
   } catch {
     /* storage blocked: progress is kept while the page is open */
   }
+}
+
+function WizardRollback({ progress }: { progress: InstallProgress }) {
+  const [notice, setNotice] = useState('');
+  function prepare(version: PreviousWizard) {
+    try {
+      // Beide oudere uitgaven lezen dezelfde sleutel. Bewaar eerst de letterlijke inhoud.
+      archivePreviousWizard();
+      let target = localStorage.getItem(rollbackKey(version));
+      if (target === null) {
+        const hueStep = (key: InstallStep) => key === 'hue-lezen' || key === 'hue-testen' ? 'hue' : key;
+        target = version === 2 ? JSON.stringify({ ...progress, version }) :
+          JSON.stringify({ step: hueStep(progress.step), done: [...new Set(progress.done.map(hueStep))] });
+      }
+      if (previousVersion(target) !== version) throw new Error('Verkeerde wizardversie.');
+      localStorage.setItem(LEGACY_KEY, target);
+      setNotice(text('rollbackReady', { wizard: text(version === 1 ? 'wizardOneHue' : 'wizardTwoHue') }));
+    } catch {
+      setNotice(text('rollbackFailed'));
+    }
+  }
+  return (
+    <details className="mt-4">
+      <summary className="min-h-11 content-center cursor-pointer">{text('rollback')}</summary>
+      <p>{text('rollbackHelp')}</p>
+      <div className="flex flex-wrap gap-3">
+        <Button onClick={() => prepare(1)}>{text('wizardOneHue')}</Button>
+        <Button onClick={() => prepare(2)}>{text('wizardTwoHue')}</Button>
+      </div>
+      {notice && <p role="status">{notice}</p>}
+    </details>
+  );
 }
 
 function Preflight() {
@@ -284,6 +327,7 @@ export function InstallPage() {
           </div>
         </section>
       </div>
+      <WizardRollback progress={progress} />
     </>
   );
 }
