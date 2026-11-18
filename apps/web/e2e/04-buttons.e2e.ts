@@ -11,6 +11,8 @@ test('Hue-knop: conflict met bridge-regel en dubbele koppeling, simuleren', asyn
     home_id: homeId,
     provider: 'hue',
     kind: 'light_group',
+    // De proef gaat over koppelingconflicten en een uitvoerbare simulatie.
+    compatibility: 'tested',
     name: `Gang ${u}`,
     stable_identity: randomUUID(),
     online: true,

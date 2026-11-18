@@ -85,6 +85,8 @@ export function seedAirco(homeId: string, name: string, state: Record<string, un
     home_id: homeId,
     provider: 'gree',
     kind: 'ac_unit',
+    // Bedienbare proefunit; dit is testdata, geen automatische productiebevestiging.
+    compatibility: 'tested',
     name,
     model: 'Gree (e2e)',
     online: true,

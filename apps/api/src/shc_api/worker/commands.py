@@ -1,13 +1,10 @@
-"""Command queue -> adapters. Policy and climate safety are checked again right before execution.
+"""Wachtrij naar adapters met hercontrole bij claimen én vlak voor uitvoering.
 
-Per command:
- 1. claim (one transaction): policy check, age check; for climate commands under the
-    outdoor-unit advisory lock: drop engine commands for zones that are now manual/off or
-    have a newer command, and re-check the outdoor-unit conflict with the other units'
-    effective modes. Then mark it ``sending`` and commit, so no lock is held during I/O.
- 2. execute on the adapter (no transaction open).
- 3. record the result: device readback, zone bookkeeping (baseline only after a confirmed
-    readback, limited retries, alert when giving up), ``command.updated``.
+Eerst claimen en ``sending`` vastleggen. Daarna de installatiebrede vergrendeling
+opnieuw nemen, actuele feiten en klimaatvoorwaarden lezen en toetsen. Die tweede
+transactie houdt de vergrendeling tot de adapteraanroep klaar is: teststatus,
+bescherming en inschakeling kunnen niet tijdens de uitvoering voorbijlopen.
+Daarna volgen readback, zoneboekhouding, begrensde retries en ``command.updated``.
 """
 
 from __future__ import annotations
@@ -28,11 +25,11 @@ from ..commanding import (
     zone_command_confirmed,
     zone_command_failed,
 )
+from ..commissioning import command_facts, lock_commissioning
 from ..db import sessionmaker
 from ..logfilter import fouttekst
 from ..models import ClimateZone, CommandRecord, Device, Home, ZoneLog
-from ..policy import DeviceFacts, PolicyDenied, check_command
-from ..store import get_setting, roles_of
+from ..policy import PolicyDenied, check_command
 from ..views.common import caps_of, other_zone_modes
 from ..views.lights import BRIDGE_ERROR_PREFIX
 
@@ -60,15 +57,26 @@ class CommandsMixin:
             cmd_id, dev = claimed
             ok, confirmed, detail, state = False, False, "", None
             try:
-                adapter = self._adapter_for(dev)
-                if adapter is None:
-                    raise RuntimeError("Geen actieve integratie voor dit apparaat")
                 async with sessionmaker()() as db:
+                    # Houd dezelfde transactielock ook tijdens de laatste controle en uitvoering.
+                    # Inschakelen/binden kan dan niet tussen controle en adapteraanroep komen.
+                    await lock_commissioning(db)
                     cmd = await db.get(CommandRecord, cmd_id)
+                    dev = await db.get(Device, cmd.device_id)
+                    zone = await self._zone_of(db, cmd, dev)
+                    verdict = await self._precheck(db, cmd, dev, zone, datetime.now(UTC), cmd.attempts > 1)
+                    if verdict is not None:
+                        cmd.status, cmd.detail = verdict
+                        await self._settle(db, cmd, dev, zone, datetime.now(UTC), allow_retry=False)
+                        await db.commit()
+                        continue
+                    adapter = self._adapter_for(dev)
+                    if adapter is None:
+                        raise RuntimeError("Geen actieve integratie voor dit apparaat")
                     action, params = cmd.action, dict(cmd.params)
-                params = _translate(dev, action, params)
-                res = await adapter.execute(Command(dev.stable_identity, action, params))
-                ok, confirmed, detail, state = res.ok, res.confirmed, res.detail, res.state
+                    params = _translate(dev, action, params)
+                    res = await adapter.execute(Command(dev.stable_identity, action, params))
+                    ok, confirmed, detail, state = res.ok, res.confirmed, res.detail, res.state
                 if not confirmed and device_reported_error(res):
                     # Received but refused by the device/hub (e.g. Hue Bridge "errors"): store it as
                     # failed with the message, the same as the lights view shows it (item 27).
@@ -98,6 +106,7 @@ class CommandsMixin:
         executing it, or None when the queue is empty."""
         now = datetime.now(UTC)
         async with sessionmaker()() as db:
+            await lock_commissioning(db)
             q = (
                 select(CommandRecord)
                 .where(CommandRecord.status == "queued", CommandRecord.updated_at <= now)
@@ -139,9 +148,8 @@ class CommandsMixin:
         if dev is None:
             return "failed", "Apparaat bestaat niet meer"
         try:
-            roles, protected = await roles_of(db, dev.id)
             check_command(
-                DeviceFacts(dev.kind, roles, protected, bool(await get_setting(db, "safe_mode", False))),
+                await command_facts(db, dev, safe_mode=True),
                 cmd.action,
                 cmd.params,
             )
@@ -170,6 +178,7 @@ class CommandsMixin:
     async def _record_result(self, cmd_id: uuid.UUID, ok: bool, confirmed: bool, detail: str, state) -> None:
         now = datetime.now(UTC)
         async with sessionmaker()() as db:
+            await lock_commissioning(db)
             cmd = await db.get(CommandRecord, cmd_id)
             dev = await db.get(Device, cmd.device_id)
             # Device row first, outdoor-unit lock after: nothing that holds that lock waits for a device row.

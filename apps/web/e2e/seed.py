@@ -41,6 +41,7 @@ async def device(a: dict) -> dict:
             firmware=a.get("firmware"),
             capabilities=a.get("capabilities", []),
             compatibility=a.get("compatibility", "untested"),
+            tested_at=now if a.get("compatibility") == "tested" else None,
             lifecycle="active",
             online=bool(a.get("online", True)),
             last_seen=now if a.get("online", True) else None,

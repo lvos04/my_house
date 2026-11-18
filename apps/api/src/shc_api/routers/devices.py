@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, update
 
 from .. import events
+from ..commissioning import lock_commissioning
 from ..config import VERSION, get_settings
 from ..deps import DB, Admin, Auth, get_home
 from ..errors import SECRET_KEY_INVALID_RESPONSE, api_error, not_found, require_secret_box
@@ -203,6 +204,7 @@ class DevicePatch(BaseModel):
 
 @router.patch("/devices/{device_id}")
 async def patch_device(device_id: uuid.UUID, body: DevicePatch, db: DB, p: Admin) -> dict:
+    await lock_commissioning(db)
     d = await _device(db, device_id)
     fields = body.model_fields_set
     if "name" in fields and body.name:
@@ -314,6 +316,7 @@ async def _check_reference_policy(
 @router.post("/devices/{device_id}/bind")
 async def bind(device_id: uuid.UUID, body: BindIn, db: DB, p: Admin) -> dict:
     """Bind a device to a logical role. The previous device keeps its history (binding closed, not deleted)."""
+    await lock_commissioning(db)
     d = await _device(db, device_id)
     if d.lifecycle == "archived":
         raise api_error(409, "archived", "Dit apparaat is gearchiveerd.")
@@ -341,6 +344,7 @@ async def bind(device_id: uuid.UUID, body: BindIn, db: DB, p: Admin) -> dict:
 @router.post("/devices/{device_id}/unbind")
 async def unbind(device_id: uuid.UUID, body: BindIn, db: DB, p: Admin) -> dict:
     """End a role binding; the history up to now stays."""
+    await lock_commissioning(db)
     d = await _device(db, device_id)
     role = await _role(db, d.home_id, body.role)
     rows = (
@@ -393,6 +397,7 @@ def _reset_unit_tracking(z: ClimateZone) -> None:
 async def archive_device(device_id: uuid.UUID, db: DB, p: Admin) -> dict:
     """Remove a device from use: archived, roles and zone links ended, queued commands cancelled.
     Its readings and history stay. PATCH {"lifecycle": "active"} brings it back."""
+    await lock_commissioning(db)
     d = await _device(db, device_id)
     now = datetime.now(UTC)
     roles = await _close_bindings(db, d.id, now)
@@ -448,6 +453,7 @@ def _check_step_kinds(maps: list[ButtonMapping], old: Device, new: Device) -> No
 async def replace_device(device_id: uuid.UUID, body: ReplaceIn, db: DB, p: Admin) -> dict:
     """Move role bindings, zone links and button mappings from this device to a new one. Both keep
     their own history; the old device becomes "replaced"."""
+    await lock_commissioning(db)
     old = await _device(db, device_id)
     new = await _device(db, body.new_device_id)
     if new.id == old.id or new.home_id != old.home_id:
@@ -702,6 +708,7 @@ class TestedIn(BaseModel):
 @router.post("/devices/{device_id}/tested")
 async def mark_tested(device_id: uuid.UUID, db: DB, p: Admin, body: TestedIn | None = None) -> dict:
     """Manual confirmation that this device works in this home ("getest")."""
+    await lock_commissioning(db)
     d = await _device(db, device_id)
     now = datetime.now(UTC)
     d.tested_at = now
@@ -1284,6 +1291,7 @@ def legacy_same_device(integ: Integration, identity: str, host: str, box: Secret
 async def pair(provider: str, body: PairIn, db: DB, p: Admin):
     """Pair a device. Pairing the same physical device again (same identity: serial, MAC, bridge id)
     updates its existing integration instead of adding a second one, and moves its devices there."""
+    await lock_commissioning(db)
     from shc_integrations.base import PairingInstructions, should_upgrade_kind
 
     info = providers().get(provider)
@@ -1479,6 +1487,7 @@ def _expected_identity(i: Integration) -> str | None:
 async def patch_integration(integration_id: uuid.UUID, body: IntegrationPatch, db: DB, p: Admin) -> dict:
     """Change only the address (e.g. after a DHCP change) and/or the name. With ``verify`` (default)
     the device at the new address must be the same physical device (serial / MAC / bridge id)."""
+    await lock_commissioning(db)
     i = await _integration(db, integration_id)
     if body.name:
         i.name = body.name
@@ -1535,6 +1544,7 @@ async def patch_integration(integration_id: uuid.UUID, body: IntegrationPatch, d
 
 @router.delete("/integrations/{integration_id}", status_code=204)
 async def remove_integration(integration_id: uuid.UUID, db: DB, p: Admin):
+    await lock_commissioning(db)
     i = await _integration(db, integration_id)
     i.enabled = False
     i.credentials_enc = None
@@ -1555,6 +1565,7 @@ class ZigbeeSetup(BaseModel):
 @router.post("/integrations/zigbee/setup")
 async def zigbee_setup(body: ZigbeeSetup, db: DB, p: Admin) -> dict:
     """Register the internal Zigbee2MQTT bridge (no network call: the worker connects to MQTT)."""
+    await lock_commissioning(db)
     home = await get_home(db, body.home_id)
     integ = (
         (

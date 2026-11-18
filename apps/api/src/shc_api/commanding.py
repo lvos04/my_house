@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import climate as cl
 from . import events
+from .commissioning import command_facts, lock_commissioning
 from .models import (
     ClimateZone,
     ComfortProfile,
@@ -40,8 +41,8 @@ from .models import (
     ScheduleBlock,
     ZoneLog,
 )
-from .policy import DeviceFacts, PolicyDenied, check_command
-from .store import audit, get_setting, raise_alert, resolve_alert, roles_of
+from .policy import PolicyDenied, check_command
+from .store import audit, raise_alert, resolve_alert
 from .views.common import caps_of, effective_mode, observed_baseline, other_zone_modes
 
 MAX_ATTEMPTS = 3  # first try + 2 retries
@@ -68,6 +69,7 @@ def outdoor_lock_key(zone: ClimateZone) -> str:
 
 async def lock_outdoor_group(db: AsyncSession, zone: ClimateZone) -> None:
     """Transaction-scoped advisory lock per outdoor unit; released on commit/rollback."""
+    await lock_commissioning(db)
     await db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"), {"k": outdoor_lock_key(zone)})
 
 
@@ -82,8 +84,7 @@ async def check_scene_group_policy(db: AsyncSession, device: Device, action: str
     group = await db.get(Device, group_id)
     if group is None or group.home_id != device.home_id:
         return
-    roles, protected = await roles_of(db, group.id)
-    check_command(DeviceFacts(group.kind, roles, protected), action, params)
+    check_command(await command_facts(db, group), action, params)
 
 
 async def queue_command(
@@ -97,9 +98,8 @@ async def queue_command(
     zone_id: uuid.UUID | None = None,
 ) -> CommandRecord:
     """Policy-check and queue one device command. Raises PolicyDenied."""
-    roles, protected = await roles_of(db, device.id)
     check_command(
-        DeviceFacts(device.kind, roles, protected, bool(await get_setting(db, "safe_mode", False))),
+        await command_facts(db, device, safe_mode=True),
         action,
         params,
     )
@@ -164,15 +164,14 @@ async def request_zone_command(
     caps = caps_of(unit)
     now = datetime.now(UTC)
     # Safety policy first (safe mode, protected roles): it outranks every other answer.
-    roles, protected = await roles_of(db, unit.id)
     try:
         check_command(
-            DeviceFacts(unit.kind, roles, protected, bool(await get_setting(db, "safe_mode", False))),
+            await command_facts(db, unit, safe_mode=True),
             "set_hvac",
             {"mode": mode, "target_c": target_c, "fan": fan},
         )
     except PolicyDenied as e:
-        raise CommandRejected(409, "policy_denied", e.message) from e
+        raise CommandRejected(409, e.code, e.message) from e
     if not unit.online:
         raise CommandRejected(503, "device_offline", "Airco niet bereikbaar. Gebruik de afstandsbediening.")
     if mode is None and target_c is None and fan is None:
@@ -198,7 +197,7 @@ async def request_zone_command(
     try:
         cmd = await queue_command(db, home.id, unit, "set_hvac", params, source, actor, z.id)
     except PolicyDenied as e:
-        raise CommandRejected(409, "policy_denied", e.message) from e
+        raise CommandRejected(409, e.code, e.message) from e
     pol = cl.policy_with_defaults(z.policy)
     if mode == "off":
         z.control, z.override_until = "off", None  # deliberate off: stays off until resume

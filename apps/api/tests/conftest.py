@@ -26,6 +26,15 @@ def database(tmp_path_factory):
     from shc_api.cli import migrate
 
     migrate()
+    # De bestaande regressiesuite toetst de bestaande installatie met gate uit.
+    # Geen fictieve testbevestigingen; nieuwe gateproeven zetten haar zelf aan.
+    # Dit hoort in deze fixture: platform_v2 overschrijft haar zonder database.
+    subprocess.run([
+        "psql", PG + "/" + DB_NAME, "-q", "-c",
+        "UPDATE settings SET value = '{\"v\":{\"version\":1,\"enabled\":false,"
+        "\"origin\":\"existing_devices\",\"enabled_at\":null,\"enabled_by\":null}}'::jsonb "
+        "WHERE key = 'commissioning_gate'",
+    ], check=True)
     yield
     _psql(f"DROP DATABASE IF EXISTS {DB_NAME} WITH (FORCE)")
 

@@ -26,12 +26,19 @@ class PolicyDenied(Exception):
         self.message = message
 
 
+class DeviceNotTested(PolicyDenied):
+    code = "device_not_tested"
+
+
 @dataclass(frozen=True, slots=True)
 class DeviceFacts:
     kind: str
     roles: frozenset[str]
     protected_roles: frozenset[str]
     safe_mode: bool = False  # after restore / startup: no device commands until confirmed
+
+    compatibility: str | None = None
+    commissioning_gate: bool = False  # Alleen configuratiechecks gebruiken deze standaard.
 
 
 def check_command(device: DeviceFacts, action: str, params: dict) -> None:
@@ -48,6 +55,13 @@ def check_command(device: DeviceFacts, action: str, params: dict) -> None:
             "Dit apparaat is beveiligd als alleen-meten (boiler). Schakelen is geblokkeerd door de "
             "app; let op: de HomeWizard-app zelf kan de stekker nog wel schakelen."
         )
+    if device.commissioning_gate and device.compatibility != "tested":
+        # Alleen een bridge-beheercommando; gewone bediening krijgt nooit een beheeruitzondering.
+        if not (device.kind == "zigbee_bridge" and action == "permit_join"):
+            raise DeviceNotTested(
+                "Dit apparaat is nog niet getest. Laat een beheerder het eerst onder Apparaten testen en "
+                "als getest bevestigen in de web-app. Er is geen bedienopdracht verstuurd."
+            )
     if device.kind in MEASURE_ONLY_KINDS and action in POWER_ACTIONS:
         raise PolicyDenied("Energiemeters worden alleen gebruikt om te meten; schakelen is uitgeschakeld.")
     if action in POWER_ACTIONS and device.kind not in {"light", "ac_unit"}:

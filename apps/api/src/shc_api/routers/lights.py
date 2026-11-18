@@ -20,6 +20,7 @@ from sqlalchemy import delete, select
 from .. import climate as cl
 from .. import views
 from ..commanding import CommandRejected, check_scene_group_policy, queue_command, request_zone_command
+from ..commissioning import command_facts, lock_commissioning
 from ..deps import DB, Admin, Auth, Control, get_home
 from ..errors import api_error, not_found
 from ..models import ButtonMapping, ClimateZone, Device, Home
@@ -37,10 +38,10 @@ async def _check_target(db: DB, target: Device, action: str) -> None:
     """Gebruik de bestaande apparaatpolicy ook vóór typevalidatie en bij koppelingen."""
     roles, protected = await roles_of(db, target.id)
     try:
-        check_command(DeviceFacts(target.kind, roles, protected), action, {})
+        check_command(await command_facts(db, target), action, {})
         await check_scene_group_policy(db, target, action, {})
     except PolicyDenied as e:
-        raise api_error(409, "policy_denied", e.message) from e
+        raise api_error(409, e.code, e.message) from e
 
 
 @router.get("/homes/{home_id}/lights")
@@ -82,7 +83,7 @@ async def group_command(group_id: uuid.UUID, body: GroupCommand, db: DB, p: Cont
             cmd = await queue_command(db, g.home_id, g, "set_group", params, "user", p.actor)
             await audit(db, p.actor, "light_command", g.name, device=str(g.id), command="set_group", **params)
     except PolicyDenied as e:
-        raise api_error(409, "policy_denied", e.message) from e
+        raise api_error(409, e.code, e.message) from e
     await db.commit()
     return JSONResponse({"command_id": str(cmd.id), "status": "queued"}, status_code=202)
 
@@ -224,6 +225,7 @@ def _uuid(v: Any) -> uuid.UUID | None:
 
 async def normalize_mapping(db: DB, dev: Device, m: dict) -> tuple[dict, list[str]]:
     """Validate one mapping against the button and the home. Returns (normalized action, errors)."""
+    await lock_commissioning(db)
     errors: list[str] = []
     s = dev.state or {}
     known = {b.get("id"): b for b in (s.get("buttons") or []) if isinstance(b, dict) and b.get("id")}

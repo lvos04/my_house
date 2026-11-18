@@ -5,7 +5,9 @@ from __future__ import annotations
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import Setting
+from .models import Device, Setting
+from .policy import DeviceFacts
+from .store import get_setting, roles_of
 
 KEY = "commissioning_gate"
 LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtextextended('shc-commissioning', 0))"
@@ -59,3 +61,17 @@ def restored_gate(prior: dict | None, loaded: dict, mode: str, at: str) -> dict:
             "known_loaded": loaded["known"],
         },
     }
+
+
+async def command_facts(db: AsyncSession, device: Device, *, safe_mode: bool = False) -> DeviceFacts:
+    await lock_commissioning(db)
+    await db.refresh(device)
+    roles, protected = await roles_of(db, device.id)
+    return DeviceFacts(
+        device.kind,
+        roles,
+        protected,
+        bool(await get_setting(db, "safe_mode", False)) if safe_mode else False,
+        device.compatibility,
+        (await read_gate(db))["enabled"],
+    )

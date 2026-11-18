@@ -24,6 +24,8 @@ test('commando via de worker, bevestigd door de airco', async ({ adminPage: page
   const devices = await api.get<{ id: string; stable_identity: string; integration_id: string | null }[]>(`/homes/${homeId}/devices`);
   const unit = devices.find((d) => d.stable_identity === UNIT_MAC);
   expect(unit?.integration_id, 'de airco is gekoppeld met een eigen integratie').toBeTruthy();
+  // Alleen de nepdienst bewust bevestigen; koppelen zelf bewijst geen teststatus.
+  await api.send('POST', `/devices/${unit!.id}/tested`, { note: 'Nepeenheid voor de workerketen bewust bevestigd.' });
 
   const zone = await api.zone(homeId, 'Woonkamer');
   await api.send('PATCH', `/zones/${zone.id}`, { unit_device_id: unit!.id });
