@@ -28,6 +28,7 @@ class FakeAdapter:
         self.polls = 0
         self.poll_error: Exception | None = None
         self.health_result = None
+        self.subscriptions = 0
         self.stream: list = []
         self.stream_error: Exception | None = None
         FakeAdapter.instances.append(self)
@@ -39,6 +40,7 @@ class FakeAdapter:
         return []
 
     async def subscribe(self):
+        self.subscriptions += 1
         for ev in self.stream:
             yield ev
         if self.stream_error is not None:
@@ -198,7 +200,7 @@ async def test_status_debounce_identity_mismatch_and_status_updated(admin, monke
     assert entry["state"] == "error" and entry["code"] == "identity_mismatch"
 
 
-async def test_push_stream_batches_and_restarts(admin):
+async def test_push_stream_batches_and_restarts(admin, monkeypatch):
     from shc_integrations.base import AdapterError, DeviceInfo, StateUpdate
 
     home_id = await new_home(admin)
@@ -220,16 +222,33 @@ async def test_push_stream_batches_and_restarts(admin):
         batches.append(len(evs))
         await real(i, evs)
 
-    w.handle_events = record
-    await w._pump(integ.id, fake)
+    monkeypatch.setattr(w, "handle_events", record)
+    await asyncio.wait_for(w._pump(integ.id, fake), timeout=10)
     assert batches == [3], "events that arrive together are stored in one transaction"
+    assert fake.subscriptions == 1
+
     # A stream that fails is restarted and reported (debounced).
     fake.stream, fake.stream_error = [], AdapterError("MQTT weg")
+    reported = asyncio.Event()
+    real_report = w.report
+
+    async def record_report(i, source, state, code, detail):
+        await real_report(i, source, state, code, detail)
+        # Eén batchaanroep, gevolgd door drie mislukte aanroepen en hun statusopslag.
+        if i == integ.id and source == "push" and state == "error" and fake.subscriptions >= 4:
+            reported.set()
+
+    monkeypatch.setattr(w, "report", record_report)
     task = asyncio.create_task(w.subscribe(integ.id))
-    await asyncio.sleep(0.3)
-    task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await task
+    try:
+        await asyncio.wait_for(reported.wait(), timeout=10)
+    finally:
+        task.cancel()
+        done, _ = await asyncio.wait({task}, timeout=10)
+        assert task in done, "De streamtaak is niet op tijd afgewikkeld"
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+    assert fake.subscriptions >= 4
     assert w.status[integ.id].sources["push"].state == "error"
     assert (await fetch(Integration, integ.id)).state == "error"
 
