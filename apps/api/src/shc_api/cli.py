@@ -5,16 +5,20 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import getpass
 import gzip
+import hashlib
 import json
 import logging
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import uuid
+import zlib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import unquote, urlsplit, urlunsplit
@@ -119,44 +123,76 @@ def current_revision(url: str | None = None) -> str | None:
     return _in_thread(lambda: asyncio.run(q()))
 
 
-def pre_migration_dump(url: str, revision: str, backup_dir: Path) -> Path | None:
-    """pg_dump (gzip) before migrating (contract C11). None when pg_dump is not installed.
-    Raises MigrationError when the dump fails: then the migration must not run."""
+def verify_migration_dump(path: Path, output: Path | None = None) -> None:
+    """Controleer de gecomprimeerde bytes én het einde van de SQL-dump vóór vrijgave."""
+    checksum = path.with_name(path.name + ".sha256")
+    try:
+        with path.open("rb") as source:
+            expected = checksum.read_text(encoding="ascii").rstrip("\n")
+            if expected != f"{hashlib.file_digest(source, 'sha256').hexdigest()}  {path.name}":
+                raise MigrationError("De SHA-256 van de migratiedump wijkt af.")
+            source.seek(0)
+            staging = tempfile.NamedTemporaryFile(dir=output.parent) if output else contextlib.nullcontext()
+            with staging as dest, gzip.GzipFile(fileobj=source) as sql:
+                tail = b""
+                while block := sql.read(1 << 20):
+                    tail = (tail + block[-512:])[-512:]
+                    if dest:
+                        dest.write(block)
+                if b"\n-- PostgreSQL database dump complete\n" not in tail:
+                    raise MigrationError("De migratiedump bevat geen volledig SQL-archief.")
+                if dest:
+                    dest.flush()
+                    os.fsync(dest.fileno())
+                    os.link(dest.name, output)
+    except (OSError, EOFError, UnicodeError, zlib.error) as exc:
+        raise MigrationError("Controle of uitvoer van de migratiedump is mislukt.") from exc
+
+
+def pre_migration_dump(url: str, revision: str, backup_dir: Path) -> Path:
+    """Bewaar en verifieer een complete, unieke dump vóór de eerste schemawijziging."""
     exe = shutil.which("pg_dump")
     if not exe:
-        log.warning("pg_dump niet gevonden: geen automatische database-dump vóór de migratie.")
-        return None
+        raise MigrationError("pg_dump ontbreekt. De database is NIET bijgewerkt.")
     backup_dir.mkdir(parents=True, exist_ok=True)
-    target = backup_dir / f"pre-migrate-{revision}-{datetime.now(UTC):%Y%m%d-%H%M%S}.sql.gz"
-    tmp = target.with_name("." + target.name + ".tmp")
+    target = backup_dir / f"pre-migrate-{revision}-{datetime.now(UTC):%Y%m%d-%H%M%S}-{uuid.uuid4().hex}.sql.gz"
     dsn, pw = _libpq(url)
     env = dict(os.environ)
     if pw:
         env["PGPASSWORD"] = pw
     try:
-        with gzip.open(tmp, "wb", compresslevel=6) as out:
-            proc = subprocess.Popen(  # noqa: S603 - fixed executable, no shell
-                [exe, "--no-owner", "--no-privileges", f"--dbname={dsn}"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=env,
-            )
-            assert proc.stdout is not None
-            while block := proc.stdout.read(1 << 20):
-                out.write(block)
-            err = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
-            code = proc.wait()
-        if code != 0:
-            raise MigrationError(
-                "De automatische database-dump vóór de migratie is mislukt, dus de database is NIET bijgewerkt. "
-                f"Melding van pg_dump: {err.strip()[:300] or code}. Los dit op of maak handmatig een back-up."
-            )
-        tmp.replace(target)
-    except MigrationError:
-        tmp.unlink(missing_ok=True)
-        raise
+        with tempfile.TemporaryDirectory(dir=backup_dir, prefix=".pre-migrate-") as work:
+            tmp = Path(work) / target.name
+            with tmp.open("xb") as raw, tempfile.TemporaryFile(dir=work) as errors:
+                os.fchmod(raw.fileno(), 0o600)
+                with gzip.GzipFile(fileobj=raw, mode="wb") as out, subprocess.Popen(  # noqa: S603
+                    [exe, "--no-owner", "--no-privileges", f"--dbname={dsn}"],
+                    stdout=subprocess.PIPE, stderr=errors, env=env,
+                ) as proc:
+                    assert proc.stdout is not None
+                    with proc.stdout:
+                        shutil.copyfileobj(proc.stdout, out, 1 << 20)
+                    code = proc.wait()
+                if code:
+                    errors.seek(0)
+                    reason = errors.read(300).decode(errors="replace").strip()
+                    raise MigrationError(f"De database is NIET bijgewerkt. Melding van pg_dump: {reason or code}.")
+                raw.flush()
+                os.fsync(raw.fileno())
+            sidecar = tmp.with_name(tmp.name + ".sha256")
+            with tmp.open("rb") as source, sidecar.open("x", encoding="ascii") as checksum:
+                checksum.write(f"{hashlib.file_digest(source, 'sha256').hexdigest()}  {target.name}\n")
+                checksum.flush()
+                os.fsync(checksum.fileno())
+            verify_migration_dump(tmp)
+            os.link(sidecar, backup_dir / sidecar.name)
+            os.link(tmp, target)
+            fd = os.open(backup_dir, os.O_DIRECTORY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
     except OSError as exc:
-        tmp.unlink(missing_ok=True)
         raise MigrationError(
             f"De automatische database-dump vóór de migratie kon niet worden geschreven ({exc}). "
             "De database is NIET bijgewerkt."
@@ -747,6 +783,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="versleutelde database-dump (pg_dump) in plaats van de volledige export (zonder Zigbee2MQTT)",
     )
     dd = sub.add_parser("decrypt-dump", help="ontsleutel een database-dump (.shcdump) voor pg_restore")
+    check = sub.add_parser("verify-migration-dump", help="controleer SHA-256 en inhoud van een pre-migratiedump")
+    check.add_argument("file", type=Path)
+    check.add_argument("--out", type=Path, help="schrijf de gecontroleerde SQL naar een nieuw bestand")
     dd.add_argument("file")
     dd.add_argument("--out", required=True, help="pad voor het pg_dump-archief (custom format)")
     dd.add_argument("--passphrase-file")
@@ -783,6 +822,13 @@ def main(argv: list[str] | None = None) -> None:
     from .logfilter import fouttekst, install_last_resort_filter, install_log_filter, uvicorn_log_config
 
     args = build_parser().parse_args(argv)
+    if args.cmd == "verify-migration-dump":
+        try:
+            verify_migration_dump(args.file, args.out)
+        except MigrationError as exc:
+            print(str(exc), file=sys.stderr)
+            raise SystemExit(1) from exc
+        return
     herstel: SchemaNewerError | None = None
     if args.cmd in ("serve", "migrate"):
         logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")

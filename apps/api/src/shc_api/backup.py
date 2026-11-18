@@ -39,6 +39,7 @@ import io
 import json
 import logging
 import os
+import stat
 import struct
 import tarfile
 import tempfile
@@ -722,6 +723,36 @@ def _add_bytes(tar: tarfile.TarFile, name: str, data: bytes) -> None:
 # Zigbee2MQTT's secrets file (``!secret.yaml mqtt_password`` in configuration.yaml): holds the MQTT
 # password in plain text. A redacted backup keeps its keys but never its values.
 Z2M_SECRET_FILES = {"secret.yaml", "secret.yml"}
+Z2M_CONFIG = "configuration.yaml"
+
+
+def redacted_z2m_config(raw: bytes) -> tuple[bytes, bool]:
+    """Exporteer alleen bekende gewone opties. Vrije YAML en kopieën kunnen netwerksleutels bevatten."""
+    import yaml
+
+    try:
+        config = yaml.safe_load(raw)
+    except (ValueError, yaml.YAMLError):
+        config = None
+    allowed = {
+        "mqtt": {"password": ("!secret.yaml mqtt_password",), "user": ("zigbee2mqtt",),
+                 "base_topic": ("zigbee2mqtt",)},
+        "serial": {"port": ("/dev/zigbee",), "adapter": ("ember", "zstack", "deconz", "zigate", "zboss")},
+        "frontend": {"enabled": (False,)}, "homeassistant": {"enabled": (False, True)},
+        "availability": {"enabled": (False, True)},
+    }
+    clean = {}
+    if isinstance(config, dict):
+        if type(config.get("version")) is int and config["version"] in range(1, 6):
+            clean["version"] = config["version"]
+        for section, fields in allowed.items():
+            source = config.get(section)
+            if isinstance(source, dict):
+                values = {k: v for k, options in fields.items() for v in options
+                          if type(source.get(k)) is type(v) and source[k] == v}
+                if values:
+                    clean[section] = values
+    return yaml.safe_dump(clean, sort_keys=False).encode(), clean != config
 
 
 def redact_z2m_secrets(raw: bytes) -> bytes:
@@ -761,16 +792,23 @@ def _add_z2m(tar: tarfile.TarFile, z2m_dir: Path | None, files: dict, redact: bo
                 p = Path(root) / n
                 rel = p.relative_to(z2m_dir)
                 try:
-                    st = p.stat()
-                    if not p.is_file() or st.st_size >= Z2M_MAX_FILE:
+                    st = p.lstat()
+                    if not stat.S_ISREG(st.st_mode) or st.st_size >= Z2M_MAX_FILE:
                         continue
-                    if redact and rel.as_posix() in Z2M_SECRET_FILES:
-                        data = redact_z2m_secrets(p.read_bytes())
+                    if redact:
+                        if rel.as_posix() == Z2M_CONFIG:
+                            data, changed = redacted_z2m_config(p.read_bytes())
+                        elif rel.as_posix() in Z2M_SECRET_FILES:
+                            data, changed = redact_z2m_secrets(p.read_bytes()), True
+                        else:
+                            # Een coördinatorback-up of een willekeurige kopie kan dezelfde sleutel bevatten.
+                            continue
                         name = f"zigbee2mqtt/{rel.as_posix()}"
                         _add_bytes(tar, name, data)
                         files[name] = {"sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
                         report["files"] += 1
-                        report["redacted"].append(rel.as_posix())
+                        if changed:
+                            report["redacted"].append(rel.as_posix())
                         continue
                     with open(p, "rb") as fh:
                         h = _Hashing(fh)
@@ -1628,14 +1666,18 @@ async def restore_file(
 def z2m_kept_secrets(manifest: dict | None, target: Path) -> list[str]:
     """Secret files a redacted backup carries without values, that `target` already has: restoring
     keeps those (with the real passwords) instead of overwriting them with blanks."""
-    redacted = ((manifest or {}).get("zigbee2mqtt") or {}).get("redacted") or []
-    return [r for r in redacted if (target / r).is_file()]
+    if not manifest or not manifest.get("redacted"):
+        return []
+    return sorted(name for name in Z2M_SECRET_FILES | {Z2M_CONFIG}
+                  if f"zigbee2mqtt/{name}" in manifest["files"] and (target / name).is_file())
 
 
 def extract_z2m(path: Path, passphrase: str, target: Path, manifest: dict | None = None) -> int:
     """Write the Zigbee2MQTT files from a (verified) backup into `target`; returns the file count.
     With the backup's ``manifest``: a secret file that a redacted backup has without values is not
     written over an existing one (``z2m_kept_secrets``), so Zigbee2MQTT keeps its MQTT password."""
+    if manifest is None:
+        manifest = verify_file(path, passphrase, collect=False).manifest
     keep = set(z2m_kept_secrets(manifest, target))
     n = 0
     for name, f in iter_members(path, passphrase):
@@ -1644,11 +1686,29 @@ def extract_z2m(path: Path, passphrase: str, target: Path, manifest: dict | None
         p = target / name.removeprefix("zigbee2mqtt/")
         if ".." in p.relative_to(target).parts:
             raise BackupError(f"Onveilig pad in archief: {name}")
-        if p.relative_to(target).as_posix() in keep:
+        relative = p.relative_to(target).as_posix()
+        redacted = manifest.get("redacted") is True
+        if relative in keep or (redacted and relative not in Z2M_SECRET_FILES | {Z2M_CONFIG}):
             continue
         p.parent.mkdir(parents=True, exist_ok=True)
-        with open(p, "wb") as out:
-            while block := f.read(1 << 20):
-                out.write(block)
+        # Publiceer pas na de volledige kopie. Een inmiddels aanwezige sleutel blijft bij redactie behouden.
+        with tempfile.TemporaryDirectory(dir=p.parent) as work:
+            ready = Path(work) / "herstel"
+            with ready.open("xb") as out:
+                os.fchmod(out.fileno(), 0o600)
+                if redacted and relative == Z2M_CONFIG:
+                    out.write(redacted_z2m_config(f.read())[0])
+                else:
+                    while block := f.read(1 << 20):
+                        out.write(block)
+                out.flush()
+                os.fsync(out.fileno())
+            if redacted:
+                try:
+                    os.link(ready, p)
+                except FileExistsError:
+                    continue
+            else:
+                os.replace(ready, p)
         n += 1
     return n

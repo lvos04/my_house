@@ -12,16 +12,9 @@ wachtwoordzin van de back-up, dan kun je die ook meegeven met `--passphrase-file
 
 ## Updates en terugdraaien
 
-1. Maak eerst een back-up: **Systeem › Back-ups en bewaren › Nu een back-up maken**.
-2. Werk bij:
-   - **TrueNAS:** `git -C <root>/src pull`, voer `install.sh` opnieuw uit, maak de YAML opnieuw en plak
-     hem bij **Apps › smart-home › Edit** (zie [installatie-truenas.md](installatie-truenas.md#updaten)).
-   - **Linux:** `SHC_ROOT=<root> SHC_VERSION=<versie> docker compose -f infra/compose/compose.yaml up -d`.
-3. Bij het starten werkt de API de database bij (migraties). Heeft de database een oudere versie, dan
-   maakt de API daar eerst **automatisch een dump** van: `<root>/backups/pre-migrate-<revisie>-<tijd>.sql.gz`.
-   Lukt die dump niet, dan wordt de database **niet** bijgewerkt en start de API niet; het logboek van
-   de API zegt dan *Database-update geweigerd* met de reden. Elke migratie draait in één transactie:
-   mislukt hij, dan blijft de database zoals hij was.
+1. Maak een volledige back-up en controleer of deze leesbaar is. Stop de app en maak een snapshot van de hele opslag, inclusief de geheimen.
+2. Kies de nieuwe versie in het Custom App-formulier. Zie [Installatie op TrueNAS](installatie-truenas.md#updaten-en-terugdraaien).
+3. Bij een oudere database schrijft de API vóór de upgrade `pre-migrate-*.sql.gz` en de bijbehorende `.sha256` in de back-upmap. De hele reeks revisies draait in één transactie. Na een geweigerde dump of mislukte revisie blijft de database op de oorspronkelijke revisie.
 4. De worker start pas als de API gezond is, dus nooit tegen een half bijgewerkte database.
 
 **Database van een nieuwere versie.** Start een oudere versie van my_house op een database die een nieuwere versie al
@@ -35,22 +28,9 @@ kent. De worker start geen rondes en wacht. my_house zet een database nooit zelf
 het formulier van de Custom App weer de versie die bij de database hoort, of zet de snapshot van vóór de update terug
 en start dan deze versie opnieuw.
 
-**Terugdraaien.** Zet de vorige versie terug (YAML met `--version <oude versie>`, of `SHC_VERSION`).
-Is er inmiddels een migratie uitgevoerd, dan kent de oude versie het nieuwe schema niet. Zet dan de
-automatische dump van vóór de update terug, in een lege database:
+**Terugdraaien.** Gebruik in het formulier de vorige versie met de bijbehorende snapshot op aparte opslag. Controleer de woning en de versleutelde koppelingen voordat je de nieuwe installatie gebruikt.
 
-```bash
-docker stop <worker-container> <api-container>
-docker exec <db-container> psql -U shc -d postgres -c 'DROP DATABASE shc WITH (FORCE)'
-docker exec <db-container> psql -U shc -d postgres -c 'CREATE DATABASE shc'
-gunzip -c <root>/backups/pre-migrate-<revisie>-<tijd>.sql.gz | docker exec -i <db-container> psql -q -U shc -d shc
-```
-
-Start daarna de oude versie. Kies de dump met de revisie die bij de oude versie hoort (het nummer in de
-bestandsnaam, bijvoorbeeld `0003_followups`). Alles wat na de update is gemeten, ben je dan kwijt.
-
-De dumps van vóór een update worden niet automatisch opgeruimd. Verwijder oude zelf als je ze niet
-meer nodig hebt.
+**Lokale herstelproef voor een pre-migratiedump.** Bewaar dump en controlesom in dezelfde map. `shc-api verify-migration-dump <dump> --out <nieuw.sql>` valideert de SHA-256, de gzip-integriteit en het einde van de SQL-export. Het uitvoerbestand moet nieuw zijn. Importeer de gecontroleerde SQL vervolgens met `psql -X --single-transaction -v ON_ERROR_STOP=1 -d <lege-proefdatabase> -f <nieuw.sql>` in een afzonderlijke lege database. Vergelijk revisie en tabelinhoud met de voorstaat en bewaar de originele geheimen voor het lezen van versleutelde gegevens. Gebruik voor oude dumps zonder opgeslagen controlesom een onafhankelijk geverifieerde snapshot of back-up.
 
 ## Back-ups
 
