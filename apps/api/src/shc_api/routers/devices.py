@@ -604,7 +604,7 @@ def _seen_check(d: Device, now: datetime) -> dict:
 
 
 @router.post("/devices/{device_id}/test", responses=SECRET_KEY_INVALID_RESPONSE)
-async def test_device(device_id: uuid.UUID, db: DB, p: Admin, request: Request) -> dict:
+async def test_device(device_id: uuid.UUID, db: DB, p: Admin) -> dict:
     """Non-destructive check: reads only (health probe of the integration, last messages, latest
     readings). Never switches anything — not the boiler, not a socket, not a lamp."""
     from ..worker.core import error_code, error_text
@@ -726,7 +726,6 @@ async def test_device(device_id: uuid.UUID, db: DB, p: Admin, request: Request) 
     }
     await audit(db, p.actor, "device_tested_probe", d.name, device=str(d.id), ok=ok)
     await db.commit()
-    request.state.domain_audit = True
     return result
 
 

@@ -8,7 +8,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import or_, select, text, tuple_
@@ -54,6 +54,18 @@ MUTATION_RESPONSES = {
         },
     }},
 }
+MUTATION_OPENAPI = {"parameters": [
+    {
+        "name": "Idempotency-Key", "in": "header", "required": True,
+        "description": "UUID per handeling. Herhaal met dezelfde sleutel en invoer voor het oorspronkelijke antwoord.",
+        "schema": {"type": "string", "format": "uuid"},
+    },
+    {
+        "name": "If-Match", "in": "header", "required": True,
+        "description": "ETag uit het bijbehorende GET-verzoek. Mag ontbreken bij een idempotente herhaling.",
+        "schema": {"type": "string"},
+    },
+]}
 MAX_PAGE = 200
 
 
@@ -163,22 +175,15 @@ def _etag(value) -> str:
     return f'"{_fingerprint(value)}"'
 
 
-async def _mutation_headers(
-    p: Admin,
-    idempotency_key: Annotated[
-        str | None, Header(alias="Idempotency-Key", description="Verplichte UUID per handeling."),
-    ] = None,
-    if_match: Annotated[
-        str | None, Header(alias="If-Match", description="Verplichte ETag uit het bijbehorende GET-verzoek."),
-    ] = None,
-) -> tuple[uuid.UUID, str | None]:
+async def _mutation_headers(request: Request, p: Admin) -> tuple[uuid.UUID, str | None]:
+    idempotency_key = request.headers.get("Idempotency-Key")
     if idempotency_key is None:
         raise contract_error(400, "idempotency_key_required", "Stuur een Idempotency-Key mee.")
     try:
         key = uuid.UUID(idempotency_key)
     except ValueError:
         raise contract_error(400, "idempotency_key_invalid", "De Idempotency-Key moet een UUID zijn.") from None
-    return key, if_match
+    return key, request.headers.get("If-Match")
 
 
 MutationHeaders = Annotated[tuple[uuid.UUID, str | None], Depends(_mutation_headers)]
@@ -382,7 +387,8 @@ async def test_history(
     )
 
 
-@router.post("/devices/{device_id}/confirm", response_model=DeviceView, responses=MUTATION_RESPONSES)
+@router.post("/devices/{device_id}/confirm", response_model=DeviceView,
+             responses=MUTATION_RESPONSES, openapi_extra=MUTATION_OPENAPI)
 async def confirm_device(
     device_id: uuid.UUID, body: DeviceConfirmation, db: DB, p: Admin, request: Request, headers: MutationHeaders,
 ) -> JSONResponse:
@@ -400,7 +406,8 @@ async def confirm_device(
     return await _finish(db, key, fingerprint, result, _etag(result.model_dump(mode="json")))
 
 
-@router.post("/devices/confirm", response_model=BulkResult, responses=MUTATION_RESPONSES)
+@router.post("/devices/confirm", response_model=BulkResult,
+             responses=MUTATION_RESPONSES, openapi_extra=MUTATION_OPENAPI)
 async def confirm_devices(
     body: BulkConfirmation, db: DB, p: Admin, request: Request, headers: MutationHeaders,
 ) -> JSONResponse:
@@ -421,7 +428,7 @@ async def confirm_devices(
     return await _finish(db, key, fingerprint, result, after)
 
 
-@router.post("/enable", response_model=GateView, responses=MUTATION_RESPONSES)
+@router.post("/enable", response_model=GateView, responses=MUTATION_RESPONSES, openapi_extra=MUTATION_OPENAPI)
 async def enable_commissioning(
     body: ExplicitConfirmation, db: DB, p: Admin, request: Request, headers: MutationHeaders,
 ) -> JSONResponse:

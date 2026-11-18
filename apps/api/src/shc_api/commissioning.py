@@ -30,12 +30,27 @@ def gate_state(value) -> dict:
         and isinstance(value.get("origin"), str)
         and value["origin"] in {"fresh", "existing_devices"}
         and (value["enabled"] or value["origin"] == "existing_devices")
+        and _valid_activation(value)
     ):
         return {**value, "known": True}
     return {
         "version": 1, "enabled": True, "known": False, "origin": "unknown",
         "enabled_at": None, "enabled_by": None,
     }
+
+
+def _valid_activation(value: dict) -> bool:
+    if "enabled_at" not in value or "enabled_by" not in value:
+        return False
+    at, by = value["enabled_at"], value["enabled_by"]
+    if not value["enabled"]:
+        return at is None and by is None
+    if not isinstance(at, str) or not isinstance(by, str) or not by.strip():
+        return False
+    try:
+        return datetime.fromisoformat(at).utcoffset() is not None
+    except ValueError:
+        return False
 
 
 async def read_gate(db: AsyncSession) -> dict:

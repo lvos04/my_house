@@ -24,7 +24,8 @@ async def set_gate(enabled):
     async with sessionmaker()() as db:
         await set_setting(db, "commissioning_gate", {
             "version": 1, "enabled": enabled, "origin": "existing_devices",
-            "enabled_at": None, "enabled_by": None,
+            "enabled_at": datetime.now(UTC).isoformat() if enabled else None,
+            "enabled_by": "proefbeheerder" if enabled else None,
         })
         await db.commit()
 

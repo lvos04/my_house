@@ -32,6 +32,11 @@ def state(enabled):
     None, [], "onleesbaar", {}, {**state(False), "version": True},
     {**state(False), "enabled": 0}, {**state(False), "origin": []},
     {**state(False), "origin": "fresh"}, {**state(False), "origin": "onbekend"},
+    {k: v for k, v in state(False).items() if k != "enabled_at"},
+    {**state(False), "enabled_by": 1},
+    {**state(False), "enabled_at": state(True)["enabled_at"], "enabled_by": "proefbeheerder"},
+    {**state(True), "enabled_at": "geen datum"},
+    {**state(True), "enabled_by": ""},
 ])
 def test_onbekende_gate_is_dicht(bad):
     assert gate_state(bad)["enabled"] is True
@@ -68,8 +73,32 @@ async def tables(url):
 
 
 def row_bytes(rows):
-    return {name: sorted(json.dumps(row, sort_keys=True).encode() for row in values)
-            for name, values in rows.items() if name != "settings"}
+    restore_settings = {"commissioning_gate", "maintenance", "safe_mode", "restored_from",
+                        "restore_snapshot", "restore_report"}
+    comparable = {}
+    for name, values in rows.items():
+        kept = []
+        for row in values:
+            if name == "settings":
+                if row["key"] in restore_settings:
+                    continue
+                if row["key"] == "backup_state" and isinstance(row["value"].get("v"), dict):
+                    value = {k: v for k, v in row["value"]["v"].items() if k not in {"running_since", "running_kind"}}
+                    row = {**row, "value": {**row["value"], "v": value}}
+            kept.append(json.dumps(row, sort_keys=True).encode())
+        comparable[name] = sorted(kept)
+    return comparable
+
+
+@pytest.mark.parametrize("change", ["gewijzigd", "toegevoegd", "verwijderd"])
+def test_vergelijking_ziet_gewone_instellingen(change):
+    original = [{"key": "proefinstelling", "value": {"v": 1}}]
+    changed = {
+        "gewijzigd": [{"key": "proefinstelling", "value": {"v": 2}}],
+        "toegevoegd": [*original, {"key": "extra", "value": {"v": 1}}],
+        "verwijderd": [],
+    }[change]
+    assert row_bytes({"settings": original}) != row_bytes({"settings": changed})
 
 
 @pytest.mark.parametrize("prior,loaded,enabled,source", [
@@ -82,9 +111,10 @@ def row_bytes(rows):
     (False, None, True, "backup"),
     (False, "ongeldig", True, "backup"),
 ])
-async def test_herstel_gate_en_buiten_settings_exact_de_backup(tmp_path, caplog, prior, loaded, enabled, source):
+async def test_herstel_gate_en_gewone_instellingen_exact_de_backup(tmp_path, caplog, prior, loaded, enabled, source):
     async with temp_db() as url:
         await seed_and_bytes(url, seed=True)
+        await sql(url, "INSERT INTO settings (key,value) VALUES ('proefinstelling', '{\"v\": 1}'::jsonb)")
         await write_gate(url, state(loaded) if type(loaded) is bool else loaded)
         backup_rows = await tables(url)
         path = tmp_path / "inbedrijfstelling.shcbak"

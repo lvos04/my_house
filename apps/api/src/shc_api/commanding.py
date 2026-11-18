@@ -173,8 +173,6 @@ async def check_button_targets(
 async def check_zone_configuration(db: AsyncSession, *zones: ClimateZone) -> None:
     """Gebruik de actuele policy voor alle zones die een wijziging kan activeren."""
     await lock_commissioning(db)
-    if not (await read_gate(db))["enabled"]:
-        return
     targets = []
     for zone in zones:
         await db.refresh(zone)

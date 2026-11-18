@@ -4,6 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
+from asyncpg import PostgresConnectionError
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.docs import get_swagger_ui_html
@@ -343,7 +344,10 @@ def create_app() -> FastAPI:
         )
 
     @app.exception_handler(DBAPIError)
-    async def _database_error(req: Request, exc: DBAPIError) -> PlainTextResponse | JSONResponse:
+    @app.exception_handler(PostgresConnectionError)
+    @app.exception_handler(OSError)
+    async def _database_error(req: Request, exc: DBAPIError | PostgresConnectionError | OSError
+                              ) -> PlainTextResponse | JSONResponse:
         """Log soort, sqlstate, constraint en tabel (KLEIN-37).
 
         Inbedrijfstelling geeft een contractfout bij een onbereikbare database. De bestaande HTTP-routes
@@ -351,8 +355,12 @@ def create_app() -> FastAPI:
         """
         if req.scope.get("type") != "http":
             raise exc
-        log.error("Onverwachte databasefout bij %s %s: %s", req.method, route_template(req.scope), db_error_text(exc))
-        if route_template(req.scope).startswith(COMMISSIONING_PREFIX + "/") or req.url.path == COMMISSIONING_PREFIX:
+        route = route_template(req.scope)
+        commissioning_route = route == COMMISSIONING_PREFIX or route.startswith(COMMISSIONING_PREFIX + "/")
+        if not commissioning_route and not isinstance(exc, DBAPIError):
+            raise exc
+        log.error("Onverwachte databasefout bij %s %s: %s", req.method, route, db_error_text(exc))
+        if commissioning_route:
             return JSONResponse(
                 problem("dependency_unavailable", "De database is tijdelijk niet beschikbaar."),
                 status_code=503,

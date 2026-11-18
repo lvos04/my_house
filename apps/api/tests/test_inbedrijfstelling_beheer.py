@@ -1,12 +1,15 @@
 """Beheer via HTTP met fictieve apparaten en de echte werktransactie."""
 
 import asyncio
+import socket
 import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from shc_api import db as database_module
 from shc_api.commissioning import lock_commissioning
 from shc_api.db import sessionmaker
 from shc_api.models import AuditLog, ClimateZone, CommandRecord, Device
@@ -121,7 +124,7 @@ async def test_bevestig_en_historie_en_replay(admin):
     response = await post(admin, path + "/confirm", {"confirmed": True, "note": "Proefnotitie"}, etag, key)
     assert response.status_code == 200, response.text
     assert response.headers["etag"] != etag
-    replay = await post(admin, path + "/confirm", {"confirmed": True, "note": "Proefnotitie"}, etag, key)
+    replay = await post(admin, path + "/confirm", {"confirmed": True, "note": "Proefnotitie"}, key=key)
     assert replay.json() == response.json() and replay.headers["idempotent-replay"] == "true"
     assert replay.headers["etag"] == response.headers["etag"]
     error(await post(admin, path + "/confirm", {"confirmed": True, "note": "Anders"}, etag, key),
@@ -168,13 +171,13 @@ async def test_voorvertoning_volgt_indirecte_groep_en_scene(admin):
     assert page.json()["items"] == [] and page.json()["gate_etag"]
 
 
-async def test_leestest_schrijft_alleen_eigen_auditregel(admin):
+async def test_bestaande_leestest_behoudt_beide_auditregels(admin):
     device = await add_device(await new_home(admin), "light", "Proeflamp zonder koppeling")
     response = await admin.post(f"/devices/{device.id}/test")
     assert response.status_code == 200 and response.json()["ok"]
     after = await fetch(Device, device.id)
     assert after.compatibility == "untested" and after.tested_at is None
-    assert [row.action for row in await audit_for(device.id)] == ["device_tested_probe"]
+    assert [row.action for row in await audit_for(device.id)] == ["device_tested_probe", "request"]
 
 
 async def test_bulk_helemaal_of_niets_en_bescherming(admin):
@@ -301,11 +304,27 @@ def test_nieuwe_mutaties_publiceren_idempotentie_en_preconditie(app):
             continue
         for method in route.methods & {"POST", "PUT", "PATCH", "DELETE"}:
             operation = schema["paths"][path][method.lower()]
-            assert {p["name"].lower() for p in operation["parameters"] if p["in"] == "header"} >= {
-                "idempotency-key", "if-match",
-            }
+            headers = {p["name"].lower(): p for p in operation["parameters"] if p["in"] == "header"}
+            assert headers["idempotency-key"]["required"] is True
+            assert headers["if-match"]["required"] is True
             checked.append((path, method))
     assert len(checked) == 3
+
+
+async def test_onbereikbare_database_geeft_contractfout(admin, monkeypatch):
+    assert (await admin.get(BASE)).status_code == 200
+    with socket.socket() as gesloten:
+        gesloten.bind(("127.0.0.1", 0))
+        url = database_module.engine().url.set(port=gesloten.getsockname()[1])
+        unavailable = create_async_engine(url)
+        monkeypatch.setattr(database_module, "_engine", unavailable)
+        monkeypatch.setattr(database_module, "_sessionmaker", async_sessionmaker(unavailable))
+        try:
+            response = await admin.get(BASE)
+            assert error(response, 503, "dependency_unavailable") == {}
+            assert int(response.headers["retry-after"]) > 0
+        finally:
+            await unavailable.dispose()
 
 
 async def wait_for_lock_queue(size):

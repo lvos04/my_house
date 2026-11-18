@@ -26,7 +26,7 @@ async def climate_rig(admin):
 
 
 @pytest.mark.parametrize("route", ["schema", "beleid", "hervatten", "profiel", "profielwijziging"])
-@pytest.mark.parametrize("condition", ["tested", "untested", "protected", "gate_uit"])
+@pytest.mark.parametrize("condition", ["tested", "untested", "protected", "gate_uit", "protected_gate_uit"])
 async def test_klimaatconfiguratie_tot_adapters(admin, climate_rig, route, condition):
     rig = climate_rig
     zone = rig.zones[LIVING]
@@ -49,9 +49,11 @@ async def test_klimaatconfiguratie_tot_adapters(admin, climate_rig, route, condi
             await set_gate(False)
         else:
             code = "device_not_tested"
-    if condition == "protected":
+    if condition in {"protected", "protected_gate_uit"}:
         await protect(rig.home_id, rig.units[LIVING])
         code = "policy_denied"
+        if condition == "protected_gate_uit":
+            await set_gate(False)
 
     before = await snapshot()
     if route == "schema":

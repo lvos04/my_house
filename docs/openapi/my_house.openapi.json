@@ -3094,39 +3094,22 @@
         "operationId": "confirm_devices_api_v1_commissioning_devices_confirm_post",
         "parameters": [
           {
-            "description": "Verplichte UUID per handeling.",
+            "description": "UUID per handeling. Herhaal met dezelfde sleutel en invoer voor het oorspronkelijke antwoord.",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Verplichte UUID per handeling.",
-              "title": "Idempotency-Key"
+              "format": "uuid",
+              "type": "string"
             }
           },
           {
-            "description": "Verplichte ETag uit het bijbehorende GET-verzoek.",
+            "description": "ETag uit het bijbehorende GET-verzoek. Mag ontbreken bij een idempotente herhaling.",
             "in": "header",
             "name": "If-Match",
-            "required": false,
+            "required": true,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Verplichte ETag uit het bijbehorende GET-verzoek.",
-              "title": "If-Match"
+              "type": "string"
             }
           }
         ],
@@ -3387,39 +3370,22 @@
             }
           },
           {
-            "description": "Verplichte UUID per handeling.",
+            "description": "UUID per handeling. Herhaal met dezelfde sleutel en invoer voor het oorspronkelijke antwoord.",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Verplichte UUID per handeling.",
-              "title": "Idempotency-Key"
+              "format": "uuid",
+              "type": "string"
             }
           },
           {
-            "description": "Verplichte ETag uit het bijbehorende GET-verzoek.",
+            "description": "ETag uit het bijbehorende GET-verzoek. Mag ontbreken bij een idempotente herhaling.",
             "in": "header",
             "name": "If-Match",
-            "required": false,
+            "required": true,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Verplichte ETag uit het bijbehorende GET-verzoek.",
-              "title": "If-Match"
+              "type": "string"
             }
           }
         ],
@@ -3692,39 +3658,22 @@
         "operationId": "enable_commissioning_api_v1_commissioning_enable_post",
         "parameters": [
           {
-            "description": "Verplichte UUID per handeling.",
+            "description": "UUID per handeling. Herhaal met dezelfde sleutel en invoer voor het oorspronkelijke antwoord.",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Verplichte UUID per handeling.",
-              "title": "Idempotency-Key"
+              "format": "uuid",
+              "type": "string"
             }
           },
           {
-            "description": "Verplichte ETag uit het bijbehorende GET-verzoek.",
+            "description": "ETag uit het bijbehorende GET-verzoek. Mag ontbreken bij een idempotente herhaling.",
             "in": "header",
             "name": "If-Match",
-            "required": false,
+            "required": true,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Verplichte ETag uit het bijbehorende GET-verzoek.",
-              "title": "If-Match"
+              "type": "string"
             }
           }
         ],

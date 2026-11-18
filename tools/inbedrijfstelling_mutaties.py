@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 UPGRADE_TEST = "tests/test_schema_nieuwer.py::test_ouder_schema_migreert_met_dump"
 RESTORE_TEST = (
     "tests/test_inbedrijfstelling_herstel.py::"
-    "test_herstel_gate_en_buiten_settings_exact_de_backup[True-False-True-before]"
+    "test_herstel_gate_en_gewone_instellingen_exact_de_backup[True-False-True-before]"
 )
 BEHEER_TESTS = "tests/test_inbedrijfstelling_beheer.py::"
 CASES = {
