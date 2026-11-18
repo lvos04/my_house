@@ -914,7 +914,7 @@ async def run_backup(
     backup_dir = backup_dir or s.backup_dir
     backup_dir.mkdir(parents=True, exist_ok=True)
     if z2m_dir is None:
-        cand = s.data_dir / "zigbee2mqtt"
+        cand = s.zigbee2mqtt_dir if s.zigbee2mqtt_dir is not None else s.data_dir / "zigbee2mqtt"
         z2m_dir = cand if cand.exists() else None
     engine = create_async_engine(url or s.database_url, poolclass=NullPool, hide_parameters=True)
     name = backup_filename(auto)

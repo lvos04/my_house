@@ -121,13 +121,13 @@
  },
  {
   "id": "C1.3-MH-03",
-  "status": "Niet gestart",
-  "validatie": "Niet getest",
-  "bewijs": "",
-  "blokkade": "",
-  "opmerking": "Moment P3 (CONTRACT_1.3_CONFORMITEIT.md §8): alles-in-één image met healthcheck volgens §2.2 (exec-vorm, wissel naar 568 + no_new_privs, bounding set leeg bij start als root) en rooktest. Was P3-01 (DELTA_MATRIX §9, ADR-0004). Open.",
+  "status": "Bezig",
+  "validatie": "Sim-getest; NIET GEVALIDEERD (echte NAS); NIET GEVALIDEERD (hardware)",
+  "bewijs": "S-P3-720, infra/tests/test_allinone.py en infra/tests/allinone_container.py. De lokale containerproef mat PID 1, de diensten en de aparte exec-healthcheck als 568. De proef met een nep-apparaat gaf alleen de Zigbee-procesboom de apparaatgroep. Bij een geweigerde dump bleef het vorige schema intact. Via de PostgreSQL 16-unix-socket is een gevulde pre-migratiedump aangemaakt en in een tweede proefdatabase teruggezet, met gelijke rijtellingen en controlewaarden per tabel.",
+  "blokkade": "De volledige rooktest volgt in S-P3-725. NIET GEVALIDEERD (echte NAS): standaard Custom App-installatie en apparaattoegang (D01, N-P6-06). NIET GEVALIDEERD (hardware): echte Zigbee-dongle (D13, N-P6-06).",
+  "opmerking": "Deel 1 van P3-01. Zigbee2MQTT is optioneel volgens Z-17. De lokale proef testte beide standen, met een nep-apparaat in de ingeschakelde stand. ADR-0015 beschrijft de gebouwde image.",
   "repo": "my_house",
-  "bijgewerkt": "2026-11-10"
+  "bijgewerkt": "2026-11-18"
  },
  {
   "id": "C1.3-MH-04",

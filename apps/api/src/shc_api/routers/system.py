@@ -44,6 +44,7 @@ from ..worker.backup_job import (
 from ..worker.backup_job import latest as latest_time
 
 router = APIRouter(tags=["system"])
+readiness_router = APIRouter()
 log = logging.getLogger(__name__)
 
 MANUAL_WAIT_S = 50.0  # a manual backup answers 200 when done within this time, else 202 (still running)
@@ -59,6 +60,22 @@ _jobs: dict[str, dict] = {}
 async def health(db: DB) -> dict:
     await db.execute(text("SELECT 1"))
     return {"status": "ok", "version": VERSION}
+
+
+@readiness_router.get("/readyz", include_in_schema=False)
+async def readiness(db: DB) -> JSONResponse:
+    # Scope gelijk aan de databasetest op de statuspagina. Worker en koppelingen hebben
+    # een eigen levenscyclus en mogen de eerste start van de worker niet blokkeren.
+    try:
+        await health(db)
+        ready = await bk.schema_revision(db) == bk.head_revision()
+    except Exception:
+        ready = False
+    return JSONResponse(
+        {"status": "ok" if ready else "niet_beschikbaar"},
+        status_code=200 if ready else 503,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/system/status")

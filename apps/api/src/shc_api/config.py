@@ -48,6 +48,7 @@ class Settings(BaseSettings):
 
     data_dir: Path = Path("/data")
     backup_dir: Path = Path("/backups")
+    zigbee2mqtt_dir: Path | None = None
 
     # Public addresses handed to phones when pairing.
     lan_url: str | None = None

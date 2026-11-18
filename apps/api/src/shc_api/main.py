@@ -325,6 +325,7 @@ def create_app() -> FastAPI:
     )
     for r in ROUTERS:
         app.include_router(r.router, prefix=API_PREFIX)
+    app.include_router(system.readiness_router)
 
     @app.get(f"{API_PREFIX}/openapi.json", include_in_schema=False)
     async def _openapi(p: Admin) -> JSONResponse:

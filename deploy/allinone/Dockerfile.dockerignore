@@ -1,0 +1,13 @@
+.git
+.github
+**/.venv
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/dist
+**/*.egg-info
+**/build
+**/*.shcbak
+**/.env
+**/secrets

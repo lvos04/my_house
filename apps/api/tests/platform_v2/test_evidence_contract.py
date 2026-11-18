@@ -143,10 +143,19 @@ def test_alle_punten_van_my_house_staan_in_de_lijst() -> None:
 
 def test_latere_fasen_staan_open_en_ongetest(echt: list[dict[str, Any]]) -> None:
     per_id = {e["id"]: e for e in echt}
-    for punt in ("C1.3-MH-03", "C1.3-MH-04", "C1.3-MH-05", "C1.3-MH-06"):
+    for punt in ("C1.3-MH-04", "C1.3-MH-05", "C1.3-MH-06"):
         assert per_id[punt]["status"] == "Niet gestart", punt
         assert per_id[punt]["validatie"] == "Niet getest", punt
         assert "P3" in per_id[punt]["opmerking"], punt
+
+
+def test_alles_in_een_bewijs_dekt_simulatie_en_open_acceptatie(echt: list[dict[str, Any]]) -> None:
+    app = next(regel for regel in echt if regel["id"] == "C1.3-MH-03")
+    assert app["status"] == "Bezig"
+    assert {"Sim-getest", "NIET GEVALIDEERD (echte NAS)", "NIET GEVALIDEERD (hardware)"} <= set(
+        app["validatie"].split("; ")
+    )
+    assert "infra/tests/allinone_container.py" in app["bewijs"]
 
 
 def _met(echt: list[dict[str, Any]], **wijzig: str) -> list[dict[str, Any]]:
