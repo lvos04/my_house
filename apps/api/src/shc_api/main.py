@@ -4,12 +4,13 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
-from asyncpg import PostgresConnectionError
+from asyncpg import CannotConnectNowError, InvalidCatalogNameError, PostgresConnectionError, TooManyConnectionsError
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from .config import VERSION, get_settings
 from .contract_http import problem
@@ -345,9 +346,12 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(DBAPIError)
     @app.exception_handler(PostgresConnectionError)
+    @app.exception_handler(CannotConnectNowError)
+    @app.exception_handler(TooManyConnectionsError)
+    @app.exception_handler(InvalidCatalogNameError)
+    @app.exception_handler(PoolTimeoutError)
     @app.exception_handler(OSError)
-    async def _database_error(req: Request, exc: DBAPIError | PostgresConnectionError | OSError
-                              ) -> PlainTextResponse | JSONResponse:
+    async def _database_error(req: Request, exc: Exception) -> PlainTextResponse | JSONResponse:
         """Log soort, sqlstate, constraint en tabel (KLEIN-37).
 
         Inbedrijfstelling geeft een contractfout bij een onbereikbare database. De bestaande HTTP-routes

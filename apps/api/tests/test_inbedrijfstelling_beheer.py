@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from asyncpg import CannotConnectNowError
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -331,6 +332,42 @@ async def test_onbereikbare_database_geeft_contractfout(admin, app, monkeypatch)
             assert int(response.headers["retry-after"]) > 0
         finally:
             await unavailable.dispose()
+
+
+@pytest.mark.parametrize("outage", ["starting", "pool_exhausted", "missing_database"])
+async def test_databasebeschikbaarheid_bij_sessieopenen(admin, app, monkeypatch, outage):
+    assert (await admin.get(BASE)).status_code == 200
+    url = database_module.engine().url
+
+    async def starting():
+        raise CannotConnectNowError("Synthetische opstartmelding")
+
+    if outage == "starting":
+        unavailable = create_async_engine(url, async_creator=starting)
+    elif outage == "pool_exhausted":
+        unavailable = create_async_engine(url, pool_size=1, max_overflow=0, pool_timeout=0.05)
+    else:
+        unavailable = create_async_engine(url.set(database=f"my_house_afwezig_{uuid.uuid4().hex}"))
+
+    async def request():
+        with monkeypatch.context() as local:
+            local.setattr(database_module, "_engine", unavailable)
+            local.setattr(database_module, "_sessionmaker", async_sessionmaker(unavailable))
+            transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+            async with httpx.AsyncClient(transport=transport, base_url=admin.c.base_url, cookies=admin.c.cookies) as c:
+                return await c.get(f"/api/v1{BASE}")
+
+    try:
+        if outage == "pool_exhausted":
+            async with unavailable.connect():
+                response = await request()
+        else:
+            response = await request()
+        assert error(response, 503, "dependency_unavailable") == {}
+        assert int(response.headers["retry-after"]) > 0
+    finally:
+        await unavailable.dispose()
+    assert (await admin.get(BASE)).status_code == 200
 
 
 async def wait_for_lock_queue(size):
