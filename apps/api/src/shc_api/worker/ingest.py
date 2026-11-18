@@ -29,13 +29,13 @@ from sqlalchemy import or_, select
 from sqlalchemy.dialects.postgresql import insert
 
 from .. import events, views
-from ..commanding import CommandRejected, queue_command, request_zone_command, resume_zone
+from ..commanding import CommandRejected, check_button_targets, queue_command, request_zone_command, resume_zone
 from ..commissioning import lock_commissioning
 from ..db import sessionmaker
 from ..models import ButtonMapping, ClimateZone, Device, Home, Integration, ProcessedEvent, ZoneLog
 from ..policy import DEFAULT_PROTECTED_ROLES, PolicyDenied
 from ..store import ingest_reading, raise_alert, resolve_alert, roles_of
-from ..views.lights import group_view_for, light_command, mapping_steps
+from ..views.lights import group_view_for, light_command, mapping_steps, step_matches_mode
 
 log = logging.getLogger("shc.worker")
 
@@ -486,15 +486,17 @@ class IngestMixin:
                 )
             )
         ).scalars()
-        for m in list(maps):
-            if m.mode == "combined" and not m.combined_confirmed:
-                continue
-            for step in mapping_steps(m.action):
-                if step["type"] == "zone" and m.mode == "lights":
-                    continue  # never run a climate step from a lights mapping
-                if step["type"] == "light" and m.mode == "climate":
-                    continue
-                await self._run_step(db, b, dev, step)
+        steps = [
+            step for m in maps if m.mode != "combined" or m.combined_confirmed
+            for step in mapping_steps(m.action) if step_matches_mode(step, m.mode)
+        ]
+        try:
+            await check_button_targets(db, dev.home_id, steps, safe_mode=True)
+        except PolicyDenied as e:
+            log.warning("Knop %s: koppeling geweigerd: %s", dev.name, e.message)
+            return
+        for step in steps:
+            await self._run_step(db, b, dev, step)
 
     async def _run_step(self, db, b: _Batch, dev: Device, step: dict) -> None:
         actor = f"knop {dev.name}"

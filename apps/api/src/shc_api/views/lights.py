@@ -192,6 +192,10 @@ def mapping_steps(action: dict | None) -> list[dict]:
     return out
 
 
+def step_matches_mode(step: dict, mode: str) -> bool:
+    return mode != ("lights" if step["type"] == "zone" else "climate")
+
+
 def light_command(target: Device, step: dict) -> tuple[str, dict]:
     """(action, params) to queue for a light step. "toggle" becomes an explicit on/off from the
     current state, so the command itself is never a power toggle."""

@@ -20,14 +20,20 @@ from sqlalchemy import delete, select
 
 from .. import climate as cl
 from .. import views
-from ..commanding import CommandRejected, check_scene_group_policy, queue_command, request_zone_command
+from ..commanding import (
+    CommandRejected,
+    check_button_targets,
+    check_scene_group_policy,
+    queue_command,
+    request_zone_command,
+)
 from ..commissioning import command_facts, lock_commissioning
 from ..deps import DB, Admin, Auth, Control, get_home
 from ..errors import api_error, not_found
 from ..models import ButtonMapping, ClimateZone, Device, Home
-from ..policy import DeviceFacts, PolicyDenied, check_command
-from ..store import audit, roles_of
-from ..views.lights import LIGHT_ACTIONS, light_command, mapping_steps
+from ..policy import PolicyDenied, check_command
+from ..store import audit
+from ..views.lights import LIGHT_ACTIONS, light_command, mapping_steps, step_matches_mode
 
 router = APIRouter(tags=["lights"])
 
@@ -361,8 +367,13 @@ def _conflict_error(blocking: dict[int, str]) -> JSONResponse:
 @router.put("/buttons/{device_id}/mappings")
 async def put_mappings(device_id: uuid.UUID, body: list[MappingIn], db: DB, p: Admin):
     """Replace all mappings of a button."""
+    await lock_commissioning(db)
     d = await _button(db, device_id)
     as_dicts = [m.model_dump() for m in body]
+    try:
+        await check_button_targets(db, d.home_id, (step for m in as_dicts for step in mapping_steps(m["action"])))
+    except PolicyDenied as e:
+        raise api_error(409, e.code, e.message) from e
     errors: list[str] = []
     for i, m in enumerate(as_dicts):
         action, errs = await normalize_mapping(db, d, m)
@@ -381,7 +392,16 @@ async def put_mappings(device_id: uuid.UUID, body: list[MappingIn], db: DB, p: A
     return button_view(d, await _maps(db, d.id))
 
 
-async def _save_one(db: DB, d: Device, m: ButtonMapping | None, data: dict, actor: str):
+async def _save_one(
+    db: DB, d: Device, m: ButtonMapping | None, data: dict, actor: str,
+    *, previous_groups: tuple[tuple[Device, str], ...] = (),
+):
+    try:
+        await check_button_targets(db, d.home_id, mapping_steps(data["action"]))
+        for target, action in previous_groups:
+            await check_scene_group_policy(db, target, action, {})
+    except PolicyDenied as e:
+        raise api_error(409, e.code, e.message) from e
     action, errs = await normalize_mapping(db, d, data)
     if errs:
         return _validation_error(errs)
@@ -405,6 +425,7 @@ async def _save_one(db: DB, d: Device, m: ButtonMapping | None, data: dict, acto
 
 @router.post("/buttons/{device_id}/mappings")
 async def add_mapping(device_id: uuid.UUID, body: MappingIn, db: DB, p: Admin):
+    await lock_commissioning(db)
     d = await _button(db, device_id)
     return await _save_one(db, d, None, body.model_dump(), p.actor)
 
@@ -418,6 +439,7 @@ async def _mapping(db: DB, mapping_id: uuid.UUID) -> tuple[ButtonMapping, Device
 
 @router.patch("/button-mappings/{mapping_id}")
 async def patch_mapping(mapping_id: uuid.UUID, body: MappingPatch, db: DB, p: Admin):
+    await lock_commissioning(db)
     m, d = await _mapping(db, mapping_id)
     if body.model_fields_set == {"enabled"} and body.enabled is False:
         m.enabled = False
@@ -425,6 +447,7 @@ async def patch_mapping(mapping_id: uuid.UUID, body: MappingPatch, db: DB, p: Ad
         await db.commit()
         return button_view(d, await _maps(db, d.id))
     # Oude beschermde scènekoppelingen mogen uitsluitend worden uitgezet, ook bij een nieuw doel.
+    previous_groups = []
     for step in mapping_steps(m.action):
         target_id = _uuid(step.get("device_id")) if step["type"] == "light" else None
         target = await db.get(Device, target_id) if target_id else None
@@ -432,7 +455,8 @@ async def patch_mapping(mapping_id: uuid.UUID, body: MappingPatch, db: DB, p: Ad
             try:
                 # Oude parameterinhoud wordt pas na de beleidscontrole gevalideerd.
                 action = (LIGHT_ACTIONS.get(target.kind) or ("recall_scene",))[0]
-                await check_scene_group_policy(db, target, action, {})
+                await check_scene_group_policy(db, target, action, {}, protection_only=True)
+                previous_groups.append((target, action))
             except PolicyDenied as e:
                 raise api_error(409, e.code, e.message) from e
     data = {**_mapping_dict(m)}
@@ -441,11 +465,12 @@ async def patch_mapping(mapping_id: uuid.UUID, body: MappingPatch, db: DB, p: Ad
         v = getattr(body, f)
         if v is not None:
             data[f] = v
-    return await _save_one(db, d, m, data, p.actor)
+    return await _save_one(db, d, m, data, p.actor, previous_groups=tuple(previous_groups))
 
 
 @router.delete("/button-mappings/{mapping_id}", status_code=204)
 async def delete_mapping(mapping_id: uuid.UUID, db: DB, p: Admin):
+    await lock_commissioning(db)
     m, d = await _mapping(db, mapping_id)
     await db.delete(m)
     await audit(db, p.actor, "button_mapping_removed", d.name, mapping=str(mapping_id))
@@ -469,11 +494,10 @@ async def _dry_run(db: DB, home: Home, dev: Device, step: dict, mapping_mode: st
         if mapping_mode == "lights":
             unit = await db.get(Device, zone.unit_device_id) if zone.unit_device_id else None
             if unit is not None:
-                roles, protected = await roles_of(db, unit.id)
                 try:
-                    check_command(DeviceFacts(unit.kind, roles, protected), "set_hvac", {})
+                    check_command(await command_facts(db, unit), "set_hvac", {})
                 except PolicyDenied as e:
-                    return {**out, "result": "refused", "code": "policy_denied", "reason": e.message}
+                    return {**out, "result": "refused", "code": e.code, "reason": e.message}
             return {**out, "result": "invalid", "reason": "Stap past niet bij de koppeling."}
         if step.get("action") == "resume":
             return {**out, "action": "resume", "result": "would_run", "reason": "Terug naar schema."}
@@ -525,6 +549,7 @@ async def _dry_run(db: DB, home: Home, dev: Device, step: dict, mapping_mode: st
 async def simulate(device_id: uuid.UUID, body: SimulateIn, db: DB, p: Admin) -> dict:
     """What a press would do now: each mapping's steps with the same checks as a real press
     (safety policy, outdoor unit, "choose a mode first"), plus conflicts. Executes nothing."""
+    await lock_commissioning(db)
     d = await _button(db, device_id)
     home = await get_home(db, d.home_id)
     maps = await _maps(db, d.id)
@@ -532,6 +557,18 @@ async def simulate(device_id: uuid.UUID, body: SimulateIn, db: DB, p: Admin) -> 
     as_dicts = [_mapping_dict(m) for m in maps]
     conflicts = mapping_conflicts(as_dicts, rules)
     results = []
+    active_steps = {
+        m.id: mapping_steps(m.action) for m in maps
+        if m.button == body.button and m.event == body.event and m.enabled is not False
+        and (m.mode != "combined" or m.combined_confirmed)
+    }
+    refusal = None
+    try:
+        await check_button_targets(db, d.home_id, (
+            step for m in maps for step in active_steps.get(m.id, ()) if step_matches_mode(step, m.mode)
+        ), safe_mode=True)
+    except PolicyDenied as e:
+        refusal = e
     for i, m in enumerate(maps):
         if m.button != body.button or m.event != body.event:
             continue
@@ -541,7 +578,11 @@ async def simulate(device_id: uuid.UUID, body: SimulateIn, db: DB, p: Admin) -> 
         elif m.mode == "combined" and not m.combined_confirmed:
             entry["skipped"] = "Gecombineerde actie is nog niet bevestigd en wordt niet uitgevoerd."
         else:
-            for step in mapping_steps(m.action):
+            for step in active_steps[m.id]:
+                if refusal is not None:
+                    entry["steps"].append({"type": step["type"], "result": "refused",
+                                           "code": refusal.code, "reason": refusal.message})
+                    continue
                 entry["steps"].append(await _dry_run(db, home, d, step, m.mode))
         results.append(entry)
     await db.rollback()

@@ -23,6 +23,7 @@ None of the functions commit: the caller owns the transaction.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
@@ -31,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import climate as cl
 from . import events
-from .commissioning import command_facts, lock_commissioning
+from .commissioning import command_facts, lock_commissioning, read_gate
 from .models import (
     ClimateZone,
     ComfortProfile,
@@ -45,6 +46,7 @@ from .models import (
 from .policy import DeviceNotTested, PolicyDenied, check_command
 from .store import audit, raise_alert, resolve_alert
 from .views.common import caps_of, effective_mode, observed_baseline, other_zone_modes
+from .views.lights import LIGHT_ACTIONS
 
 MAX_ATTEMPTS = 3  # first try + 2 retries
 RETRY_DELAY = timedelta(seconds=15)
@@ -131,6 +133,38 @@ async def check_scene_group_policy(
     if unknown_members and facts[0].commissioning_gate:
         raise DeviceNotTested("De groepsleden zijn nog niet volledig bekend. Lees de apparaten opnieuw uit en "
                              "laat een beheerder alle doelen onder Apparaten testen en bevestigen.")
+
+
+async def check_button_targets(
+    db: AsyncSession, home_id: uuid.UUID, steps: Iterable[dict], *, safe_mode: bool = False,
+) -> None:
+    """Toets de bekende doelen van de hele koppeling vóór de eerste stap effect heeft."""
+    await lock_commissioning(db)
+    if not (await read_gate(db))["enabled"]:
+        return
+    targets: list[tuple[Device, str]] = []
+    for step in steps:
+        zone_step = step["type"] == "zone"
+        try:
+            ref = uuid.UUID(str(step.get("zone_id" if zone_step else "device_id")))
+        except ValueError:
+            continue  # De bestaande stapvalidatie meldt ontbrekende of ongeldige verwijzingen.
+        if zone_step:
+            zone = await db.get(ClimateZone, ref, populate_existing=True)
+            if zone is None or zone.home_id != home_id or zone.unit_device_id is None:
+                continue
+            ref = zone.unit_device_id
+        device = await db.get(Device, ref, populate_existing=True)
+        if device is not None and device.home_id == home_id:
+            action = "set_hvac" if zone_step else (LIGHT_ACTIONS.get(device.kind) or ("set_light",))[0]
+            targets.append((device, action))
+
+    for protection_only in (True, False):
+        for device, action in targets:
+            await check_scene_group_policy(db, device, action, {}, protection_only=protection_only,
+                                           safe_mode=safe_mode)
+            facts = await command_facts(db, device, safe_mode=safe_mode)
+            check_command(replace(facts, commissioning_gate=False) if protection_only else facts, action, {})
 
 
 async def queue_command(
