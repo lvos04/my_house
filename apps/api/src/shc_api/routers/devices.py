@@ -1497,7 +1497,7 @@ async def pair(provider: str, body: PairIn, db: DB, p: Admin):
         if should_upgrade_kind(d.kind, dev.kind):
             d.kind = dev.kind
             invalidate_device_test(d)
-        elif d.lifecycle != "active":
+        elif d.lifecycle != "active" or effective_compatibility(d) == "unsupported":
             invalidate_device_test(d)
         if body.name:
             d.name = body.name

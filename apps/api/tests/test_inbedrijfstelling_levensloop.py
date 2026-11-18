@@ -268,6 +268,50 @@ async def test_protocolfout_sluit_bevestigen_tot_geslaagde_leestest(admin, monke
     assert len((await admin.get(path + "/history")).json()["items"]) == 1 + int(before == "tested")
 
 
+@pytest.mark.parametrize("legacy_failure", [False, True])
+async def test_herkoppelen_na_oude_protocolfout_vernieuwt_geen_bevestiging(admin, monkeypatch, legacy_failure):
+    home = await new_home(admin)
+    identity = "aabbcc667788"
+    integration = await add_integration(home, "gree", identity=identity)
+    unit = await add_full_device(home, "ac_unit", "Proefunit", provider="gree", stable_identity=identity,
+                                 integration_id=integration.id, firmware="proef-1")
+    assert (await admin.post(f"/devices/{unit.id}/tested")).status_code == 200
+    path = f"/commissioning/devices/{unit.id}"
+    history = (await admin.get(path + "/history")).json()["items"]
+    assert len(history) == 1
+    if legacy_failure:
+        async with sessionmaker()() as db:
+            row = await db.get(Device, unit.id)
+            row.diagnostics = {**row.diagnostics, "pair": {
+                "at": datetime.now(UTC).isoformat(), "result": "failed", "code": "unsupported",
+            }}
+            assert row.compatibility == "tested" and row.tested_at is not None
+            await db.commit()
+        assert (await admin.get(path)).json()["compatibility"] == "unsupported"
+
+    class Probe:
+        def __init__(self, *args):
+            pass
+
+        async def pair(self, host, **options):
+            return PairResult(identity, {}, DiscoveredDevice("gree", identity, "ac_unit", "Proefunit", host))
+
+    _use(monkeypatch, gree=_info(Probe))
+    paired = await admin.post("/integrations/gree/pair", json={"home_id": str(home), "host": "proefunit.lan"})
+    assert paired.status_code == 200 and str(paired.json()["id"]) == str(unit.id)
+    result = (await admin.get(path)).json()
+    assert result["compatibility"] == ("untested" if legacy_failure else "tested")
+    async with sessionmaker()() as db:
+        row = await db.get(Device, unit.id)
+        assert (row.tested_at is None) == legacy_failure
+        assert ("tested" not in row.diagnostics) == legacy_failure
+    assert (await admin.get(path + "/history")).json()["items"] == history
+    if legacy_failure:
+        assert (await admin.post(f"/devices/{unit.id}/tested")).status_code == 200
+        assert (await admin.get(path)).json()["compatibility"] == "tested"
+        assert len((await admin.get(path + "/history")).json()["items"]) == 2
+
+
 @pytest.mark.parametrize("notation", ["hex", "upper", "braces", "urn"])
 async def test_vervangen_verhuist_alleen_de_uuid_verwijzing_zonder_testbewijs(admin, group_rig, notation):
     r = group_rig
