@@ -16,6 +16,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+TEST_FILE = "test_inbedrijfstelling_handhaving.py"
 CASES = {
     "policy": "test_direct_weigert_voor_validatie_en_schrijft_niets",
     "bescherming": "test_bescherming_heeft_voorrang",
@@ -114,14 +115,14 @@ def main() -> int:
                 env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
                        "PYTHONPATH": temp + os.pathsep + os.environ.get("PYTHONPATH", "")}
                 cmd = [sys.executable, "-m", "pytest", "-q", "--tb=short", "-p", "no:cacheprovider",
-                       "-p", "handhaving_mutatie_plugin", f"tests/test_inbedrijfstelling_handhaving.py::{test}"]
+                       "-p", "handhaving_mutatie_plugin", f"tests/{TEST_FILE}::{test}"]
                 try:
                     result = subprocess.run(cmd, cwd=ROOT / "apps/api", env=env, capture_output=True,  # noqa: S603 — vaste proefnamen.
                                             text=True, timeout=180, check=False)
                     output = result.stdout + result.stderr
                     killed = (result.returncode == 1
                               and ("AssertionError" in output or "Failed: DID NOT RAISE" in output)
-                              and "FAILED tests/test_inbedrijfstelling_handhaving.py::" in output
+                              and f"FAILED tests/{TEST_FILE}::" in output
                               and "ERROR " not in output)
                     code = result.returncode
                 except subprocess.TimeoutExpired as exc:

@@ -163,6 +163,51 @@ class HueModel:
     def groups_containing_light(self, light_rid: str) -> list[str]:
         return [g["id"] for g in self.of_type("grouped_light") if light_rid in self.lights_of_owner(self.owner_of(g))]
 
+    def group_members(self, owner_rid: str | None, trail: frozenset[str] = frozenset()) -> tuple[list[str], bool]:
+        """Leden voor bediening, inclusief onopgeloste verwijzingen uit een gedeeltelijke inventaris.
+
+        De bestaande tellingen blijven presentatiegegevens. Een lege lijst is alleen
+        volledig als de eigenaar en zijn verwijzingen werkelijk zijn uitgelezen.
+        """
+        owner = self.get(owner_rid) or {}
+        if owner_rid in trail or owner.get("type") not in {"room", "zone", "bridge_home"}:
+            return [], False
+        children = owner.get("children")
+        if not isinstance(children, list):
+            return [], False
+        members: set[str] = set()
+        complete = True
+        for child in children:
+            if not isinstance(child, dict) or not isinstance(child.get("rid"), str) or not child["rid"]:
+                complete = False
+                continue
+            rid, kind = child["rid"], child.get("rtype")
+            if kind == "light":
+                members.add(rid)
+                complete &= (self.get(rid) or {}).get("type") == "light"
+            elif kind == "device":
+                device = self.get(rid) or {}
+                services = device.get("services")
+                if device.get("type") != "device" or not isinstance(services, list):
+                    complete = False
+                    members.update(self.device_services(rid, "light"))
+                    continue
+                for service in services:
+                    if not isinstance(service, dict) or not service.get("rid") or not service.get("rtype"):
+                        complete = False
+                    elif service["rtype"] == "light":
+                        members.add(service["rid"])
+                        complete &= (self.get(service["rid"]) or {}).get("type") == "light"
+            elif kind in {"room", "zone", "bridge_home"}:
+                nested, known = self.group_members(rid, trail | {owner_rid})
+                members.update(nested)
+                complete &= known
+            else:
+                complete = False
+        if owner["type"] == "bridge_home":
+            members.update(r["id"] for r in self.of_type("light"))
+        return sorted(members), complete
+
     def active_scene(self, owner_rid: str | None) -> dict[str, Any] | None:
         active = [
             s
@@ -283,6 +328,7 @@ class HueModel:
         owner = self.get(owner_rid) or {}
         owner_type = owner.get("type") or ((res.get("owner") or {}).get("rtype"))
         lights = self.lights_of_owner(owner_rid)
+        members, complete = self.group_members(owner_rid)
         reach = [self.light_reachable(lr) for lr in lights]
         scene = self.active_scene(owner_rid)
         state = light_basic_state(res)
@@ -294,6 +340,8 @@ class HueModel:
             name=ALL_LIGHTS_NAME if owner_type == "bridge_home" else self.name_of(owner_rid),
             lights_on=sum(1 for lr in lights if ((self.get(lr) or {}).get("on") or {}).get("on")),
             lights_total=len(lights),
+            member_identities=members,
+            members_complete=complete,
             lights_reachable=sum(1 for r in reach if r is not False),
             scene=self.name_of(scene["id"]) if scene else None,
             scene_id=scene["id"] if scene else None,
@@ -352,7 +400,8 @@ class HueModel:
             return DeviceInfo(rid, "light", self.name_of(rid), at, model=model, firmware=fw, extra=extra)
         if rtype == "grouped_light":
             st = self.group_state(rid)
-            extra = {"owner": st["owner"], "owner_type": st["owner_type"], "all_lights": st["all_lights"]}
+            extra = {key: st[key] for key in ("owner", "owner_type", "all_lights",
+                                             "member_identities", "members_complete")}
             return DeviceInfo(rid, "light_group", st["name"], at, extra=extra)
         if rtype == "scene":
             group_owner = (res.get("group") or {}).get("rid")

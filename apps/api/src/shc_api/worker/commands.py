@@ -148,12 +148,12 @@ class CommandsMixin:
         if dev is None:
             return "failed", "Apparaat bestaat niet meer"
         try:
+            await check_scene_group_policy(db, dev, cmd.action, cmd.params, safe_mode=True)
             check_command(
                 await command_facts(db, dev, safe_mode=True),
                 cmd.action,
                 cmd.params,
             )
-            await check_scene_group_policy(db, dev, cmd.action, cmd.params)
         except PolicyDenied as e:
             return "denied", e.message
         if now - cmd.created_at > (MAX_AGE_RETRY if retry else MAX_AGE_FIRST):

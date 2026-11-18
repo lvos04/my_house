@@ -10,6 +10,7 @@ through ``commanding.request_zone_command``, the same path as ``POST /zones/{id}
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from typing import Any, Literal
 
 from fastapi import APIRouter
@@ -34,12 +35,12 @@ ID_MAX = 64
 FAN_SPEEDS = ("auto", "low", "medium_low", "medium", "medium_high", "high", "quiet", "turbo")
 
 
-async def _check_target(db: DB, target: Device, action: str) -> None:
+async def _check_target(db: DB, target: Device, action: str, *, protection_only: bool = False) -> None:
     """Gebruik de bestaande apparaatpolicy ook vóór typevalidatie en bij koppelingen."""
-    roles, protected = await roles_of(db, target.id)
     try:
-        check_command(await command_facts(db, target), action, {})
-        await check_scene_group_policy(db, target, action, {})
+        await check_scene_group_policy(db, target, action, {}, protection_only=protection_only)
+        facts = await command_facts(db, target)
+        check_command(replace(facts, commissioning_gate=False) if protection_only else facts, action, {})
     except PolicyDenied as e:
         raise api_error(409, e.code, e.message) from e
 
@@ -61,7 +62,7 @@ async def group_command(group_id: uuid.UUID, body: GroupCommand, db: DB, p: Cont
     g = await db.get(Device, group_id)
     if not g:
         raise not_found("Lichtgroep")
-    await _check_target(db, g, "set_group")
+    await _check_target(db, g, "set_group", protection_only=body.scene_id is not None)
     if g.kind != "light_group" or g.lifecycle == "archived":
         raise not_found("Lichtgroep")
     try:
@@ -70,6 +71,7 @@ async def group_command(group_id: uuid.UUID, body: GroupCommand, db: DB, p: Cont
             if not scene or scene.home_id != g.home_id:
                 raise not_found("Scène")
             await _check_target(db, scene, "recall_scene")
+            await _check_target(db, g, "set_group")
             if scene.kind != "scene":
                 raise not_found("Scène")
             cmd = await queue_command(db, g.home_id, scene, "recall_scene", {}, "user", p.actor)
@@ -428,9 +430,11 @@ async def patch_mapping(mapping_id: uuid.UUID, body: MappingPatch, db: DB, p: Ad
         target = await db.get(Device, target_id) if target_id else None
         if target is not None and target.home_id == d.home_id:
             try:
-                await check_scene_group_policy(db, target, str(step.get("action") or "recall_scene"), {})
+                # Oude parameterinhoud wordt pas na de beleidscontrole gevalideerd.
+                action = (LIGHT_ACTIONS.get(target.kind) or ("recall_scene",))[0]
+                await check_scene_group_policy(db, target, action, {})
             except PolicyDenied as e:
-                raise api_error(409, "policy_denied", e.message) from e
+                raise api_error(409, e.code, e.message) from e
     data = {**_mapping_dict(m)}
     data.pop("id")
     for f in body.model_fields_set:
@@ -497,12 +501,11 @@ async def _dry_run(db: DB, home: Home, dev: Device, step: dict, mapping_mode: st
         return {"type": "light", "result": "invalid", "reason": "Lamp, groep of scène niet gevonden."}
     action, params = light_command(target, step)
     out = {"type": "light", "device_id": target.id, "device_name": target.name, "action": action, "params": params}
-    roles, protected = await roles_of(db, target.id)
     try:
-        check_command(DeviceFacts(target.kind, roles, protected), action, params)
         await check_scene_group_policy(db, target, action, params)
+        check_command(await command_facts(db, target), action, params)
     except PolicyDenied as e:
-        return {**out, "result": "refused", "code": "policy_denied", "reason": e.message}
+        return {**out, "result": "refused", "code": e.code, "reason": e.message}
     if mapping_mode == "climate":
         return {**out, "result": "invalid", "reason": "Stap past niet bij de koppeling."}
     if target.lifecycle == "archived":
@@ -512,7 +515,7 @@ async def _dry_run(db: DB, home: Home, dev: Device, step: dict, mapping_mode: st
         await queue_command(db, home.id, target, action, params, "button", actor)
         out.update(result="would_run", reason=None)
     except PolicyDenied as e:
-        out.update(result="refused", code="policy_denied", reason=e.message)
+        out.update(result="refused", code=e.code, reason=e.message)
     finally:
         await sp.rollback()
     return out

@@ -158,7 +158,7 @@ def beschadig_controle(monkeypatch):
     from shc_integrations.homewizard import HomeWizardAdapter
     kind = MUTATION
     if kind.startswith("scene-"):
-        async def zonder_groepscontrole(*a):
+        async def zonder_groepscontrole(*a, **kw):
             pass
         if kind == "scene-opslag":
             monkeypatch.setattr(lights, "check_scene_group_policy", zonder_groepscontrole)
@@ -181,7 +181,7 @@ def beschadig_controle(monkeypatch):
             exec(compile(source, "<mutatie-sceneverwijzing>", "exec"), func.__globals__, functions)
             monkeypatch.setattr(func, "__code__", functions[func.__name__].__code__)
         if kind == "scene-te-streng":
-            async def elke_scene_weigeren(*a):
+            async def elke_scene_weigeren(*a, **kw):
                 raise commanding.PolicyDenied("Mutatie weigert ook een onbeschermde scène.")
             monkeypatch.setattr(lights, "check_scene_group_policy", elke_scene_weigeren)
     if kind == "uuid-tekst":
@@ -204,6 +204,10 @@ def beschadig_controle(monkeypatch):
         monkeypatch.setattr(lights, "check_command", lambda *a: None)
     if kind == "droog-beleid":
         monkeypatch.setattr(lights, "check_command", lambda *a: None)
+        # De vroege grens omvat sinds A2.2 ook de samengestelde doelen.
+        async def zonder_droog_samengesteld(*a, **kw):
+            pass
+        monkeypatch.setattr(lights, "check_scene_group_policy", zonder_droog_samengesteld)
     if kind == "vervangen":
         monkeypatch.setattr(devices, "check_command", lambda *a: None)
     if kind == "vervangen-te-streng":
@@ -247,11 +251,14 @@ def beschadig_controle(monkeypatch):
     if kind in ("zone-patch", "alles"):
         monkeypatch.setattr(zones, "check_command", lambda *a: None)
     if kind in ("mapping", "licht", "alles"):
-        async def toelaten(*a):
+        async def toelaten(*a, **kw):
             pass
         monkeypatch.setattr(lights, "_check_target", toelaten)
     if kind == "worker":
         monkeypatch.setattr(commands, "check_command", lambda *a: None)
+        async def zonder_samengestelde_controle(*a, **kw):
+            pass
+        monkeypatch.setattr(commands, "check_scene_group_policy", zonder_samengestelde_controle)
     if kind == "rechten":
         monkeypatch.setattr(deps.Principal, "can_control", property(lambda self: True))
     if kind == "adapter":

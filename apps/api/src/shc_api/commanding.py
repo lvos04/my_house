@@ -23,6 +23,7 @@ None of the functions commit: the caller owns the transaction.
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, func, select, text
@@ -41,7 +42,7 @@ from .models import (
     ScheduleBlock,
     ZoneLog,
 )
-from .policy import PolicyDenied, check_command
+from .policy import DeviceNotTested, PolicyDenied, check_command
 from .store import audit, raise_alert, resolve_alert
 from .views.common import caps_of, effective_mode, observed_baseline, other_zone_modes
 
@@ -73,18 +74,63 @@ async def lock_outdoor_group(db: AsyncSession, zone: ClimateZone) -> None:
     await db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"), {"k": outdoor_lock_key(zone)})
 
 
-async def check_scene_group_policy(db: AsyncSession, device: Device, action: str, params: dict) -> None:
-    """Toets bij een scène ook haar groep met het bestaande apparaatbeleid."""
-    if device.kind != "scene":
+async def check_scene_group_policy(
+    db: AsyncSession, device: Device, action: str, params: dict, *,
+    protection_only: bool = False, safe_mode: bool = False,
+) -> None:
+    """Toets indirecte doelen; bescherming gaat vóór iedere teststatus.
+
+    De aanroeper toetst daarna het hoofddoel met dezelfde apparaatpolicy.
+    Ontbrekende ledengegevens geven bij gate aan nooit een vrijstelling.
+    """
+    await lock_commissioning(db)
+    await db.refresh(device)
+    if device.kind not in {"scene", "light_group"}:
         return
-    try:
-        group_id = uuid.UUID(str((device.state or {}).get("group_device_id")))
-    except (ValueError, TypeError):
+    targets = [device]
+    group = device if device.kind == "light_group" else None
+    if device.kind == "scene":
+        scene_state = device.state if isinstance(device.state, dict) else {}
+        try:
+            group_id = uuid.UUID(str(scene_state.get("group_device_id")))
+        except (ValueError, TypeError):
+            group_id = None
+        group = await db.get(Device, group_id, populate_existing=True) if group_id else None
+        if group is not None and group.home_id == device.home_id:
+            await db.refresh(group)
+            targets.append(group)
+        else:
+            group = None
+    unknown_members = group is None
+    if group is not None:
+        unknown_members = (group.kind != "light_group" or group.lifecycle != "active"
+                           or group.provider != device.provider or group.integration_id != device.integration_id)
+        state = group.state if isinstance(group.state, dict) else {}
+        identities = state.get("member_identities")
+        valid_ids = {i for i in identities if isinstance(i, str) and i} if isinstance(identities, list) else set()
+        unknown_members |= (not isinstance(identities, list)
+                            or any(not isinstance(i, str) or not i for i in identities)
+                            or state.get("members_complete") is not True)
+        # Lees ook ongeldige/gearchiveerde leden: hun bescherming houdt voorrang.
+        members = list((await db.execute(select(Device).where(
+            Device.home_id == group.home_id, Device.provider == group.provider,
+            Device.stable_identity.in_(valid_ids),
+        ).execution_options(populate_existing=True))).scalars())
+        targets.extend(members)
+        unknown_members |= ({m.stable_identity for m in members} != valid_ids or any(
+            m.kind != "light" or m.lifecycle != "active" or m.integration_id != group.integration_id
+            for m in members
+        ))
+    facts = [await command_facts(db, target, safe_mode=safe_mode) for target in targets]
+    for item in facts:
+        check_command(replace(item, commissioning_gate=False), action, params)
+    if protection_only:
         return
-    group = await db.get(Device, group_id)
-    if group is None or group.home_id != device.home_id:
-        return
-    check_command(await command_facts(db, group), action, params)
+    for item in facts[1:]:
+        check_command(item, action, params)
+    if unknown_members and facts[0].commissioning_gate:
+        raise DeviceNotTested("De groepsleden zijn nog niet volledig bekend. Lees de apparaten opnieuw uit en "
+                             "laat een beheerder alle doelen onder Apparaten testen en bevestigen.")
 
 
 async def queue_command(
@@ -98,12 +144,12 @@ async def queue_command(
     zone_id: uuid.UUID | None = None,
 ) -> CommandRecord:
     """Policy-check and queue one device command. Raises PolicyDenied."""
+    await check_scene_group_policy(db, device, action, params, safe_mode=True)
     check_command(
         await command_facts(db, device, safe_mode=True),
         action,
         params,
     )
-    await check_scene_group_policy(db, device, action, params)
     now = datetime.now(UTC)
     cmd = CommandRecord(
         home_id=home_id,

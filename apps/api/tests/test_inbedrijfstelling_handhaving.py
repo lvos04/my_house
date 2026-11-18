@@ -113,7 +113,8 @@ async def test_direct_lichtdoel_en_scene(admin, home, scene, status):
     from .test_api import add_device
     from .test_ws_climate_worker import FakeUnit
 
-    group = await add_device(home["id"], "light_group", "Proefgroep")
+    group = await add_device(home["id"], "light_group", "Proefgroep",
+                             state={"member_identities": [], "members_complete": True})
     target = await add_device(home["id"], "scene", "Proefscène", state={"group_device_id": str(group)}) if scene else group
     async with sessionmaker()() as db:
         (await db.get(Device, group)).compatibility = "tested"

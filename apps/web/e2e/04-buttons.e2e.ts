@@ -7,6 +7,13 @@ import { expect, seed, test, unique } from './helpers';
 
 test('Hue-knop: conflict met bridge-regel en dubbele koppeling, simuleren', async ({ adminPage: page, api, homeId }) => {
   const u = unique();
+  const members = [randomUUID(), randomUUID()];
+  for (const [index, identity] of members.entries()) {
+    seed('device', {
+      home_id: homeId, provider: 'hue', kind: 'light', name: `Ganglamp ${index + 1} ${u}`,
+      stable_identity: identity, online: true, compatibility: 'tested', state: { on: false },
+    });
+  }
   const group = seed<{ id: string; name: string }>('device', {
     home_id: homeId,
     provider: 'hue',
@@ -16,7 +23,7 @@ test('Hue-knop: conflict met bridge-regel en dubbele koppeling, simuleren', asyn
     name: `Gang ${u}`,
     stable_identity: randomUUID(),
     online: true,
-    state: { type: 'grouped_light', on: false, brightness: 0, owner_type: 'room', all_lights: false, lights_on: 0, lights_total: 2, lights_reachable: 2, name: `Gang ${u}` },
+    state: { type: 'grouped_light', on: false, brightness: 0, owner_type: 'room', all_lights: false, lights_on: 0, lights_total: 2, lights_reachable: 2, name: `Gang ${u}`, member_identities: members, members_complete: true },
   });
   const [b1, b2] = [randomUUID(), randomUUID()];
   const events = ['initial_press', 'short_release', 'long_press'];

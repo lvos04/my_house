@@ -287,13 +287,14 @@ class IngestMixin:
             st.update(group=extra.get("group"), grouped_light=grp, group_device_id=str(g.id) if g else None)
         elif ev.kind == "light_group":
             st.update(owner=extra.get("owner"), owner_type=extra.get("owner_type"), all_lights=extra.get("all_lights"))
+            st.update(member_identities=extra.get("member_identities"), members_complete=extra.get("members_complete"))
         elif b.integ.provider == "zigbee":
             keys = ("friendly_name", "vendor", "description", "supported", "interview_completed", "power_source")
             st.update({k: extra[k] for k in keys if k in extra})
             if ev.kind == "zigbee_bridge":
                 coord = ("coordinator_ieee", "zigbee2mqtt_version", "permit_join")
                 st.update({k: extra[k] for k in coord if k in extra})
-        d.state = {k: v for k, v in st.items() if v is not None or k == "group_device_id"}
+        d.state = {k: v for k, v in st.items() if v is not None or k in {"group_device_id", "member_identities"}}
 
     # --- readings ------------------------------------------------------------------------------
 
