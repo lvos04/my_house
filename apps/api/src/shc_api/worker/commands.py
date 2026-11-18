@@ -64,7 +64,11 @@ class CommandsMixin:
                     continue
                 dev = await db.get(Device, cmd.device_id)
                 zone = await self._zone_of(db, cmd, dev)
-                verdict = await self._precheck(db, cmd, dev, zone, datetime.now(UTC), cmd.attempts > 1)
+                retry = cmd.attempts > 1
+                verdict = await self._precheck(db, cmd, dev, zone, datetime.now(UTC), retry)
+                if verdict is None:
+                    # De controles kunnen wachten op vergrendelingen. Lees de klok opnieuw vóór verzending.
+                    verdict = _ttl_verdict(cmd, datetime.now(UTC), retry)
                 if verdict is not None:
                     cmd.status, cmd.detail = verdict
                     await self._settle(db, cmd, dev, zone, datetime.now(UTC), allow_retry=False)
@@ -192,8 +196,8 @@ class CommandsMixin:
                 await check_active_target(db, cmd.home_id, dev, climate=cmd.action == "set_hvac")
         except PolicyDenied as e:
             return "denied", e.message
-        if now - cmd.created_at > (MAX_AGE_RETRY if retry else MAX_AGE_FIRST):
-            return "failed", "Commando te oud; niet meer uitgevoerd"
+        if (verdict := _ttl_verdict(cmd, now, retry)) is not None:
+            return verdict
         if zone is None:
             return None
         await lock_outdoor_group(db, zone)
@@ -251,6 +255,12 @@ class CommandsMixin:
                 cmd.home_id,
                 {"id": cmd.id, "status": cmd.status, "detail": cmd.detail, "attempts": cmd.attempts},
             )
+
+
+def _ttl_verdict(cmd: CommandRecord, now: datetime, retry: bool) -> tuple[str, str] | None:
+    if now - cmd.created_at > (MAX_AGE_RETRY if retry else MAX_AGE_FIRST):
+        return "failed", "Commando te oud; niet meer uitgevoerd"
+    return None
 
 
 def device_reported_error(res) -> bool:

@@ -43,9 +43,10 @@ Deze samenvatting beschrijft de P0-peildatum. Voor de inbedrijfstellingsgate is 
   3. **Inbedrijfstellingsgate**: het label `tested/untested` blokkeert bediening niet (B06-001, P3-07, ADR-0005).
   4. **Release-hygiëne**: `:latest`-tag, base-images zonder digest, 0.2.0 niet gepubliceerd (P3-02).
 - B06-009 (hardwarecontrole) is **Geblokkeerd** tot echte apparaten en de NAS beschikbaar zijn.
-- Telling over de 9 B06-taken (§1): 0 op hardware gevalideerd; **bestaand met alleen live-validatie open**: B06-004,
-  B06-005; **onvolledig**: B06-001, B06-002, B06-003, B06-007, B06-008; **grotendeels ontbrekend**: B06-006;
-  **geblokkeerd**: B06-009.
+- Telling over de 9 B06-taken (§1): 0 op hardware gevalideerd. Voor **B06-004** staan de integrale EX29-simulatie
+  (S-P6-21) en de fysieke validatie (N-P6-06) open. Voor **B06-005** staat de livevalidatie open.
+  **Onvolledig**: B06-001, B06-002, B06-003, B06-007, B06-008. **Grotendeels ontbrekend**: B06-006.
+  **Geblokkeerd**: B06-009.
 
 ---
 
@@ -58,7 +59,7 @@ De tabellen hieronder bewaren de P0-meting. Dit is de stand na de bouw van de ga
 | Regel | Gebouwd en beproefd | Open |
 |---|---|---|
 | B06-001 — Productiecompatibiliteit | Bij actieve gate geeft ongeteste bediening 409 `device_not_tested`. De API controleert vóór plaatsing en de worker vóór uitvoering of retry. Migratie 0005 start de gate aan bij een lege installatie en uit bij bestaande apparaatrijen zonder eerdere toestand. De migratie bewaart bestaande testmarkeringen en de eerdere gate-instelling. De wizard gaat van meters naar Hue uitlezen, testen en bevestigen, en wacht voor Gree op D12. | P3-07 heeft nog een API-hiaat. `/integrations/compatibility` geeft protocol per rij en per bijpassend, niet-gearchiveerd apparaat identificatie, naam, model, teststatus en datum. Per-apparaatfirmware, protocolversie, gemaskeerde host, detectiemethode en terugval ontbreken. De optionele kolommen voor detectie en terugval bestaan sinds 0005. |
-| B06-002 — Apparaatconnecties | Ontdekking, koppeling en leestest markeren een apparaat nooit automatisch als getest. De beheerder bevestigt een apparaat of een selectie. De beheer-API en het apparaatscherm leveren de gepagineerde historie uit `device_marked_tested`. Bij een afwijkend Hue-resourcetype blijft een scèneopdracht verzonden (`sent`). | P3-01 (standaard Custom App, inclusief dongle via het formulier), hardware- en NAS-validatie staan open. Zie §9 voor de streamproef onder P3-12. |
+| B06-002 — Apparaatconnecties | Ontdekking, koppeling en leestest markeren een apparaat nooit automatisch als getest. De beheerder bevestigt een apparaat of een selectie. De beheer-API en het apparaatscherm leveren de gepagineerde historie uit `device_marked_tested`. Bij een afwijkend Hue-resourcetype blijft een scèneopdracht verzonden (`sent`). | P3-01 (standaard Custom App, inclusief dongle via het formulier), hardware- en NAS-validatie staan open. P3-12: verklaarde deeloorzaak, hardwareproef open. Zie §9. |
 | B06-009 — Hardwarecontrole | De P3-softwareproeven bestrijken de bedienweigering, bevestiging en historie, wizard en terugval. Rechtstreekse wizardterugval is beproefd voor beide oudere indelingen. Via de nooit uitgebrachte tussencommits `098732a` en `d9ec105` kan bij heropenen van `bac9422` de oorspronkelijke stap met markeringen verloren gaan doordat een intacte reservekopie wordt overschreven. | Android-emulatorproef op een omgeving met KVM. Fysieke acceptatie volgens `STAPPEN_P6.md` onderdeel N-P6-06. Daaronder vallen echte Hue, HomeWizard en Gree (D12) en de Custom App met herstart op de NAS. De accountproef voor de tunnel staat afzonderlijk open. B06-009 blijft **Geblokkeerd**. |
 
 Het kern- en migratiebewijs staat in de API-proeven `test_inbedrijfstelling_handhaving.py`,
@@ -220,7 +221,7 @@ De drie regels in [EVIDENCE.json](EVIDENCE.json) geven per proef de broncommit e
 | EX26 | Afstandsbediening OFF → blijft uit tot handmatig hervatten | **Bestaand** (sim) | `test_core_logic.py::test_remote_off_is_never_reactivated`, `test_ws_climate_engine.py::test_remote_change_during_off_becomes_manual` | — |
 | EX27 | Boiler: UI/Hub/AI/HTTP → alles geblokkeerd, alleen lezen | **Onvolledig** | S-P3-705: my_house-HTTP- en workerketens lokaal beproefd; `docs/boiler-regressies.md`, §1 B06-003 | Ondertekende connector en AI-actor (S-P3-740/742, Hub S-P3-130), integrale test en hardware (S-P6-21) |
 | EX28 | P1-meterreset + zomertijd → totalen kloppen, label transparant | **Bestaand** (sim) | §1 B06-005 | — |
-| EX29 | Zigbee-sensor stale → veilige terugval + melding na time-out | **Geblokkeerd** (hardware) | S-P3-715 toetst het my_house-deel lokaal via een Zigbee-meting en een nep-Gree-unit. | Integrale simulatie S-P6-21 en fysieke acceptatie N-P6-06. |
+| EX29 | Zigbee-sensor stale → veilige terugval + melding na time-out | **Geblokkeerd**. **NIET GEVALIDEERD (hardware)**. | S-P3-715 toetst het my_house-deel lokaal via een Zigbee-meting en een nep-Gree-unit. Zie `EVIDENCE.json`, EX29. | Integrale simulatie S-P6-21 en fysieke acceptatie N-P6-06. |
 | EX30 | Gree-firmware incompatibel → unsupported, nooit pseudo-bediening | **Bestaand** (sim) | `test_gree_bind.py::test_bind_failure_is_unsupported_with_scan_diagnostics`, `test_ws_devices_api.py::test_pair_failure_keeps_diagnostics_and_maps_errors` | — |
 | EX50 | Migratie naar andere host → datalinks logisch na IP-wissel | **Onvolledig** | §1 B06-008 | P3-10 (twee alles-in-één containers) |
 | EX15 | DB-schema-rollback: oude image + nieuwer schema → tag-only rollback geblokkeerd | **Onvolledig** | nieuwer back-upschema geweigerd; ~~oude image start niet (alembic-fout)~~ sinds S-P3-700 (2026-11-16): onbekende revisie herkend vóór de dump, API in herstelmodus, worker wacht (`test_schema_nieuwer.py`) | ~~P3-09: nette startweigering + herstelpagina~~ rest: herstelmodus via de bewaker van de alles-in-één image (S-P3-720) |
@@ -322,7 +323,7 @@ de Hub" (bij installatie via de Hub zet de vertaling alleen `HUB_URL`, nooit een
 | **P3-09** | P1 | Startweigering bij nieuwer schema (oudere image): API start in herstelmodus met NL-pagina i.p.v. crashlus; geen migratie | EX15, §7 Proof of done | Nooit automatisch downgraden |
 | **P3-10** | P1 | CI: OpenAPI-driftcontrole (`docs/openapi/my_house.openapi.json`), alembic up/down/up, E2E twee alles-in-één containers (back-up A → herstel B, ander IP) | EX50, B06-008, contract §5 | — |
 | **P3-11** | P1 | Zonder terminal: oude hoofdsleutel uploaden + rekey (web-admin), herstelcode voor "wachtwoord vergeten" (eenmalig, in app-logs zoals de Hub-setupcode), herstelproef starten vanuit de UI, handmatige noodstop `POST /system/safe-mode/enable`; `restore/compare` toont dubbele apparaten | B06-008, contract §1 | Herstel blijft via de eigenaar (my_house), niet via de Hub-DB |
-| **P3-12** | P2 | S-P3-715 wacht in `test_push_stream_batches_and_restarts` op de derde streamfout en de afgeronde statusopslag, binnen een begrensde wachttijd. | B06-002 | Zie §1. |
+| **P3-12** | P2 | Verklaarde deeloorzaak, hardwareproef open. De oude test kon de status controleren voordat deze was opgeslagen. De aangepaste `test_push_stream_batches_and_restarts` wacht begrensd op de derde streamfout en de afgeronde statusopslag. | B06-002 | De oorzaak van de historische hang (`INVENTARIS.md` §15) is onbewezen. Zie §1. |
 | **P3-13** | P2 | Playwright 390/768/1440; screenshots web/mobiel voor de oplevering | B06 §1/§6 | — |
 | **P3-14** | P2 | Huishouding: gecommitte `shellcheck_py-…whl` verwijderen, `docs/testlog.md` naar 0.2.0, README/installatiedocs naar Custom App, CHANGELOG | — | — |
 
@@ -462,7 +463,7 @@ Daarnaast **14 aangevulde rijen** (11.5) voor eisen zonder rij.
 | P3-05 | P0 | **Blijft P0** — het enige echte Hub-hiaat: ondertekende `propose`/`apply`/`evidence`. Hergebruik de bestaande TTL (G2), zone-capabilities als parameterschema (G4); nieuw: versiekolom voor ETag (G6, migratie 0005), nonce, `Idempotency-Key`, vervaltijd uit het `ExecutionRequest` |
 | P3-06 | P0 | Plus: `PATCH /zones/{id}` accepteert als unit alleen `ac_unit` en als sensor alleen een sensor; tests met `detail.code == "policy_denied"` voor zone-route, lichtroute, knop en (later) connector; de bestaande 404-assert aanpassen |
 | P3-07 | P0 | Stand 18 november 2026. Actieve gate geeft 409 `device_not_tested`. Migratie 0005 voegt `detection_method` en `fallback` toe. De historie komt uit het bestaande auditlog. Beheer en wizard tonen de bevestigingshistorie respectievelijk de D12-wachtstand. Open blijft het samenbrengen van firmware, protocolversie, gemaskeerde host, detectiemethode en terugval per apparaat in `GET /integrations/compatibility` (G1, G5). Deze API-uitbreiding valt buiten S-P3-710c. Fysieke acceptatie volgt in N-P6-06. |
-| P3-08 | P1 | `test_ws_climate_worker.py` toetst de commando-TTL van twee minuten voor de eerste poging en vijf minuten voor retries (G2). De herstartproef toetst dat de nieuwe worker een oude `sending`-rij afhandelt met onbekende uitkomst en de adapter voor die opdracht niet opnieuw aanroept (A6). |
+| P3-08 | P1 | `test_ws_climate_worker.py` toetst de commando-TTL van twee minuten voor de eerste poging en vijf minuten voor retries (G2), ook als het commando na claim of tijdens de laatste vergrendelingscontrole verloopt. De herstartproef toetst dat de nieuwe worker een oude `sending`-rij afhandelt met onbekende uitkomst en de adapter voor die opdracht niet opnieuw aanroept (A6). |
 | P3-09 | P1 | **P0** (11.4): onbekende (nieuwere) revisie herkennen **vóór** de dump; geen dump; nette weigering + herstelpagina |
 | P3-10 | P1 | alembic: alleen één test `head → base → head` (G9); EX50 blijft; OpenAPI-drift gedaan (`test_openapi_snapshot.py`, QA-review Peil-ronde) |
 | P3-11 | P1 | Wachtwoordherstel alleen voor de enige beheerder (G8); rest ongewijzigd |

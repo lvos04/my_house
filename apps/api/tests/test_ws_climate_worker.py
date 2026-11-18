@@ -267,6 +267,60 @@ async def test_command_ttl_is_checked_before_sending(admin, attempts, age_s, exp
         assert rig.fakes[name].calls == [{"target_c": 23.0}]
 
 
+@pytest.mark.parametrize(("attempts", "age_s"), [(0, 119), (1, 299)], ids=["eerste", "retry"])
+@pytest.mark.parametrize("expires_during_lock", [False, True], ids=["na-claim", "tijdens-lock"])
+async def test_command_expires_between_claim_and_send(admin, monkeypatch, attempts, age_s, expires_during_lock):
+    from shc_api.worker import commands as worker_commands
+
+    name = "Woonkamer"
+    rig = await make_rig(admin, living=("heat", 20.0))
+    response = await admin.post(f"/zones/{rig.zones[name]}/command", json={"target_c": 23})
+    assert response.status_code == 202, response.text
+    (command,) = await rig.commands(name)
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    async with sessionmaker()() as db:
+        stored = await db.get(CommandRecord, command.id)
+        stored.attempts = attempts
+        stored.created_at = now - timedelta(seconds=age_s)
+        stored.updated_at = now - timedelta(seconds=1)
+        await db.commit()
+
+    class TestClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.astimezone(tz)
+
+    claimed = False
+    claim_next = rig.w._claim_next
+    lock_outdoor_group = worker_commands.lock_outdoor_group
+
+    async def claim(*args, **kwargs):
+        nonlocal claimed, now
+        result = await claim_next(*args, **kwargs)
+        if result and result[0] == command.id:
+            claimed = True
+            if not expires_during_lock:
+                now += timedelta(seconds=2)
+        return result
+
+    async def lock(db, zone):
+        nonlocal now
+        await lock_outdoor_group(db, zone)
+        if expires_during_lock and claimed:
+            now += timedelta(seconds=2)
+
+    monkeypatch.setattr(worker_commands, "datetime", TestClock)
+    monkeypatch.setattr(rig.w, "_claim_next", claim)
+    monkeypatch.setattr(worker_commands, "lock_outdoor_group", lock)
+
+    await rig.run_commands()
+    (settled,) = await rig.commands(name)
+    assert claimed and settled.id == command.id and settled.attempts == attempts + 1
+    assert (settled.status, settled.detail, rig.fakes[name].calls) == (
+        "failed", "Commando te oud; niet meer uitgevoerd", [],
+    )
+
+
 async def test_restart_fails_interrupted_command_without_sending_it_again(admin, monkeypatch):
     name = "Woonkamer"
     rig = await make_rig(admin, living=("heat", 20.0), bedroom=("heat", 20.0))
