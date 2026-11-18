@@ -335,6 +335,27 @@ class NetworkTest {
     }
 
     @Test
+    fun untestedDeviceConflictKeepsTheRouteAndPairing() = runTest {
+        val route = Route(RouteKind.LAN, lan, sid)
+        val src = FakeRoutes(mutableListOf(route, Route(RouteKind.REMOTE, remote, sid)))
+        var calls = 0
+        try {
+            Routed.call(src) {
+                calls++
+                throw ApiClient.parseError(409, """{"detail":{"code":"device_not_tested","message":"Dit apparaat is nog niet getest."}}""")
+            }
+            fail("Verwacht een bedienweigering")
+        } catch (e: ApiException) {
+            assertEquals("device_not_tested", e.code)
+            assertEquals("Dit apparaat is nog niet getest.", e.message)
+            assertEquals(FailureKind.APP_ERROR, Failures.classify(e))
+            assertNull(e.unpairReason)
+        }
+        assertEquals(1, calls)
+        assertTrue(src.forgotten.isEmpty())
+    }
+
+    @Test
     fun routedDoesNotRetryAppErrorsAndGivesUpAfterOneRetry() = runTest {
         val r = Route(RouteKind.LAN, lan, sid)
         var calls = 0

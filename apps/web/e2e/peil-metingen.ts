@@ -86,7 +86,7 @@ export async function outsideCards(page: Page): Promise<string[]> {
 export async function contentOutside(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const out: string[] = [];
-    for (const el of Array.from(document.querySelectorAll<HTMLElement>('main button, main a.btn, main [role="tab"], main .light-tile, main .pill, [role="dialog"] button, nav.bottom-nav .bottom-link'))) {
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>('main button, main a.btn, main [role="tab"], main .light-tile, main .pill, [role="dialog"] button, [role="alertdialog"] button, nav.bottom-nav .bottom-link'))) {
       const r = el.getBoundingClientRect();
       if (!r.width || el.closest('.sr-only')) continue;
       let uit = el.scrollWidth - el.clientWidth;

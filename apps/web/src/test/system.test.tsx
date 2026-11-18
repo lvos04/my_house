@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Backup, BackupSettings, NotifySettings, RetentionSettings, SystemStatus } from '../api/types';
 import { SystemPage } from '../pages/System';
+import { ProviderPair } from '../components/setup/ProviderPair';
 import { InstallPage, INSTALL_KEY } from '../pages/Install';
 import { HelpPage } from '../pages/Help';
 import { mockApi, Providers, viewer } from './helpers';
@@ -275,14 +276,10 @@ describe('Systeem (items 22/28/32/34)', () => {
 });
 
 describe('installation wizard (item 43)', () => {
-  it('starts with preflight, saves progress, and shows Gree instructions before pairing', async () => {
-    const calls = mockApi((m, url) => {
+  it('starts with preflight, saves progress, and offers the Gree waiting step', async () => {
+    const calls = mockApi((_, url) => {
       if (url.endsWith('/system/preflight'))
         return { body: { checked_at: '2026-11-08T10:00:00Z', ready: false, checks: [{ key: 'home', label: 'Woning', state: 'error', detail: 'Maak eerst een woning aan (naam en tijdzone).' }, { key: 'discovery', label: 'Netwerkdetectie', state: 'warn', detail: 'Niet beschikbaar in het containernetwerk' }] } };
-      if (url.endsWith('/integrations/gree/instructions'))
-        return { body: { provider: 'gree', label: 'Gree airco', steps: ['Zet de unit in koppelmodus'], needs_manufacturer_app: 'Eenmalig wifi-koppeling via de Gree+-app (2,4 GHz).', works_locally: 'Aan/uit, modus' } };
-      if (url.endsWith('/integrations/gree/pair') && m === 'POST')
-        return { status: 502, body: { detail: { code: 'unsupported', message: 'Koppelen mislukt: deze module wordt niet ondersteund.', diagnostics: { stage: 'bind', mac: 'aa:bb', bind_attempts: [{ encryption: 'v1', result: 'geen antwoord' }] }, integration_id: 'i9', device_id: 'd9' } } };
       if (url.endsWith('/integrations')) return { body: [] };
       return undefined;
     });
@@ -291,9 +288,23 @@ describe('installation wizard (item 43)', () => {
     expect(screen.getByRole('button', { name: /Controles vooraf/ })).toHaveAttribute('aria-current', 'step');
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Volgende' }));
-    expect(JSON.parse(localStorage.getItem(INSTALL_KEY)!)).toEqual({ step: 'woning', done: ['controle'] });
+    expect(JSON.parse(localStorage.getItem(INSTALL_KEY)!)).toEqual({ step: 'woning', done: ['controle'], version: 2 });
+    await user.click(screen.getByRole('button', { name: /Gree controleren/ }));
+    expect(await screen.findByText(/wacht nog op een echte controle/)).toBeVisible();
+    expect(screen.queryByLabelText('IP-adres van de airco-unit')).not.toBeInTheDocument();
+    expect(calls.some((call) => call.url.endsWith('/gree/pair'))).toBe(false);
+  });
 
-    await user.click(screen.getByRole('button', { name: /Gree airco/ }));
+  it('offers Gree instructions and protocol diagnostics in the device pairing form', async () => {
+    const calls = mockApi((m, url) => {
+      if (url.endsWith('/integrations/gree/instructions'))
+        return { body: { provider: 'gree', label: 'Gree airco', steps: ['Zet de unit in koppelmodus'], needs_manufacturer_app: 'Eenmalig wifi-koppeling via de Gree+-app (2,4 GHz).', works_locally: 'Aan/uit, modus' } };
+      if (url.endsWith('/integrations/gree/pair') && m === 'POST')
+        return { status: 502, body: { detail: { code: 'unsupported', message: 'Koppelen mislukt: deze module wordt niet ondersteund.', diagnostics: { stage: 'bind', mac: 'aa:bb', bind_attempts: [{ encryption: 'v1', result: 'geen antwoord' }] }, integration_id: 'i9', device_id: 'd9' } } };
+      return undefined;
+    });
+    render(<Providers route="/apparaten"><ProviderPair provider="gree" homeId="h1" /></Providers>);
+    const user = userEvent.setup();
     expect(await screen.findByText(/Eenmalig wifi-koppeling via de Gree\+-app/)).toBeInTheDocument();
     expect(screen.getByText('Zet de unit in koppelmodus')).toBeInTheDocument();
     expect(screen.queryByLabelText('IP-adres van de airco-unit')).not.toBeInTheDocument();

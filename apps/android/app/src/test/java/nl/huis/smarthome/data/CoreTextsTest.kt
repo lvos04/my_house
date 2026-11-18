@@ -2,6 +2,7 @@ package nl.huis.smarthome.data
 
 import nl.huis.smarthome.R
 import nl.huis.smarthome.core.AddressProblem
+import nl.huis.smarthome.core.ApiException
 import nl.huis.smarthome.core.ApiProblem
 import nl.huis.smarthome.core.CommandLabel
 import nl.huis.smarthome.core.ConnectionChange
@@ -62,6 +63,20 @@ class CoreTextsTest {
             val text = strings.getValue(resourceName(CoreTexts.of(p)))
             assertEquals(p.name, p.withStatus, text.contains("%1\$d"))
         }
+    }
+
+    @Test
+    fun commissioningConflictUsesTranslatedResourceAndOtherConflictsKeepTheirText() {
+        val refusal = ApiException(409, "device_not_tested", "Servertekst", fromApi = true)
+        assertEquals(R.string.commissioning_denied, CoreTexts.resourceFor(refusal))
+        assertEquals(null, CoreTexts.resourceFor(ApiException(409, "mode_required", "Kies eerst een modus.", fromApi = true)))
+        assertEquals(null, CoreTexts.resourceFor(ApiException(409, "device_not_tested", "Geen API-antwoord")))
+        assertEquals(R.string.api_conflict, CoreTexts.resourceFor(ApiException(409, "error", ApiProblem.CONFLICT)))
+
+        val nl = readStrings(File("src/main/res/values/strings.xml"))
+        val en = readStrings(File("src/main/res/values-en/strings.xml"))
+        assertEquals("Dit apparaat is nog niet getest. Laat een beheerder het eerst onder Apparaten testen en als getest bevestigen in de web-app. Er is geen bedienopdracht verstuurd.", nl.getValue("commissioning_denied"))
+        assertEquals("This device has not been tested yet. Ask an administrator to test it and confirm it as tested under Devices in the web app first. No control command was sent.", en.getValue("commissioning_denied"))
     }
 
     private fun assertDistinct(ids: List<Int>) = assertEquals(ids.size, ids.toSet().size)

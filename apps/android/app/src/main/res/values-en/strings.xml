@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="commissioning_denied">This device has not been tested yet. Ask an administrator to test it and confirm it as tested under Devices in the web app first. No control command was sent.</string>
+</resources>

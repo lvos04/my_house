@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
@@ -99,7 +99,7 @@ describe('Apparaten', () => {
     const hueCard = hostInput.closest('article')!;
     await user.click(Array.from(hueCard.querySelectorAll('button')).find((b) => b.textContent === 'Koppelen' && b.getAttribute('type') === 'submit')!);
     expect(await screen.findByText('Druk op de link-knop van de Hue Bridge')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Opnieuw proberen' }));
+    await user.click(within(hueCard).getByRole('button', { name: 'Opnieuw proberen' }));
     expect(await screen.findByText('Gekoppeld: Hue Bridge')).toBeInTheDocument();
     const pairCalls = calls.filter((c) => c.url.endsWith('/hue/pair'));
     expect(pairCalls).toHaveLength(2);

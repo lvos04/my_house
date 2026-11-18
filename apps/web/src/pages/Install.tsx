@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
+import { BeleidsSlot } from '../components/peil/BeleidsSlot';
+import { ConfirmDevice } from '../devices/CommissioningActions';
+import { DeviceTestButton } from '../devices/DeviceTools';
+import { commissioningText as text } from '../devices/commissioning-text';
 import { api } from '../api/client';
 import { qk } from '../api/keys';
 import { ErrorNote, Loading } from '../components/bits';
@@ -20,12 +26,12 @@ export const INSTALL_STEPS = [
   { key: 'controle', title: 'Controles vooraf' },
   { key: 'woning', title: 'Woning' },
   { key: 'adressen', title: 'Adressen' },
-  { key: 'hue', title: 'Philips Hue', optional: true },
-  { key: 'homewizard', title: 'HomeWizard', optional: true },
-  { key: 'gree', title: 'Gree airco', optional: true },
+  { key: 'meters', title: text('meters'), optional: true },
+  { key: 'hue-lezen', title: text('hueRead'), optional: true },
+  { key: 'hue-testen', title: text('hueTest'), optional: true },
+  { key: 'gree', title: text('gree'), optional: true },
   { key: 'zigbee', title: 'Zigbee', optional: true },
   { key: 'sensoren', title: 'Sensoren toewijzen' },
-  { key: 'meters', title: 'Meters en rollen' },
   { key: 'klaar', title: 'Klaar' },
 ] as const;
 export type InstallStep = (typeof INSTALL_STEPS)[number]['key'];
@@ -36,8 +42,16 @@ export interface InstallProgress {
 }
 export function loadInstall(): InstallProgress {
   try {
-    const v = JSON.parse(localStorage.getItem(INSTALL_KEY) ?? 'null') as InstallProgress | null;
-    if (v && INSTALL_STEPS.some((s) => s.key === v.step) && Array.isArray(v.done)) return v;
+    const v = JSON.parse(localStorage.getItem(INSTALL_KEY) ?? 'null') as { step: string; done: string[]; version?: number } | null;
+    if (v && Array.isArray(v.done)) {
+      const old = v.version !== 2;
+      const savedStep = v.step === 'hue' ? 'hue-lezen' : v.step === 'homewizard' ? 'meters' : v.step;
+      const step = INSTALL_STEPS.find((entry) => entry.key === savedStep)?.key ?? 'controle';
+      const done = INSTALL_STEPS.map((entry) => entry.key).filter((key) =>
+        v.done.includes(key) && key !== 'gree' && key !== 'hue-testen' && !(old && ['meters', 'hue-lezen'].includes(key)),
+      );
+      return { step, done };
+    }
   } catch {
     /* ignore */
   }
@@ -45,7 +59,7 @@ export function loadInstall(): InstallProgress {
 }
 function saveInstall(p: InstallProgress) {
   try {
-    localStorage.setItem(INSTALL_KEY, JSON.stringify(p));
+    localStorage.setItem(INSTALL_KEY, JSON.stringify({ ...p, version: 2 }));
   } catch {
     /* storage blocked: progress is kept while the page is open */
   }
@@ -101,6 +115,33 @@ function NeedsHome({ homeId, children, go }: { homeId: string | null; children: 
   return <>{children(homeId)}</>;
 }
 
+function HueTestStep({ homeId }: { homeId: string }) {
+  const devices = useQuery({ queryKey: qk.devices(homeId), queryFn: () => api.devices(homeId) });
+  const lamps = (Array.isArray(devices.data) ? devices.data : []).filter((d) =>
+    d.provider === 'hue' && d.kind === 'light' && d.lifecycle === 'active',
+  );
+  return (
+    <div className="grid gap-3">
+      <p className="m-0">Controleer een lamp met de eigen Hue-bediening. Voer hier de leestest uit en bevestig daarna je controle.</p>
+      {devices.isLoading && <Loading />}
+      {devices.error && <ErrorNote error={devices.error} />}
+      {devices.isSuccess && lamps.length === 0 && <p className="m-0">Geen Hue-lampen gekoppeld. Ga terug naar Hue uitlezen.</p>}
+      {lamps.map((lamp) => (
+        <Card key={lamp.id} className="grid gap-3">
+          <h3 className="m-0 break-words">{lamp.name}</h3>
+          <DeviceTestButton device={lamp} named />
+          {lamp.compatibility === 'tested' && <p className="m-0">{text('tested')}</p>}
+          <ConfirmDevice id={lamp.id} name={lamp.name} eligible={lamp.compatibility === 'untested'} named />
+          {lamp.compatibility === 'unsupported' && <p className="m-0">{text('unsupportedHelp')}</p>}
+        </Card>
+      ))}
+      {lamps.some((lamp) => lamp.compatibility === 'tested') && (
+        <Link to="/verlichting">Controleer een bewuste bediening en de terugmelding bij Verlichting</Link>
+      )}
+    </div>
+  );
+}
+
 /** /installatie: step-by-step first installation (verbeterlijst 43). Progress is kept in this browser;
  * reopen it any time from Systeem. */
 export function InstallPage() {
@@ -124,7 +165,7 @@ export function InstallPage() {
   const next = () =>
     setProgress((p) => ({
       step: INSTALL_STEPS[Math.min(idx + 1, INSTALL_STEPS.length - 1)].key,
-      done: p.done.includes(p.step) ? p.done : [...p.done, p.step],
+      done: p.step === 'gree' || p.step === 'hue-testen' || p.done.includes(p.step) ? p.done : [...p.done, p.step],
     }));
   const prev = () => goto(INSTALL_STEPS[Math.max(idx - 1, 0)].key);
 
@@ -147,10 +188,14 @@ export function InstallPage() {
     case 'adressen':
       body = <AddressSettings headingLevel={3} />;
       break;
-    case 'hue':
-    case 'homewizard':
+    case 'hue-lezen':
+      body = <NeedsHome homeId={homeId} go={() => goto('woning')}>{(h) => <ProviderPair provider="hue" homeId={h} />}</NeedsHome>;
+      break;
+    case 'hue-testen':
+      body = <NeedsHome homeId={homeId} go={() => goto('woning')}>{(h) => <HueTestStep homeId={h} />}</NeedsHome>;
+      break;
     case 'gree':
-      body = <NeedsHome homeId={homeId} go={() => goto('woning')}>{(h) => <ProviderPair key={step.key} provider={step.key} homeId={h} />}</NeedsHome>;
+      body = <BeleidsSlot label={text('waiting')}>{text('d12Wait')}</BeleidsSlot>;
       break;
     case 'zigbee':
       body = <NeedsHome homeId={homeId} go={() => goto('woning')}>{(h) => <ZigbeeSetup homeId={h} />}</NeedsHome>;
@@ -159,12 +204,17 @@ export function InstallPage() {
       body = <NeedsHome homeId={homeId} go={() => goto('woning')}>{(h) => <SensorAssign homeId={h} />}</NeedsHome>;
       break;
     case 'meters':
-      body = <NeedsHome homeId={homeId} go={() => goto('woning')}>{(h) => <RoleAssign homeId={h} />}</NeedsHome>;
+      body = <NeedsHome homeId={homeId} go={() => goto('woning')}>{(h) => (
+        <div className="grid gap-4">
+          <ProviderPair provider="homewizard" homeId={h} />
+          <RoleAssign homeId={h} />
+        </div>
+      )}</NeedsHome>;
       break;
     case 'klaar':
       body = (
         <div className="stack">
-          <p style={{ margin: 0 }}>De basis staat. Handig om nu nog te doen:</p>
+          <p style={{ margin: 0 }}>{text('baseConfigured')}</p>
           <ul className="steps-list">
             <li><Link to="/systeem#backups">Automatische back-ups aanzetten</Link></li>
             <li><Link to="/account#telefoons">Een telefoon koppelen</Link></li>
@@ -185,7 +235,7 @@ export function InstallPage() {
         <Link className="btn small" to="/help">Hulp per merk</Link>
       </header>
       <div className="wizard">
-        <nav aria-label="Stappen" className="wizard-steps">
+        <nav aria-label={text('wizardNav')} className="wizard-steps">
           <ol>
             {INSTALL_STEPS.map((s, i) => {
               const done = progress.done.includes(s.key);
@@ -193,7 +243,7 @@ export function InstallPage() {
                 <li key={s.key}>
                   <button type="button" className={`wizard-step${s.key === step.key ? ' current' : ''}${done ? ' done' : ''}`} aria-current={s.key === step.key ? 'step' : undefined} onClick={() => goto(s.key)}>
                     <span className="wizard-num" aria-hidden="true">{done ? <CheckIcon width={14} height={14} /> : i + 1}</span>
-                    <span>{s.title}{done && <span className="sr-only"> (gedaan)</span>}</span>
+                    <span>{s.title}{s.key === 'gree' && <span className="small muted"> · {text('waiting')}</span>}{done && <span className="sr-only"> (gedaan)</span>}</span>
                   </button>
                 </li>
               );
@@ -209,7 +259,8 @@ export function InstallPage() {
           <div className="row wizard-nav">
             {idx > 0 && <button type="button" className="btn" onClick={prev}>Vorige</button>}
             {idx < INSTALL_STEPS.length - 1 && (
-              <button type="button" className="btn primary" onClick={next}>{'optional' in step && step.optional ? 'Volgende (of overslaan)' : 'Volgende'}</button>
+              <Button variant="primair" onClick={next}>{step.key === 'gree' ? text('greeLater') :
+                'optional' in step && step.optional ? 'Volgende (of overslaan)' : 'Volgende'}</Button>
             )}
           </div>
         </section>

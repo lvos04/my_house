@@ -8,12 +8,13 @@ import { ActionButton, ErrorNote, yesNo } from '../components/bits';
 import { BeleidsSlot } from '../components/peil/BeleidsSlot';
 import { StatusBadge } from '../components/peil/StatusBadge';
 import { LinkedIcon } from '../components/Icons';
-import { ago, temp } from '../format';
+import { dateOnly, ago, temp } from '../format';
 import { COMPATIBILITY_LABEL, LIFECYCLE_LABEL, MODE_LABEL, PROVIDER_LABEL, t } from '../i18n';
 import { RoleControl } from './RoleControl';
 import { RelayStatus } from './RelayStatus';
 import { CalibrationForm, CALIBRATABLE } from './Calibration';
-import { ArchiveDevice, DeviceTestButton, DiagnosticsBlock, MarkTested, ReplaceDevice } from './DeviceTools';
+import { ConfirmDevice, TestHistory } from './CommissioningActions';
+import { ArchiveDevice, DeviceTestButton, DiagnosticsBlock, ReplaceDevice } from './DeviceTools';
 import { AVAILABILITY_LABEL, calibrationText, kindLabel, POWER_SOURCE_LABEL } from './labels';
 
 export const PROTECTED_TEXT = 'Alleen meten — schakelen geblokkeerd. Let op: de HomeWizard-app kan de stekker nog wel schakelen.';
@@ -145,7 +146,15 @@ export function DeviceCard({ d, all, homeId, admin, rooms, onNotice }: { d: Devi
         <div id={panelId} className="dv-panel stack">
           <section className="stack tight"><h4>Naam en ruimte</h4><NameRoomForm device={d} rooms={rooms} homeId={homeId} /></section>
           {CALIBRATABLE.has(d.kind) && <CalibrationForm device={d} homeId={homeId} />}
-          <section className="stack tight"><h4>Testen</h4><DeviceTestButton device={d} /><MarkTested device={d} homeId={homeId} /></section>
+          <section className="stack tight">
+            <h4>Testen</h4>
+            <DeviceTestButton device={d} />
+            {d.compatibility === 'tested' && (
+              <p className="small m-0">Getest in dit huis{d.tested_at ? ` op ${dateOnly(d.tested_at)}` : ''}.</p>
+            )}
+            <ConfirmDevice id={d.id} name={d.name} eligible={d.compatibility === 'untested'} />
+            <TestHistory id={d.id} name={d.name} />
+          </section>
           <section className="stack tight"><h4>Diagnose</h4><DiagnosticsBlock device={d} /></section>
           <section className="stack tight">
             <h4>Vervangen of archiveren</h4>

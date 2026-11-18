@@ -2,6 +2,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { ConnectionProvider, HomeProvider, PendingProvider } from '../state';
 import { UserContext } from '../user';
@@ -17,7 +18,7 @@ function wrap(children: ReactNode) {
       <ConnectionProvider initial={{ apiReachable: true, wsState: 'open' }}>
         <PendingProvider>
           <UserContext.Provider value={{ id: 'u1', username: 'admin', role: 'admin' }}>
-            <HomeProvider>{children}</HomeProvider>
+            <MemoryRouter><HomeProvider>{children}</HomeProvider></MemoryRouter>
           </UserContext.Provider>
         </PendingProvider>
       </ConnectionProvider>

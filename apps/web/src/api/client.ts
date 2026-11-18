@@ -206,8 +206,10 @@ function errorFrom(status: number, data: unknown, path: string, retryAfter: numb
   return err;
 }
 
-export async function request<R>(method: string, path: string, body?: unknown): Promise<R> {
-  const headers: Record<string, string> = { Accept: 'application/json' };
+async function requestWithHeaders<R>(
+  method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>,
+): Promise<{ data: R; headers: Headers }> {
+  const headers: Record<string, string> = { Accept: 'application/json', ...extraHeaders };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (MUTATING.has(method)) {
     const csrf = readCookie('shc_csrf');
@@ -251,7 +253,28 @@ export async function request<R>(method: string, path: string, body?: unknown): 
     throw err;
   }
   emitConnectionEvent({ type: 'ok' });
-  return data as R;
+  return { data: data as R, headers: res.headers };
+}
+
+export async function request<R>(method: string, path: string, body?: unknown): Promise<R> {
+  return (await requestWithHeaders<R>(method, path, body)).data;
+}
+
+async function commissioningPreview<R>(path: string) {
+  const { data, headers } = await requestWithHeaders<R>('GET', path);
+  const etag = headers.get('ETag');
+  if (!etag) throw new Error('De server gaf geen versie voor deze bevestiging.');
+  return { data, etag };
+}
+
+async function confirmCommissioning(path: string, etag: string, extra: Record<string, unknown> = {}) {
+  // getRandomValues werkt ook op de lokale ontwikkel-URL zonder TLS.
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  const key = [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
+  return requestWithHeaders('POST', path, { ...extra, confirmed: true }, { 'If-Match': etag, 'Idempotency-Key': key });
 }
 
 /* ---------- upload with progress (restore) ---------- */
@@ -494,7 +517,18 @@ export const api = {
   replaceDevice: (id: string, newDeviceId: string) => post<T.ReplaceResult>(`/devices/${id}/replace`, { new_device_id: newDeviceId }),
   /** Read-only check, never switches anything. */
   testDevice: (id: string) => post<T.DeviceTest>(`/devices/${id}/test`),
-  markTested: (id: string, note?: string) => post<T.Device>(`/devices/${id}/tested`, note ? { note } : {}),
+  commissioning: () => commissioningPreview<T.CommissioningState>('/commissioning'),
+  commissioningDevices: (homeId: string, cursor: string | null) =>
+    get<T.CommissioningDevicePage>(`/commissioning/devices${query({ home_id: homeId, cursor })}`),
+  commissioningDevice: (id: string) =>
+    commissioningPreview<T.CommissioningDevice>(`/commissioning/devices/${enc(id)}`),
+  commissioningHistory: (id: string, cursor: number | null) =>
+    get<T.CommissioningHistoryPage>(`/commissioning/devices/${enc(id)}/history${query({ cursor })}`),
+  confirmDeviceTest: (id: string, etag: string, note: string) =>
+    confirmCommissioning(`/commissioning/devices/${enc(id)}/confirm`, etag, note ? { note } : {}),
+  confirmDeviceTests: (ids: string[], etag: string) =>
+    confirmCommissioning('/commissioning/devices/confirm', etag, { device_ids: ids }),
+  enableCommissioning: (etag: string) => confirmCommissioning('/commissioning/enable', etag),
   deviceDiagnostics: (id: string) => get<T.DeviceDiagnostics>(`/devices/${id}/diagnostics`),
 
   /* integrations */

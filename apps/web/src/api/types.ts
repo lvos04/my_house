@@ -910,6 +910,43 @@ export interface Device {
 }
 /** POST /integrations/{provider}/pair success. */
 export type PairResult = Device & { integration_id: Uuid; repaired: boolean };
+export interface CommissioningState {
+  gate: { enabled: boolean; known: boolean; enabled_at: Ts | null };
+  task_required: boolean;
+  untested_count: number;
+  unsupported_count: number;
+  affected_count: number;
+}
+
+export interface CommissioningDevice {
+  id: Uuid;
+  home_id: Uuid;
+  home_name: string;
+  room_name: string | null;
+  name: string;
+  kind: string;
+  compatibility: string;
+  tested_at: Ts | null;
+  protected: boolean;
+  blocked_when_enabled: boolean;
+  confirmation_allowed: boolean;
+  bulk_confirmation_allowed: boolean;
+  last_confirmed_command: { action: string; confirmed_at: Ts } | null;
+}
+
+export interface CommissioningDevicePage {
+  items: CommissioningDevice[];
+  next_cursor: Uuid | null;
+  total: number;
+  observed_at: Ts;
+  gate_etag: string;
+}
+
+export interface CommissioningHistoryPage {
+  items: { id: number; at: Ts; actor: string; model: string | null; firmware: string | null }[];
+  next_cursor: number | null;
+}
+
 export interface DevicePatch {
   name?: string;
   room_id?: Uuid | null;

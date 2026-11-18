@@ -115,13 +115,18 @@ object CoreTexts {
 
     /**
      * What to tell the user about a failed request: the strings.xml text when the client described
-     * the failure itself, the server's own message otherwise, and null for anything else (the
+     * the failure itself or knows the API code, the server's own message otherwise, and null for anything else (the
      * caller shows its generic text rather than a technical exception message).
      */
     fun message(context: Context, e: Throwable): String? {
         if (e !is ApiException) return null
-        return e.problem?.let { text(context, it, e.status) } ?: e.message.takeIf { it.isNotBlank() }
+        val resource = resourceFor(e) ?: return e.message.takeIf { it.isNotBlank() }
+        return if (e.problem?.withStatus == true) context.getString(resource, e.status) else context.getString(resource)
     }
+
+    internal fun resourceFor(e: ApiException): Int? =
+        if (e.fromApi && e.status == 409 && e.code == "device_not_tested") R.string.commissioning_denied
+        else e.problem?.let(::of)
 
     /** "Bevestigd", "Mislukt: <reden van de server>" … for a command of this phone. */
     fun command(context: Context, c: TrackedCommand): String {

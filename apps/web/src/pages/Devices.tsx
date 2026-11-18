@@ -7,6 +7,7 @@ import { useHome } from '../state';
 import { useCan } from '../user';
 import { ActionButton, Empty, ErrorNote, Loading } from '../components/bits';
 import { ago } from '../format';
+import { CommissioningPanel } from '../devices/Commissioning';
 import { DeviceCard } from '../devices/DeviceCard';
 import { IntegrationsSection } from '../devices/Integrations';
 import { CompatibilitySection } from '../devices/Compatibility';
@@ -63,6 +64,7 @@ export function DevicesPage() {
   return (
     <>
       <header className="page-head"><div><span className="eyebrow">Installatie</span><h1>Apparaten</h1></div></header>
+      {admin && homeId && <CommissioningPanel homeId={homeId} />}
       <IntegrationsSection admin={admin} />
       <section aria-labelledby="dev-h" className="section">
         <h2 id="dev-h">Gekoppelde apparaten</h2>
@@ -97,7 +99,7 @@ export function DevicesPage() {
       </section>
       <CompatibilitySection />
       {admin && homeId && (
-        <section aria-labelledby="add-h" className="section">
+        <section id="apparaat-toevoegen" aria-labelledby="add-h" className="section">
           <h2 id="add-h">Apparaat toevoegen</h2>
           <p className="small muted" style={{ margin: 0 }}>Koppel je een apparaat opnieuw (bijvoorbeeld na een storing), dan wordt de bestaande koppeling bijgewerkt en blijft de geschiedenis bewaard.</p>
           <div className="grid-auto">

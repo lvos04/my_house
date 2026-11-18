@@ -313,6 +313,7 @@
     <string name="api_no_rights">Je hebt hier geen rechten voor.</string>
     <string name="api_not_found">Niet gevonden.</string>
     <string name="api_conflict">Dit kan nu niet.</string>
+    <string name="commissioning_denied">Dit apparaat is nog niet getest. Laat een beheerder het eerst onder Apparaten testen en als getest bevestigen in de web-app. Er is geen bedienopdracht verstuurd.</string>
     <string name="api_too_large">Het verzoek is te groot.</string>
     <string name="api_too_many_requests">Te veel verzoeken, probeer het zo opnieuw.</string>
     <string name="api_server_error">Serverfout (%1$d).</string>

@@ -68,13 +68,25 @@ test('eerste start: beheerder, woning, thuisadres en installatiewizard', async (
   await expect(addrStep.getByLabel('Thuisadres')).toHaveValue(LAN_URL);
   await addrStep.getByRole('button', { name: 'Volgende', exact: true }).click();
 
-  const hue = page.getByRole('region', { name: 'Philips Hue' });
-  await expect(hue.getByText('Stap 4 van 10 · optioneel')).toBeVisible();
-  await expect(hue.getByRole('button', { name: 'Volgende (of overslaan)' })).toBeVisible();
-  // Finished steps are marked in the step list, and progress survives a reload.
-  const steps = page.getByRole('navigation', { name: 'Stappen' });
+  const meters = page.getByRole('region', { name: 'Meters uitlezen' });
+  await expect(meters.getByText('Stap 4 van 10 · optioneel')).toBeVisible();
+  await meters.getByRole('button', { name: 'Volgende (of overslaan)' }).click();
+
+  const hue = page.getByRole('region', { name: 'Hue uitlezen' });
+  await expect(hue.getByText('Stap 5 van 10 · optioneel')).toBeVisible();
+  await hue.getByRole('button', { name: 'Volgende (of overslaan)' }).click();
+  const hueTest = page.getByRole('region', { name: 'Hue testen en bevestigen' });
+  await expect(hueTest.getByText('Geen Hue-lampen gekoppeld. Ga terug naar Hue uitlezen.')).toBeVisible();
+  await hueTest.getByRole('button', { name: 'Volgende (of overslaan)' }).click();
+
+  const gree = page.getByRole('region', { name: 'Gree controleren' });
+  await expect(gree.getByText(/wacht nog op een echte controle/)).toBeVisible();
+  await expect(gree.getByRole('button', { name: /koppelen/i })).toHaveCount(0);
+  const steps = page.getByRole('navigation', { name: 'Stappen van de installatie' });
   await expect(steps.getByRole('button', { name: 'Controles vooraf (gedaan)' })).toBeVisible();
   await expect(steps.getByRole('button', { name: 'Woning (gedaan)' })).toBeVisible();
   await page.reload();
-  await expect(page.getByRole('region', { name: 'Philips Hue' })).toBeVisible();
+  await expect(gree.getByText(/wacht nog op een echte controle/)).toBeVisible();
+  await gree.getByRole('button', { name: 'Gree later instellen' }).click();
+  await expect(page.getByRole('heading', { name: 'Zigbee', exact: true })).toBeFocused();
 });

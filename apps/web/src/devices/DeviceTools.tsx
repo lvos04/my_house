@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { qk } from '../api/keys';
 import type { Device, DeviceDiagnostics, DeviceTest, ReplaceResult } from '../api/types';
 import { ActionButton, CopyButton, ErrorNote, StateLabel } from '../components/bits';
-import { dateOnly, dateTime } from '../format';
+import { dateTime } from '../format';
 import { CHECK_STATE_LABEL } from '../i18n';
 import { CODE_HINT, METRIC_LABEL, roleLabel } from './labels';
+import { commissioningText as text } from './commissioning-text';
 
 function fmtValue(v: number | null, unit: string | null): string {
   if (v === null || v === undefined) return '–';
@@ -39,53 +40,22 @@ export function TestResult({ result }: { result: DeviceTest }) {
 }
 
 /** Read-only test of one device (never switches anything). */
-export function DeviceTestButton({ device }: { device: Device }) {
-  const test = useMutation({ mutationFn: () => api.testDevice(device.id) });
+export function DeviceTestButton({ device, disabled, named = false }: {
+  device: Pick<Device, 'id' | 'name'>; disabled?: boolean; named?: boolean;
+}) {
+  const hint = useId();
+  const test = useMutation({ mutationFn: () => api.testDevice(device.id), networkMode: 'always', retry: false });
   return (
     <div className="stack tight">
       <div className="row">
-        <ActionButton className="btn" disabled={test.isPending} onClick={() => test.mutate()} aria-describedby={`t-${device.id}`}>{test.isPending ? 'Testen…' : 'Testen'}</ActionButton>
-        <span id={`t-${device.id}`} className="small muted">Leest alleen uit; schakelt niets.</span>
+        <ActionButton className="btn" disabled={disabled || test.isPending} onClick={() => test.mutate()}
+          aria-describedby={hint} aria-label={named ? `${text('readTest')}: ${device.name}` : undefined}>
+          {named ? text(test.isPending ? 'readBusy' : 'readTest') : test.isPending ? 'Testen…' : 'Testen'}
+        </ActionButton>
+        <span id={hint} className="small muted">Leest alleen uit; schakelt niets.</span>
       </div>
       {test.data && <TestResult result={test.data} />}
       {test.error && <ErrorNote error={test.error} />}
-    </div>
-  );
-}
-
-/** Manual "works in this home" confirmation (verbeterlijst 29). */
-export function MarkTested({ device, homeId }: { device: Device; homeId: string }) {
-  const qc = useQueryClient();
-  const [note, setNote] = useState('');
-  const mark = useMutation({
-    mutationFn: () => api.markTested(device.id, note.trim() || undefined),
-    onSuccess: (d) => {
-      qc.setQueryData<Device[]>(qk.devices(homeId), (l) => l?.map((x) => (x.id === d.id ? d : x)));
-      qc.invalidateQueries({ queryKey: qk.compatibility });
-    },
-  });
-  if (device.compatibility === 'tested') {
-    return <p className="small" style={{ margin: 0 }}>Getest in dit huis{device.tested_at ? ` op ${dateOnly(device.tested_at)}` : ''}.</p>;
-  }
-  return (
-    <div className="stack tight">
-      <label className="field">
-        Opmerking bij de test (optioneel)
-        <input value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} placeholder="bijv. meten en schakelen werken" />
-      </label>
-      <div className="row">
-        <ActionButton
-          className="btn"
-          disabled={mark.isPending}
-          onClick={() => {
-            if (window.confirm(`Bevestig je dat ${device.name} in dit huis goed werkt? Het apparaat krijgt dan de status ‘getest’.`)) mark.mutate();
-          }}
-        >
-          Getest bevestigen
-        </ActionButton>
-        <span className="small muted">Alleen als je meten (en waar het kan bedienen) zelf hebt gecontroleerd.</span>
-      </div>
-      {mark.error && <ErrorNote error={mark.error} />}
     </div>
   );
 }

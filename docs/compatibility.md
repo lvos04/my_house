@@ -18,6 +18,28 @@ apparaat in dit huis is gecontroleerd; noteer dan datum, firmware en wie het tes
 | Zigbee | Aqara WSDCGQ11LM (temp/vocht/druk) | Zigbee2MQTT via MQTT | Temperatuur, vochtigheid, druk, batterij, linkkwaliteit | Geen | nog niet getest met echte hardware |
 | Zigbee | Coördinator: SONOFF ZBDongle-E (EFR32MG21, driver `ember`) of ZBDongle-P (CC2652P, driver `zstack`) | Zigbee2MQTT | Status: verbinding met MQTT en Zigbee2MQTT online/offline apart zichtbaar | Firmware volgens Zigbee2MQTT-adapterlijst | nog niet gekocht / nog niet getest |
 
+## Apparaten in bedrijf stellen
+
+Open **Apparaten → Apparaten beoordelen** voor de teststatus en de laatste bevestigde bediening per apparaat.
+De opdrachthistorie helpt bij de beoordeling. Voer een leestest uit en controleer zelf of het apparaat werkt.
+De leestest schakelt niets. Daarna kan een beheerder één apparaat of een uitdrukkelijk aangevinkte selectie
+als getest vastleggen. Onder **Beheren → Testen → Testgeschiedenis** staan de eerdere bevestigingen met
+tijd, uitvoerder, model en firmware voor zover die gegevens destijds zijn vastgelegd.
+
+Bij een upgrade met bestaande apparaten begint de beveiliging uit. De beheerder beoordeelt de apparaten
+en schakelt de beveiliging daarna bewust in voor alle woningen. De bevestiging toont hoeveel apparaten
+daardoor niet meer kunnen worden bediend. Zodra de beveiliging aan staat, weigert de server ongeteste
+bediening ook bij schema’s, knopkoppelingen en opdrachten die al wachten. De boiler blijft altijd alleen
+meten. Bij een lege nieuwe installatie staat de beveiliging vanaf het begin aan.
+
+De installatiewizard gaat van **Meters uitlezen** naar **Hue uitlezen** en daarna naar **Hue testen en bevestigen**.
+Voor Gree wacht de wizard op een echte koppel- en terugleesproef voor de gebruikte airco en firmware (D12).
+Met **Gree later instellen** kan de beheerder de overige stappen afmaken. Gebruik zolang de eigen
+afstandsbediening voor Gree.
+
+Bij een geweigerde bedienopdracht legt Android uit dat een beheerder het apparaat via de web-app moet
+testen en bevestigen.
+
 ## Gree: wat de gate controleert
 
 1. De unit antwoordt op een `scan` op UDP 7000. Model, MAC, firmware (`ver`), `mid`, merk en serie
