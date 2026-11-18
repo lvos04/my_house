@@ -98,6 +98,7 @@ async def test_recall_scene_body(plain_factory):
     scene["actions"][0]["action"] = first
     scene["actions"][1]["action"] = second
     respx.get(f"{BASE}/clip/v2/resource").respond(json={"data": resources})
+    respx.get(f"{BASE}/clip/v2/resource/scene/{S_EVENING}").respond(json={"data": [scene]})
     checked = []
 
     async def check_targets(group, lamps):

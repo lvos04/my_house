@@ -133,6 +133,21 @@ async def test_scene_zonder_readback_voor_elke_lamp_is_niet_bevestigd(plain_fact
     assert res.ok and not res.confirmed and "voor alle lampen" in res.detail
 
 
+@pytest.mark.parametrize(("scene", "confirmed"), [
+    pytest.param({"id": S_EVENING, "status": {"active": "static"}}, True, id="actief"),
+    pytest.param({"id": S_EVENING, "status": {"active": "inactive"}}, False, id="inactief"),
+    pytest.param({"id": S_EVENING}, False, id="zonder-status"),
+    pytest.param({"id": L1, "status": {"active": "static"}}, False, id="ander-doel"),
+])
+@respx.mock
+async def test_scene_bevestigt_alleen_eigen_actieve_scenestatus(plain_factory, scene, confirmed):
+    mock_scene_lights()
+    back = respx.get(f"{BASE}/clip/v2/resource/scene/{S_EVENING}").respond(json={"data": [scene]})
+    res = await make(plain_factory).execute(Command(S_EVENING, "recall_scene", {}), check_targets=check_living_targets)
+    assert res.ok and not res.rejected and res.confirmed is confirmed
+    assert back.called
+
+
 @pytest.mark.parametrize("dynamic", [False, True])
 @respx.mock
 async def test_ongebonden_scene_wordt_voor_eerste_lamp_geweigerd(plain_factory, dynamic):

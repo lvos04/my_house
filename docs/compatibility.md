@@ -95,8 +95,10 @@ uit de kolommen die hij teruggeeft.
   (`scene.status.active`), bereikbaarheid per lamp via het bijbehorende apparaat, en de groep
   "alle lampen" heet "Alle lampen".
 - **Commando's:** geeft de bridge in zijn antwoord een foutmelding (bijvoorbeeld "device has
-  communication issues"), dan telt het commando als mislukt, met die tekst erbij. Een scène
-  telt als bevestigd als de bridge hem daarna als actief meldt.
+  communication issues"), dan telt het commando als mislukt, met die tekst erbij. Bij een statische
+  scène worden de acties per gecontroleerde lamp verstuurd. Een scène telt als bevestigd als de
+  bridge de gevraagde lampstanden én die scène als actief terugmeldt. Bij een inactieve of ontbrekende
+  scènestatus blijft de opdracht verzonden.
 - **Verwijderd op de bridge:** lampen, scènes, kamers en knoppen die in de Hue-app zijn verwijderd
   (ook terwijl de app niet verbonden was), worden na de volgende volledige inleesronde gearchiveerd.
   Hernoemde onderdelen krijgen hun nieuwe naam, tenzij je ze in deze app zelf een naam gaf. Komt een

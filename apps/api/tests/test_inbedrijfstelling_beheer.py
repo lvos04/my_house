@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
-from asyncpg import CannotConnectNowError
+from asyncpg import CannotConnectNowError, ObjectNotInPrerequisiteStateError
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -334,7 +334,7 @@ async def test_onbereikbare_database_geeft_contractfout(admin, app, monkeypatch)
             await unavailable.dispose()
 
 
-@pytest.mark.parametrize("outage", ["starting", "pool_exhausted", "missing_database"])
+@pytest.mark.parametrize("outage", ["starting", "pool_exhausted", "missing_database", "maintenance"])
 async def test_databasebeschikbaarheid_bij_sessieopenen(admin, app, monkeypatch, outage):
     assert (await admin.get(BASE)).status_code == 200
     url = database_module.engine().url
@@ -342,8 +342,13 @@ async def test_databasebeschikbaarheid_bij_sessieopenen(admin, app, monkeypatch,
     async def starting():
         raise CannotConnectNowError("Synthetische opstartmelding")
 
+    async def maintenance():
+        raise ObjectNotInPrerequisiteStateError("De proefdatabase accepteert tijdelijk geen verbindingen")
+
     if outage == "starting":
         unavailable = create_async_engine(url, async_creator=starting)
+    elif outage == "maintenance":
+        unavailable = create_async_engine(url, async_creator=maintenance)
     elif outage == "pool_exhausted":
         unavailable = create_async_engine(url, pool_size=1, max_overflow=0, pool_timeout=0.05)
     else:

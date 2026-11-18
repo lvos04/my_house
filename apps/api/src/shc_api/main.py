@@ -4,7 +4,13 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
-from asyncpg import CannotConnectNowError, InvalidCatalogNameError, PostgresConnectionError, TooManyConnectionsError
+from asyncpg import (
+    CannotConnectNowError,
+    InvalidCatalogNameError,
+    ObjectNotInPrerequisiteStateError,
+    PostgresConnectionError,
+    TooManyConnectionsError,
+)
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.docs import get_swagger_ui_html
@@ -349,6 +355,7 @@ def create_app() -> FastAPI:
     @app.exception_handler(CannotConnectNowError)
     @app.exception_handler(TooManyConnectionsError)
     @app.exception_handler(InvalidCatalogNameError)
+    @app.exception_handler(ObjectNotInPrerequisiteStateError)  # SQLSTATE 55000 bij tijdelijk gesloten database
     @app.exception_handler(PoolTimeoutError)
     @app.exception_handler(OSError)
     async def _database_error(req: Request, exc: Exception) -> PlainTextResponse | JSONResponse:

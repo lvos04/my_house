@@ -390,9 +390,14 @@ async def test_hue_lid_met_alleen_eigenaarsrelatie_wordt_getoetst(admin, group_r
     assert group["members_complete"] is False
 
 
-@pytest.mark.parametrize("scene", [False, True])
+@pytest.mark.parametrize(("scene", "scene_active"), [
+    pytest.param(False, None, id="groep"),
+    pytest.param(True, "static", id="scene-actief"),
+    pytest.param(True, "inactive", id="scene-inactief"),
+    pytest.param(True, None, id="scene-zonder-status"),
+])
 @pytest.mark.parametrize("change_kind", ["gelijk", "ongetest", "beschermd"])
-async def test_hue_toetst_actuele_bridge_voor_schrijven(admin, group_rig, scene, change_kind):
+async def test_hue_toetst_actuele_bridge_voor_schrijven(admin, group_rig, scene, scene_active, change_kind):
     r = group_rig
     resources = {item["id"]: item for item in r.inv.full_resources()}
     requests = []
@@ -401,7 +406,10 @@ async def test_hue_toetst_actuele_bridge_voor_schrijven(admin, group_rig, scene,
         requests.append((request.method, request.url.path))
         if request.url.path == "/clip/v2/resource":
             return httpx.Response(200, json={"data": list(resources.values()), "errors": []})
-        back = {"id": request.url.path.rsplit("/", 1)[-1], "on": {"on": True}}
+        kind, identity = request.url.path.split("/")[-2:]
+        back = {"id": identity, "on": {"on": True}} if kind == "light" else {"id": identity}
+        if kind == "scene" and scene_active is not None:
+            back["status"] = {"active": scene_active}
         return httpx.Response(200, json={"data": [back], "errors": []})
 
     adapter = HueAdapter({"host": "bridge.test"}, {"application_key": "proef"},
@@ -425,7 +433,17 @@ async def test_hue_toetst_actuele_bridge_voor_schrijven(admin, group_rig, scene,
     writes = [path for method, path in requests if method == "PUT"]
     expected = [f"/clip/v2/resource/light/{lamp}" for lamp in (r.inv.L1, r.inv.L2)]
     assert writes == (expected if change_kind == "gelijk" else [])
-    assert [row.status for row in await commands(r)] == ["confirmed" if change_kind == "gelijk" else "denied"]
+    status = "confirmed" if not scene or scene_active == "static" else "sent"
+    expected_status = status if change_kind == "gelijk" else "denied"
+    assert [row.status for row in await commands(r)] == [expected_status]
+    if scene:
+        response = await admin.get(f"/commissioning/devices/{r.scene}")
+        assert response.status_code == 200
+        last_confirmed = response.json()["last_confirmed_command"]
+        if expected_status == "confirmed":
+            assert last_confirmed["action"] == "recall_scene"
+        else:
+            assert last_confirmed is None
 
 
 @pytest.mark.parametrize("scene", [False, True], ids=["groep", "scene"])
@@ -505,6 +523,8 @@ async def test_opgeslagen_hue_doel_is_gebonden_aan_commandoregel(group_rig, kind
             writes.append(request.url.path)
         if request.url.path == "/clip/v2/resource":
             return httpx.Response(200, json={"data": r.inv.full_resources(), "errors": []})
+        if request.url.path == f"/clip/v2/resource/scene/{r.inv.S_EVENING}":
+            return httpx.Response(200, json={"data": [r.model.get(r.inv.S_EVENING)], "errors": []})
         return httpx.Response(200, json={"data": [{"id": request.url.path.rsplit("/", 1)[-1], "on": {"on": True}}],
                                          "errors": []})
 

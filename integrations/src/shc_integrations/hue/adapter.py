@@ -726,11 +726,17 @@ class HueAdapter(Adapter):
         rejected = next((result for result in results if result.rejected), None)
         if rejected is not None:
             return CommandResult(ok=True, confirmed=False, detail=rejected.detail, rejected=True)
-        confirmed = all(result.confirmed for result in results)
-        return CommandResult(
-            ok=True, confirmed=confirmed,
-            detail="" if confirmed else "Hue Bridge bevestigt de gevraagde stand niet voor alle lampen.",
-        )
+        if not all(result.confirmed for result in results):
+            return CommandResult(ok=True, confirmed=False,
+                                 detail="Hue Bridge bevestigt de gevraagde stand niet voor alle lampen.")
+        if kind == "scene":
+            back = await self._get(f"/clip/v2/resource/scene/{rid}")
+            rows = back.get("data") if isinstance(back, dict) and not back.get("errors") else None
+            scene = rows[0] if isinstance(rows, list) and len(rows) == 1 else None
+            status = scene.get("status") if isinstance(scene, dict) and scene.get("id") == rid else None
+            if not isinstance(status, dict) or status.get("active") not in ("static", "dynamic_palette"):
+                return CommandResult(ok=True, confirmed=False, detail="De Hue Bridge meldt de scène niet als actief.")
+        return CommandResult(ok=True, confirmed=True)
 
     def _health_extra(self) -> dict[str, Any]:
         return {
