@@ -18,7 +18,15 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, update
 
 from .. import events
-from ..commissioning import confirmation_block, invalidate_device_test, lock_commissioning, record_test_confirmation
+from ..commanding import check_zigbee_bridge, legacy_reinstalled_unit
+from ..commissioning import (
+    confirmation_block,
+    current_protocol_failure,
+    effective_compatibility,
+    invalidate_device_test,
+    lock_commissioning,
+    record_test_confirmation,
+)
 from ..config import VERSION, get_settings
 from ..deps import DB, Admin, Auth, get_home
 from ..errors import SECRET_KEY_INVALID_RESPONSE, api_error, not_found, require_secret_box
@@ -164,7 +172,7 @@ async def device_view(db: DB, d: Device) -> dict:
         "last_seen": d.last_seen,
         "capabilities": d.capabilities or [],
         "protected": bool(protected) or bool(roles & DEFAULT_PROTECTED_ROLES),
-        "compatibility": d.compatibility,
+        "compatibility": effective_compatibility(d),
         "tested_at": d.tested_at,
         "lifecycle": d.lifecycle,
         "calibration": {
@@ -215,13 +223,22 @@ async def patch_device(device_id: uuid.UUID, body: DevicePatch, db: DB, p: Admin
             if room is None or room.home_id != d.home_id:
                 raise api_error(422, "validation_error", "Deze ruimte hoort niet bij deze woning.")
         d.room_id = body.room_id
-    if "lifecycle" in fields and body.lifecycle == "active" and d.lifecycle == "archived":
-        d.lifecycle = "active"
-        d.diagnostics = {k: v for k, v in (d.diagnostics or {}).items() if k not in ("archived_by", "archived_at")}
-        invalidate_device_test(d)
+    if ("lifecycle" in fields and body.lifecycle == "active"
+            and (d.lifecycle == "archived" or await legacy_reinstalled_unit(db, d))):
+        _reactivate(d)
         await audit(db, p.actor, "device_restored", d.name, device=str(d.id))
     await db.commit()
     return await device_view(db, d)
+
+
+def _reactivate(device: Device) -> None:
+    device.lifecycle = "active"
+    device.diagnostics = {
+        k: v for k, v in (device.diagnostics or {}).items()
+        if k not in {"archived_by", "archived_at", "replaced_by", "replaced_at"}
+    }
+    if device.compatibility != "unsupported":
+        invalidate_device_test(device)
 
 
 class CalibrationIn(BaseModel):
@@ -550,6 +567,8 @@ async def replace_device(device_id: uuid.UUID, body: ReplaceIn, db: DB, p: Admin
     )
     old.lifecycle = "replaced"
     old.diagnostics = {**(old.diagnostics or {}), "replaced_by": str(new.id), "replaced_at": now.isoformat()}
+    if new.lifecycle == "replaced":
+        _reactivate(new)
     if old.room_id and not new.room_id:
         new.room_id = old.room_id
     moved = {"roles": sorted(r.key for r in roles), "zones": len(zones), "mappings": len(own_maps) + steps_moved}
@@ -613,6 +632,9 @@ async def test_device(device_id: uuid.UUID, db: DB, p: Admin) -> dict:
     now = datetime.now(UTC)
     checks = [_seen_check(d, now)]
     integ = await db.get(Integration, d.integration_id) if d.integration_id else None
+    failed_pair = (d.diagnostics or {}).get("pair") if current_protocol_failure(d) else None
+    probed_config = (integ.config, integ.credentials_enc) if integ is not None else None
+    protocol_read = False
     if integ is None:
         checks.append(
             {"key": "connection", "label": "Verbinding", "state": "warn", "detail": "Geen koppeling bij dit apparaat"}
@@ -665,6 +687,7 @@ async def test_device(device_id: uuid.UUID, db: DB, p: Admin) -> dict:
             try:
                 h = await asyncio.wait_for(adapter.health(), timeout=PROBE_TIMEOUT_S)
                 state = str(getattr(h.state, "value", h.state))
+                protocol_read = state == "ok"
                 checks.append(
                     {
                         "key": "connection",
@@ -720,6 +743,12 @@ async def test_device(device_id: uuid.UUID, db: DB, p: Admin) -> dict:
     d = await db.get(Device, device_id, populate_existing=True)
     if d is None:
         raise not_found("Apparaat")
+    if protocol_read and failed_pair is not None and integ is not None and integ.id == d.integration_id:
+        current = await db.get(Integration, integ.id, populate_existing=True)
+        if (current is not None and current.enabled and (current.config, current.credentials_enc) == probed_config
+                and (d.diagnostics or {}).get("pair") == failed_pair):
+            invalidate_device_test(d)
+            d.diagnostics = {**d.diagnostics, "pair": {**failed_pair, "protocol_read_ok_at": now.isoformat()}}
     d.diagnostics = {
         **(d.diagnostics or {}),
         "last_test": json.loads(json.dumps({k: v for k, v in result.items() if k != "readings"}, default=str)),
@@ -1265,8 +1294,8 @@ async def _record_pair_failure(
                 calibration={},
             )
             db.add(d)
-        if d.compatibility != "tested":
-            d.compatibility = "unsupported"
+        invalidate_device_test(d)
+        d.compatibility = "unsupported"
         model = diag.get("model") or scan.get("model") or d.model
         d.model = str(model)[:100] if model else None
         fw = diag.get("firmware") or scan.get("ver")
@@ -1327,13 +1356,27 @@ async def pair(provider: str, body: PairIn, db: DB, p: Admin):
     # KLEIN-43: eerst de sleutel, dan pas koppelen: anders ontstaat er een sleutel op het apparaat (bv. de
     # Hue-bridge) die hier niet bewaard kan worden.
     box = require_secret_box()
-    adapter = info.adapter({"host": body.host, **body.options}, {})
+    host, options = body.host, body.options
+    if provider == "zigbee":
+        bridge = await _active_zigbee_bridge(db, home.id)
+        try:
+            integration = await check_zigbee_bridge(db, home.id, bridge, {})
+        except PolicyDenied as exc:
+            raise api_error(409, exc.code, exc.message) from exc
+        host = str((integration.config or {}).get("host") or "")
+        options = {"seconds": body.options.get("seconds", 120)}
+        credentials = box.decrypt(integration.credentials_enc) if integration.credentials_enc else {}
+        adapter = _adapter_for(integration, credentials)
+    else:
+        adapter = info.adapter({"host": host, **options}, {})
     try:
-        result = await adapter.pair(body.host, **body.options)
+        result = await adapter.pair(host, **options)
     except Exception as exc:
         status, code, message = describe_error(exc, body.host)
         log.info("Koppelen %s op %s mislukt: %r", provider, body.host, exc)
-        saved = await _record_pair_failure(db, home, provider, body, exc, adapter, code, message, p.actor)
+        saved = {} if provider == "zigbee" else await _record_pair_failure(
+            db, home, provider, body, exc, adapter, code, message, p.actor,
+        )
         raise HTTPException(
             status_code=status, detail={"code": code, "message": f"Koppelen mislukt: {message}", **saved}
         ) from exc
@@ -1470,10 +1513,10 @@ async def pair(provider: str, body: PairIn, db: DB, p: Admin):
         d.state = {**(d.state or {}), "caps": caps}
         if d.kind == "ac_unit":
             d.capabilities = ["power", "hvac_mode", "setpoint", *(c for c in ("fan", "swing") if caps.get(c))]
-    if extra.get("pair_diagnostics"):
+    if extra.get("pair_diagnostics") or (d.diagnostics or {}).get("pair"):
         d.diagnostics = {
             **(d.diagnostics or {}),
-            "pair": {"at": now.isoformat(), "result": "ok", "diagnostics": extra["pair_diagnostics"]},
+            "pair": {"at": now.isoformat(), "result": "ok", "diagnostics": extra.get("pair_diagnostics", {})},
         }
     d.diagnostics = json.loads(json.dumps(d.diagnostics or {}, default=str))
     await notify_changed(db, keep)
@@ -1660,20 +1703,22 @@ class PermitJoin(BaseModel):
     seconds: int = Field(default=120, ge=30, le=254)
 
 
+async def _active_zigbee_bridge(db: DB, home_id: uuid.UUID) -> Device:
+    bridges = (await db.scalars(select(Device).where(
+        Device.home_id == home_id, Device.provider == "zigbee", Device.kind == "zigbee_bridge",
+        Device.lifecycle == "active",
+    ).limit(2))).all()
+    if len(bridges) != 1:
+        raise api_error(409, "not_configured", "Er is geen eenduidige actieve Zigbee-bridge.")
+    return bridges[0]
+
+
 @router.post("/integrations/zigbee/permit-join", status_code=202)
 async def zigbee_permit_join(body: PermitJoin, db: DB, p: Admin):
     from ..commanding import queue_command
 
     await lock_commissioning(db)
-    bridge = (
-        (await db.execute(select(Device).where(
-            Device.home_id == body.home_id, Device.kind == "zigbee_bridge", Device.lifecycle == "active",
-        )))
-        .scalars()
-        .first()
-    )
-    if bridge is None:
-        raise api_error(409, "not_configured", "Zigbee is nog niet ingesteld.")
+    bridge = await _active_zigbee_bridge(db, body.home_id)
     try:
         cmd = await queue_command(db, body.home_id, bridge, "permit_join", {"seconds": body.seconds}, "user", p.actor)
     except PolicyDenied as exc:

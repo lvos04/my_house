@@ -39,6 +39,7 @@ class DeviceFacts:
 
     compatibility: str | None = None
     commissioning_gate: bool = False  # Alleen configuratiechecks gebruiken deze standaard.
+    protocol_unsupported: bool = False
 
 
 def check_command(device: DeviceFacts, action: str, params: dict) -> None:
@@ -57,6 +58,10 @@ def check_command(device: DeviceFacts, action: str, params: dict) -> None:
         )
     if action == "permit_join" and device.kind != "zigbee_bridge":
         raise PolicyDenied("Alleen een actieve Zigbee-bridge kan nieuwe apparaten toelaten.")
+    if device.protocol_unsupported:
+        raise PolicyDenied(
+            "Het huidige apparaatprotocol wordt niet ondersteund. Voer eerst een geslaagde leestest uit."
+        )
     if device.commissioning_gate and device.compatibility != "tested":
         # Alleen een bridge-beheercommando; gewone bediening krijgt nooit een beheeruitzondering.
         if not (device.kind == "zigbee_bridge" and action == "permit_join"):

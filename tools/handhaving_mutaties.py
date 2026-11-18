@@ -62,7 +62,7 @@ def beschadig(monkeypatch):
     elif kind == "bescherming":
         wijzig(policy.check_command, 'if protected:', 'if False:')
     elif kind == "feiten-status":
-        wijzig(commissioning.command_facts, 'device.compatibility,', '"tested",')
+        wijzig(commissioning.command_facts, 'effective_compatibility(device),', '"tested",')
     elif kind == "feiten-gate":
         wijzig(commissioning.command_facts, '(await read_gate(db))["enabled"]', 'False')
     elif kind == "gate-uit-te-streng":

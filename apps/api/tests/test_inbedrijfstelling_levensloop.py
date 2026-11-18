@@ -7,7 +7,17 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from shc_integrations.base import ButtonEvent, DeviceInfo, DiscoveredDevice, PairResult, Reading, StateUpdate
+from shc_integrations.base import (
+    ButtonEvent,
+    DeviceInfo,
+    DiscoveredDevice,
+    Health,
+    HealthState,
+    PairResult,
+    Reading,
+    StateUpdate,
+    Unsupported,
+)
 from shc_integrations.zigbee import ZigbeeAdapter
 from sqlalchemy import select
 
@@ -24,7 +34,10 @@ from .test_boiler_ketens import Recorder, _legacy_mapping, _press
 from .test_inbedrijfstelling_groepen import change
 from .test_inbedrijfstelling_groepen import group_rig as group_rig
 from .test_inbedrijfstelling_handhaving import commissioning_state as commissioning_state
-from .test_inbedrijfstelling_handhaving import snapshot
+from .test_inbedrijfstelling_handhaving import set_gate, snapshot
+from .test_ws_climate_worker import make_rig
+from .test_ws_devices_api import _info, _use
+from .ws_devices_support import add_device as add_full_device
 from .ws_devices_support import add_integration, new_home
 
 
@@ -123,7 +136,7 @@ async def test_permit_join_uitzondering_tot_de_zigbee_adapter(admin, app, condit
 
 @pytest.mark.parametrize("change_after_request", [{"lifecycle": "archived"}, {
     "kind": "light", "compatibility": "tested",
-}], ids=["archief", "andere-soort"])
+}, None], ids=["archief", "andere-soort", "gewijzigde-koppeling"])
 async def test_worker_hercontroleert_koppelen_op_het_actuele_bridge_doel(admin, change_after_request):
     hid = await new_home(admin, "Zigbeewachtrijproef")
     setup = await admin.post("/integrations/zigbee/setup", json={"home_id": str(hid)})
@@ -132,6 +145,9 @@ async def test_worker_hercontroleert_koppelen_op_het_actuele_bridge_doel(admin, 
     await change(bridge, online=True)
     queued = await admin.post("/integrations/zigbee/permit-join", json={"home_id": str(hid), "seconds": 60})
     assert queued.status_code == 202, queued.text
+    if change_after_request is None:
+        other = await add_integration(hid, "zigbee")
+        change_after_request = {"integration_id": other.id}
     await change(bridge, **change_after_request)
     recorder, worker = Recorder(), Worker()
     worker._adapter_for = lambda d: recorder
@@ -139,6 +155,117 @@ async def test_worker_hercontroleert_koppelen_op_het_actuele_bridge_doel(admin, 
     rows = await commands(hid)
     assert len(rows) == 1 and rows[0].status == "denied", "De worker liet een ongeschikte bridge door."
     assert recorder.calls == []
+
+
+@pytest.mark.parametrize("condition", ["protected", "safe_mode", "archived", "disabled", "untested"])
+async def test_algemene_zigbee_koppelroute_volgt_actieve_bridge(admin, monkeypatch, condition):
+    hid = await new_home(admin, "Proefkoppeling")
+    setup = await admin.post("/integrations/zigbee/setup", json={"home_id": str(hid)})
+    assert setup.status_code == 200
+    bridge = uuid.UUID(setup.json()["id"])
+    if condition == "protected":
+        await protect(hid, bridge)
+    elif condition == "safe_mode":
+        async with sessionmaker()() as db:
+            await set_setting(db, "safe_mode", True)
+            await db.commit()
+    elif condition == "archived":
+        await change(bridge, lifecycle="archived")
+    elif condition == "disabled":
+        assert (await admin.delete(f"/integrations/{setup.json()['integration_id']}")).status_code == 204
+    published = []
+
+    async def publish(self, topic, data):
+        published.append((self.config["host"], topic, data))
+
+    monkeypatch.setattr(ZigbeeAdapter, "_publish", publish)
+    response = await admin.post("/integrations/zigbee/pair", json={
+        "home_id": str(hid), "host": "ander-doel.lan", "options": {"seconds": 60, "base_topic": "ander"},
+    })
+    if condition == "untested":
+        from shc_api.config import get_settings
+
+        assert response.status_code == 202 and response.json()["status"] == "action_required"
+        assert published == [(get_settings().mqtt_host, "zigbee2mqtt/bridge/request/permit_join", {"time": 60})]
+    else:
+        assert response.status_code == 409, response.text
+        assert published == []
+
+
+@pytest.mark.parametrize("old_snapshot", [False, True])
+async def test_teruggeplaatste_unit_behoudt_bediening_en_vraagt_herbevestiging(admin, old_snapshot):
+    rig = await make_rig(admin)
+    zone = rig.zones["Woonkamer"]
+    unit, reserve = rig.units["Woonkamer"], rig.units["Slaapkamer"]
+    await set_gate(False)
+    assert (await admin.post(f"/devices/{unit}/tested")).status_code == 200
+    assert (await admin.post(f"/devices/{unit}/replace", json={"new_device_id": str(reserve)})).status_code == 200
+    old = await admin.post(f"/devices/{reserve}/replace", json={"new_device_id": str(unit)})
+    assert old.status_code == 200, old.text
+    if old_snapshot:
+        await change(unit, lifecycle="replaced", compatibility="tested", tested_at=datetime.now(UTC))
+    else:
+        assert old.json()["new"]["lifecycle"] == "active"
+        assert old.json()["new"]["compatibility"] == "untested"
+
+    path = f"/zones/{zone}/command"
+    assert (await admin.post(path, json={"mode": "heat"})).status_code == 202
+    await rig.run_commands()
+    assert [row.status for row in await rig.commands("Woonkamer")] == ["confirmed"]
+    assert len(rig.fakes["Woonkamer"].calls) == 1
+    assert not rig.fakes["Slaapkamer"].calls
+    await set_gate(True)
+    assert (await admin.post(path, json={"mode": "heat"})).status_code == 409
+    if old_snapshot:
+        restored = await admin.c.patch(f"/api/v1/devices/{unit}", headers=admin.h(), json={"lifecycle": "active"})
+        assert restored.status_code == 200 and restored.json()["compatibility"] == "untested"
+    assert (await admin.post(f"/devices/{unit}/tested")).status_code == 200
+    assert (await admin.post(path, json={"mode": "heat"})).status_code == 202
+    await rig.run_commands()
+    assert len(rig.fakes["Woonkamer"].calls) == 2
+    actual = await admin.c.patch(f"/api/v1/devices/{reserve}", headers=admin.h(), json={"lifecycle": "active"})
+    assert actual.status_code == 200 and actual.json()["lifecycle"] == "replaced"
+
+
+@pytest.mark.parametrize("before", ["untested", "tested"])
+async def test_protocolfout_sluit_bevestigen_tot_geslaagde_leestest(admin, monkeypatch, before):
+    home = await new_home(admin)
+    identity = "aabbcc667788"
+    integration = await add_integration(home, "gree", identity=identity)
+    unit = await add_full_device(home, "ac_unit", "Proefunit", provider="gree", stable_identity=identity,
+                                 integration_id=integration.id, firmware="proef-1")
+    if before == "tested":
+        assert (await admin.post(f"/devices/{unit.id}/tested")).status_code == 200
+    reachable = False
+
+    class Probe:
+        def __init__(self, *args):
+            pass
+
+        async def pair(self, *args, **kwargs):
+            raise Unsupported("Onbekend proefprotocol.", diagnostics={"mac": identity, "firmware": "proef-2"})
+
+        async def health(self):
+            return Health(HealthState.OK, "Uitgelezen") if reachable else Health(
+                HealthState.ERROR, "Onbekend proefprotocol.", code="unsupported",
+            )
+
+    _use(monkeypatch, gree=_info(Probe))
+    pair = await admin.post("/integrations/gree/pair", json={"home_id": str(home), "host": "proefunit.lan"})
+    assert (pair.status_code, pair.json()["detail"]["code"]) == (502, "unsupported")
+    path = f"/commissioning/devices/{unit.id}"
+    result = await admin.get(path)
+    assert (result.json()["compatibility"], result.json()["confirmation_allowed"]) == ("unsupported", False)
+    assert (await admin.post(f"/devices/{unit.id}/tested")).status_code == 409
+    assert (await admin.post(f"/devices/{unit.id}/test")).json()["ok"] is False
+    assert (await admin.get(path)).json()["confirmation_allowed"] is False
+    reachable = True
+    assert (await admin.post(f"/devices/{unit.id}/test")).json()["ok"] is True
+    result = await admin.get(path)
+    assert (result.json()["compatibility"], result.json()["confirmation_allowed"]) == ("untested", True)
+    assert len((await admin.get(path + "/history")).json()["items"]) == int(before == "tested")
+    assert (await admin.post(f"/devices/{unit.id}/tested")).status_code == 200
+    assert len((await admin.get(path + "/history")).json()["items"]) == 1 + int(before == "tested")
 
 
 @pytest.mark.parametrize("notation", ["hex", "upper", "braces", "urn"])

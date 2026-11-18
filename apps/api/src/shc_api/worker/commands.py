@@ -18,6 +18,7 @@ from .. import events
 from ..commanding import (
     check_active_target,
     check_scene_group_policy,
+    check_zigbee_bridge,
     command_still_wanted,
     lock_outdoor_group,
     publish_zone,
@@ -179,13 +180,16 @@ class CommandsMixin:
         try:
             if dev.provider == "hue" and "id" in cmd.params and cmd.params["id"] != dev.stable_identity:
                 raise PolicyDenied("Het opgeslagen Hue-doel wijkt af van het getoetste apparaat.")
-            await check_scene_group_policy(db, dev, cmd.action, cmd.params, safe_mode=True)
-            check_command(
-                await command_facts(db, dev, safe_mode=True),
-                cmd.action,
-                cmd.params,
-            )
-            await check_active_target(db, cmd.home_id, dev)
+            if cmd.action == "permit_join":
+                await check_zigbee_bridge(db, cmd.home_id, dev, cmd.params)
+            else:
+                await check_scene_group_policy(db, dev, cmd.action, cmd.params, safe_mode=True)
+                check_command(
+                    await command_facts(db, dev, safe_mode=True),
+                    cmd.action,
+                    cmd.params,
+                )
+                await check_active_target(db, cmd.home_id, dev, climate=cmd.action == "set_hvac")
         except PolicyDenied as e:
             return "denied", e.message
         if now - cmd.created_at > (MAX_AGE_RETRY if retry else MAX_AGE_FIRST):

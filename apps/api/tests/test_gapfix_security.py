@@ -293,7 +293,7 @@ async def test_remaining_changes_are_audited(admin):
     assert {r.detail["command"] for r in rows} == {"set_group", "recall_scene"}
     assert any(r.detail.get("brightness") == 40 and r.detail.get("on") is True for r in rows)
     # Zigbee permit join
-    await add_device(home_id, "zigbee_bridge", "Zigbee", provider="zigbee")
+    assert (await admin.post("/integrations/zigbee/setup", json={"home_id": str(home_id)})).status_code == 200
     r = await admin.post("/integrations/zigbee/permit-join", json={"home_id": str(home_id), "seconds": 60})
     assert r.status_code == 202, r.text
     rows = [r for r in await _audit_rows("zigbee_permit_join", since) if r.detail.get("home") == str(home_id)]

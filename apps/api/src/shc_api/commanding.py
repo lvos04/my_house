@@ -34,12 +34,14 @@ from . import climate as cl
 from . import events
 from .commissioning import command_facts, lock_home_commands, read_gate
 from .models import (
+    AuditLog,
     ClimateZone,
     ComfortProfile,
     CommandRecord,
     Device,
     Experiment,
     Home,
+    Integration,
     ScheduleBlock,
     ZoneLog,
 )
@@ -209,12 +211,45 @@ async def check_zone_configuration(db: AsyncSession, *zones: ClimateZone) -> Non
             check_command(replace(facts, commissioning_gate=False) if protection_only else facts, "set_hvac", {})
 
 
-async def check_active_target(db: AsyncSession, home_id: uuid.UUID, device: Device) -> None:
-    if device.lifecycle != "active":
-        raise PolicyDenied("Dit apparaat is gearchiveerd of vervangen.")
+async def legacy_reinstalled_unit(db: AsyncSession, device: Device) -> bool:
+    """Herken een terugplaatsing uit een versie die de levensloop niet terugzette."""
+    if device.kind != "ac_unit" or device.lifecycle != "replaced":
+        return False
+    linked = await db.scalar(select(ClimateZone.id).where(
+        ClimateZone.home_id == device.home_id, ClimateZone.unit_device_id == device.id,
+    ).limit(1))
+    if linked is None:
+        return False
+    device_id = str(device.id)
+    latest = await db.scalar(select(AuditLog.detail).where(
+        AuditLog.action == "device_replaced",
+        (AuditLog.detail["old"].astext == device_id) | (AuditLog.detail["new"].astext == device_id),
+    ).order_by(AuditLog.id.desc()).limit(1))
+    return latest is not None and latest.get("new") == device_id
+
+
+async def check_active_target(db: AsyncSession, home_id: uuid.UUID, device: Device, *, climate: bool = False) -> None:
     home = await db.get(Home, home_id, populate_existing=True)
     if home is None or home.active_to is not None or device.home_id != home_id:
         raise PolicyDenied("Dit apparaat hoort niet bij een actieve woning voor deze bediening.")
+    if device.lifecycle == "active":
+        return
+    if climate and not (await read_gate(db))["enabled"] and await legacy_reinstalled_unit(db, device):
+        return
+    raise PolicyDenied("Dit apparaat is gearchiveerd of vervangen.")
+
+
+async def check_zigbee_bridge(db: AsyncSession, home_id: uuid.UUID, bridge: Device, params: dict) -> Integration:
+    await check_active_target(db, home_id, bridge)
+    check_command(await command_facts(db, bridge, safe_mode=True), "permit_join", params)
+    integration = (
+        await db.get(Integration, bridge.integration_id, populate_existing=True) if bridge.integration_id else None
+    )
+    if (bridge.provider != "zigbee" or integration is None or integration.provider != "zigbee"
+            or integration.home_id != home_id or not integration.enabled
+            or ("integration_id" in params and params["integration_id"] != str(integration.id))):
+        raise PolicyDenied("De actieve Zigbee-koppeling ontbreekt of is gewijzigd.")
+    return integration
 
 
 async def queue_command(
@@ -228,13 +263,17 @@ async def queue_command(
     zone_id: uuid.UUID | None = None,
 ) -> CommandRecord:
     """Policy-check and queue one device command. Raises PolicyDenied."""
-    await check_scene_group_policy(db, device, action, params, safe_mode=True)
-    check_command(
-        await command_facts(db, device, safe_mode=True),
-        action,
-        params,
-    )
-    await check_active_target(db, home_id, device)
+    if action == "permit_join":
+        integration = await check_zigbee_bridge(db, home_id, device, params)
+        params = {**params, "integration_id": str(integration.id)}
+    else:
+        await check_scene_group_policy(db, device, action, params, safe_mode=True)
+        check_command(
+            await command_facts(db, device, safe_mode=True),
+            action,
+            params,
+        )
+        await check_active_target(db, home_id, device, climate=action == "set_hvac")
     now = datetime.now(UTC)
     cmd = CommandRecord(
         home_id=home_id,

@@ -106,8 +106,9 @@ async def command_facts(db: AsyncSession, device: Device, *, safe_mode: bool = F
         roles,
         protected,
         bool(await get_setting(db, "safe_mode", False)) if safe_mode else False,
-        device.compatibility,
+        effective_compatibility(device),
         (await read_gate(db))["enabled"],
+        current_protocol_failure(device),
     )
 
 
@@ -118,10 +119,20 @@ def invalidate_device_test(device: Device) -> None:
     device.diagnostics = {k: v for k, v in (device.diagnostics or {}).items() if k != "tested"}
 
 
+def current_protocol_failure(device: Device) -> bool:
+    pair = (device.diagnostics or {}).get("pair")
+    return (isinstance(pair, dict) and pair.get("result") == "failed"
+            and pair.get("code") == "unsupported" and not pair.get("protocol_read_ok_at"))
+
+
+def effective_compatibility(device: Device) -> str:
+    return "unsupported" if current_protocol_failure(device) else device.compatibility
+
+
 def confirmation_block(device: Device, home: Home) -> str | None:
     if home.active_to is not None or device.lifecycle != "active":
         return "inactive_device"
-    if device.compatibility == "unsupported":
+    if effective_compatibility(device) == "unsupported":
         return "unsupported_device"
     return None
 

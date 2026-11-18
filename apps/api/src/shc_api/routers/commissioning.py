@@ -18,6 +18,7 @@ from ..commissioning import (
     KEY,
     TEST_CONFIRMED_ACTION,
     confirmation_block,
+    effective_compatibility,
     is_protected,
     lock_commissioning,
     read_gate,
@@ -231,10 +232,11 @@ async def _finish(db: DB, key: str, fingerprint: str, result: BaseModel, etag: s
 async def _review(db: DB, device: Device, home: Home, room_name: str | None) -> DeviceReview:
     protected = await is_protected(db, device)
     allowed = confirmation_block(device, home) is None
+    compatibility = effective_compatibility(device)
     blocked = False
     if not protected and device.lifecycle == "active" and home.active_to is None:
         if device.kind in {"light", "ac_unit"}:
-            blocked = device.compatibility != "tested"
+            blocked = compatibility != "tested"
         elif device.kind in {"light_group", "scene"}:
             try:
                 await check_scene_group_policy(db, device, LIGHT_ACTIONS[device.kind][0], {}, preview_enabled=True)
@@ -243,10 +245,10 @@ async def _review(db: DB, device: Device, home: Home, room_name: str | None) -> 
             except PolicyDenied:
                 pass  # Een al beschermd groepsdoel krijgt er geen gateblokkade bij.
             else:
-                blocked = device.compatibility != "tested"
+                blocked = compatibility != "tested"
     return DeviceReview(
         id=device.id, home_id=home.id, home_name=home.name, room_name=room_name, name=device.name,
-        kind=device.kind, lifecycle=device.lifecycle, compatibility=device.compatibility, tested_at=device.tested_at,
+        kind=device.kind, lifecycle=device.lifecycle, compatibility=compatibility, tested_at=device.tested_at,
         protected=protected, blocked_when_enabled=blocked, confirmation_allowed=allowed,
         bulk_confirmation_allowed=allowed and not protected,
     )

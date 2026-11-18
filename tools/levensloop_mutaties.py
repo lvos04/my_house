@@ -54,20 +54,20 @@ def beschadig(monkeypatch):
         wijzig(devices.bind, 'await audit(db, p.actor, "role_bound"',
                'd.compatibility = "tested"\\n    await audit(db, p.actor, "role_bound"')
     elif action == "oude-scene":
-        wijzig(commanding.check_active_target, 'if device.lifecycle != "active":', 'if False:')
+        wijzig(commanding.check_active_target, 'if device.lifecycle == "active":', 'if True:')
     elif action == "zigbee-weigering":
         wijzig(devices.zigbee_permit_join, 'raise api_error(409, exc.code, exc.message) from exc', 'raise')
     elif action == "zigbee-route-archief":
-        wijzig(devices.zigbee_permit_join, ', Device.lifecycle == "active"', '')
+        wijzig(devices._active_zigbee_bridge, '        Device.lifecycle == "active",', '')
     elif action == "zigbee-worker-archief":
-        wijzig(commanding.check_active_target, 'if device.lifecycle != "active":', 'if False:')
+        wijzig(commanding.check_active_target, 'if device.lifecycle == "active":', 'if True:')
     elif action == "zigbee-worker-soort":
         wijzig(policy.check_command, 'if action == "permit_join" and device.kind != "zigbee_bridge":', 'if False:')
     elif action == "pair-archive":
         wijzig(devices.pair, 'elif d.lifecycle != "active":', 'elif False:')
     else:
         functions = {
-            "archive-user": devices.patch_device,
+            "archive-user": devices._reactivate,
             "archive-adapter": IngestMixin._device,
             "upgrade-info": IngestMixin._on_info,
             "upgrade-state": IngestMixin._on_state,
@@ -75,7 +75,7 @@ def beschadig(monkeypatch):
             "upgrade-button": IngestMixin.on_button,
             "pair-upgrade": devices.pair,
         }
-        target = 'dev' if action == "upgrade-button" else 'd'
+        target = {"archive-user": "device", "upgrade-button": "dev"}.get(action, "d")
         wijzig(functions[action], f'invalidate_device_test({target})', 'pass')
 '''
 
