@@ -25,14 +25,17 @@ from sqlalchemy import select
 from .. import climate as cl
 from .. import events
 from ..commanding import (
+    check_zone_configuration,
     experiment_apply_variant,
     experiment_restore_zone,
+    experiment_zone,
     lock_outdoor_group,
     publish_zone,
     queue_engine_command,
     zone_command_confirmed,
     zone_command_failed,
 )
+from ..commissioning import lock_commissioning
 from ..db import sessionmaker
 from ..logfilter import fouttekst
 from ..models import (
@@ -140,6 +143,14 @@ class ClimateMixin:
     async def _zone_round(self, db, z: ClimateZone, home: Home, unit: Device | None, now: datetime) -> None:
         if unit is None:
             return  # sensor-only zone: nothing to regulate
+        try:
+            await check_zone_configuration(db, z)
+        except PolicyDenied as e:
+            signature = f"oem_fallback:{e.code}"
+            if z.last_decision != signature:
+                z.last_decision = signature
+                await publish_zone(db, z, home)
+            return
         # Startup safety: wait until the unit state was read after this worker started.
         if unit.last_seen is None or unit.last_seen < self.started_at:
             return
@@ -361,6 +372,7 @@ class ClimateMixin:
         Paused ones are watched too: their variant profile goes off when its time is over, and they are
         finished after the last variant (item 45), so a pause never leaves a profile on for good."""
         async with sessionmaker()() as db:
+            await lock_commissioning(db)
             q = select(Experiment).where(
                 Experiment.auto_apply.is_(True),
                 Experiment.status.in_(("defined", "running", "paused")),
@@ -374,6 +386,8 @@ class ClimateMixin:
                             await self._paused_experiment_step(db, e, now)
                         else:
                             await self._experiment_step(db, e, now)
+                except PolicyDenied as exc:
+                    log.info("Experiment niet aangepast: %s", exc.message)
                 except Exception:
                     log.exception("Experiment %s kon niet worden bijgewerkt", e.id)
             await db.commit()
@@ -385,8 +399,7 @@ class ClimateMixin:
         if not variants:
             return
         spans = [(datetime.fromisoformat(v["start"]), datetime.fromisoformat(v["end"])) for v in variants]
-        zone_id = e.zone_id or (uuid.UUID(variants[0]["zone_id"]) if variants[0].get("zone_id") else None)
-        zone = await db.get(ClimateZone, zone_id) if zone_id else None
+        zone = await experiment_zone(db, e)
         home = await db.get(Home, e.home_id)
         if now >= max(end for _, end in spans):
             e.status, e.current_variant = "finished", None
@@ -409,11 +422,11 @@ class ClimateMixin:
         if not variants:
             return
         spans = [(datetime.fromisoformat(v["start"]), datetime.fromisoformat(v["end"])) for v in variants]
-        zone_id = e.zone_id or (uuid.UUID(variants[0]["zone_id"]) if variants[0].get("zone_id") else None)
-        zone = await db.get(ClimateZone, zone_id) if zone_id else None
+        zone = await experiment_zone(db, e)
         if zone is None:
             e.status, e.paused_reason = "paused", "De zone van dit experiment bestaat niet meer."
             return
+        await check_zone_configuration(db, zone)
         home = await db.get(Home, e.home_id)
         if now >= max(end for _, end in spans):
             e.status, e.current_variant = "finished", None

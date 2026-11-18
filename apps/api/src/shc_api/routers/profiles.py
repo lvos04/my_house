@@ -19,11 +19,12 @@ from sqlalchemy.exc import IntegrityError
 
 from .. import views
 from ..commanding import apply_profile, lock_outdoor_group, publish_zone, zones_using_profile
+from ..commissioning import lock_commissioning
 from ..deps import DB, Admin, Auth, get_home
 from ..errors import api_error, not_found
 from ..models import ClimateZone, ComfortProfile, Device, Experiment
 from ..store import audit
-from .zones import Block, Mode, validate_blocks
+from .zones import Block, Mode, enforce_zone_configuration, validate_blocks
 
 router = APIRouter(tags=["profiles"])
 
@@ -115,7 +116,10 @@ async def get_profile(profile_id: uuid.UUID, db: DB, p: Auth) -> dict:
 @router.put("/profiles/{profile_id}")
 async def update_profile(profile_id: uuid.UUID, body: ProfileIn, db: DB, p: Admin) -> dict:
     """Replace a profile. Zones that follow it get the new schedule, band and priority right away."""
+    await lock_commissioning(db)
     pr = await _profile(db, profile_id)
+    zones = await zones_using_profile(db, pr.id)
+    await enforce_zone_configuration(db, *zones)
     validate_blocks(body.schedule, None)
     pr.name = body.name.strip()
     pr.target_c, pr.band_c, pr.mode = body.target_c, body.band_c, body.mode
@@ -127,7 +131,7 @@ async def update_profile(profile_id: uuid.UUID, body: ProfileIn, db: DB, p: Admi
         await db.rollback()
         raise api_error(409, "conflict", "Er bestaat al een profiel met deze naam.") from e
     home = await get_home(db, pr.home_id)
-    for z in await zones_using_profile(db, pr.id):
+    for z in zones:
         await lock_outdoor_group(db, z)
         await db.refresh(z)
         await apply_profile(db, z, pr, p.actor, log_name=p.user.username)
@@ -163,9 +167,11 @@ async def delete_profile(profile_id: uuid.UUID, db: DB, p: Admin) -> Response:
 @router.post("/zones/{zone_id}/profile")
 async def apply_to_zone(zone_id: uuid.UUID, body: ApplyIn, db: DB, p: Admin) -> dict:
     """Apply a profile: replaces the zone's schedule; a running manual override stays as it is."""
+    await lock_commissioning(db)
     z = await db.get(ClimateZone, zone_id)
     if z is None:
         raise not_found("Zone")
+    await enforce_zone_configuration(db, z)
     pr = await _profile(db, body.profile_id)
     if pr.home_id != z.home_id:
         raise api_error(422, "validation_error", "Dit profiel hoort bij een andere woning.")

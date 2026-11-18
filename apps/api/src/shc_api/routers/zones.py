@@ -12,11 +12,13 @@ from sqlalchemy import delete, select
 from .. import views
 from ..commanding import (
     CommandRejected,
+    check_zone_configuration,
     lock_outdoor_group,
     publish_zone,
     request_zone_command,
     resume_zone,
 )
+from ..commissioning import command_facts, lock_commissioning, read_gate
 from ..deps import DB, Admin, Auth, Control, get_home
 from ..errors import api_error, not_found
 from ..models import ClimateZone, ComfortProfile, Device, Home, ScheduleBlock, SensorReading, ZoneLog
@@ -36,6 +38,13 @@ async def _zone(db: DB, zone_id: uuid.UUID) -> tuple[ClimateZone, Home]:
     if not z:
         raise not_found("Zone")
     return z, await get_home(db, z.home_id)
+
+
+async def enforce_zone_configuration(db: DB, *zones: ClimateZone) -> None:
+    try:
+        await check_zone_configuration(db, *zones)
+    except PolicyDenied as e:
+        raise api_error(409, e.code, e.message) from e
 
 
 @router.get("/homes/{home_id}/zones")
@@ -86,6 +95,7 @@ async def command(zone_id: uuid.UUID, body: ZoneCommand, db: DB, p: Control):
 async def resume(zone_id: uuid.UUID, db: DB, p: Control) -> dict:
     """Back to schedule, also from a deliberate "off". Viewers get 403."""
     z, home = await _zone(db, zone_id)
+    await enforce_zone_configuration(db, z)
     await resume_zone(db, z, home, p.actor, log_name=p.user.username)
     view = await views.zone_view(db, z, home)
     await db.commit()
@@ -195,6 +205,7 @@ async def get_schedule(zone_id: uuid.UUID, db: DB, p: Auth) -> dict:
 @router.put("/zones/{zone_id}/schedule")
 async def put_schedule(zone_id: uuid.UUID, body: Schedule, db: DB, p: Admin) -> dict:
     z, home = await _zone(db, zone_id)
+    await enforce_zone_configuration(db, z)
     unit = await db.get(Device, z.unit_device_id) if z.unit_device_id else None
     validate_blocks(body.blocks, unit)
     await lock_outdoor_group(db, z)
@@ -250,6 +261,8 @@ class PolicyIn(BaseModel):
 @router.put("/zones/{zone_id}/policy")
 async def put_policy(zone_id: uuid.UUID, body: PolicyIn, db: DB, p: Admin) -> dict:
     z, h = await _zone(db, zone_id)
+    await enforce_zone_configuration(db, z)
+    await db.refresh(z)
     changes = body.model_dump(exclude_none=True)
     merged = {**(z.policy or {}), **changes}
     lo = merged.get("plausible_min_c", 5.0)
@@ -276,7 +289,19 @@ class ZoneConfig(BaseModel):
 
 @router.patch("/zones/{zone_id}")
 async def patch_zone(zone_id: uuid.UUID, body: ZoneConfig, db: DB, p: Admin) -> dict:
+    await lock_commissioning(db)
     z, h = await _zone(db, zone_id)
+    fields = body.model_fields_set & {"unit_device_id", "sensor_device_id", "outdoor_group"}
+    unit_id = body.unit_device_id if "unit_device_id" in fields else z.unit_device_id
+    if unit_id and any(getattr(body, f) != getattr(z, f) for f in fields) and (await read_gate(db))["enabled"]:
+        has_schedule = await db.scalar(select(ScheduleBlock.id).where(ScheduleBlock.zone_id == z.id).limit(1))
+        if has_schedule is not None or z.control == "manual" or z.pending_command_id:
+            unit = await db.get(Device, unit_id)
+            if unit is not None and unit.home_id == z.home_id:
+                try:
+                    check_command(await command_facts(db, unit), "set_hvac", {})
+                except PolicyDenied as e:
+                    raise api_error(409, e.code, e.message) from e
     for f in ("unit_device_id", "sensor_device_id"):
         if f in body.model_fields_set and getattr(body, f) is not None:
             d = await db.get(Device, getattr(body, f))

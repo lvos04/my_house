@@ -167,6 +167,22 @@ async def check_button_targets(
             check_command(replace(facts, commissioning_gate=False) if protection_only else facts, action, {})
 
 
+async def check_zone_configuration(db: AsyncSession, *zones: ClimateZone) -> None:
+    """Gebruik de actuele policy voor alle zones die een wijziging kan activeren."""
+    await lock_commissioning(db)
+    if not (await read_gate(db))["enabled"]:
+        return
+    targets = []
+    for zone in zones:
+        await db.refresh(zone)
+        unit = await db.get(Device, zone.unit_device_id) if zone.unit_device_id else None
+        if unit is not None:
+            targets.append(await command_facts(db, unit))
+    for protection_only in (True, False):
+        for facts in targets:
+            check_command(replace(facts, commissioning_gate=False) if protection_only else facts, "set_hvac", {})
+
+
 async def queue_command(
     db: AsyncSession,
     home_id: uuid.UUID,
@@ -531,6 +547,18 @@ async def experiment_apply_variant(
     e.result = res
 
 
+async def experiment_zone(db: AsyncSession, experiment: Experiment) -> ClimateZone | None:
+    """Lees ook de zoneverwijzing in varianten uit oudere experimenten."""
+    zone_id = experiment.zone_id
+    if zone_id is None and experiment.variants:
+        try:
+            zone_id = uuid.UUID(str(experiment.variants[0].get("zone_id")))
+        except ValueError:
+            return None
+    zone = await db.get(ClimateZone, zone_id) if zone_id else None
+    return zone if zone is not None and zone.home_id == experiment.home_id else None
+
+
 async def experiment_restore_zone(db: AsyncSession, e: Experiment, zone: ClimateZone, actor: str) -> str:
     """Switch the experiment's profile off again (verbeterlijst 45): the zone gets back the profile
     and schedule it had before the first variant. Takes the outdoor-group lock; does not commit.
@@ -541,11 +569,14 @@ async def experiment_restore_zone(db: AsyncSession, e: Experiment, zone: Climate
     snap, applied = res.get(EXPERIMENT_BEFORE), res.get(EXPERIMENT_APPLIED)
     if not snap or not applied:
         return "none"
-    res[EXPERIMENT_APPLIED] = None
-    e.result = res
     await lock_outdoor_group(db, zone)
     await db.refresh(zone)
-    if str(zone.profile_id) != applied:
+    restore = str(zone.profile_id) == applied
+    if restore:
+        await check_zone_configuration(db, zone)
+    res[EXPERIMENT_APPLIED] = None
+    e.result = res
+    if not restore:
         db.add(
             ZoneLog(
                 zone_id=zone.id,

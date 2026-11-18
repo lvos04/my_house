@@ -14,7 +14,8 @@ from .. import adaptive as ad
 from .. import climate as cl
 from .. import energy as en
 from .. import views
-from ..commanding import EXPERIMENT_APPLIED, experiment_restore_zone, profile_blocks, publish_zone
+from ..commanding import EXPERIMENT_APPLIED, experiment_restore_zone, experiment_zone, profile_blocks, publish_zone
+from ..commissioning import lock_commissioning, read_gate
 from ..deps import DB, Admin, Auth, get_home
 from ..errors import api_error, not_found
 from ..models import (
@@ -26,7 +27,9 @@ from ..models import (
     SensorReading,
     ZoneLog,
 )
+from ..policy import PolicyDenied
 from ..store import audit, device_for_role, resolve_alert
+from .zones import enforce_zone_configuration
 
 router = APIRouter(tags=["optimization"])
 BASELINE_DAYS = ad.BASELINE_DAYS
@@ -140,9 +143,13 @@ class Activate(BaseModel):
 @router.post("/zones/{zone_id}/adaptive/activate")
 async def adaptive_activate(zone_id: uuid.UUID, body: Activate, db: DB, p: Admin) -> dict:
     """Opt in with a specific version. Activating an older version is the rollback."""
+    await lock_commissioning(db)
     z = await db.get(ClimateZone, zone_id)
+    if not z:
+        raise not_found("Model")
+    await enforce_zone_configuration(db, z)
     m = await db.get(AdaptiveModelVersion, body.model_id)
-    if not z or not m or m.zone_id != zone_id:
+    if not m or m.zone_id != zone_id:
         raise not_found("Model")
     if not m.params.get("usable"):
         raise api_error(409, "policy_denied", "Dit model is niet betrouwbaar genoeg (te lage R² of reactie).")
@@ -157,9 +164,12 @@ async def adaptive_activate(zone_id: uuid.UUID, body: Activate, db: DB, p: Admin
 
 @router.post("/zones/{zone_id}/adaptive/disable")
 async def adaptive_disable(zone_id: uuid.UUID, db: DB, p: Admin) -> dict:
+    await lock_commissioning(db)
     z = await db.get(ClimateZone, zone_id)
     if not z:
         raise not_found("Zone")
+    if z.adaptive_enabled:
+        await enforce_zone_configuration(db, z)
     z.adaptive_enabled = False
     await db.execute(update(AdaptiveModelVersion).where(AdaptiveModelVersion.zone_id == zone_id).values(active=False))
     db.add(ZoneLog(zone_id=zone_id, kind="adaptive", message=f"{p.user.username}: adaptief uitgezet"))
@@ -232,10 +242,13 @@ async def experiments(home_id: uuid.UUID, db: DB, p: Auth) -> list[dict]:
 
 @router.post("/homes/{home_id}/experiments")
 async def create_experiment(home_id: uuid.UUID, body: ExperimentIn, db: DB, p: Admin) -> dict:
+    await lock_commissioning(db)
     await get_home(db, home_id)
     z = await db.get(ClimateZone, body.zone_id)
     if z is None or z.home_id != home_id:
         raise api_error(422, "validation_error", "Deze zone hoort niet bij deze woning.")
+    if body.auto_apply:
+        await enforce_zone_configuration(db, z)
     for v in body.variants:
         if v.profile_id is not None:
             pr = await db.get(ComfortProfile, v.profile_id)
@@ -266,6 +279,7 @@ async def create_experiment(home_id: uuid.UUID, body: ExperimentIn, db: DB, p: A
 
 @router.post("/experiments/{exp_id}/pause")
 async def pause_experiment(exp_id: uuid.UUID, db: DB, p: Admin) -> dict:
+    await lock_commissioning(db)
     e = await _experiment(db, exp_id)
     if e.status in ("finished", "stopped"):
         raise api_error(409, "conflict", "Dit experiment is al afgelopen.")
@@ -277,10 +291,13 @@ async def pause_experiment(exp_id: uuid.UUID, db: DB, p: Admin) -> dict:
 
 @router.post("/experiments/{exp_id}/resume")
 async def resume_experiment(exp_id: uuid.UUID, db: DB, p: Admin) -> dict:
+    await lock_commissioning(db)
     e = await _experiment(db, exp_id)
+    z = await experiment_zone(db, e) if e.zone_id or (await read_gate(db))["enabled"] else None
+    if z is not None and e.auto_apply:
+        await enforce_zone_configuration(db, z)
     if e.status != "paused":
         raise api_error(409, "conflict", "Dit experiment is niet gepauzeerd.")
-    z = await db.get(ClimateZone, e.zone_id) if e.zone_id else None
     if z is not None and z.control in ("manual", "off"):
         raise api_error(
             409, "conflict", "Zet de zone eerst terug naar schema; anders pauzeert het experiment meteen weer."
@@ -295,7 +312,7 @@ async def resume_experiment(exp_id: uuid.UUID, db: DB, p: Admin) -> dict:
 async def _let_go(db, e: Experiment, p, restore: bool) -> str:
     """Switch an auto-apply experiment's variant profile off (item 45). With ``restore`` the zone gets
     back the profile and schedule it had before the experiment; without, it keeps what it has now."""
-    z = await db.get(ClimateZone, e.zone_id) if e.zone_id else None
+    z = await experiment_zone(db, e) if e.zone_id or (await read_gate(db))["enabled"] else None
     if z is None:
         return "none"
     if not restore:
@@ -303,7 +320,10 @@ async def _let_go(db, e: Experiment, p, restore: bool) -> str:
             e.result = {**(e.result or {}), EXPERIMENT_APPLIED: None}
             return "kept"
         return "none"
-    outcome = await experiment_restore_zone(db, e, z, p.actor)
+    try:
+        outcome = await experiment_restore_zone(db, e, z, p.actor)
+    except PolicyDenied as exc:
+        raise api_error(409, exc.code, exc.message) from exc
     if outcome == "restored":
         await db.flush()
         await publish_zone(db, z, await get_home(db, z.home_id))
@@ -315,9 +335,10 @@ async def stop_experiment(exp_id: uuid.UUID, db: DB, p: Admin, restore: bool = T
     """Stop for good. With auto-apply the zone gets back the profile and schedule it had before the
     experiment (``restore=false``: it keeps the variant's profile it has now). A profile that was put
     on the zone by hand meanwhile stays. ``zone_restored`` says what happened."""
+    await lock_commissioning(db)
     e = await _experiment(db, exp_id)
-    e.status, e.current_variant = "stopped", None
     outcome = await _let_go(db, e, p, restore)
+    e.status, e.current_variant = "stopped", None
     await resolve_alert(db, f"experiment:{e.id}")
     await audit(db, p.actor, "experiment_stopped", str(e.id), zone=outcome)
     await db.commit()
@@ -326,6 +347,7 @@ async def stop_experiment(exp_id: uuid.UUID, db: DB, p: Admin, restore: bool = T
 
 @router.delete("/experiments/{exp_id}", status_code=204)
 async def delete_experiment(exp_id: uuid.UUID, db: DB, p: Admin, restore: bool = True) -> Response:
+    await lock_commissioning(db)
     e = await _experiment(db, exp_id)
     await _let_go(db, e, p, restore)
     await resolve_alert(db, f"experiment:{e.id}")

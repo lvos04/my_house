@@ -52,6 +52,7 @@ async def zone_view(db: AsyncSession, zone: ClimateZone, home: Home, now: dateti
 
     # One short, plain notice; "info" is neutral, "warn" needs attention.
     notice, level = None, None
+    control = zone.control
     if not linked:
         notice = (
             "Nog geen airco gekoppeld; alleen de sensorwaarden worden getoond. Koppel een airco via Apparaten."
@@ -59,6 +60,14 @@ async def zone_view(db: AsyncSession, zone: ClimateZone, home: Home, now: dateti
             else "Nog geen airco gekoppeld. Koppel een airco via Apparaten."
         )
         level = "info"
+    elif zone.last_decision == "oem_fallback:device_not_tested" and unit.compatibility != "tested":
+        notice, level = "OEM regelt zelf · dit apparaat is nog niet getest.", "warn"
+        if control == "schedule":
+            control = "oem_fallback"
+    elif zone.last_decision == "oem_fallback:policy_denied":
+        notice, level = "OEM regelt zelf · bediening is door het veiligheidsbeleid geblokkeerd.", "warn"
+        if control == "schedule":
+            control = "oem_fallback"
     elif not us.online:
         notice, level = "Airco niet bereikbaar. Gebruik zo nodig de afstandsbediening.", "warn"
     elif zone.control == "manual" and zone.override_source == "remote_control":
@@ -89,7 +98,7 @@ async def zone_view(db: AsyncSession, zone: ClimateZone, home: Home, now: dateti
         "fan": s.get("fan"),
         "temperature": _measurement(t, "°C", now, pol["stale_after_s"]),
         "humidity": _measurement(h, "%", now, pol["stale_after_s"]),
-        "control": zone.control,
+        "control": control,
         "profile": profile.name if profile else zone.profile,
         "profile_id": zone.profile_id,
         "override": {"until": zone.override_until, "source": zone.override_source}
