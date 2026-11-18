@@ -1198,6 +1198,7 @@ class RestoreReport:
     new_home_id: str | None = None
     archived_homes: list = field(default_factory=list)
     zigbee2mqtt_included: bool = False
+    interrupted_backups: list[str] = field(default_factory=list)
     # new_home: comfort profiles and schedules taken along as drafts (plan §8.5)
     drafts: dict | None = None
 
@@ -1213,8 +1214,23 @@ class RestoreReport:
             "new_home_id": self.new_home_id,
             "archived_homes": self.archived_homes,
             "zigbee2mqtt_included": self.zigbee2mqtt_included,
+            "interrupted_backups": self.interrupted_backups,
             "drafts": self.drafts,
         }
+
+
+async def restored_interrupted_backup_ids(db: AsyncSession) -> set[uuid.UUID]:
+    from .store import get_setting
+
+    report = await get_setting(db, "restore_report")
+    if not isinstance(report, dict) or not isinstance(report.get("interrupted_backups"), list):
+        return set()
+    ids = set()
+    for value in report["interrupted_backups"]:
+        if isinstance(value, str):
+            with contextlib.suppress(ValueError):
+                ids.add(uuid.UUID(value))
+    return ids
 
 
 def check_restorable(manifest: dict) -> str:
@@ -1539,13 +1555,9 @@ def _after_restore(conn, manifest: dict, mode: str, report: RestoreReport) -> No
         report.drafts = _copy_comfort_drafts(conn, [h.id for h in homes], new_id, new_zones)
         report.new_home_id = str(new_id)
     report.zigbee2mqtt_included = bool(manifest.get("zigbee2mqtt_included"))
-    conn.execute(
-        text(
-            "UPDATE backups SET status = 'failed', "
-            "detail = detail || jsonb_build_object('error', 'Niet afgerond op het moment van de back-up.') "
-            "WHERE status = 'running'"
-        )
-    )
+    report.interrupted_backups = [str(backup_id) for backup_id in conn.execute(
+        text("SELECT id FROM backups WHERE status = 'running' ORDER BY id"),
+    ).scalars()]
     # An automatic backup was running when this one was made (its own "running_since"): that attempt
     # belongs to the old server and is no interrupted backup here (worker/backup_job.py).
     conn.execute(

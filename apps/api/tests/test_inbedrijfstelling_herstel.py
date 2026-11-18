@@ -11,7 +11,7 @@ from sqlalchemy.pool import NullPool
 
 from shc_api import backup as bk
 from shc_api.commissioning import gate_state, read_gate
-from shc_api.models import Base
+from shc_api.models import BackupRecord, Base
 
 from .test_inbedrijfstelling_behoud import seed_and_bytes
 from .test_inbedrijfstelling_migratie import sql
@@ -177,6 +177,31 @@ async def test_herstel_in_lege_database_geeft_geen_dubbele_initialisatierij(tmp_
         value = (await sql(url, "SELECT value->'v' FROM settings WHERE key='commissioning_gate'"))[0][0]
         assert value["enabled"] is False
         assert value["restored"]["enabled_before"] is None
+
+
+async def test_oud_archief_bewaart_open_backuptaak_en_meldt_onderbreking(tmp_path):
+    async with temp_db() as url:
+        await seed_and_bytes(url, seed=True)
+        await write_gate(url, state(True))
+        engine = create_async_engine(url, poolclass=NullPool)
+        try:
+            async with AsyncSession(engine, expire_on_commit=False) as db:
+                task = BackupRecord(kind="export", filename="proefbestand", status="running", detail={"bron": "proef"})
+                db.add(task)
+                await db.commit()
+        finally:
+            await engine.dispose()
+        rows = await tables(url)
+        path = tmp_path / "audit-oude-backuptaak.shcbak"
+        path.write_bytes(make_v1(rows, bk.head_revision()))
+        assert bk.verify_file(path, PW).manifest["tables"]["backups"]["rows"] == 1
+        report = await bk.restore_file(path, PW, url=url)
+        after = await tables(url)
+        assert row_bytes(after) == row_bytes(rows)
+        assert report.as_dict()["interrupted_backups"] == [str(task.id)]
+        assert (await sql(url, "SELECT value->'v'->'interrupted_backups' FROM settings WHERE key='restore_report'")) == [
+            ([str(task.id)],),
+        ]
 
 
 async def test_gate_leest_verse_instelling_zonder_automatisch_te_schrijven():

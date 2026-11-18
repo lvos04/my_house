@@ -34,6 +34,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
+from ..backup import restored_interrupted_backup_ids
 from ..config import Settings, get_settings
 from ..db import sessionmaker
 from ..logfilter import fouttekst
@@ -427,10 +428,14 @@ class BackupMixin:
             return True
         started = started or datetime.now(UTC)
         async with sessionmaker()() as db:
+            interrupted = await restored_interrupted_backup_ids(db)
             rows = (
                 (
                     await db.execute(
-                        select(BackupRecord).where(BackupRecord.auto.is_(True), BackupRecord.status == "running")
+                        select(BackupRecord).where(
+                            BackupRecord.auto.is_(True), BackupRecord.status == "running",
+                            BackupRecord.id.not_in(interrupted),
+                        )
                     )
                 )
                 .scalars()

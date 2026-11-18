@@ -150,6 +150,23 @@ async def test_resultaat_van_voor_webherstel_overschrijft_geen_archiefrij(admin,
     assert len(adapter.calls) == 1
 
 
+async def test_herstelde_hue_opdracht_met_afwijkend_doel_blijft_dicht(admin, group_rig, tmp_path, monkeypatch):
+    monkeypatch.setattr(system, "MAINTENANCE_SETTLE_S", 0.0)
+    r = group_rig
+    async with sessionmaker()() as db:
+        cmd = CommandRecord(home_id=r.home, device_id=r.members[0], action="set_light", status="queued",
+                            params={"id": r.inv.L2, "on": True}, source="user", actor="proef")
+        db.add(cmd)
+        await db.commit()
+    path = await save_backup(admin, tmp_path, PW, "v2")
+    restored = await restore_backup(admin, tmp_path, path, PW, "web", "same_home")
+    assert (await restored.post("/system/safe-mode/release")).status_code == 200
+    await r.worker.process_commands({r.home})
+    assert not r.fake.calls
+    async with sessionmaker()() as db:
+        assert (await db.get(CommandRecord, cmd.id)).status == "denied"
+
+
 @pytest.mark.parametrize("entrance", ["web", "cli"])
 @pytest.mark.parametrize("format_number", ["v1-0004", "v1", "v2"])
 @pytest.mark.parametrize("condition", ["tested", "untested", "protected", "new_home"])

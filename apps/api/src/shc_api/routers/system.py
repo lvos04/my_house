@@ -132,9 +132,12 @@ async def release_safe_mode(db: DB, p: Admin) -> dict:
 # --- backups ------------------------------------------------------------------------------------
 
 
-def backup_view(b: BackupRecord) -> dict:
+def backup_view(b: BackupRecord, *, interrupted: bool = False) -> dict:
     v = bk.record_dict(b)
-    if b.status == "running" and b.created_at and datetime.now(UTC) - b.created_at > STALE_RUNNING:
+    if b.status == "running" and interrupted:
+        v["status"] = "failed"
+        v["error"] = "Niet afgerond op het moment van de back-up."
+    elif b.status == "running" and b.created_at and datetime.now(UTC) - b.created_at > STALE_RUNNING:
         v["status"] = "failed"
         v["error"] = "Back-up is niet afgerond (proces gestopt)."
     v["downloadable"] = v["status"] == "ok"
@@ -143,8 +146,9 @@ def backup_view(b: BackupRecord) -> dict:
 
 @router.get("/system/backups")
 async def backups(db: DB, p: WebAdmin) -> list[dict]:
+    interrupted = await bk.restored_interrupted_backup_ids(db)
     rows = (await db.execute(select(BackupRecord).order_by(BackupRecord.created_at.desc()).limit(100))).scalars()
-    return [backup_view(b) for b in rows]
+    return [backup_view(b, interrupted=b.id in interrupted) for b in rows]
 
 
 class BackupIn(BaseModel):
@@ -788,10 +792,12 @@ async def restore_apply(body: ApplyIn, db: DB, p: WebAdmin) -> dict:
         raise not_found("Upload")
     if any(j["state"] == "running" for j in _jobs.values()):
         raise api_error(409, "restore_running", "Er loopt al een herstel.")
+    interrupted = await bk.restored_interrupted_backup_ids(db)
     busy = (
         await db.execute(
             select(BackupRecord.id).where(
-                BackupRecord.status == "running", BackupRecord.created_at > datetime.now(UTC) - BACKUP_BLOCKS_RESTORE
+                BackupRecord.status == "running", BackupRecord.created_at > datetime.now(UTC) - BACKUP_BLOCKS_RESTORE,
+                BackupRecord.id.not_in(interrupted),
             )
         )
     ).first()
