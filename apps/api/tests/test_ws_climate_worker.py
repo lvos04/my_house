@@ -10,8 +10,10 @@ from sqlalchemy import func, select, update
 from shc_api.db import sessionmaker
 from shc_api.models import Alert, ClimateZone, CommandRecord, Device, SensorReading, ZoneLog
 from shc_api.store import ingest_reading
+from shc_api.worker import Worker
 
 from .conftest import Session
+from .ws_devices_support import add_integration, fetch
 
 
 @pytest.fixture(autouse=True)
@@ -127,8 +129,6 @@ class Rig:
 
 
 async def make_rig(admin, living=("off", 21.0), bedroom=("off", 21.0), sensor=False) -> Rig:
-    from shc_api.worker import Worker
-
     r = await admin.post("/homes", json={"name": f"Klimaattest {uuid.uuid4().hex[:6]}"})
     assert r.status_code == 200, r.text
     home_id = uuid.UUID(r.json()["id"])
@@ -184,6 +184,131 @@ async def sensor_value(rig: Rig, name: str, value: float, at: datetime | None = 
         at = at or datetime.now(UTC)
         await ingest_reading(db, rig.units[f"sensor:{name}"], "temperature", value, "°C", at)
         await db.commit()
+
+
+async def test_stale_sensor_alert_is_deduplicated_and_climate_recovers(admin):
+    from shc_integrations.base import Reading
+
+    name = "Woonkamer"
+    rig = await make_rig(admin, living=("heat", 20.0), sensor=True)
+    sensor_id = rig.units[f"sensor:{name}"]
+    integ = await add_integration(rig.home_id, "zigbee")
+    sensor = await fetch(Device, sensor_id)
+    await rig.schedule(name, 20, "heat")
+    await rig.set_zone(name, policy={"stale_after_s": 600}, correction_c=1.0)
+    key = f"stale:{sensor_id}"
+
+    async def alerts():
+        async with sessionmaker()() as db:
+            return (await db.scalars(select(Alert).where(Alert.key == key))).all()
+
+    await sensor_value(rig, name, 19.0)
+    await rig.w.sensor_round()
+    assert await alerts() == []
+
+    stale_at = datetime.now(UTC) - timedelta(minutes=20)
+    async with sessionmaker()() as db:
+        await db.execute(update(Device).where(Device.id == sensor_id).values(last_seen=stale_at))
+        await db.execute(update(SensorReading).where(SensorReading.device_id == sensor_id).values(observed_at=stale_at))
+        await db.commit()
+
+    await rig.w.sensor_round()
+    (alert,) = await alerts()
+    assert alert.home_id == rig.home_id and alert.resolved_at is None
+    await rig.w.sensor_round()
+    (repeated,) = await alerts()
+    assert repeated.id == alert.id and repeated.resolved_at is None
+
+    await rig.readback(name)
+    await rig.round()
+    zone = await rig.zone(name)
+    assert zone.control == "oem_fallback" and zone.correction_c == 0.0
+    assert await rig.commands(name) == []
+
+    await rig.w.handle_events(integ, [Reading(sensor.stable_identity, "temperature", 19.0, "°C", datetime.now(UTC))])
+    await rig.w.sensor_round()
+    (resolved,) = await alerts()
+    assert resolved.id == alert.id and resolved.resolved_at is not None
+    await rig.readback(name)
+    await rig.round()
+    zone = await rig.zone(name)
+    assert zone.control == "schedule" and zone.correction_c == 1.0
+    (correction,) = await rig.commands(name)
+    assert correction.params == {"mode": "heat", "target_c": 21.0}
+
+
+@pytest.mark.parametrize(
+    ("attempts", "age_s", "expired"),
+    [(0, 60, False), (0, 180, True), (1, 180, False), (1, 420, True)],
+    ids=["eerste-geldig", "eerste-verlopen", "retry-geldig", "retry-verlopen"],
+)
+async def test_command_ttl_is_checked_before_sending(admin, attempts, age_s, expired):
+    name = "Woonkamer"
+    rig = await make_rig(admin, living=("heat", 20.0))
+    response = await admin.post(f"/zones/{rig.zones[name]}/command", json={"target_c": 23})
+    assert response.status_code == 202, response.text
+    (command,) = await rig.commands(name)
+    now = datetime.now(UTC)
+    async with sessionmaker()() as db:
+        stored = await db.get(CommandRecord, command.id)
+        stored.attempts = attempts
+        stored.created_at = now - timedelta(seconds=age_s)
+        stored.updated_at = now - timedelta(seconds=1)
+        await db.commit()
+
+    await rig.run_commands()
+    (settled,) = await rig.commands(name)
+    assert settled.id == command.id and settled.attempts == attempts + 1
+    if expired:
+        assert settled.status == "failed" and settled.detail == "Commando te oud; niet meer uitgevoerd"
+        assert rig.fakes[name].calls == []
+    else:
+        assert settled.status == "confirmed"
+        assert rig.fakes[name].calls == [{"target_c": 23.0}]
+
+
+async def test_restart_fails_interrupted_command_without_sending_it_again(admin, monkeypatch):
+    name = "Woonkamer"
+    rig = await make_rig(admin, living=("heat", 20.0), bedroom=("heat", 20.0))
+    response = await admin.post(f"/zones/{rig.zones[name]}/command", json={"target_c": 23})
+    assert response.status_code == 202, response.text
+    (command,) = await rig.commands(name)
+    claimed = await rig.w._claim_next(rig.homes)
+    assert claimed and claimed[0] == command.id
+    now = datetime.now(UTC)
+    bedroom = rig.units["Slaapkamer"]
+    async with sessionmaker()() as db:
+        interrupted = await db.get(CommandRecord, command.id)
+        assert interrupted.status == "sending" and interrupted.attempts == 1
+        unit = await db.get(Device, interrupted.device_id)
+        status, _, _ = await rig.w._send_command(db, interrupted, unit)
+        assert status == "confirmed"
+        # Simuleer uitval tussen adapteraanroep en het boeken van de uitkomst.
+        interrupted.updated_at = now - timedelta(minutes=3)
+        young = CommandRecord(
+            home_id=rig.home_id, device_id=bedroom, action="set_hvac", params={"target_c": 22},
+            source="user", actor="test", status="sending", attempts=1, updated_at=now,
+        )
+        queued = CommandRecord(
+            home_id=rig.home_id, device_id=bedroom, action="set_hvac", params={"target_c": 24},
+            source="user", actor="test", updated_at=now,
+        )
+        db.add_all([young, queued])
+        await db.commit()
+
+    assert rig.fakes[name].calls == [{"target_c": 23.0}]
+    restarted = Worker()
+    fakes = {rig.units[zone]: fake for zone, fake in rig.fakes.items()}
+    monkeypatch.setattr(restarted, "_adapter_for", lambda dev: fakes[dev.id])
+    for _ in range(2):
+        await restarted.process_commands(rig.homes)
+        (recovered,) = await rig.commands(name)
+        assert recovered.id == command.id and recovered.attempts == 1
+        assert recovered.status == "failed" and recovered.detail == "Onderbroken (worker herstart); uitkomst onbekend"
+        assert rig.fakes[name].calls == [{"target_c": 23.0}]
+        assert (await fetch(CommandRecord, young.id)).status == "sending"
+        assert (await fetch(CommandRecord, queued.id)).status == "confirmed"
+        assert rig.fakes["Slaapkamer"].calls == [{"target_c": 24}]
 
 
 # --- item 14 / 42: two zones on one outdoor unit ----------------------------------------------
