@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { api } from '../api/client';
+import { api, isAccessDenied } from '../api/client';
 import { qk } from '../api/keys';
 import type { CommissioningState } from '../api/types';
 import { Loading } from '../components/bits';
@@ -11,13 +11,13 @@ import { dateTime } from '../format';
 import { LIGHT_ACTION_LABEL } from '../i18n';
 import { useCanAct } from '../state';
 import { useCan } from '../user';
-import { ConfirmationDialog, ConfirmDevice, useCommissioningChange } from './CommissioningActions';
+import { ConfirmationDialog, ConfirmDevice, useAdminRead, useCommissioningChange } from './CommissioningActions';
 import { commissioningText as text } from './commissioning-text';
 import { DeviceTestButton } from './DeviceTools';
 
 function Acknowledgement({ label, checked, setChecked }: { label: string; checked: boolean; setChecked: (value: boolean) => void }) {
   return (
-    <label className="flex min-h-11 items-center gap-3">
+    <label className="check-row">
       <input type="checkbox" checked={checked} onChange={(event) => setChecked(event.target.checked)} />
       <span>{label}</span>
     </label>
@@ -33,7 +33,8 @@ export function CommissioningPanel({ homeId }: { homeId: string }) {
 function AdminCommissioning({ homeId }: { homeId: string }) {
   const id = useId();
   const canAct = useCanAct();
-  const state = useQuery({ queryKey: qk.commissioning, queryFn: api.commissioning, enabled: canAct });
+  const readAdminData = useAdminRead();
+  const state = useQuery({ queryKey: qk.commissioning, queryFn: (ctx) => readAdminData(ctx.queryKey, api.commissioning), enabled: canAct });
   const { hash } = useLocation();
   const review = hash === '#teststatus-apparaten';
   const title = useRef<HTMLHeadingElement>(null);
@@ -47,6 +48,7 @@ function AdminCommissioning({ homeId }: { homeId: string }) {
   const mutation = useCommissioningChange(api.enableCommissioning);
   const data = state.data?.data;
   const current = canAct && state.isSuccess && !state.isFetching && !needsReload;
+  const canEnable = current && !!data?.gate.known && data.task_required;
 
   useEffect(() => {
     if (!state.isLoading) return;
@@ -79,10 +81,10 @@ function AdminCommissioning({ homeId }: { homeId: string }) {
         {state.isLoading && <Loading label={text(slow ? 'longWait' : 'loading')} />}
         {!canAct && <p className="note unknown">{text('offline')}</p>}
         {!data && !state.isLoading && <p className="m-0">{text('unknown')}</p>}
-        {state.isError && <p className="note error" role="alert">{text('fetchError')}</p>}
+        {state.isError && <p className="note error" role="alert">{isAccessDenied(state.error) ? state.error.message : text('fetchError')}</p>}
         {needsReload && <p className="note error" role="alert">{text('mutationError')}</p>}
         {data && (!canAct || state.isError) && (
-          <p className="note stale">{text('stale', { time: dateTime(new Date(state.dataUpdatedAt).toISOString()) })}</p>
+          <p className="note stale arcering border-dashed border-stale" role="status">{text('stale', { time: dateTime(new Date(state.dataUpdatedAt).toISOString()) })}</p>
         )}
         {(state.isError || needsReload) && <Button disabled={!canAct || state.isFetching} onClick={refresh}>{text('retry')}</Button>}
         {data && !data.gate.known && <p className="note unknown">{text('configUnknown')}</p>}
@@ -95,7 +97,7 @@ function AdminCommissioning({ homeId }: { homeId: string }) {
         {data?.gate.known && data.gate.enabled && data.gate.enabled_at && (
           <p className="m-0">{text('enabled', { time: dateTime(data.gate.enabled_at) })}</p>
         )}
-        {notice && <p role="status" className="m-0">{notice}</p>}
+        {data && notice && <p role="status" className="m-0">{notice}</p>}
         {data && (
           <div className="flex flex-wrap gap-3">
             {!review && <Button asChild><Link to="#teststatus-apparaten">{text('review')}</Link></Button>}
@@ -106,13 +108,13 @@ function AdminCommissioning({ homeId }: { homeId: string }) {
             )}
           </div>
         )}
-        {review && <CommissioningDevices homeId={homeId} current={current && !!data?.gate.known} />}
-        {enable && (
+        {data && review && <CommissioningDevices homeId={homeId} current={current && data.gate.known} />}
+        {data && enable && (
           <ConfirmationDialog title={text('enableTitle')} description={text('enableBody')}
             busy={mutation.isPending} returnFocus={enableButton.current} close={() => setEnable(null)}>
             <p className="m-0">{text('remaining', { count: enable.data.affected_count })}</p>
             <Acknowledgement label={text('enableCheck')} checked={checked} setChecked={setChecked} />
-            <Button variant="primair" disabled={!checked || !current || mutation.isPending}
+            <Button variant="primair" disabled={!checked || !canEnable || state.data?.etag !== enable.etag || mutation.isPending}
               onClick={() => mutation.mutate(enable.etag, {
                 onSuccess: async () => {
                   setEnable(null);
@@ -133,6 +135,7 @@ function AdminCommissioning({ homeId }: { homeId: string }) {
 
 function CommissioningDevices({ homeId, current }: { homeId: string; current: boolean }) {
   const canAct = useCanAct();
+  const readAdminData = useAdminRead();
   const headingId = useId();
   const bulkReasonId = useId();
   const section = useRef<HTMLElement>(null);
@@ -144,7 +147,7 @@ function CommissioningDevices({ homeId, current }: { homeId: string; current: bo
   const [notice, setNotice] = useState('');
   const list = useInfiniteQuery({
     queryKey: qk.commissioningDevices(homeId),
-    queryFn: ({ pageParam }) => api.commissioningDevices(homeId, pageParam),
+    queryFn: (ctx) => readAdminData(ctx.queryKey, () => api.commissioningDevices(homeId, ctx.pageParam)),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor,
     enabled: canAct,
@@ -157,7 +160,7 @@ function CommissioningDevices({ homeId, current }: { homeId: string; current: bo
   const drift = pages.some((page) => page.gate_etag !== etag);
   const available = current && list.isSuccess && !list.isFetching && !needsReload && !drift;
   const selection = devices.filter((device) => selected.includes(device.id) && device.bulk_confirmation_allowed);
-  const canConfirm = available && !!etag && selection.length > 0 && selection.length === selected.length;
+  const canConfirm = available && !mutation.isPending && !!etag && selection.length > 0 && selection.length === selected.length;
   return (
     <section ref={section} id="teststatus-apparaten" tabIndex={-1} aria-labelledby={headingId} className="grid min-w-0 gap-4">
       <h3 id={headingId} className="m-0">{text('listTitle')}</h3>
@@ -165,7 +168,7 @@ function CommissioningDevices({ homeId, current }: { homeId: string; current: bo
       {list.isFetching && !list.isLoading && <p role="status" className="m-0">{text('refreshing')}</p>}
       {(list.isError || needsReload || drift) && (
         <div className="stack">
-          <p className="note error" role="alert">{text(list.isError ? 'fetchError' : 'mutationError')}</p>
+          <p className="note error" role="alert">{isAccessDenied(list.error) ? list.error.message : text(list.isError ? 'fetchError' : 'mutationError')}</p>
           <Button disabled={!canAct || list.isFetching} onClick={async () => {
             const result = await list.refetch();
             if (result.isSuccess) {
@@ -179,53 +182,57 @@ function CommissioningDevices({ homeId, current }: { homeId: string; current: bo
       )}
       {list.isSuccess && !devices.length && <p>{text('empty')} <a href="#apparaat-toevoegen">{text('add')}</a></p>}
       {observed && <p className="small m-0">{text('source', { time: dateTime(observed) })} {text('historyHint')}</p>}
-      {notice && <p role="status" className="m-0">{notice}</p>}
+      {list.data && notice && <p role="status" className="m-0">{notice}</p>}
       {devices.length > 0 && (
         <fieldset className="m-0 grid min-w-0 gap-3 rounded-lg border border-solid border-[var(--border-strong)] p-3">
           <legend>{text('selection', { count: selected.length })}</legend>
-          <ul className="plain-list grid gap-3">
-            {devices.map((device) => (
-              <li key={device.id} className="grid min-w-0 gap-3 rounded-lg border border-solid border-[var(--border)] p-3 md:grid-cols-4">
-                <div className="min-w-0">
-                  <strong>{device.name}</strong>
-                  <p className="small m-0">{device.room_name ?? device.home_name}</p>
-                  {device.bulk_confirmation_allowed && (
-                    <label className="flex min-h-11 items-center gap-2">
-                      <input type="checkbox" checked={selected.includes(device.id)} disabled={!available || (!selected.includes(device.id) && selected.length >= 200)}
-                        onChange={(event) => {
-                          const checked = event.target.checked;
-                          setSelected((ids) => checked ? [...ids, device.id] : ids.filter((id) => id !== device.id));
-                        }} />
-                      <span>{text('select', { name: device.name })}</span>
-                    </label>
-                  )}
-                </div>
-                <div>
-                  <strong>{text('status')}</strong>
-                  <p className="m-0">{device.compatibility === 'tested' ? text('tested') :
-                    device.compatibility === 'unsupported' ? text('unsupported') :
-                    device.compatibility === 'untested' ? text('untested') : 'Onbekend'}</p>
-                  {device.blocked_when_enabled && !device.protected && device.compatibility === 'tested' && (
-                    <p className="small m-0">Een ongetest onderdeel blokkeert de bediening als de beveiliging aan staat.</p>
-                  )}
-                  {device.protected && <p className="small m-0">{text('protected')}</p>}
-                  {device.compatibility === 'unsupported' && <p className="small m-0">{text('unsupportedHelp')}</p>}
-                </div>
-                <div>
-                  <strong>{text('lastConfirmed')}</strong>
-                  <p className="m-0">{device.last_confirmed_command ? text('confirmedDetail', {
-                    action: LIGHT_ACTION_LABEL[device.last_confirmed_command.action] ?? 'Bedienopdracht',
-                    time: dateTime(device.last_confirmed_command.confirmed_at),
-                  }) : text('noneConfirmed')}</p>
-                </div>
-                <div className="grid min-w-0 content-start gap-2">
-                  <DeviceTestButton device={device} disabled={!available} named />
-                  <ConfirmDevice id={device.id} name={device.name} blocked={!available}
-                    eligible={device.confirmation_allowed} named />
-                </div>
-              </li>
-            ))}
-          </ul>
+          <table className="commissioning-table">
+            <caption className="sr-only">{text('listTitle')}</caption>
+            <thead><tr>
+              {['Apparaat', text('status'), text('lastConfirmed'), 'Acties'].map(label => <th key={label} scope="col">{label}</th>)}
+            </tr></thead>
+            <tbody>
+              {devices.map((device) => (
+                <tr key={device.id}>
+                  <th scope="row">
+                    <strong>{device.name}</strong>
+                    <p className="small m-0">{device.room_name ?? device.home_name}</p>
+                    {device.bulk_confirmation_allowed && (
+                      <label className="check-row">
+                        <input type="checkbox" aria-label={text('select', { name: device.name })} checked={selected.includes(device.id)} disabled={!available || (!selected.includes(device.id) && selected.length >= 200)}
+                          onChange={(event) => {
+                            const checked = event.target.checked;
+                            setSelected((ids) => checked ? [...ids, device.id] : ids.filter((id) => id !== device.id));
+                          }} />
+                        <span>Selecteren</span>
+                      </label>
+                    )}
+                  </th>
+                  <td><dl><dt className="md:sr-only">{text('status')}</dt><dd>
+                    <p className="m-0">{device.compatibility === 'tested' ? text('tested') :
+                      device.compatibility === 'unsupported' ? text('unsupported') :
+                      device.compatibility === 'untested' ? text('untested') : 'Onbekend'}</p>
+                    {device.blocked_when_enabled && !device.protected && device.compatibility === 'tested' && (
+                      <p className="small m-0">Een ongetest onderdeel blokkeert de bediening als de beveiliging aan staat.</p>
+                    )}
+                    {device.protected && <p className="small m-0">{text('protected')}</p>}
+                    {device.compatibility === 'unsupported' && <p className="small m-0">{text('unsupportedHelp')}</p>}
+                  </dd></dl></td>
+                  <td><dl><dt className="md:sr-only">{text('lastConfirmed')}</dt><dd>
+                    <p className="m-0">{device.last_confirmed_command ? text('confirmedDetail', {
+                      action: LIGHT_ACTION_LABEL[device.last_confirmed_command.action] ?? 'Bedienopdracht',
+                      time: dateTime(device.last_confirmed_command.confirmed_at),
+                    }) : text('noneConfirmed')}</p>
+                  </dd></dl></td>
+                  <td><div className="grid min-w-0 content-start gap-2">
+                    <DeviceTestButton device={device} disabled={!available} named />
+                    <ConfirmDevice id={device.id} name={device.name} blocked={!available}
+                      eligible={device.confirmation_allowed} named />
+                  </div></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
           {list.hasNextPage && <Button disabled={!canAct || list.isFetching} onClick={() => list.fetchNextPage()}>{text('more')}</Button>}
           <div className="stack tight">
             <Button aria-disabled={!canConfirm} aria-describedby={!canConfirm ? bulkReasonId : undefined}
@@ -238,11 +245,11 @@ function CommissioningDevices({ homeId, current }: { homeId: string; current: bo
           </div>
         </fieldset>
       )}
-      {bulk && (
+      {list.data && bulk && (
         <ConfirmationDialog title={text('bulkTitle')} description={text('markBody')} busy={mutation.isPending} close={() => setBulk(null)}>
           <ul className="m-0 ps-5">{bulk.names.map((name, index) => <li key={bulk.ids[index]}>{name}</li>)}</ul>
           <Acknowledgement label={text('bulkCheck')} checked={checked} setChecked={setChecked} />
-          <Button variant="primair" disabled={!checked || !available || mutation.isPending}
+          <Button variant="primair" disabled={!checked || !canConfirm || bulk.etag !== etag}
             onClick={() => mutation.mutate(bulk, {
               onSuccess: () => {
                 setNotice(text('marked', { count: bulk.ids.length }));

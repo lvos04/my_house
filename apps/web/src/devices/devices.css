@@ -31,3 +31,18 @@ details.dv-cat > summary { min-height: 44px; }
 .dv-role-cap { flex-basis: 100%; margin-bottom: -4px; }
 .dv-role-form .field, .dv-inline-form .field { min-width: 0; }
 .dv-role-form select, .dv-inline-form select { width: 100%; min-width: 0; max-width: 100%; text-overflow: ellipsis; }
+
+/* Eén set rijacties behoudt dialoog, selectie en focus als de schermbreedte verandert. */
+.commissioning-table { table-layout: fixed; overflow-wrap: anywhere; }
+.commissioning-table thead { background-color: var(--surface-2); }
+.commissioning-table th[scope="row"] { border-top: 1px solid var(--border); }
+.commissioning-table dl, .commissioning-table dd { margin: 0; }
+.commissioning-table .btn { max-width: 100%; box-sizing: border-box; }
+
+@media (max-width: 767.98px) {
+  .commissioning-table, .commissioning-table tbody { display: grid; gap: 12px; }
+  .commissioning-table thead { display: none; }
+  .commissioning-table tr { display: grid; gap: 12px; min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
+  .commissioning-table td, .commissioning-table th[scope="row"] { padding: 0; border: 0; }
+  .commissioning-table dt { font-weight: 600; }
+}

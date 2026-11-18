@@ -58,26 +58,26 @@ test('eerste start: beheerder, woning, thuisadres en installatiewizard', async (
   // The server's checks (mDNS takes a moment); the address set above counts as done.
   await expect(wizard.getByTestId('check-lan_url').locator('.state-line')).toHaveClass(/\bok\b/, { timeout: 20_000 });
   await expect(wizard.getByTestId('check-home').locator('.state-line')).toHaveClass(/\bok\b/);
-  await wizard.getByRole('button', { name: 'Volgende', exact: true }).click();
+  await wizard.getByRole('button', { name: 'Volgende: Woning', exact: true }).click();
 
   const homeStep = page.getByRole('region', { name: 'Woning' });
   await expect(homeStep.getByText(`Je woning: ${HOME_NAME} (Europe/Amsterdam). Je kunt doorgaan.`)).toBeVisible();
-  await homeStep.getByRole('button', { name: 'Volgende', exact: true }).click();
+  await homeStep.getByRole('button', { name: 'Volgende: Adressen', exact: true }).click();
 
   const addrStep = page.getByRole('region', { name: 'Adressen' }).first();
   await expect(addrStep.getByLabel('Thuisadres')).toHaveValue(LAN_URL);
-  await addrStep.getByRole('button', { name: 'Volgende', exact: true }).click();
+  await addrStep.getByRole('button', { name: 'Volgende: Meters uitlezen', exact: true }).click();
 
   const meters = page.getByRole('region', { name: 'Meters uitlezen' });
   await expect(meters.getByText('Stap 4 van 10 · optioneel')).toBeVisible();
-  await meters.getByRole('button', { name: 'Volgende (of overslaan)' }).click();
+  await meters.getByRole('button', { name: 'Volgende: Hue uitlezen', exact: true }).click();
 
   const hue = page.getByRole('region', { name: 'Hue uitlezen' });
   await expect(hue.getByText('Stap 5 van 10 · optioneel')).toBeVisible();
-  await hue.getByRole('button', { name: 'Volgende (of overslaan)' }).click();
+  await hue.getByRole('button', { name: 'Volgende: Hue testen en bevestigen', exact: true }).click();
   const hueTest = page.getByRole('region', { name: 'Hue testen en bevestigen' });
   await expect(hueTest.getByText('Geen Hue-lampen gekoppeld. Ga terug naar Hue uitlezen.')).toBeVisible();
-  await hueTest.getByRole('button', { name: 'Volgende (of overslaan)' }).click();
+  await hueTest.getByRole('button', { name: 'Volgende: Gree controleren', exact: true }).click();
 
   const gree = page.getByRole('region', { name: 'Gree controleren' });
   await expect(gree.getByText(/wacht nog op een echte controle/)).toBeVisible();

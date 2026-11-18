@@ -43,6 +43,9 @@ export function isTransientError(err: unknown): boolean {
 export function isApiError(err: unknown, code?: string): err is ApiError {
   return err instanceof ApiError && (code === undefined || err.code === code);
 }
+export function isAccessDenied(error: unknown): error is ApiError {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
 /** Dutch message for any error, for display. */
 export function errorMessage(err: unknown): string {
   if (err instanceof Error && err.message) return err.message;
@@ -194,7 +197,9 @@ function retryAfterOf(h: Headers | null | undefined): number | null {
 const NOT_SERVING = new Set(['api_unavailable', 'database_newer']);
 
 function errorFrom(status: number, data: unknown, path: string, retryAfter: number | null): ApiError {
-  const d = (data as T.ApiErrorBody | undefined)?.detail;
+  const envelope = data as Partial<T.ApiErrorBody & T.ApiErrorDetail> | null;
+  const d = envelope?.detail ?? (typeof envelope?.code === 'string' && typeof envelope.message === 'string'
+    ? { code: envelope.code, message: envelope.message } : undefined);
   const detail: T.ApiErrorDetail =
     d && typeof d === 'object' ? d : { code: 'error', message: typeof d === 'string' ? d : `Fout ${status}` };
   const err = new ApiError(status, detail.code ?? 'error', detail.message ?? `Fout ${status}`, detail);
@@ -207,7 +212,7 @@ function errorFrom(status: number, data: unknown, path: string, retryAfter: numb
 }
 
 async function requestWithHeaders<R>(
-  method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>,
+  method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>, signal?: AbortSignal,
 ): Promise<{ data: R; headers: Headers }> {
   const headers: Record<string, string> = { Accept: 'application/json', ...extraHeaders };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -220,6 +225,7 @@ async function requestWithHeaders<R>(
     res = await fetch(API_BASE + path, {
       method,
       headers,
+      signal,
       credentials: 'same-origin',
       // A Cloudflare Access login redirect must be seen, not followed cross-origin (that fails as a
       // CORS error and looked like "server niet bereikbaar" forever).
@@ -228,6 +234,7 @@ async function requestWithHeaders<R>(
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
+    if (signal?.aborted) throw new NetworkError('De server heeft niet op tijd geantwoord.');
     emitConnectionEvent({ type: 'unreachable' });
     throw new NetworkError();
   }
@@ -260,8 +267,18 @@ export async function request<R>(method: string, path: string, body?: unknown): 
   return (await requestWithHeaders<R>(method, path, body)).data;
 }
 
+async function commissioningRequest<R>(method: string, path: string, body?: unknown, headers?: Record<string, string>) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 15_000);
+  try {
+    return await requestWithHeaders<R>(method, path, body, headers, controller.signal);
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 async function commissioningPreview<R>(path: string) {
-  const { data, headers } = await requestWithHeaders<R>('GET', path);
+  const { data, headers } = await commissioningRequest<R>('GET', path);
   const etag = headers.get('ETag');
   if (!etag) throw new Error('De server gaf geen versie voor deze bevestiging.');
   return { data, etag };
@@ -274,7 +291,7 @@ async function confirmCommissioning(path: string, etag: string, extra: Record<st
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
   const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
   const key = [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
-  return requestWithHeaders('POST', path, { ...extra, confirmed: true }, { 'If-Match': etag, 'Idempotency-Key': key });
+  return commissioningRequest('POST', path, { ...extra, confirmed: true }, { 'If-Match': etag, 'Idempotency-Key': key });
 }
 
 /* ---------- upload with progress (restore) ---------- */
@@ -518,12 +535,12 @@ export const api = {
   /** Read-only check, never switches anything. */
   testDevice: (id: string) => post<T.DeviceTest>(`/devices/${id}/test`),
   commissioning: () => commissioningPreview<T.CommissioningState>('/commissioning'),
-  commissioningDevices: (homeId: string, cursor: string | null) =>
-    get<T.CommissioningDevicePage>(`/commissioning/devices${query({ home_id: homeId, cursor })}`),
+  commissioningDevices: async (homeId: string, cursor: string | null) =>
+    (await commissioningRequest<T.CommissioningDevicePage>('GET', `/commissioning/devices${query({ home_id: homeId, cursor })}`)).data,
   commissioningDevice: (id: string) =>
     commissioningPreview<T.CommissioningDevice>(`/commissioning/devices/${enc(id)}`),
-  commissioningHistory: (id: string, cursor: number | null) =>
-    get<T.CommissioningHistoryPage>(`/commissioning/devices/${enc(id)}/history${query({ cursor })}`),
+  commissioningHistory: async (id: string, cursor: number | null) =>
+    (await commissioningRequest<T.CommissioningHistoryPage>('GET', `/commissioning/devices/${enc(id)}/history${query({ cursor })}`)).data,
   confirmDeviceTest: (id: string, etag: string, note: string) =>
     confirmCommissioning(`/commissioning/devices/${enc(id)}/confirm`, etag, note ? { note } : {}),
   confirmDeviceTests: (ids: string[], etag: string) =>

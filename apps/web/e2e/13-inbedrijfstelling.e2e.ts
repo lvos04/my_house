@@ -6,7 +6,8 @@ test('beheerder ziet gevolg en houdt focus in de inschakeldialoog op smalle en b
   const stamp = '2026-11-18T10:00:00Z';
   let writes = 0;
   let enabled = false;
-  await page.route(path, (route) => route.fulfill({
+  let readFailed = false;
+  await page.route(path, (route) => readFailed ? route.fulfill({ status: 503, json: { code: 'dependency_unavailable', message: 'Tijdelijk onbeschikbaar' } }) : route.fulfill({
     headers: { etag: '"proefstand"' },
     json: {
       gate: { known: true, enabled, enabled_at: enabled ? stamp : null },
@@ -46,13 +47,25 @@ test('beheerder ziet gevolg en houdt focus in de inschakeldialoog op smalle en b
       await page.setViewportSize({ width, height: 800 });
       await page.goto('/apparaten#teststatus-apparaten');
       await expect(review.getByText('Lamp instellen', { exact: false })).toBeVisible();
-      await expect(review.getByRole('checkbox')).not.toBeChecked();
+      const selection = review.getByRole('checkbox');
+      await expect(selection).not.toBeChecked();
+      await expect(selection).toHaveCSS('width', '20px');
+      await expect(selection).toHaveCSS('height', '20px');
+      const row = review.locator('tbody tr').first();
+      const action = row.getByRole('button', { name: /Getest bevestigen: Een proeflamp/ });
+      await expect(action).toHaveText('Getest bevestigen');
+      if (width >= 768) {
+        await expect(review.getByRole('columnheader', { name: 'Laatste bevestigde bediening' })).toBeVisible();
+      } else {
+        await expect(row.locator('dt').filter({ hasText: 'Laatste bevestigde bediening' })).toBeVisible();
+      }
       await opener.click();
       await expect(dialog.getByText(/2 apparaten/)).toBeVisible();
       await expect(dialog.getByRole('button', { name: 'Annuleren' })).toBeFocused();
       await expect(dialog.getByRole('button', { name: 'Beveiliging inschakelen' })).toBeDisabled();
       await page.keyboard.press('Tab');
       await expect(dialog.getByRole('checkbox')).toBeFocused();
+      await expect(dialog.getByRole('checkbox')).toHaveCSS('width', '20px');
       await page.keyboard.press('Shift+Tab');
       await expect(dialog.getByRole('button', { name: 'Annuleren' })).toBeFocused();
       await axe(page, `inschakeldialoog ${colorScheme}, ${width} px`);
@@ -68,6 +81,15 @@ test('beheerder ziet gevolg en houdt focus in de inschakeldialoog op smalle en b
   }
   expect(writes).toBe(0);
 
+  readFailed = true;
+  await opener.click();
+  const stale = page.getByRole('status').filter({ hasText: 'Verouderd · laatst bekende stand van' });
+  await expect(stale).toHaveCSS('border-top-style', 'dashed');
+  await expect(stale).toHaveCSS('background-image', /repeating-linear-gradient/);
+  await expect(opener).toBeDisabled();
+  readFailed = false;
+  await page.getByRole('button', { name: 'Opnieuw proberen' }).click();
+  await expect(stale).toHaveCount(0);
   await opener.click();
   await dialog.getByRole('checkbox').check();
   await dialog.getByRole('button', { name: 'Beveiliging inschakelen' }).click();
@@ -84,4 +106,31 @@ test('beheerder ziet gevolg en houdt focus in de inschakeldialoog op smalle en b
   await page.reload();
   await expect(page.getByText(/Beveiliging voor ongeteste apparaten staat aan sinds/)).toBeVisible();
   expect(writes).toBe(2);
+});
+
+test('wizard toont de actieve stap zonder uitloop en benoemt de voorwaarde voor Gree', async ({ adminPage: page }) => {
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    await page.setViewportSize({ width: 320, height: 800 });
+    await page.goto('/installatie');
+    const nav = page.getByRole('navigation', { name: 'Stappen van de installatie' });
+    const hue = nav.getByRole('button', { name: 'Hue testen en bevestigen' });
+    await hue.focus();
+    await page.keyboard.press('Enter');
+    const next = page.getByRole('button', { name: 'Volgende: Gree controleren' });
+    await next.click();
+    await expect(page.getByRole('heading', { name: 'Gree controleren' })).toBeFocused();
+    const gate = page.getByRole('status').filter({ hasText: 'Gree-bediening wacht' });
+    await expect(gate).toHaveClass(/melding-gate/);
+    await expect(gate.locator('svg')).toBeVisible();
+    await page.addStyleTag({ content: '* { letter-spacing: .12em; word-spacing: .16em; }' });
+    for (const width of [320, 360, 390, 768, 1024, 1440]) {
+      await page.setViewportSize({ width, height: 800 });
+      expect(await nav.evaluate(el => el.scrollWidth - el.clientWidth)).toBe(0);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+      const current = nav.locator('button[aria-current="step"]');
+      await current.scrollIntoViewIfNeeded();
+      await expect(current).toBeInViewport({ ratio: 1 });
+    }
+  }
 });

@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { qk } from '../api/keys';
@@ -18,7 +18,7 @@ export function TestResult({ result }: { result: DeviceTest }) {
   const readings = Object.entries(result.readings ?? {});
   return (
     <div className={`note ${result.ok ? 'ok' : 'error'} stack tight dv-test`} data-testid="device-test">
-      <strong>{result.ok ? 'Test geslaagd' : 'Test vond een probleem'} · {dateTime(result.checked_at)}</strong>
+      <strong>{result.ok ? text('readOk') : 'Test vond een probleem'} · {dateTime(result.checked_at)}</strong>
       <ul className="plain-list stack tight">
         {result.checks.map((c) => (
           <li key={c.key}>
@@ -40,8 +40,8 @@ export function TestResult({ result }: { result: DeviceTest }) {
 }
 
 /** Read-only test of one device (never switches anything). */
-export function DeviceTestButton({ device, disabled, named = false }: {
-  device: Pick<Device, 'id' | 'name'>; disabled?: boolean; named?: boolean;
+export function DeviceTestButton({ device, disabled, named = false, children }: {
+  device: Pick<Device, 'id' | 'name'>; disabled?: boolean; named?: boolean; children?: (readOk: boolean) => ReactNode;
 }) {
   const hint = useId();
   const test = useMutation({ mutationFn: () => api.testDevice(device.id), networkMode: 'always', retry: false });
@@ -56,6 +56,7 @@ export function DeviceTestButton({ device, disabled, named = false }: {
       </div>
       {test.data && <TestResult result={test.data} />}
       {test.error && <ErrorNote error={test.error} />}
+      {children?.(test.isSuccess && test.data.ok === true && test.data.device_id === device.id)}
     </div>
   );
 }

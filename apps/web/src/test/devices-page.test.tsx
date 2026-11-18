@@ -151,7 +151,8 @@ describe('device tools (item 29, 43)', () => {
     const calls = mockApi(route((m, url) => {
       if (url.endsWith('/devices/s1/test'))
         return { body: { device_id: 's1', ok: false, checked_at: new Date().toISOString(), checks: [{ key: 'seen', label: 'Laatste bericht', state: 'ok', detail: 'Laatste bericht zojuist' }, { key: 'connection', label: 'Verbinding', state: 'error', detail: 'Sleutel past niet, koppel opnieuw.', code: 'key_mismatch' }], readings: { temperature: { value: 20.4, unit: '°C', quality: 'measured', at: new Date().toISOString(), raw: null } }, note: 'Er is niets geschakeld; alleen uitgelezen.' } };
-      if (url.endsWith('/commissioning/devices/s1')) return { headers: { etag: '"sensor"' }, body: { confirmation_allowed: true } };
+      if (url.endsWith('/commissioning')) return { headers: { etag: '"gate"' }, body: { gate: { known: true } } };
+      if (url.endsWith('/commissioning/devices/s1')) return { headers: { etag: '"sensor"' }, body: { ...sensor, confirmation_allowed: true } };
       if (url.endsWith('/commissioning/devices/s1/confirm')) return { body: { ...sensor, compatibility: 'tested', tested_at: '2026-11-09T10:00:00Z' } };
       if (url.endsWith('/devices/s1/diagnostics')) return { body: { diagnostics: { device: { id: 's1' } }, text: '{\n  "device": {\n    "id": "s1"\n  }\n}' } };
       if (url.endsWith('/devices/s1/replace')) return { body: { old: sensor, new: sensor2, moved: { roles: [], zones: 1, mappings: 0 } } };
@@ -173,6 +174,7 @@ describe('device tools (item 29, 43)', () => {
 
     await user.click(within(card).getByRole('button', { name: 'Getest bevestigen' }));
     const confirmation = within(screen.getByRole('alertdialog'));
+    await waitFor(() => expect(confirmation.getByRole('textbox')).toBeEnabled());
     await user.type(confirmation.getByLabelText('Opmerking bij de test (optioneel)'), 'meet goed');
     expect(calls.some((c) => c.url.endsWith('/devices/s1/confirm'))).toBe(false);
     await user.click(confirmation.getByRole('button', { name: 'Als getest markeren' }));

@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '../api/client';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
+import { api, isAccessDenied } from '../api/client';
+import type { CommissioningDevice } from '../api/types';
 import { qk } from '../api/keys';
 import { ErrorNote, Loading } from '../components/bits';
 import { Button } from '../components/ui/button';
@@ -8,6 +9,21 @@ import { dateTime } from '../format';
 import { useCanAct } from '../state';
 import { useCan } from '../user';
 import { commissioningText as text } from './commissioning-text';
+
+// Bij een ingetrokken leesrecht is ook de laatst bekende stand niet meer beschikbaar.
+export function useAdminRead() {
+  const client = useQueryClient();
+  return async function readAdminData<T>(key: QueryKey, read: () => Promise<T>) {
+    try {
+      return await read();
+    } catch (error) {
+      if (isAccessDenied(error)) {
+        client.setQueryData(key, null);
+      }
+      throw error;
+    }
+  };
+}
 
 export function ConfirmationDialog({ title, description, close, busy, returnFocus, children }: {
   title: string;
@@ -33,11 +49,12 @@ export function ConfirmationDialog({ title, description, close, busy, returnFocu
   return (
     <dialog ref={dialog} role="alertdialog" aria-labelledby={id} aria-describedby={id + '-body'}
       className="card box-border max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-auto backdrop:bg-black/60"
-      onCancel={(event) => { event.preventDefault(); if (!busy) close(); }}>
+      aria-busy={busy} onCancel={(event) => { event.preventDefault(); close(); }}>
       <div className="grid gap-4 break-words">
         <h2 id={id} className="m-0 text-lg">{title}</h2>
         <p id={id + '-body'} className="m-0">{description}</p>
-        <Button ref={cancel} className="justify-self-start" onClick={close} disabled={busy}>{text('cancel')}</Button>
+        {busy && <p role="status" className="m-0">{text('submitted')}</p>}
+        <Button ref={cancel} className="justify-self-start" onClick={close}>{busy ? text('close') : text('cancel')}</Button>
         {children}
       </div>
     </dialog>
@@ -50,15 +67,12 @@ export function useCommissioningChange<T>(mutationFn: (value: T) => Promise<unkn
     mutationFn,
     retry: false,
     networkMode: 'always',
-    onSuccess: () => Promise.all([
-      client.invalidateQueries({ queryKey: qk.commissioning }),
-      client.invalidateQueries({ queryKey: ['devices'] }),
-      client.invalidateQueries({ queryKey: qk.compatibility }),
-      client.invalidateQueries({ queryKey: ['zones'] }),
-      client.invalidateQueries({ queryKey: ['zone'] }),
-      client.invalidateQueries({ queryKey: ['overview'] }),
-      client.invalidateQueries({ queryKey: ['lights'] }),
-    ]),
+    onSuccess: () => {
+      for (const queryKey of [['devices'], qk.compatibility, ['zones'], ['zone'], ['overview'], ['lights']]) {
+        void client.invalidateQueries({ queryKey });
+      }
+      return client.invalidateQueries({ queryKey: qk.commissioning });
+    },
   });
 }
 
@@ -66,65 +80,97 @@ export function ConfirmDevice({ id, name, blocked = false, eligible = true, name
   id: string; name: string; blocked?: boolean; eligible?: boolean; named?: boolean;
 }) {
   const { admin } = useCan();
+  const readAdminData = useAdminRead();
   const canAct = useCanAct();
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState('');
+  const [snapshot, setSnapshot] = useState<{ data: CommissioningDevice; etag: string } | null>(null);
+  const gate = useQuery({
+    queryKey: qk.commissioning,
+    queryFn: (ctx) => readAdminData(ctx.queryKey, api.commissioning),
+    enabled: admin && open && canAct,
+    staleTime: 0,
+  });
   const preview = useQuery({
     queryKey: [...qk.commissioning, 'device', id],
-    queryFn: () => api.commissioningDevice(id),
+    queryFn: (ctx) => readAdminData(ctx.queryKey, () => api.commissioningDevice(id)),
     enabled: admin && open && canAct,
+    staleTime: 0,
   });
-  const confirm = useCommissioningChange(({ etag, note }: { etag: string; note: string }) =>
-    api.confirmDeviceTest(id, etag, note),
+  const confirm = useCommissioningChange(({ deviceId, etag, note }: { deviceId: string; etag: string; note: string }) =>
+    api.confirmDeviceTest(deviceId, etag, note),
   );
+  useEffect(() => {
+    if (open && !snapshot && preview.isSuccess && !preview.isFetching && preview.data?.data.id === id) {
+      setSnapshot(preview.data);
+    }
+  }, [open, snapshot, id, preview.isSuccess, preview.isFetching, preview.data]);
+  const gateKnown = gate.isSuccess && gate.data?.data.gate?.known === true;
+  const visible = gate.data && preview.data && snapshot?.data.id === id ? snapshot : null;
+  const changed = !!visible && (visible.etag !== preview.data?.etag || visible.data.id !== preview.data.data.id ||
+    visible.data.name !== preview.data.data.name);
+  const ready = admin && canAct && gateKnown && !gate.isFetching && eligible && !blocked && preview.isSuccess && !preview.isFetching &&
+    !!visible && !changed && preview.data.data.confirmation_allowed === true && !confirm.isPending && !confirm.isError;
+  async function refresh() {
+    const result = await preview.refetch();
+    if (result.isSuccess && result.data?.data.id === id) {
+      setSnapshot(result.data);
+      setNote('');
+      confirm.reset();
+    }
+  }
   if (!admin) return null;
   return (
     <>
-      {eligible && <Button disabled={!canAct || blocked} onClick={() => { setNote(''); confirm.reset(); setOpen(true); }}>
-        {named ? text('markNamed', { name }) : text('mark')}
+      {eligible && <Button disabled={!canAct || blocked || confirm.isPending} aria-label={named ? text('markNamed', { name }) : undefined}
+        onClick={() => { setNote(''); setSnapshot(null); confirm.reset(); setOpen(true); }}>
+        {text('mark')}
       </Button>}
       {open && (
-        <ConfirmationDialog title={text('markTitle', { name })} description={text('markBody')}
+        <ConfirmationDialog title={visible ? text('markTitle', { name: visible.data.name }) : text('mark')} description={text('markBody')}
           busy={confirm.isPending} close={() => setOpen(false)}>
           {!canAct && <p className="note unknown">{text('offline')}</p>}
+          {gate.isSuccess && !gateKnown && <p className="note unknown">{text('unknown')}</p>}
+          {gate.isError && <ErrorNote error={gate.error} />}
           {preview.isFetching && <Loading label={text('loading')} />}
           {preview.isError && <ErrorNote error={preview.error} />}
-          {confirm.isError && (
+          {visible?.data.compatibility === 'tested' && (
+            <p role="status">{text('tested')}{visible.data.tested_at && ` · ${dateTime(visible.data.tested_at)}`}</p>
+          )}
+          {visible?.data.protected && <p>{text('protected')}</p>}
+          {(confirm.isError || changed) && (
             <div className="stack">
-              <p role="alert" className="note error">{text('mutationError')}</p>
-              <Button disabled={!canAct || preview.isFetching} onClick={async () => {
-                const refreshed = await preview.refetch();
-                if (refreshed.isSuccess) { setNote(''); confirm.reset(); }
-              }}>{text('retry')}</Button>
+              <p role="alert" className="note warn">{changed ? 'De apparaatgegevens zijn gewijzigd. Haal de nieuwe stand op en controleer die opnieuw.' : text('mutationError')}</p>
+              <Button disabled={!canAct || blocked || !eligible || preview.isFetching} onClick={refresh}>{text('retry')}</Button>
             </div>
           )}
-          {preview.isSuccess && !preview.data.data.confirmation_allowed && (
+          {preview.isSuccess && preview.data && !preview.data.data.confirmation_allowed && (
             <p role="status">Dit apparaat komt volgens de actuele teststatus niet in aanmerking voor bevestiging.</p>
           )}
           <label className="field">
             {text('note')}
-            <input value={note} maxLength={500} onChange={(event) => setNote(event.target.value)} disabled={confirm.isPending} />
+            <input value={visible ? note : ''} maxLength={500} onChange={(event) => setNote(event.target.value)} disabled={!ready} />
           </label>
-          <Button variant="primair" disabled={!canAct || confirm.isPending || confirm.isError || preview.isFetching ||
-            !preview.isSuccess || !preview.data.data.confirmation_allowed}
+          <Button variant="primair" disabled={!ready}
             onClick={() => {
-              if (preview.data) confirm.mutate({ etag: preview.data.etag, note: note.trim() }, { onSuccess: () => setOpen(false) });
+              if (ready && visible) confirm.mutate({ deviceId: visible.data.id, etag: visible.etag, note: note.trim() }, { onSuccess: () => setOpen(false) });
             }}>
             {confirm.isPending ? text('markBusy') : text('markSubmit')}
           </Button>
         </ConfirmationDialog>
       )}
-      {confirm.isSuccess && <p role="status">{name} is als getest vastgelegd.</p>}
+      {confirm.isSuccess && visible && <p role="status">{visible.data.name} is als getest vastgelegd.</p>}
     </>
   );
 }
 
 export function TestHistory({ id, name }: { id: string; name: string }) {
   const { admin } = useCan();
+  const readAdminData = useAdminRead();
   const [open, setOpen] = useState(false);
   const history = useInfiniteQuery({
     queryKey: qk.commissioningHistory(id),
-    queryFn: ({ pageParam }) => api.commissioningHistory(id, pageParam),
+    queryFn: (ctx) => readAdminData(ctx.queryKey, () => api.commissioningHistory(id, ctx.pageParam)),
     initialPageParam: null as number | null,
     getNextPageParam: (page) => page.next_cursor,
     enabled: admin && open,

@@ -287,7 +287,7 @@ describe('installation wizard (item 43)', () => {
     expect(await screen.findByText('Maak eerst een woning aan (naam en tijdzone).')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Controles vooraf/ })).toHaveAttribute('aria-current', 'step');
     const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Volgende' }));
+    await user.click(screen.getByRole('button', { name: 'Volgende: Woning' }));
     expect(JSON.parse(localStorage.getItem(INSTALL_KEY)!)).toEqual({ step: 'woning', done: ['controle'], version: 2 });
     await user.click(screen.getByRole('button', { name: /Gree controleren/ }));
     expect(await screen.findByText(/wacht nog op een echte controle/)).toBeVisible();
@@ -320,7 +320,7 @@ describe('installation wizard (item 43)', () => {
   });
 
   it('restores saved progress', async () => {
-    localStorage.setItem(INSTALL_KEY, JSON.stringify({ step: 'klaar', done: ['controle', 'woning'] }));
+    localStorage.setItem('shc.install', JSON.stringify({ step: 'klaar', done: ['controle', 'woning'] }));
     mockApi(() => undefined);
     render(<Providers route="/installatie"><InstallPage /></Providers>);
     expect(screen.getByRole('heading', { level: 2, name: 'Klaar' })).toBeInTheDocument();

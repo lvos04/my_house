@@ -96,7 +96,7 @@ export function GroupCard({ group, scenes, control }: { group: LightGroup; scene
           {cmd.text}
         </div>
       )}
-      {send.error && <ErrorNote error={send.error} />}
+      {send.error && <ErrorNote error={send.error} lightGroup={group.name} />}
     </article>
   );
 }

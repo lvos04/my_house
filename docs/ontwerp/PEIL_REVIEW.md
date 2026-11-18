@@ -590,3 +590,19 @@ ontwerpreview (`dcbe73d`). Daarna kwam er bij:
   kiest alleen de eerste vinger een uur (`isPrimary`) en komt na knijpen de keuze van daarvoor terug (ADR-0013
   punt 4). Alleen gedrag bij aanraken; de afdrukken hierboven gelden nog. Stand daarna: vitest **337** (43 in
   `history-chart.test.tsx`), browsertests **36 van 36** (10 in flow `12-grafiek-24-uur`), met Noto Sans.
+
+## S-P3-710 deel b · inbedrijfstelling · 18 november 2026
+
+R-ONTWERP beoordeelde de beheerderstaak, apparaatlijst, drie bevestigingsdialogen, historie, vier wizardstappen en de bedienweigering op `098732a`. De herstelronde herhaalde de browserproeven op een lokale API met een eigen testdatabase. De matrix omvatte 20 toestanden in licht en donker, op 320, 360, 390, 768, 1024 en 1440 CSS-pixels. Op smalle schermen zijn ook het lettertype en de tekstafstand gevarieerd.
+
+| Onderdeel | Bevinding op de beoordeelde versie | Herstel |
+|---|---|---|
+| Stappenbalk C-36 | Bij Gree op 320 px viel de actieve stap buiten beeld. De balk liep in beide thema’s 1.451 px uit. | De stapmarkeringen lopen om. Hun titels blijven toegankelijk en de vervolgknop noemt de bestemming. |
+| Wachtvoorwaarde C-11 | Een ongetest groepslid gaf HTTP 409 met een rode foutmelding. Bij Gree stond een verbodsteken. | Beide voorwaarden hebben een neutraal slot. De melding bij de lichtgroep noemt het doel en de benodigde controle. De beheerder kan naar Apparaten. Gree toont de wachtreden en de mogelijkheid tot uitstel. |
+| Apparaatselectie C-34 | De desktopweergave had geen tabelkoppen. De vakjes waren op 320 px 13 × 13 px. | Vanaf 768 px staan de apparaten in een tabel met kolom- en rijkoppen. Op kleinere schermen heeft elke kaart benoemde feiten. De vakjes zijn 20 × 20 px en de toegankelijke actienaam bevat de apparaatnaam. |
+| Versheid C-06 | De laatst opgehaalde stand had na een ophaalfout alleen een tekstlabel. | De bewaarde stand krijgt een arcering, stippelrand en ophaaltijd. Een geweigerd leesrecht wist de bewaarde beheerdata. |
+| Leestest C-58 | ‘Test geslaagd’ stond naast ‘Nog niet getest’. | Na het uitlezen staat er ‘Leestest uitgevoerd’ met de aanwijzing om zelf te bevestigen. De wizard vraagt voor elke lamp een eigen leestest en een afzonderlijke bevestiging. |
+
+De browserregressies staan in `apps/web/e2e/01-onboarding.e2e.ts` en `apps/web/e2e/13-inbedrijfstelling.e2e.ts`. De negatieve webproeven staan in `apps/web/src/test/commissioning-herstel.test.tsx`. De fysieke D12-controle blijft open.
+
+De hermeting omvatte 276 schermafdrukken. De grootste uitloop van de stappenbalk ging van 1.756 naar 0 px bij vergrote tekstafstand. Bij 200% browserzoom en een leesbreedte van 320 CSS-pixels ging de uitloop van 1.443 px in licht en 1.451 px in donker naar 0 px in beide thema’s. Na het stoppen van de lokale test-API bleef de laatste stand in beide thema’s zichtbaar met het label ‘Verouderd’. De inschakelknop was dan uitgeschakeld.

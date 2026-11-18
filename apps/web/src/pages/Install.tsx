@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { LockKeyhole } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
-import { BeleidsSlot } from '../components/peil/BeleidsSlot';
+import { GateBlokkade } from '../components/peil/GateBlokkade';
 import { ConfirmDevice } from '../devices/CommissioningActions';
 import { DeviceTestButton } from '../devices/DeviceTools';
 import { commissioningText as text } from '../devices/commissioning-text';
@@ -20,7 +21,8 @@ import { useCan } from '../user';
 import { CheckCard } from './system/Status';
 import { AddressSettings } from './system/Settings';
 
-export const INSTALL_KEY = 'shc.install';
+const LEGACY_KEY = 'shc.install';
+export const INSTALL_KEY = 'shc.install.v2';
 
 export const INSTALL_STEPS = [
   { key: 'controle', title: 'Controles vooraf' },
@@ -40,26 +42,39 @@ export interface InstallProgress {
   step: InstallStep;
   done: InstallStep[];
 }
-export function loadInstall(): InstallProgress {
+function readProgress(key: string): { step: string; done: string[]; version?: number } | null {
   try {
-    const v = JSON.parse(localStorage.getItem(INSTALL_KEY) ?? 'null') as { step: string; done: string[]; version?: number } | null;
-    if (v && Array.isArray(v.done)) {
-      const old = v.version !== 2;
-      const savedStep = v.step === 'hue' ? 'hue-lezen' : v.step === 'homewizard' ? 'meters' : v.step;
-      const step = INSTALL_STEPS.find((entry) => entry.key === savedStep)?.key ?? 'controle';
-      const done = INSTALL_STEPS.map((entry) => entry.key).filter((key) =>
-        v.done.includes(key) && key !== 'gree' && key !== 'hue-testen' && !(old && ['meters', 'hue-lezen'].includes(key)),
-      );
-      return { step, done };
-    }
+    const record = JSON.parse(localStorage.getItem(key) ?? 'null');
+    return typeof record?.step === 'string' && Array.isArray(record.done) && record.done.every((s: unknown) => typeof s === 'string')
+      ? record : null;
   } catch {
-    /* ignore */
+    return null;
   }
-  return { step: 'controle', done: [] };
+}
+function navigationStep(key: string) {
+  if (key === 'hue') return 'hue-lezen';
+  if (key === 'homewizard') return 'meters';
+  return key;
+}
+export function loadInstall(): InstallProgress {
+  const current = readProgress(INSTALL_KEY);
+  const saved = current?.version === 2 ? current : readProgress(LEGACY_KEY);
+  if (!saved) return { step: 'controle', done: [] };
+  const step = INSTALL_STEPS.find(s => s.key === navigationStep(saved.step))?.key ?? 'controle';
+  const visited = new Set(saved.done.map(navigationStep));
+  const done = INSTALL_STEPS.map(s => s.key).filter(key => visited.has(key) && key !== 'gree' && key !== 'hue-testen');
+  return { step, done };
 }
 function saveInstall(p: InstallProgress) {
   try {
     localStorage.setItem(INSTALL_KEY, JSON.stringify({ ...p, version: 2 }));
+    // De eerste v2-uitgave schreef in het oude vak. Maak alleen dat record weer leesbaar voor v1.
+    const misplaced = readProgress(LEGACY_KEY);
+    if (misplaced?.version === 2) {
+      const legacyStep = (key: string) => key === 'hue-lezen' || key === 'hue-testen' ? 'hue' : key;
+      const done = [...new Set(misplaced.done.filter(key => key !== 'gree' && key !== 'hue-testen').map(legacyStep))];
+      localStorage.setItem(LEGACY_KEY, JSON.stringify({ step: legacyStep(misplaced.step), done }));
+    }
   } catch {
     /* storage blocked: progress is kept while the page is open */
   }
@@ -129,9 +144,11 @@ function HueTestStep({ homeId }: { homeId: string }) {
       {lamps.map((lamp) => (
         <Card key={lamp.id} className="grid gap-3">
           <h3 className="m-0 break-words">{lamp.name}</h3>
-          <DeviceTestButton device={lamp} named />
+          <DeviceTestButton device={lamp} disabled={!devices.isSuccess || devices.isFetching} named>
+            {readOk => <ConfirmDevice id={lamp.id} name={lamp.name} eligible={lamp.compatibility === 'untested'}
+              blocked={!readOk || !devices.isSuccess || devices.isFetching} named />}
+          </DeviceTestButton>
           {lamp.compatibility === 'tested' && <p className="m-0">{text('tested')}</p>}
-          <ConfirmDevice id={lamp.id} name={lamp.name} eligible={lamp.compatibility === 'untested'} named />
           {lamp.compatibility === 'unsupported' && <p className="m-0">{text('unsupportedHelp')}</p>}
         </Card>
       ))}
@@ -150,7 +167,7 @@ export function InstallPage() {
   const [progress, setProgress] = useState<InstallProgress>(loadInstall);
   const headRef = useRef<HTMLHeadingElement>(null);
   const first = useRef(true);
-  useEffect(() => saveInstall(progress), [progress]);
+  useEffect(() => { if (can.admin) saveInstall(progress); }, [can.admin, progress]);
   useEffect(() => {
     if (first.current) {
       first.current = false;
@@ -195,7 +212,7 @@ export function InstallPage() {
       body = <NeedsHome homeId={homeId} go={() => goto('woning')}>{(h) => <HueTestStep homeId={h} />}</NeedsHome>;
       break;
     case 'gree':
-      body = <BeleidsSlot label={text('waiting')}>{text('d12Wait')}</BeleidsSlot>;
+      body = <GateBlokkade label={text('waiting')}>{text('d12Wait')}</GateBlokkade>;
       break;
     case 'zigbee':
       body = <NeedsHome homeId={homeId} go={() => goto('woning')}>{(h) => <ZigbeeSetup homeId={h} />}</NeedsHome>;
@@ -242,8 +259,10 @@ export function InstallPage() {
               return (
                 <li key={s.key}>
                   <button type="button" className={`wizard-step${s.key === step.key ? ' current' : ''}${done ? ' done' : ''}`} aria-current={s.key === step.key ? 'step' : undefined} onClick={() => goto(s.key)}>
-                    <span className="wizard-num" aria-hidden="true">{done ? <CheckIcon width={14} height={14} /> : i + 1}</span>
-                    <span>{s.title}{s.key === 'gree' && <span className="small muted"> · {text('waiting')}</span>}{done && <span className="sr-only"> (gedaan)</span>}</span>
+                    <span className={`wizard-num${s.key === 'gree' ? ' waiting' : ''}`} aria-hidden="true">
+                      {s.key === 'gree' ? <LockKeyhole size={16} /> : done ? <CheckIcon width={16} height={16} /> : i + 1}
+                    </span>
+                    <span className="max-lg:sr-only">{s.title}{s.key === 'gree' && ` · ${text('waiting')}`}{done && <span className="sr-only"> (gedaan)</span>}</span>
                   </button>
                 </li>
               );
@@ -260,7 +279,7 @@ export function InstallPage() {
             {idx > 0 && <button type="button" className="btn" onClick={prev}>Vorige</button>}
             {idx < INSTALL_STEPS.length - 1 && (
               <Button variant="primair" onClick={next}>{step.key === 'gree' ? text('greeLater') :
-                'optional' in step && step.optional ? 'Volgende (of overslaan)' : 'Volgende'}</Button>
+                text('next', { title: INSTALL_STEPS[idx + 1].title })}</Button>
             )}
           </div>
         </section>

@@ -6,6 +6,7 @@ import { QUALITY_LABEL } from '../format';
 import { ERROR_CODE_LABEL } from '../i18n';
 import { useCanAct, useConnectionOptional } from '../state';
 import { StatusBadge, StatusIcon, statusVan } from './peil/StatusBadge';
+import { GateBlokkade } from './peil/GateBlokkade';
 import { useCan } from '../user';
 import { commissioningText as commissioning } from '../devices/commissioning-text';
 import { InfoIcon } from './Icons';
@@ -81,7 +82,7 @@ export function PaginaFout({ titel, error }: { titel: string; error: unknown }) 
 }
 
 /** Error box with the server's Dutch message; links to the right settings for known codes. */
-export function ErrorNote({ error }: { error: unknown }) {
+export function ErrorNote({ error, lightGroup }: { error: unknown; lightGroup?: string }) {
   const { admin } = useCan();
   if (!error) return null;
   let msg = error instanceof Error && error.message ? error.message : 'Er ging iets mis. Probeer het opnieuw.';
@@ -91,8 +92,11 @@ export function ErrorNote({ error }: { error: unknown }) {
     if (['lan_url_required', 'lan_url_invalid', 'remote_url_invalid'].includes(error.code))
       extra = <> <Link to="/systeem#adressen">Naar Systeem › Adressen</Link></>;
     if (error.code === 'device_not_tested') {
-      msg = commissioning('denied');
-      if (admin) extra = <> <Link to="/apparaten">{commissioning('devices')}</Link></>;
+      return (
+        <GateBlokkade label={lightGroup ? `${lightGroup} · ${commissioning('waiting')}` : commissioning('waiting')} role="alert">
+          {commissioning(lightGroup ? 'groupDenied' : 'denied')} {admin && <Link to="/apparaten">{commissioning('devices')}</Link>}
+        </GateBlokkade>
+      );
     }
     if (error.retryAfter && error.code === 'rate_limited') extra = <> (wacht {error.retryAfter} s)</>;
     if (error.detail.errors && error.detail.errors.length > 1) {

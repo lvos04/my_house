@@ -180,6 +180,14 @@ export const COMMISSIONING_TEXT = {
     "nl": "Annuleren",
     "en": "Cancel"
   },
+  "close": {
+    "nl": "Sluiten",
+    "en": "Close"
+  },
+  "submitted": {
+    "nl": "Het verzoek is verstuurd. Je kunt dit venster sluiten terwijl de server de wijziging verwerkt.",
+    "en": "The request was sent. You can close this window while the server processes the change."
+  },
   "denied": {
     "nl": "Dit apparaat is nog niet getest. Laat een beheerder het eerst onder Apparaten testen en als getest bevestigen in de web-app. Er is geen bedienopdracht verstuurd.",
     "en": "This device has not been tested yet. Ask an administrator to test it and confirm it as tested under Devices in the web app first. No control command was sent."
@@ -187,6 +195,10 @@ export const COMMISSIONING_TEXT = {
   "devices": {
     "nl": "Naar Apparaten",
     "en": "Go to Devices"
+  },
+  "groupDenied": {
+    "nl": "De lichtgroep, de gekozen scène of een van de bijbehorende apparaten is nog niet getest. Laat een beheerder de teststatus onder Apparaten controleren en bevestigen. Er is geen bedienopdracht verstuurd.",
+    "en": "The light group, the selected scene or one of its devices has not yet been tested. Ask an administrator to check and confirm its test status under Devices. No control command was sent."
   },
   "askAdmin": {
     "nl": "Vraag een beheerder om dit apparaat te testen en als getest te bevestigen.",

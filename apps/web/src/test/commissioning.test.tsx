@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { CommissioningPanel } from '../devices/Commissioning';
 import { TestHistory } from '../devices/CommissioningActions';
 import { COMMISSIONING_TEXT } from '../devices/commissioning-text';
-import { InstallPage, INSTALL_KEY } from '../pages/Install';
+import { InstallPage } from '../pages/Install';
 import { ApiError } from '../api/client';
 import { ErrorNote } from '../components/bits';
 import { mockApi, Providers, viewer } from './helpers';
@@ -22,7 +22,7 @@ const gate = {
 const page = { items: [lamp], next_cursor: null, total: 1, observed_at: '2026-11-18T10:00:00Z', gate_etag: '"lijst"' };
 const base = '/api/v1/commissioning';
 
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); localStorage.removeItem(INSTALL_KEY); });
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); localStorage.clear(); });
 
 function setup() {
   const calls = mockApi((method, url) => {
@@ -115,7 +115,7 @@ it('vraagt historie op voor het ene apparaat en vervolgt met de servercursor', a
 });
 
 it('toont de wizardvolgorde en biedt met oude voortgang geen Gree-koppeling aan', async () => {
-  localStorage.setItem(INSTALL_KEY, JSON.stringify({ step: 'gree', done: ['hue', 'gree'] }));
+  localStorage.setItem('shc.install', JSON.stringify({ step: 'gree', done: ['hue', 'gree'] }));
   const calls = mockApi(() => ({ body: [] }));
   render(<Providers><InstallPage /></Providers>);
   const user = userEvent.setup();
@@ -134,6 +134,7 @@ it('toont de wizardvolgorde en biedt met oude voortgang geen Gree-koppeling aan'
 it('legt een bedienweigering uit en toont de beheerlink alleen aan de beheerder', () => {
   const refusal = new ApiError(409, 'device_not_tested', 'Apparaat ongetest');
   const adminView = render(<Providers><ErrorNote error={refusal} /></Providers>);
+  expect(screen.getByRole('alert')).toHaveClass('melding-gate');
   expect(screen.getByRole('alert')).toHaveTextContent(COMMISSIONING_TEXT.denied.nl);
   expect(screen.getByRole('link', { name: COMMISSIONING_TEXT.devices.nl })).toHaveAttribute('href', '/apparaten');
   adminView.unmount();
