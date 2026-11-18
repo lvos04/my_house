@@ -71,12 +71,14 @@ def _light(id_, owner, name, on, bri):
 
 
 def _scene(id_, name, room, active):
+    lights = (L1, L2) if room == ROOM_LIVING else (L3,)
     return {
         "id": id_,
         "type": "scene",
         "metadata": {"name": name},
         "group": {"rid": room, "rtype": "room"},
         "status": {"active": active},
+        "actions": [{"target": {"rid": light, "rtype": "light"}, "action": {"on": {"on": True}}} for light in lights],
     }
 
 

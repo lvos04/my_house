@@ -4,6 +4,7 @@ import httpx
 import pytest
 import respx
 from conftest import load, no_sleep
+from hue_inventory import G_LIVING, L1, L2, S_EVENING, full_resources
 
 from shc_integrations.base import (
     ButtonEvent,
@@ -90,14 +91,27 @@ async def test_set_light_readback_mismatch_not_confirmed(plain_factory):
 
 @respx.mock
 async def test_recall_scene_body(plain_factory):
-    sid = "s0000000-0000-4000-8000-000000000001"
-    put = respx.put(f"{BASE}/clip/v2/resource/scene/{sid}").respond(json={"data": []})
-    respx.get(f"{BASE}/clip/v2/resource/scene/{sid}").respond(
-        json={"errors": [], "data": [{"id": sid, "type": "scene", "status": {"active": "static"}}]}
-    )
-    res = await adapter(plain_factory).execute(Command(sid, "recall_scene", {}))
-    assert json.loads(put.calls.last.request.content) == {"recall": {"action": "active"}}
-    assert res.ok and res.confirmed  # readback via scene.status.active
+    resources = full_resources()
+    scene = next(resource for resource in resources if resource["id"] == S_EVENING)
+    first = {"on": {"on": True}, "dimming": {"brightness": 60.0}, "color": {"xy": {"x": 0.31, "y": 0.32}}}
+    second = {"on": {"on": False}, "color_temperature": {"mirek": 250}}
+    scene["actions"][0]["action"] = first
+    scene["actions"][1]["action"] = second
+    respx.get(f"{BASE}/clip/v2/resource").respond(json={"data": resources})
+    checked = []
+
+    async def check_targets(group, lamps):
+        checked.append((group, lamps))
+
+    routes = []
+    for lamp, body in ((L1, first), (L2, second)):
+        path = f"{BASE}/clip/v2/resource/light/{lamp}"
+        routes.append(respx.put(path).respond(json={"data": []}))
+        respx.get(path).respond(json={"data": [{"id": lamp, **body}]})
+    res = await adapter(plain_factory).execute(Command(S_EVENING, "recall_scene", {}), check_targets=check_targets)
+    assert checked == [(G_LIVING, [L1, L2])]
+    assert [json.loads(route.calls.last.request.content) for route in routes] == [first, second]
+    assert res.ok and res.confirmed
 
 
 async def test_unknown_action(plain_factory):

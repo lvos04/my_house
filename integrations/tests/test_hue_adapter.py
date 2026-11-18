@@ -7,7 +7,7 @@ import httpx
 import pytest
 import respx
 from conftest import no_sleep
-from hue_inventory import B1, D_DIMMER, G_LIVING, L1, L2, V1_RULES, full_resources
+from hue_inventory import B1, D_DIMMER, G_LIVING, L1, L2, S_EVENING, V1_RULES, full_resources
 
 from shc_integrations.base import AdapterError, ButtonEvent, Command, DeviceInfo, StateUpdate
 from shc_integrations.hue import HueAdapter
@@ -25,6 +25,19 @@ def make(plain_factory, **cfg):
 def mock_inventory(rules=None):
     respx.get(f"{BASE}/clip/v2/resource").respond(json={"errors": [], "data": full_resources()})
     return respx.get(f"{BASE}/api/k/rules").respond(json=V1_RULES if rules is None else rules)
+
+
+async def check_living_targets(group, lamps):
+    assert (group, lamps) == (G_LIVING, [L1, L2])
+
+
+def mock_scene_lights(*, failing=False, wrong_identity=False):
+    respx.get(f"{BASE}/clip/v2/resource").respond(json={"data": full_resources()})
+    for lamp in (L1, L2):
+        path = f"{BASE}/clip/v2/resource/light/{lamp}"
+        errors = [{"description": "scene has unreachable lights"}] if failing and lamp == L1 else []
+        respx.put(path).respond(207 if errors else 200, json={"data": [], "errors": errors})
+        respx.get(path).respond(json={"data": [{"id": L1 if wrong_identity else lamp, "on": {"on": True}}]})
 
 
 @respx.mock
@@ -68,11 +81,8 @@ async def test_put_errors_mean_not_confirmed_even_if_readback_matches(plain_fact
 
 @respx.mock
 async def test_scene_recall_errors_are_rejected(plain_factory):
-    sid = "44444444-0000-4000-8000-000000000002"
-    respx.put(f"{BASE}/clip/v2/resource/scene/{sid}").respond(
-        207, json={"data": [], "errors": [{"description": "scene has unreachable lights"}]}
-    )
-    res = await make(plain_factory).execute(Command(sid, "recall_scene", {}))
+    mock_scene_lights(failing=True)
+    res = await make(plain_factory).execute(Command(S_EVENING, "recall_scene", {}), check_targets=check_living_targets)
     assert res.ok is True and res.confirmed is False and res.rejected is True
     assert res.detail == "Hue Bridge meldt: scene has unreachable lights"
 
@@ -89,11 +99,14 @@ async def test_readback_mismatch_is_not_rejected(plain_factory):
 
 @respx.mock
 async def test_put_rejected_raises_with_bridge_text(plain_factory):
-    respx.put(f"{BASE}/clip/v2/resource/grouped_light/{G_LIVING}").respond(
+    respx.get(f"{BASE}/clip/v2/resource").respond(json={"data": full_resources()})
+    respx.put(f"{BASE}/clip/v2/resource/light/{L1}").respond(
         404, json={"data": [], "errors": [{"description": "Not Found"}]}
     )
     with pytest.raises(AdapterError, match="Not Found"):
-        await make(plain_factory).execute(Command(G_LIVING, "set_group", {"on": False}))
+        await make(plain_factory).execute(
+            Command(G_LIVING, "set_group", {"on": False}), check_targets=check_living_targets,
+        )
 
 
 @respx.mock
@@ -114,12 +127,39 @@ async def test_afwijkend_opgeslagen_doel_wordt_geweigerd(plain_factory):
 
 
 @respx.mock
-async def test_scene_without_status_is_not_confirmed(plain_factory):
-    sid = "44444444-0000-4000-8000-000000000001"
-    respx.put(f"{BASE}/clip/v2/resource/scene/{sid}").respond(json={"data": [], "errors": []})
-    respx.get(f"{BASE}/clip/v2/resource/scene/{sid}").respond(json={"data": [{"id": sid, "type": "scene"}]})
-    res = await make(plain_factory).execute(Command(sid, "recall_scene", {}))
-    assert res.ok and not res.confirmed and "niet welke scène" in res.detail
+async def test_scene_zonder_readback_voor_elke_lamp_is_niet_bevestigd(plain_factory):
+    mock_scene_lights(wrong_identity=True)
+    res = await make(plain_factory).execute(Command(S_EVENING, "recall_scene", {}), check_targets=check_living_targets)
+    assert res.ok and not res.confirmed and "voor alle lampen" in res.detail
+
+
+@pytest.mark.parametrize("dynamic", [False, True])
+@respx.mock
+async def test_ongebonden_scene_wordt_voor_eerste_lamp_geweigerd(plain_factory, dynamic):
+    resources = full_resources()
+    scene = next(resource for resource in resources if resource["id"] == S_EVENING)
+    if dynamic:
+        scene["auto_dynamic"] = True
+    else:
+        scene["actions"][1]["action"] = {"on": {"on": True}, "onbekend": {}}
+    respx.get(f"{BASE}/clip/v2/resource").respond(json={"data": resources})
+    write = respx.put(url__regex=r".*").respond(json={})
+    with pytest.raises(AdapterError, match="scène"):
+        await make(plain_factory).execute(
+            Command(S_EVENING, "recall_scene", {}), check_targets=check_living_targets,
+        )
+    assert not write.called
+
+
+@pytest.mark.parametrize(("target", "action", "params"), [
+    (G_LIVING, "set_group", {"on": True}), (S_EVENING, "recall_scene", {}),
+])
+@respx.mock
+async def test_samengestelde_bediening_zonder_doelcontrole_schrijft_niets(plain_factory, target, action, params):
+    write = respx.put(url__regex=r".*").respond(json={})
+    with pytest.raises(AdapterError, match="vereist een controle"):
+        await make(plain_factory).execute(Command(target, action, params))
+    assert not write.called
 
 
 @respx.mock

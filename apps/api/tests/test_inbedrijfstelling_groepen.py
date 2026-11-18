@@ -1,5 +1,6 @@
 """Samengestelde doelen: volledige Hue-keten, zonder echte bridge of apparaten."""
 
+import json
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -400,7 +401,7 @@ async def test_hue_toetst_actuele_bridge_voor_schrijven(admin, group_rig, scene,
         requests.append((request.method, request.url.path))
         if request.url.path == "/clip/v2/resource":
             return httpx.Response(200, json={"data": list(resources.values()), "errors": []})
-        back = {"status": {"active": "static"}} if scene else {"on": {"on": True}}
+        back = {"id": request.url.path.rsplit("/", 1)[-1], "on": {"on": True}}
         return httpx.Response(200, json={"data": [back], "errors": []})
 
     adapter = HueAdapter({"host": "bridge.test"}, {"application_key": "proef"},
@@ -422,9 +423,72 @@ async def test_hue_toetst_actuele_bridge_voor_schrijven(admin, group_rig, scene,
     finally:
         await adapter.close()
     writes = [path for method, path in requests if method == "PUT"]
-    target = f"scene/{r.inv.S_EVENING}" if scene else f"grouped_light/{r.inv.G_LIVING}"
-    assert writes == ([f"/clip/v2/resource/{target}"] if change_kind == "gelijk" else [])
+    expected = [f"/clip/v2/resource/light/{lamp}" for lamp in (r.inv.L1, r.inv.L2)]
+    assert writes == (expected if change_kind == "gelijk" else [])
     assert [row.status for row in await commands(r)] == ["confirmed" if change_kind == "gelijk" else "denied"]
+
+
+@pytest.mark.parametrize("scene", [False, True], ids=["groep", "scene"])
+@pytest.mark.parametrize("late_change", [False, True], ids=["derde_lid_getoetst", "derde_lid_na_lezing"])
+async def test_hue_schrijft_alleen_naar_gelezen_en_getoetste_lampen(admin, group_rig, scene, late_change):
+    r = group_rig
+    resources = {item["id"]: item for item in r.inv.full_resources()}
+    room_members = resources[r.inv.ROOM_LIVING]["children"]
+    scene_actions = resources[r.inv.S_EVENING]["actions"] = [
+        {"target": {"rid": lamp, "rtype": "light"}, "action": {"on": {"on": True}}}
+        for lamp in (r.inv.L1, r.inv.L2)
+    ]
+    writes, affected = [], []
+    readings = 0
+
+    def add_member():
+        room_members.append({"rid": r.inv.D3, "rtype": "device"})
+        scene_actions.append({"target": {"rid": r.inv.L3, "rtype": "light"}, "action": {"on": {"on": True}}})
+
+    def bridge(request):
+        nonlocal readings
+        path = request.url.path
+        if path == "/clip/v2/resource":
+            readings += 1
+            snapshot = httpx.Response(200, json={"data": list(resources.values()), "errors": []})
+            if late_change:
+                add_member()
+            return snapshot
+        kind, identity = path.split("/")[-2:]
+        if request.method == "PUT":
+            body = json.loads(request.content)
+            writes.append((kind, identity, body))
+            if kind == "scene":
+                affected.extend(action["target"]["rid"] for action in scene_actions)
+            elif kind == "grouped_light":
+                lamp_of = {r.inv.D1: r.inv.L1, r.inv.D2: r.inv.L2, r.inv.D3: r.inv.L3}
+                affected.extend(lamp_of[member["rid"]] for member in room_members)
+            else:
+                affected.append(identity)
+                resources[identity].update(body)
+        return httpx.Response(200, json={"data": [resources[identity]], "errors": []})
+
+    if late_change:
+        async with sessionmaker()() as db:
+            third = await db.scalar(select(Device.id).where(
+                Device.home_id == r.home, Device.stable_identity == r.inv.L3))
+        await protect(r.home, third)
+    else:
+        add_member()
+    adapter = HueAdapter({"host": "bridge.test"}, {"application_key": "proef"},
+                         http_factory=lambda base, _: httpx.AsyncClient(
+                             base_url=base, transport=httpx.MockTransport(bridge)))
+    r.worker._adapter_for = lambda _: adapter
+    assert (await send(admin, r, scene)).status_code == 202
+    try:
+        await r.worker.process_commands({r.home})
+    finally:
+        await adapter.close()
+    expected = [r.inv.L1, r.inv.L2] if late_change else [r.inv.L1, r.inv.L2, r.inv.L3]
+    assert readings == 1
+    assert affected == expected
+    assert writes == [("light", lamp, {"on": {"on": True}}) for lamp in expected]
+    assert [row.status for row in await commands(r)] == ["confirmed"]
 
 
 @pytest.mark.parametrize("kind", ["light", "scene"])
@@ -441,7 +505,7 @@ async def test_opgeslagen_hue_doel_is_gebonden_aan_commandoregel(group_rig, kind
             writes.append(request.url.path)
         if request.url.path == "/clip/v2/resource":
             return httpx.Response(200, json={"data": r.inv.full_resources(), "errors": []})
-        return httpx.Response(200, json={"data": [{"on": {"on": True}, "status": {"active": "static"}}],
+        return httpx.Response(200, json={"data": [{"id": request.url.path.rsplit("/", 1)[-1], "on": {"on": True}}],
                                          "errors": []})
 
     async with sessionmaker()() as db:
@@ -456,7 +520,8 @@ async def test_opgeslagen_hue_doel_is_gebonden_aan_commandoregel(group_rig, kind
         await r.worker.process_commands({r.home})
     finally:
         await adapter.close()
-    assert writes == ([] if afwijkend else [f"/clip/v2/resource/{kind}/{actual_id}"])
+    lamps = [actual_id] if kind == "light" else [r.inv.L1, r.inv.L2]
+    assert writes == ([] if afwijkend else [f"/clip/v2/resource/light/{lamp}" for lamp in lamps])
     assert [row.status for row in await commands(r)] == ["denied" if afwijkend else "confirmed"]
 
 

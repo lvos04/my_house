@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import UTC, datetime, timedelta
@@ -78,6 +79,46 @@ def _parse_ts(value: str | None) -> datetime:
 
 
 _light_state = light_basic_state
+
+
+def _scene_light_body(action: Any) -> dict[str, Any]:
+    """Alleen statische velden die rechtstreeks op een Hue-lamp te schrijven zijn."""
+    fields = {"on": "on", "dimming": "brightness", "color": "xy", "color_temperature": "mirek"}
+    if not isinstance(action, dict) or not action or action.keys() - fields.keys():
+        raise Unsupported("De Hue-scène bevat een lampactie die niet rechtstreeks kan worden uitgevoerd.")
+    for name, value in action.items():
+        field = fields[name]
+        if not isinstance(value, dict) or value.keys() != {field}:
+            raise Unsupported("De Hue-scène bevat een onvolledige of onbekende lampactie.")
+        requested = value[field]
+        match name:
+            case "on":
+                valid = type(requested) is bool
+            case "dimming":
+                valid = type(requested) in (int, float) and 0 <= requested <= 100
+            case "color":
+                valid = (isinstance(requested, dict) and requested.keys() == {"x", "y"}
+                         and all(type(v) in (int, float) and 0 <= v <= 1 for v in requested.values()))
+            case "color_temperature":
+                valid = type(requested) is int and requested > 0
+        if not valid:
+            raise Unsupported("De Hue-scène bevat een ongeldige stand voor een lamp.")
+    return action
+
+
+def _light_matches(actual: dict, expected: dict, *, tolerance: float = 0.0) -> bool:
+    for key, value in expected.items():
+        reported = actual.get(key)
+        if isinstance(value, dict):
+            precision = {"dimming": 1.0, "xy": 0.001}.get(key, tolerance)
+            if not isinstance(reported, dict) or not _light_matches(reported, value, tolerance=precision):
+                return False
+        elif type(value) is bool:
+            if reported is not value:
+                return False
+        elif type(reported) not in (int, float) or not math.isclose(reported, value, rel_tol=0, abs_tol=tolerance):
+            return False
+    return True
 
 
 def normalize_event(resource: dict[str, Any], at: datetime, event_id_prefix: str | None = None) -> Event | None:
@@ -599,9 +640,10 @@ class HueAdapter(Adapter):
             log.debug("Hue eventstream nog steeds verbroken (%s)", error)
         self._announced_connected = connected
 
-    async def _check_group_targets(
-        self, kind: str, rid: str, check_targets: Callable[[str, list[str]], Awaitable[None]],
-    ) -> None:
+    async def _plan_group_targets(
+        self, kind: str, rid: str, light_body: dict[str, Any],
+        check_targets: Callable[[str, list[str]], Awaitable[None]],
+    ) -> list[tuple[str, dict[str, Any]]]:
         body = await self._get("/clip/v2/resource")
         data = body.get("data") if isinstance(body, dict) else None
         if not isinstance(data, list) or not all(isinstance(item, dict) for item in data) or body.get("errors"):
@@ -614,17 +656,42 @@ class HueAdapter(Adapter):
         owner = inventory.owner_of(target) if kind == "grouped_light" else (target.get("group") or {}).get("rid")
         group = rid if kind == "grouped_light" else inventory.grouped_light_of_owner(owner)
         members, complete = inventory.group_members(owner)
-        if not complete or group is None:
+        if not complete or group is None or not members or not all(is_hue_id(member) for member in members):
             raise AdapterError("De actuele Hue-groepsleden zijn niet volledig bekend.")
+        writes = dict.fromkeys(members, light_body)
         if kind == "scene":
-            actions = target.get("actions", [])
-            if not isinstance(actions, list):
+            if target.get("auto_dynamic", False) is not False:
+                raise Unsupported("Een dynamische Hue-scène kan niet gebonden aan afzonderlijke lampen worden gestart.")
+            actions = target.get("actions")
+            if not isinstance(actions, list) or not actions:
                 raise AdapterError("De doelen van de Hue-scène zijn niet volledig bekend.")
+            writes = {}
             for action in actions:
                 light = action.get("target", {}) if isinstance(action, dict) else {}
-                if not isinstance(light, dict) or light.get("rtype") != "light" or light.get("rid") not in members:
+                lamp = light.get("rid") if isinstance(light, dict) and light.get("rtype") == "light" else None
+                if not isinstance(lamp, str) or lamp not in members or lamp in writes:
                     raise AdapterError("De Hue-scène verwijst naar een doel buiten haar bekende groep.")
+                writes[lamp] = _scene_light_body(action.get("action"))
+        # Leg de concrete schrijfopdrachten vast vóór de controle. De bridge krijgt alleen lamp-ID's
+        # en kan bij uitvoering geen actuele groepsleden of gewijzigde scèneacties toevoegen.
         await check_targets(group, members)
+        return list(writes.items())
+
+    async def _put_light(self, rid: str, body: dict[str, Any], *, require_identity: bool = False) -> CommandResult:
+        await self._light_limiter.wait("light")
+        path = f"/clip/v2/resource/light/{rid}"
+        _, errors = await self._put(path, body)
+        back = await self._get(path)
+        rows = back.get("data") or []
+        data = rows[0] if isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict) else {}
+        state = _light_state(data)
+        if errors:
+            return CommandResult(ok=True, confirmed=False, detail="Hue Bridge meldt: " + "; ".join(errors),
+                                 state=state, rejected=True)
+        confirmed = (not back.get("errors") and (not require_identity or data.get("id") == rid)
+                     and _light_matches(data, body))
+        detail = "" if confirmed else "Hue Bridge bevestigt de gevraagde stand niet (readback wijkt af)"
+        return CommandResult(ok=True, confirmed=confirmed, detail=detail, state=state)
 
     async def execute(
         self, command: Command, *, check_targets: Callable[[str, list[str]], Awaitable[None]] | None = None,
@@ -637,9 +704,8 @@ class HueAdapter(Adapter):
             raise AdapterError(f"Ongeldige Hue-id '{rid}'")
         if "id" in p and p["id"] != rid:
             raise AdapterError("Het opgeslagen Hue-doel wijkt af van het getoetste apparaat.")
-        if command.action in ("set_light", "set_group"):
-            kind = "light" if command.action == "set_light" else "grouped_light"
-            body: dict[str, Any] = {}
+        body: dict[str, Any] = {}
+        if command.action != "recall_scene":
             if "on" in p:
                 body["on"] = {"on": bool(p["on"])}
             if p.get("brightness") is not None:
@@ -649,50 +715,21 @@ class HueAdapter(Adapter):
                 body["dimming"] = {"brightness": b}
             if not body:
                 raise AdapterError("Leeg lichtcommando")
-            limiter = self._light_limiter if kind == "light" else self._group_limiter
-            await limiter.wait(kind)
-            if kind == "grouped_light" and check_targets is not None:
-                await self._check_group_targets(kind, rid, check_targets)
-            _, errors = await self._put(f"/clip/v2/resource/{kind}/{rid}", body)
-            back = await self._get(f"/clip/v2/resource/{kind}/{rid}")
-            data = (back.get("data") or [{}])[0]
-            state = _light_state(data)
-            if errors:
-                # The bridge accepted the request but says it may not have effect: never "confirmed".
-                return CommandResult(
-                    ok=True,
-                    confirmed=False,
-                    detail="Hue Bridge meldt: " + "; ".join(errors),
-                    state=state,
-                    rejected=True,
-                )
-            confirmed = all(
-                (k != "on" or state.get("on") == body["on"]["on"])
-                and (k != "dimming" or abs((state.get("brightness") or 0) - body["dimming"]["brightness"]) < 1.0)
-                for k in body
-            )
-            detail = "" if confirmed else "Hue Bridge bevestigt de gevraagde stand niet (readback wijkt af)"
-            return CommandResult(ok=True, confirmed=confirmed, detail=detail, state=state)
+        if command.action == "set_light":
+            return await self._put_light(rid, body)
+        if check_targets is None:
+            raise AdapterError("Groeps- en scènebediening vereist een controle van de afzonderlijke Hue-lampen.")
         await self._group_limiter.wait("grouped_light")
-        if check_targets is not None:
-            await self._check_group_targets("scene", rid, check_targets)
-        _, errors = await self._put(f"/clip/v2/resource/scene/{rid}", {"recall": {"action": "active"}})
-        if errors:
-            return CommandResult(
-                ok=True, confirmed=False, detail="Hue Bridge meldt: " + "; ".join(errors), rejected=True
-            )
-        back = await self._get(f"/clip/v2/resource/scene/{rid}")
-        active = ((back.get("data") or [{}])[0].get("status") or {}).get("active")
-        if active is None:
-            return CommandResult(
-                ok=True, confirmed=False, detail="Scène verzonden; deze bridge meldt niet welke scène actief is"
-            )
-        confirmed = active != "inactive"
+        kind = "grouped_light" if command.action == "set_group" else "scene"
+        writes = await self._plan_group_targets(kind, rid, body, check_targets)
+        results = [await self._put_light(lamp, payload, require_identity=True) for lamp, payload in writes]
+        rejected = next((result for result in results if result.rejected), None)
+        if rejected is not None:
+            return CommandResult(ok=True, confirmed=False, detail=rejected.detail, rejected=True)
+        confirmed = all(result.confirmed for result in results)
         return CommandResult(
-            ok=True,
-            confirmed=confirmed,
-            detail="" if confirmed else "Bridge meldt de scène niet als actief",
-            state={"scene_id": rid, "active": active},
+            ok=True, confirmed=confirmed,
+            detail="" if confirmed else "Hue Bridge bevestigt de gevraagde stand niet voor alle lampen.",
         )
 
     def _health_extra(self) -> dict[str, Any]:
