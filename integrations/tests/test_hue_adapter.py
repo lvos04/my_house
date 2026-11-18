@@ -7,7 +7,7 @@ import httpx
 import pytest
 import respx
 from conftest import no_sleep
-from hue_inventory import B1, D_DIMMER, G_LIVING, L1, V1_RULES, full_resources
+from hue_inventory import B1, D_DIMMER, G_LIVING, L1, L2, V1_RULES, full_resources
 
 from shc_integrations.base import AdapterError, ButtonEvent, Command, DeviceInfo, StateUpdate
 from shc_integrations.hue import HueAdapter
@@ -101,6 +101,15 @@ async def test_invalid_id_is_refused_before_sending(plain_factory):
     route = respx.put(url__regex=r".*").respond(json={})
     with pytest.raises(AdapterError, match="Ongeldige Hue-id"):
         await make(plain_factory).execute(Command("../../api/config", "set_light", {"on": True}))
+    assert not route.called
+
+
+@respx.mock
+async def test_afwijkend_opgeslagen_doel_wordt_geweigerd(plain_factory):
+    route = respx.put(url__regex=r".*").respond(json={"data": [{"on": {"on": True}}]})
+    respx.get(url__regex=r".*").respond(json={"data": [{"on": {"on": True}}]})
+    with pytest.raises(AdapterError, match="getoetste apparaat"):
+        await make(plain_factory).execute(Command(L1, "set_light", {"id": L2, "on": True}))
     assert not route.called
 
 

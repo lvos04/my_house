@@ -188,16 +188,20 @@ class HueModel:
             elif kind == "device":
                 device = self.get(rid) or {}
                 services = device.get("services")
+                owned = {light["id"] for light in self.of_type("light") if self.owner_of(light) == rid}
+                members.update(owned)
                 if device.get("type") != "device" or not isinstance(services, list):
                     complete = False
-                    members.update(self.device_services(rid, "light"))
                     continue
+                listed: set[str] = set()
                 for service in services:
-                    if not isinstance(service, dict) or not service.get("rid") or not service.get("rtype"):
+                    if (not isinstance(service, dict) or not isinstance(service.get("rid"), str)
+                            or not service["rid"] or not service.get("rtype")):
                         complete = False
                     elif service["rtype"] == "light":
-                        members.add(service["rid"])
-                        complete &= (self.get(service["rid"]) or {}).get("type") == "light"
+                        listed.add(service["rid"])
+                members.update(listed)
+                complete &= listed == owned
             elif kind in {"room", "zone", "bridge_home"}:
                 nested, known = self.group_members(rid, trail | {owner_rid})
                 members.update(nested)

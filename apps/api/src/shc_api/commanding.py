@@ -80,6 +80,7 @@ async def check_scene_group_policy(
     db: AsyncSession, device: Device, action: str, params: dict, *,
     protection_only: bool = False, safe_mode: bool = False,
     preview_enabled: bool = False,
+    actual_hue_targets: tuple[str, list[str]] | None = None,
 ) -> None:
     """Toets indirecte doelen; bescherming gaat vóór iedere teststatus.
 
@@ -104,11 +105,25 @@ async def check_scene_group_policy(
             targets.append(group)
         else:
             group = None
+    if actual_hue_targets is not None:
+        actual_group, _ = actual_hue_targets
+        if group is not None and group.stable_identity != actual_group:
+            raise PolicyDenied("De Hue-scène hoort inmiddels bij een andere groep. Lees de apparaten opnieuw uit.")
+        if group is None:
+            group = await db.scalar(select(Device).where(
+                Device.home_id == device.home_id, Device.provider == device.provider,
+                Device.stable_identity == actual_group,
+            ).execution_options(populate_existing=True))
+            if group is None:
+                raise PolicyDenied("De actuele Hue-groep is niet bekend. Lees de apparaten opnieuw uit.")
+            targets.append(group)
     unknown_members = group is None
     if group is not None:
         unknown_members = (group.kind != "light_group" or group.lifecycle != "active"
                            or group.provider != device.provider or group.integration_id != device.integration_id)
         state = group.state if isinstance(group.state, dict) else {}
+        if actual_hue_targets is not None:
+            state = {"member_identities": actual_hue_targets[1], "members_complete": True}
         identities = state.get("member_identities")
         valid_ids = {i for i in identities if isinstance(i, str) and i} if isinstance(identities, list) else set()
         unknown_members |= (not isinstance(identities, list)
@@ -124,6 +139,15 @@ async def check_scene_group_policy(
             m.kind != "light" or m.lifecycle != "active" or m.integration_id != group.integration_id
             for m in members
         ))
+        if actual_hue_targets is not None and unknown_members:
+            # Onbekende apparaten kunnen alleen bij uitgeschakelde gate meedoen,
+            # maar een bekend lid uit een andere koppeling is een tegenstrijdigheid.
+            if (group.kind != "light_group" or group.lifecycle != "active"
+                    or group.integration_id != device.integration_id or any(
+                        m.kind != "light" or m.lifecycle != "active" or m.integration_id != group.integration_id
+                        for m in members
+                    )):
+                raise PolicyDenied("De actuele Hue-groep komt niet overeen met de geregistreerde apparaten.")
     facts = [await command_facts(db, target, safe_mode=safe_mode) for target in targets]
     if preview_enabled:
         facts = [replace(item, commissioning_gate=True) for item in facts]

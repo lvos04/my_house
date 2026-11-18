@@ -4,9 +4,10 @@ import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from shc_integrations.base import ButtonEvent
-from shc_integrations.hue import HueModel
+from shc_integrations.hue import HueAdapter, HueModel
 from sqlalchemy import select
 
 from shc_api.commanding import queue_command
@@ -363,6 +364,100 @@ async def test_onvolledige_hue_inventaris_weigert(admin, group_rig):
     assert response.status_code == 409 and response.json()["detail"]["code"] == "device_not_tested", response.text
     assert await snapshot() == before
     assert r.fake.calls == []
+
+
+@pytest.mark.parametrize("protected", [False, True])
+async def test_hue_lid_met_alleen_eigenaarsrelatie_wordt_getoetst(admin, group_rig, protected):
+    r = group_rig
+    resources = r.inv.full_resources()
+    owner = next(item for item in resources if item["id"] == r.inv.D2)
+    owner["services"] = [s for s in owner["services"] if s["rid"] != r.inv.L2]
+    r.model.load(resources)
+    await r.worker.handle_events(r.integ, r.model.snapshot(datetime.now(UTC)))
+    if protected:
+        await protect(r.home, r.members[1])
+    else:
+        await change(r.members[1], compatibility="untested", tested_at=None)
+
+    response = await send(admin, r, False)
+    await r.worker.process_commands({r.home})
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == ("policy_denied" if protected else "device_not_tested")
+    assert not r.fake.calls and not await commands(r)
+    group = r.model.group_state(r.inv.G_LIVING)
+    assert group["member_identities"] == [r.inv.L1, r.inv.L2]
+    assert group["members_complete"] is False
+
+
+@pytest.mark.parametrize("scene", [False, True])
+@pytest.mark.parametrize("change_kind", ["gelijk", "ongetest", "beschermd"])
+async def test_hue_toetst_actuele_bridge_voor_schrijven(admin, group_rig, scene, change_kind):
+    r = group_rig
+    resources = {item["id"]: item for item in r.inv.full_resources()}
+    requests = []
+
+    def bridge(request):
+        requests.append((request.method, request.url.path))
+        if request.url.path == "/clip/v2/resource":
+            return httpx.Response(200, json={"data": list(resources.values()), "errors": []})
+        back = {"status": {"active": "static"}} if scene else {"on": {"on": True}}
+        return httpx.Response(200, json={"data": [back], "errors": []})
+
+    adapter = HueAdapter({"host": "bridge.test"}, {"application_key": "proef"},
+                         http_factory=lambda base, _: httpx.AsyncClient(
+                             base_url=base, transport=httpx.MockTransport(bridge)))
+    r.worker._adapter_for = lambda _: adapter
+    assert (await send(admin, r, scene)).status_code == 202
+    if change_kind != "gelijk":
+        async with sessionmaker()() as db:
+            new = await db.scalar(select(Device.id).where(
+                Device.home_id == r.home, Device.stable_identity == r.inv.L3))
+        if change_kind == "beschermd":
+            await protect(r.home, new)
+        else:
+            await change(new, compatibility="untested", tested_at=None)
+        resources[r.inv.ROOM_LIVING]["children"].append({"rid": r.inv.D3, "rtype": "device"})
+    try:
+        await r.worker.process_commands({r.home})
+    finally:
+        await adapter.close()
+    writes = [path for method, path in requests if method == "PUT"]
+    target = f"scene/{r.inv.S_EVENING}" if scene else f"grouped_light/{r.inv.G_LIVING}"
+    assert writes == ([f"/clip/v2/resource/{target}"] if change_kind == "gelijk" else [])
+    assert [row.status for row in await commands(r)] == ["confirmed" if change_kind == "gelijk" else "denied"]
+
+
+@pytest.mark.parametrize("kind", ["light", "scene"])
+@pytest.mark.parametrize("afwijkend", [False, True])
+async def test_opgeslagen_hue_doel_is_gebonden_aan_commandoregel(group_rig, kind, afwijkend):
+    r = group_rig
+    target = r.members[0] if kind == "light" else r.scene
+    actual_id = r.inv.L1 if kind == "light" else r.inv.S_EVENING
+    action = "set_light" if kind == "light" else "recall_scene"
+    writes = []
+
+    def bridge(request):
+        if request.method == "PUT":
+            writes.append(request.url.path)
+        if request.url.path == "/clip/v2/resource":
+            return httpx.Response(200, json={"data": r.inv.full_resources(), "errors": []})
+        return httpx.Response(200, json={"data": [{"on": {"on": True}, "status": {"active": "static"}}],
+                                         "errors": []})
+
+    async with sessionmaker()() as db:
+        db.add(CommandRecord(home_id=r.home, device_id=target, status="queued", action=action, source="user",
+                             actor="proef", params={"id": r.inv.L2 if afwijkend else actual_id, "on": True}))
+        await db.commit()
+    adapter = HueAdapter({"host": "bridge.test"}, {"application_key": "proef"},
+                         http_factory=lambda base, _: httpx.AsyncClient(
+                             base_url=base, transport=httpx.MockTransport(bridge)))
+    r.worker._adapter_for = lambda _: adapter
+    try:
+        await r.worker.process_commands({r.home})
+    finally:
+        await adapter.close()
+    assert writes == ([] if afwijkend else [f"/clip/v2/resource/{kind}/{actual_id}"])
+    assert [row.status for row in await commands(r)] == ["denied" if afwijkend else "confirmed"]
 
 
 @pytest.mark.parametrize("scope", ["home", "provider"])

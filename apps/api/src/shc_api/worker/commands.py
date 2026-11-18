@@ -46,8 +46,6 @@ class CommandsMixin:
 
     async def process_commands(self, home_ids: set[uuid.UUID] | None = None) -> None:
         """Run every queued command that is due. ``home_ids`` limits the run (tests, diagnostics)."""
-        from shc_integrations.base import Command
-
         await self._recover_interrupted(home_ids)
         while True:
             claimed = await self._claim_next(home_ids)
@@ -56,7 +54,7 @@ class CommandsMixin:
             if claimed is False:
                 continue
             cmd_id, dev = claimed
-            ok, confirmed, detail, state = False, False, "", None
+            ok, confirmed, detail, state, denied = False, False, "", None, False
             try:
                 async with sessionmaker()() as db:
                     # Houd dezelfde transactielock ook tijdens de laatste controle en uitvoering.
@@ -71,20 +69,36 @@ class CommandsMixin:
                         await self._settle(db, cmd, dev, zone, datetime.now(UTC), allow_retry=False)
                         await db.commit()
                         continue
-                    adapter = self._adapter_for(dev)
-                    if adapter is None:
-                        raise RuntimeError("Geen actieve integratie voor dit apparaat")
-                    action, params = cmd.action, dict(cmd.params)
-                    params = _translate(dev, action, params)
-                    res = await adapter.execute(Command(dev.stable_identity, action, params))
+                    res = await self._execute_command(db, cmd, dev)
                     ok, confirmed, detail, state = res.ok, res.confirmed, res.detail, res.state
                 if not confirmed and device_reported_error(res):
                     # Received but refused by the device/hub (e.g. Hue Bridge "errors"): store it as
                     # failed with the message, the same as the lights view shows it (item 27).
                     ok = False
+            except PolicyDenied as e:
+                detail, denied = e.message, True
             except Exception as e:  # adapter errors, timeouts, unsupported
                 ok, confirmed, detail = False, False, fouttekst(e)[:500] or type(e).__name__
-            await self._record_result(cmd_id, ok, confirmed, detail, state)
+            await self._record_result(cmd_id, ok, confirmed, detail, state, denied=denied)
+
+    async def _execute_command(self, db, cmd: CommandRecord, dev: Device):
+        from shc_integrations.base import Command
+        from shc_integrations.hue import HueAdapter
+
+        adapter = self._adapter_for(dev)
+        if adapter is None:
+            raise RuntimeError("Geen actieve integratie voor dit apparaat")
+        action = cmd.action
+        params = _translate(dev, action, dict(cmd.params))
+        command = Command(dev.stable_identity, action, params)
+        if isinstance(adapter, HueAdapter) and action in {"set_group", "recall_scene"}:
+            async def check_targets(group: str, members: list[str]) -> None:
+                await check_scene_group_policy(
+                    db, dev, action, params, safe_mode=True, actual_hue_targets=(group, members),
+                )
+
+            return await adapter.execute(command, check_targets=check_targets)
+        return await adapter.execute(command)
 
     async def _recover_interrupted(self, home_ids) -> None:
         """Commands left in 'sending' by a crash/restart: their outcome is unknown, mark them failed."""
@@ -149,6 +163,8 @@ class CommandsMixin:
         if dev is None:
             return "failed", "Apparaat bestaat niet meer"
         try:
+            if dev.provider == "hue" and "id" in cmd.params and cmd.params["id"] != dev.stable_identity:
+                raise PolicyDenied("Het opgeslagen Hue-doel wijkt af van het getoetste apparaat.")
             await check_scene_group_policy(db, dev, cmd.action, cmd.params, safe_mode=True)
             check_command(
                 await command_facts(db, dev, safe_mode=True),
@@ -177,7 +193,9 @@ class CommandsMixin:
                     return "denied", b["reason"]
         return None
 
-    async def _record_result(self, cmd_id: uuid.UUID, ok: bool, confirmed: bool, detail: str, state) -> None:
+    async def _record_result(
+        self, cmd_id: uuid.UUID, ok: bool, confirmed: bool, detail: str, state, *, denied: bool = False,
+    ) -> None:
         now = datetime.now(UTC)
         async with sessionmaker()() as db:
             await lock_commissioning(db)
@@ -193,7 +211,7 @@ class CommandsMixin:
             if zone is not None:
                 await lock_outdoor_group(db, zone)
                 await db.refresh(zone)
-            cmd.status = "confirmed" if confirmed else ("sent" if ok else "failed")
+            cmd.status = "denied" if denied else ("confirmed" if confirmed else ("sent" if ok else "failed"))
             cmd.detail = detail or ""
             cmd.updated_at = now
             await self._settle(db, cmd, dev, zone, now)

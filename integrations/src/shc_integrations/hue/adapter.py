@@ -16,7 +16,7 @@ import asyncio
 import json
 import logging
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -599,13 +599,44 @@ class HueAdapter(Adapter):
             log.debug("Hue eventstream nog steeds verbroken (%s)", error)
         self._announced_connected = connected
 
-    async def execute(self, command: Command) -> CommandResult:
+    async def _check_group_targets(
+        self, kind: str, rid: str, check_targets: Callable[[str, list[str]], Awaitable[None]],
+    ) -> None:
+        body = await self._get("/clip/v2/resource")
+        data = body.get("data") if isinstance(body, dict) else None
+        if not isinstance(data, list) or not all(isinstance(item, dict) for item in data) or body.get("errors"):
+            raise AdapterError("De actuele Hue-inventaris is niet beschikbaar.")
+        inventory = HueModel()
+        inventory.load(data)
+        target = inventory.get(rid) or {}
+        if target.get("type") != kind:
+            raise AdapterError("Het getoetste Hue-doel ontbreekt in de actuele inventaris.")
+        owner = inventory.owner_of(target) if kind == "grouped_light" else (target.get("group") or {}).get("rid")
+        group = rid if kind == "grouped_light" else inventory.grouped_light_of_owner(owner)
+        members, complete = inventory.group_members(owner)
+        if not complete or group is None:
+            raise AdapterError("De actuele Hue-groepsleden zijn niet volledig bekend.")
+        if kind == "scene":
+            actions = target.get("actions", [])
+            if not isinstance(actions, list):
+                raise AdapterError("De doelen van de Hue-scène zijn niet volledig bekend.")
+            for action in actions:
+                light = action.get("target", {}) if isinstance(action, dict) else {}
+                if not isinstance(light, dict) or light.get("rtype") != "light" or light.get("rid") not in members:
+                    raise AdapterError("De Hue-scène verwijst naar een doel buiten haar bekende groep.")
+        await check_targets(group, members)
+
+    async def execute(
+        self, command: Command, *, check_targets: Callable[[str, list[str]], Awaitable[None]] | None = None,
+    ) -> CommandResult:
         p = command.params
-        rid = p.get("id") or command.device_identity
+        rid = command.device_identity
         if command.action not in ("set_light", "set_group", "recall_scene"):
             raise Unsupported(f"Hue ondersteunt actie '{command.action}' niet")
         if not is_hue_id(rid):
             raise AdapterError(f"Ongeldige Hue-id '{rid}'")
+        if "id" in p and p["id"] != rid:
+            raise AdapterError("Het opgeslagen Hue-doel wijkt af van het getoetste apparaat.")
         if command.action in ("set_light", "set_group"):
             kind = "light" if command.action == "set_light" else "grouped_light"
             body: dict[str, Any] = {}
@@ -620,6 +651,8 @@ class HueAdapter(Adapter):
                 raise AdapterError("Leeg lichtcommando")
             limiter = self._light_limiter if kind == "light" else self._group_limiter
             await limiter.wait(kind)
+            if kind == "grouped_light" and check_targets is not None:
+                await self._check_group_targets(kind, rid, check_targets)
             _, errors = await self._put(f"/clip/v2/resource/{kind}/{rid}", body)
             back = await self._get(f"/clip/v2/resource/{kind}/{rid}")
             data = (back.get("data") or [{}])[0]
@@ -641,6 +674,8 @@ class HueAdapter(Adapter):
             detail = "" if confirmed else "Hue Bridge bevestigt de gevraagde stand niet (readback wijkt af)"
             return CommandResult(ok=True, confirmed=confirmed, detail=detail, state=state)
         await self._group_limiter.wait("grouped_light")
+        if check_targets is not None:
+            await self._check_group_targets("scene", rid, check_targets)
         _, errors = await self._put(f"/clip/v2/resource/scene/{rid}", {"recall": {"action": "active"}})
         if errors:
             return CommandResult(
