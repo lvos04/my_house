@@ -20,10 +20,10 @@ def instructions(source: str) -> Iterator[tuple[int, str]]:
     """Lees Dockerfile-instructies met commentaar, vervolgregels en heredoc-tekst."""
     escape = "\\"
     directives = True
-    pending = ""
+    pending = None
     start = 0
     heredocs: list[tuple[str, bool]] = []
-    for number, physical in enumerate(source.splitlines(), 1):
+    for number, physical in enumerate(source.removeprefix("\ufeff").splitlines(), 1):
         if heredocs:
             end, strip_tabs = heredocs[0]
             if (physical.lstrip("\t") if strip_tabs else physical) == end:
@@ -32,22 +32,28 @@ def instructions(source: str) -> Iterator[tuple[int, str]]:
         line = physical.lstrip()
         if directives and (directive := ESCAPE.fullmatch(line)):
             escape = directive[1]
-        if line and not line.startswith("#"):
-            directives = False
-            if not pending:
-                start = number
-            if line.rstrip().endswith(escape):
-                pending += line.rstrip()[:-1]
-                continue
-            line = (pending + line).rstrip()
+        if not line or line.startswith("#"):
+            continue
+        directives = False
+        if pending is None:
+            start = number
             pending = ""
-            if "<<" in line and line.split(maxsplit=1)[0].upper() in {"RUN", "COPY", "ADD"}:
-                heredocs = [
-                    (match[3], bool(match[1]))
-                    for word in shlex.split(line, posix=False)
-                    if (match := HEREDOC.fullmatch(word))
-                ]
-            yield start, line
+        else:
+            # De inspringing kan de enige scheiding tussen twee woorden zijn.
+            line = physical
+        line = line.rstrip()
+        if line.endswith(escape):
+            pending += line[:-1]
+            continue
+        line = (pending + line).lstrip()
+        pending = None
+        if "<<" in line and line.split(maxsplit=1)[0].upper() in {"RUN", "COPY", "ADD"}:
+            heredocs = [
+                (match[3], bool(match[1]))
+                for word in shlex.split(line, posix=False)
+                if (match := HEREDOC.fullmatch(word))
+            ]
+        yield start, line
 
 
 def violations(source: str) -> list[tuple[int, str]]:
