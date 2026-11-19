@@ -18,10 +18,12 @@ from .runtime import ALIVE, API_READY, DATA, GID, PG_SOCKET, RECOVERY, UID, drop
 from .storage import (
     ZIGBEE,
     check_layout,
+    finish_first_start,
     prepare_broker,
     prepare_secrets,
     prepare_web,
     prepare_zigbee,
+    sync_directory,
     transfer_ownership,
 )
 from .zigbee_sandbox import restrict_files
@@ -264,26 +266,41 @@ class Supervisor:
                 if self.run("initialisatie", command):
                     raise StartFout("De database kon niet worden geïnitialiseerd.")
                 staging.rename(pgdata)
+                sync_directory(pgdata.parent)
         self.start("postgres", ["postgres", "-D", str(pgdata), "-c", "listen_addresses=",
                                "-c", f"unix_socket_directories={PG_SOCKET}", "-c", "unix_socket_permissions=0700"])
-        prefix = ["psql", "-XAtq", "-d", "postgres", "-c"]
-        def database_answer(query: str) -> bytes:
+        def database_answer(query: str, database: str = "postgres") -> bytes | None:
             test = subprocess.run(  # noqa: S603 - vaste socket en queries
-                [*prefix, query], env=self.env, check=False, timeout=3,
+                ["psql", "-XAtq", "-d", database, "-c", query],  # noqa: S607 - ingebouwde PostgreSQL-client
+                env=self.env, check=False, timeout=3,
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             )
-            return test.stdout.strip() if test.returncode == 0 else b""
+            return test.stdout.strip() if test.returncode == 0 else None
         self.wait(lambda: database_answer("SELECT 1") == b"1", "PostgreSQL")
-        if not database_answer("SELECT 1 FROM pg_database WHERE datname = 'shc'"):
-            if not self.new_storage:
+        if not self.new_storage:
+            found = database_answer("SELECT 1 FROM pg_database WHERE datname = 'shc'")
+            if found != b"1":
                 raise StartFout("De bestaande applicatiedatabase ontbreekt of is onleesbaar. Herstel de snapshot.")
+            return
+        databases = database_answer(
+            "SELECT datname FROM pg_database WHERE NOT datistemplate AND datname <> 'postgres'",
+        )
+        # PostgreSQL 16 reserveert OID's onder 16384 voor systeemobjecten uit initdb.
+        empty = ("SELECT NOT EXISTS (SELECT 1 FROM pg_class WHERE oid >= 16384) "
+                 "AND NOT EXISTS (SELECT 1 FROM pg_namespace WHERE oid >= 16384)")
+        if (databases not in (b"", b"shc") or database_answer(empty) != b"t"
+                or (databases == b"shc" and database_answer(empty, "shc") != b"t")):
+            raise StartFout("De eerste database-initialisatie kan niet veilig doorgaan. Controleer de snapshot.")
+        if databases == b"":
             if self.run("databaseaanmaak", ["createdb", "shc"]):
                 raise StartFout("De applicatiedatabase kon niet worden geopend of aangemaakt.")
+        finish_first_start(DATA)
         self.new_storage = False
 
     def start_services(self, directory: Path, config: Path, password: str, zigbee: Zigbee | None) -> None:
         ALIVE.unlink(missing_ok=True)
-        self.database()
+        if "postgres" not in self.children:
+            self.database()
         code = self.run("migratie", ["shc-api", "migrate"])
         if code not in (0, SCHEMA_NIEUWER):
             raise StartFout("Database-update geweigerd. De app start zonder geslaagde migratie niet.")
@@ -377,7 +394,19 @@ def main() -> int:
         if not shutil.which("pg_dump"):
             raise StartFout("pg_dump ontbreekt. De database wordt niet gewijzigd.")
         password = prepare_secrets(DATA)
-        zigbee_password = prepare_zigbee(DATA / "zigbee2mqtt") if zigbee else None
+        if supervisor.new_storage:
+            supervisor.database()
+        zigbee_password = None
+        if zigbee:
+            try:
+                zigbee_password = prepare_zigbee(DATA / "zigbee2mqtt")
+            except ValueError as error:
+                log(f"Zigbee2MQTT blijft uit: {error}")
+            except OSError:
+                log("Zigbee2MQTT blijft uit: controleer de Zigbee-opslag en de bestandsrechten.")
+            if zigbee_password is None:
+                zigbee.close()
+                zigbee = None
         with tempfile.TemporaryDirectory(dir=DATA / "app", prefix=".run-") as run:
             run_dir = Path(run)
             prepare_web(run_dir, supervisor.env)
@@ -397,6 +426,7 @@ def main() -> int:
     finally:
         if zigbee:
             zigbee.close()
+        supervisor.shutdown()
         if storage_fd is not None:
             os.close(storage_fd)
 

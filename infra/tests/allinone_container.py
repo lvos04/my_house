@@ -22,11 +22,12 @@ DATABASE_ALLEEN = """
 import signal
 import time
 from shc_allinone.runtime import drop_privileges
-from shc_allinone.supervisor import Supervisor, service_env
+from shc_allinone.storage import check_layout
+from shc_allinone.supervisor import DATA, Supervisor, service_env
 
 drop_privileges()
 control = Supervisor(service_env())
-control.new_storage = True  # Deze afzonderlijke testdatabase mag bij de eerste proefstart worden aangemaakt.
+control.new_storage = check_layout(DATA)
 signal.signal(signal.SIGTERM, control.stop)
 try:
     control.database()
@@ -35,6 +36,24 @@ try:
         time.sleep(0.1)
 finally:
     control.shutdown()
+"""
+ONDERBROKEN_START = """
+import os
+import sys
+from shc_allinone import supervisor
+
+run = supervisor.Supervisor.run
+
+def interrupt(self, name, command):
+    if name == sys.argv[1]:
+        if name == "initialisatie":
+            print("Gesimuleerde onderbreking vóór initialisatie", file=sys.stderr, flush=True)
+            os._exit(1)
+        raise supervisor.StartFout("Gesimuleerde onderbreking vóór " + name)
+    return run(self, name, command)
+
+supervisor.Supervisor.run = interrupt
+raise SystemExit(supervisor.main())
 """
 MISLUKTE_DUMP = """
 from shc_allinone import supervisor
@@ -432,6 +451,59 @@ assert broker_accepts(password, "zigbee2mqtt")
         docker("stop", name)
         return volume
 
+    def interrupted_first_start(self):
+        volume = self.storage("onderbroken")
+        before = None
+        for phase in ("initialisatie", "databaseaanmaak"):
+            interrupted = self.container(f"voor-{phase}", volume, options=("--no-healthcheck",),
+                                         entrypoint=(*PYTHON, "-c", ONDERBROKEN_START, phase))
+            assert docker("wait", interrupted).stdout.strip() == b"1"
+            assert f"Gesimuleerde onderbreking vóór {phase}".encode() in self.logs(interrupted)
+            keys = """
+from pathlib import Path
+from hashlib import sha256
+import sys
+
+data = Path("/appdata")
+assert (data / "postgres/data/PG_VERSION").is_file() == (sys.argv[1] != "initialisatie")
+for name in ("app-key", "mqtt-shc"):
+    print(sha256((data / "secrets" / name).read_bytes()).hexdigest())
+"""
+            contents = docker(
+                "run", "--rm", "--network", "none", "--user", "568:568", "--mount",
+                f"type=volume,source={volume},target=/appdata", "--entrypoint", PYTHON[0],
+                self.image, *PYTHON[1:], "-c", keys, phase,
+            ).stdout
+            if before is None:
+                before = contents
+            assert contents == before
+        resumed = self.container("hervat", volume)
+        self.healthy(resumed)
+        assert self.exec(resumed, *PYTHON, "-c", keys, "hervat").stdout == before
+        assert self.sql(resumed, ZOEK_REVISIE).strip()
+        assert self.exec(resumed, "test", "!", "-e", "/appdata/.eerste-start").returncode == 0
+        docker("stop", resumed)
+        print("Eerste start hervat vóór initdb en vóór aanmaak van de applicatiedatabase, met dezelfde sleutels.",
+              flush=True)
+
+    def incomplete_zigbee_storage(self):
+        volume = self.storage("zigbee-onvolledig")
+        core = self.container("zigbee-opslag-kern", volume)
+        self.healthy(core)
+        config = b"# Bestaande proefconfiguratie\n"
+        self.exec(core, "/bin/sh", "-ec", "umask 077; mkdir /appdata/zigbee2mqtt; "
+                  "cat > /appdata/zigbee2mqtt/configuration.yaml", content=config)
+        docker("stop", core)
+        partial = self.container("zigbee-onvolledig", volume, options=("--device", "/dev/null:/dev/zigbee"),
+                                 entrypoint=("/bin/sh", "-ec", GROEPSPROEF))
+        self.healthy(partial)
+        assert b"Zigbee2MQTT blijft uit: De Zigbee-opslag is onvolledig" in self.logs(partial)
+        assert not any(node for _, node, _, _ in self.processes(partial).values())
+        assert self.file(partial, "zigbee2mqtt/configuration.yaml") == config
+        assert self.exec(partial, "test", "!", "-e", "/appdata/zigbee2mqtt/secret.yaml").returncode == 0
+        docker("stop", partial)
+        print("Onvolledige Zigbee-opslag: dienst geweigerd, kern gezond en configuratie bytegelijk.", flush=True)
+
     def snapshot(self, name, database):
         tables = self.sql(name, "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY 1;", database)
         statements = []
@@ -521,6 +593,8 @@ def main():
     with ExitStack() as cleanup:
         trial = Trial(sys.argv[1], cleanup)
         trial.refusals()
+        trial.interrupted_first_start()
+        trial.incomplete_zigbee_storage()
         trial.installed(root=True)
         upgrade_volume = trial.installed(root=False)
         trial.installed(root=True, zigbee=True)

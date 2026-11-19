@@ -19,6 +19,28 @@ ASSETS = ROOT / "infra/compose/config"
 
 
 class OpslagHerstel(unittest.TestCase):
+    def test_eerste_start_voor_initdb_hervat_met_dezelfde_geheimen(self):
+        with tempfile.TemporaryDirectory() as d:
+            data = Path(d)
+            storage.prepare_secrets(data)
+            secrets_before = {p.name: p.read_bytes() for p in (data / "secrets").iterdir()}
+
+            self.assertTrue(storage.check_layout(data))
+            storage.prepare_secrets(data)
+            self.assertEqual({p.name: p.read_bytes() for p in (data / "secrets").iterdir()}, secrets_before)
+
+    def test_hervatten_weigert_bestaande_gegevens_zonder_klare_database(self):
+        for name in ("postgres/data/PGDATA", "app/proef", "backups/proef", "mosquitto/proef", "zigbee2mqtt/proef"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as d:
+                data = Path(d)
+                storage.prepare_secrets(data)
+                existing = data / name
+                existing.parent.mkdir(parents=True, exist_ok=True)
+                existing.write_bytes(b"bestaande proefgegevens")
+                with self.assertRaisesRegex(ValueError, "snapshot"):
+                    storage.prepare_secrets(data)
+                self.assertEqual(existing.read_bytes(), b"bestaande proefgegevens")
+
     def test_bestaande_database_wordt_bij_verdwijnen_niet_opnieuw_aangemaakt(self):
         with tempfile.TemporaryDirectory() as d, patch.object(supervisor, "DATA", Path(d)):
             (Path(d) / "postgres").mkdir()
@@ -78,6 +100,43 @@ class OpslagHerstel(unittest.TestCase):
                     storage.prepare_zigbee(path)
                 self.assertFalse(target.exists())
                 storage.create_once(target, original)
+
+    def test_onvolledige_zigbee_opslag_weigert_alleen_de_optionele_dienst(self):
+        with tempfile.TemporaryDirectory() as d:
+            data = Path(d)
+            for name in ("app-key", "mqtt-shc"):
+                (data / "secrets").mkdir(exist_ok=True)
+                storage.create_once(data / "secrets" / name, secrets.token_urlsafe(48).encode())
+            cluster = data / "postgres/data"
+            cluster.mkdir(parents=True)
+            (cluster / "PG_VERSION").write_text("16\n")
+            zigbee = data / "zigbee2mqtt"
+            zigbee.mkdir()
+            surviving = zigbee / "configuration.yaml"
+            storage.create_once(surviving, b"proef: behouden\n")
+            before = surviving.read_bytes()
+            with (
+                patch.object(supervisor, "DATA", data),
+                patch.object(os, "umask"),
+                patch.object(supervisor, "transfer_ownership"),
+                patch.object(supervisor, "drop_privileges"),
+                patch.object(supervisor, "zigbee_groups", return_value=()),
+                patch.object(supervisor, "Zigbee") as start_zigbee,
+                patch.object(supervisor.signal, "signal"),
+                patch.object(supervisor.shutil, "which", return_value="pg_dump"),
+                patch.object(supervisor, "prepare_web"),
+                patch.object(storage, "ASSETS", ASSETS),
+                patch.object(supervisor.Supervisor, "watch") as watch,
+                contextlib.redirect_stderr(io.StringIO()) as log,
+            ):
+                self.assertEqual(supervisor.main(), 0)
+                self.assertIsNone(watch.call_args.args[-1])
+                start_zigbee.return_value.close.assert_called_once()
+                start_zigbee.return_value.enable.assert_not_called()
+            self.assertIn("Zigbee2MQTT blijft uit", log.getvalue())
+            self.assertIn("onvolledig", log.getvalue())
+            self.assertEqual(surviving.read_bytes(), before)
+            self.assertFalse((zigbee / "secret.yaml").exists())
 
     def test_broker_schrijft_alleen_hashes_ook_bij_onderbreking(self):
         with tempfile.TemporaryDirectory() as d, patch.object(storage, "ASSETS", ASSETS):

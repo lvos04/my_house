@@ -16,33 +16,58 @@ ASSETS = Path("/opt/shc")
 ZIGBEE = Path("/dev/zigbee")
 ADAPTERS = {"ember", "zstack", "deconz", "zigate", "zboss"}
 PASSWORD = re.compile(r"[A-Za-z0-9_-]{32,128}")
+FIRST_START = ".eerste-start"
+CORE_DIRS = ("postgres", "app", "backups", "secrets", "mosquitto")
+CORE_SECRETS = ("app-key", "mqtt-shc")
+INCOMPLETE = "De bestaande database is onvolledig. Zet de bijbehorende snapshot terug."
 
 
 def check_layout(data: Path) -> bool:
-    """Alleen een lege map is nieuw. Weiger onbekende opslag vóór chown en initdb."""
+    """Herken lege of aantoonbaar nog niet gebruikte opslag vóór chown en initdb."""
     if not stat.S_ISDIR(data.lstat().st_mode):
         raise ValueError("De opslag moet een gewone map zijn.")
     entries = {p.name for p in data.iterdir()}
     if not entries:
         return True
-    allowed = {"postgres", "app", "backups", "secrets", "mosquitto", "zigbee2mqtt"}
+    allowed = {*CORE_DIRS, "zigbee2mqtt", FIRST_START}
     if entries - allowed or any(not stat.S_ISDIR((data / name).lstat().st_mode) for name in entries):
         raise ValueError("Onbekende opslag. Bewaar deze map en herstel een back-up op aparte opslag.")
     legacy = ("secrets/secret_key", "secrets/db_password", "secrets/mqtt_shc_password", "postgres/PG_VERSION")
     if any(os.path.lexists(data / name) for name in legacy):
         raise ValueError("Opslag van de vorige Compose-installatie. Herstel de back-up op aparte opslag.")
-    for name in ("app-key", "mqtt-shc"):
+    cluster = data / "postgres/data"
+    first = FIRST_START in entries
+    if first:
+        # De bewaker maakt deze markering vóór de eerste bestanden en verwijdert
+        # haar vóór de API, worker en optionele diensten toegang krijgen.
+        for name in (FIRST_START, "app", "backups", "mosquitto", "zigbee2mqtt"):
+            if name in entries and any((data / name).iterdir()):
+                raise ValueError(INCOMPLETE)
+        if "secrets" in entries and any(p.name not in CORE_SECRETS for p in (data / "secrets").iterdir()):
+            raise ValueError(INCOMPLETE)
+        if "postgres" in entries:
+            for path in (data / "postgres").iterdir():
+                if path == cluster:
+                    continue
+                if not (path.name.startswith(".init-") and not path.is_symlink()
+                        and path.is_dir() and not any(path.iterdir())):
+                    raise ValueError(INCOMPLETE)
+    needs_cluster = not first or os.path.lexists(cluster)
+    for name in CORE_SECRETS:
         path = data / "secrets" / name
+        if not needs_cluster and not os.path.lexists(path):
+            continue
         if not path.is_file() or path.is_symlink():
             raise ValueError(f"Bestaande opslag mist {name}. Zet de oorspronkelijke geheimen uit de snapshot terug.")
-    cluster = data / "postgres/data"
+    if not needs_cluster:
+        return True
     version = cluster / "PG_VERSION"
     if cluster.is_symlink() or version.is_symlink() or not version.is_file():
-        raise ValueError("De bestaande database is onvolledig. Zet de bijbehorende snapshot terug.")
+        raise ValueError(INCOMPLETE)
     with version.open("rb") as source:
         if source.read(16).strip() != b"16":
             raise ValueError("De bestaande database vereist een andere PostgreSQL-versie. Bewaar de snapshot.")
-    return False
+    return first
 
 
 def transfer_ownership(data: Path) -> None:
@@ -76,6 +101,14 @@ def directory(path: Path) -> None:
     path.chmod(0o700)
 
 
+def sync_directory(path: Path) -> None:
+    fd = os.open(path, os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def create_once(path: Path, content: bytes) -> None:
     if os.path.lexists(path):
         return
@@ -88,11 +121,7 @@ def create_once(path: Path, content: bytes) -> None:
             os.link(out.name, path)
         except FileExistsError:
             return
-        fd = os.open(path.parent, os.O_DIRECTORY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+        sync_directory(path.parent)
 
 
 def read_private(path: Path, limit: int = 4096) -> str:
@@ -119,13 +148,25 @@ def password(path: Path) -> str:
 
 def prepare_secrets(data: Path) -> str:
     first = check_layout(data)
-    for part in ("postgres", "app", "backups", "secrets", "mosquitto"):
+    if first:
+        (data / FIRST_START).mkdir(mode=0o700, exist_ok=True)
+        sync_directory(data)
+    for part in CORE_DIRS:
         directory(data / part)
-    for name in ("app-key", "mqtt-shc"):
-        if first:
-            create_once(data / "secrets" / name, (secrets.token_urlsafe(48) + "\n").encode())
-        password(data / "secrets" / name)
-    return password(data / "secrets" / "mqtt-shc")
+    if first:
+        sync_directory(data)
+    values = {}
+    for name in CORE_SECRETS:
+        path = data / "secrets" / name
+        if first and not os.path.lexists(path):
+            create_once(path, (secrets.token_urlsafe(48) + "\n").encode())
+        values[name] = password(path)
+    return values["mqtt-shc"]
+
+
+def finish_first_start(data: Path) -> None:
+    (data / FIRST_START).rmdir()
+    sync_directory(data)
 
 
 def prepare_zigbee(path: Path) -> str:
