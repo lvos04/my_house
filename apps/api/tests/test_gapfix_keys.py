@@ -162,10 +162,13 @@ async def test_foreign_key_settings_alert_instead_of_crashing_worker_api_and_wat
 # --- 22: the key check before a restore includes the encrypted settings ---------------------------------
 
 
-async def test_restore_key_check_reports_encrypted_settings_of_another_key(admin, saved_settings, tmp_path, capsys):
+async def test_restore_key_check_reports_encrypted_settings_of_another_key(
+    admin, saved_settings, tmp_path, capsys, monkeypatch,
+):
     from shc_api import cli
     from shc_api.routers import system
 
+    monkeypatch.setattr(get_settings(), "backup_dir", tmp_path)
     async with sessionmaker()() as db:
         await set_setting(db, "backup_passphrase_enc", foreign_blob("oude wachtwoordzin"))
         await set_setting(db, "notify_url_enc", own_blob("https://ntfy.sh/eigen"))
@@ -196,7 +199,10 @@ async def test_restore_key_check_reports_encrypted_settings_of_another_key(admin
     )
     assert r.status_code == 200, r.text
     body = r.json()
-    assert warning in body["warnings"]
+    web_warning = bk.key_check_warning(check, web=True)
+    assert web_warning in body["warnings"]
+    assert "de oude hoofdsleutel uploadt bij Herstellen en verhuizen" in web_warning
+    assert "shc-api rekey" not in r.text
     assert body["credentials"]["settings_failed"] == ["backup_passphrase_enc"]
     assert "_secret_settings" not in body and "oude wachtwoordzin" not in r.text
     assert (await admin.delete(f"/system/restore/uploads/{body['upload_id']}")).status_code == 204

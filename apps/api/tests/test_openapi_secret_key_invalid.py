@@ -9,6 +9,7 @@ from shc_api.main import create_app
 
 ROUTES = [
     ("post", "/api/v1/system/restore/verify"),
+    ("post", "/api/v1/system/restore/rekey"),
     ("put", "/api/v1/system/backup-settings"),
     ("get", "/api/v1/system/notify"),
     ("put", "/api/v1/system/notify"),

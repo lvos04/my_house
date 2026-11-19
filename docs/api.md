@@ -752,7 +752,7 @@ back-ups mislukken of de laatste goede back-up is ouder dan 36 uur (en weer in o
 | GET | `/system/restore/jobs/{job_id}` | `public` | → `{job_id, state: "running"\|"done"\|"failed", step, mode, started_at, finished_at, error, report}`. Zonder login: de database (met de sessies) wordt vervangen; het `job_id` is een lang willekeurig geheim |
 | GET | `/system/restore/compare?home_id=` | `web-admin` | Per functie en apparaat wat beschikbaar is, met `duplicates` voor gelijke apparaatidentiteiten in meerdere woningen. Bij overstap geeft een volledige vergelijking een tijdelijke `migration.confirmation` |
 | POST | `/system/restore/confirm` | `web-admin` | `{confirmation, source_stopped: true}` → `{safe_mode: false}` nadat de beheerder de exacte vergelijking en stilstaande bron heeft bevestigd |
-| POST | `/system/restore/rekey` | `web-admin` | Ruwe bytes van het oude sleutelbestand, maximaal 4 KiB → `{rekeyed, already_current, failed, settings_failed}`. Verwerking in geheugen |
+| POST | `/system/restore/rekey` | `web-admin` | Ruwe bytes van het oude sleutelbestand, maximaal 4 KiB → `{rekeyed, already_current, failed, settings_failed}`. Verwerking in geheugen. 503 `secret_key_invalid` bij een onbruikbare huidige hoofdsleutel |
 | POST | `/system/safe-mode/enable` | `web-admin` | → `{safe_mode: true}`. Apparaatbediening pauzeert |
 
 ```
