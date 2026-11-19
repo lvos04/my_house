@@ -4,7 +4,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
-from shc_api.connector_proof import OPEN_RECOVERY
+from shc_api.connector_proof import OPEN_RECOVERY, REMEMBER_FIELDS, RESTORE_HISTORY
 
 revision = "0007"
 down_revision = "0006"
@@ -79,19 +79,14 @@ def upgrade() -> None:
         sa.UniqueConstraint("client", "proposal_key"),
     )
     # Ook de oude logische export bewaart settings. Zet alleen onze eigen geschiedenis terug.
-    op.execute("""
-        WITH history AS (
-            DELETE FROM settings
-            WHERE value->>'format' = 'connector-0007' AND key = 'connector_history:' || (value->'v'->>'id')
-            RETURNING value->'v' AS proof
-        )
-        INSERT INTO connector_changes SELECT (jsonb_populate_record(NULL::connector_changes, proof)).* FROM history
-    """)
+    op.execute(RESTORE_HISTORY)
+    op.execute(REMEMBER_FIELDS)
 
 
 def downgrade() -> None:
     # Hou nieuwe opdrachten en een worker tussen claim en verzending buiten de terugval.
     op.execute("SELECT pg_advisory_xact_lock(hashtextextended('shc-commissioning', 0))")
+    op.execute(RESTORE_HISTORY)
     op.execute(f"""
         DO $$
         BEGIN
@@ -113,7 +108,8 @@ def downgrade() -> None:
     """)  # noqa: S608 - OPEN_RECOVERY is vaste broncode
     # Een oudere worker kent de voorwaarden voor nog niet verzonden connectorcommando's niet.
     op.execute("""
-        UPDATE commands SET status = 'cancelled', detail = 'Connectorbediening vervallen bij schemaherstel'
+        UPDATE commands SET status = 'cancelled', updated_at = now(),
+                            detail = 'Connectorbediening vervallen bij schemaherstel'
         WHERE source = 'connector' AND status IN ('queued', 'sending', 'sent')
     """)
     op.execute("""

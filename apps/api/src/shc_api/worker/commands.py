@@ -11,7 +11,7 @@ import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, or_, select, update
 
 from .. import climate as cl
 from .. import connector_changes, events
@@ -152,7 +152,9 @@ class CommandsMixin:
             await lock_commissioning_shared(db)
             if restore_marker is not ANY_RESTORE and await get_setting(db, "restored_from") != restore_marker:
                 return None
-            due = [CommandRecord.status == "queued", CommandRecord.updated_at <= now]
+            reserved = and_(CommandRecord.source == connector_changes.SOURCE,
+                            CommandRecord.updated_at == connector_changes.WAIT_FOR_CONNECTOR_WORKER)
+            due = [CommandRecord.status == "queued", or_(CommandRecord.updated_at <= now, reserved)]
             if home_ids:
                 due.append(CommandRecord.home_id.in_(home_ids))
             homes = await db.scalars(select(CommandRecord.home_id).where(*due).group_by(CommandRecord.home_id)

@@ -226,14 +226,17 @@ class Device(Base):
     fallback: Mapped[str | None] = mapped_column(Text)
 
     def gree_control_fields(self) -> set[str]:
-        state = self.state or {}
-        fields = set(state.get("gree_control_fields", []))
-        # Oudere installaties bewaarden ventilator en klep als capabilities of als vertaalde stand.
-        caps = state.get("caps") or {}
-        for capability, field in (("fan", "WdSpd"), ("swing", "SwUpDn")):
-            if capability in (self.capabilities or []) or caps.get(capability) or capability in state:
-                fields.add(field)
-        return fields
+        return known_gree_control_fields(self.state or {}, self.capabilities or [])
+
+
+def known_gree_control_fields(state: dict, capabilities: list) -> set[str]:
+    fields = set(state.get("gree_control_fields", []))
+    # Oudere installaties bewaarden ventilator en klep als capabilities of als vertaalde stand.
+    caps = state.get("caps") or {}
+    for capability, field in (("fan", "WdSpd"), ("swing", "SwUpDn")):
+        if capability in capabilities or caps.get(capability) or capability in state:
+            fields.add(field)
+    return fields
 
 
 class LogicalRole(Base):

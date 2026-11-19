@@ -61,7 +61,16 @@ from sqlalchemy.pool import NullPool
 
 from .config import VERSION, get_settings
 from .connector import RESTORED_COMMAND_DETAIL
-from .connector_proof import IN_FLIGHT, INCOMPLETE_PROOF, OPEN_RECOVERY, check_archive
+from .connector_proof import (
+    IN_FLIGHT,
+    INCOMPLETE_PROOF,
+    OPEN_RECOVERY,
+    PREVIEWS,
+    REMEMBER_FIELDS,
+    RESTORE_HISTORY,
+    check_archive,
+    check_preview,
+)
 from .logfilter import db_error_text
 from .models import Base, Setting
 from .store import ensure_server_identity
@@ -1350,6 +1359,7 @@ def _hold_connector_recovery(conn) -> None:
 
 
 def _restore_connector_proof(conn, held_recovery: bool) -> None:
+    conn.execute(text(RESTORE_HISTORY))
     if held_recovery and conn.execute(text(f"""
         SELECT EXISTS (
             SELECT * FROM held_connector_recovery
@@ -1362,6 +1372,9 @@ def _restore_connector_proof(conn, held_recovery: bool) -> None:
         raise BackupError("Terugzetten geweigerd: het bestaande open apparaatherstel zou bewijs verliezen.")
     if conn.scalar(text(INCOMPLETE_PROOF)):
         raise BackupError("Terugzetten geweigerd: bij een connectoropdracht ontbreekt het herstelbewijs.")
+    conn.execute(text(REMEMBER_FIELDS))
+    for raw in conn.execute(text(PREVIEWS)).scalars():
+        check_preview(raw)
     conn.execute(text("""
         UPDATE connector_changes SET status = 'failed', reason_code = 'readback_unknown_after_restore'
         WHERE status = 'queued' AND command_id IN (SELECT id FROM commands WHERE status IN ('sending', 'sent'))
@@ -1373,7 +1386,7 @@ def _restore_connector_proof(conn, held_recovery: bool) -> None:
     """))
     conn.execute(text("UPDATE connector_changes SET execution_expires_at = NULL, rollback_expires_at = NULL"))
     conn.execute(text("""
-        UPDATE commands SET status = 'cancelled', detail = :detail
+        UPDATE commands SET status = 'cancelled', updated_at = now(), detail = :detail
         WHERE source = 'connector' AND status IN ('queued', 'sending', 'sent')
     """), {"detail": RESTORED_COMMAND_DETAIL})
 
@@ -1457,6 +1470,7 @@ def _restore_sync(
         db_rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
     held_recovery = "connector_changes" in current.tables
     if held_recovery:
+        conn.execute(text(RESTORE_HISTORY))
         _hold_connector_recovery(conn)
     prior_raw = None
     if "settings" in current.tables:
@@ -1838,6 +1852,8 @@ async def restore_file(
     guard: dict | None = None, job_key: str | None = None,
 ) -> RestoreReport:
     """Verify (pass 1) and restore (pass 2) in one transaction. Caller handles maintenance mode."""
+    from .connector_changes import remember_proposal_fields
+
     if mode not in ("same_home", "new_home", "migration") or (mode == "migration") != (migration is not None):
         raise BackupError("Onbekende herstelkeuze.")
     v = verified or verify_file(path, passphrase, collect=migration is not None)
@@ -1852,6 +1868,7 @@ async def restore_file(
             async with conn.begin():
                 gate = await conn.run_sync(_restore_sync, path, passphrase, v.manifest, mode, report,
                                            migration, guard, job_key)
+                await remember_proposal_fields(conn)
     except BackupError:
         raise
     except DBAPIError as exc:

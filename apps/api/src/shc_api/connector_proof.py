@@ -1,6 +1,8 @@
 """Controleer opdracht, richting, vorige stand en herstelstatus binnen dezelfde database."""
 
 import asyncio
+import hashlib
+import json
 import re
 import shutil
 import uuid
@@ -12,6 +14,56 @@ from sqlalchemy import Column, MetaData, Table
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable
 
+from .models import known_gree_control_fields
+
+
+def digest(value) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    return "sha256:" + hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def apply_preview(action, diff, target, etag, recipe, *, legacy=False) -> str:
+    content = {"action_id": action, "diff": diff, "blast_radius": [target],
+               "resource_etag": etag, "rollback_recipe": recipe}
+    if not legacy:
+        content["direction"] = "apply"
+    return digest(content)
+
+
+# De oude migratie kon de tabel al hebben aangemaakt, met de geschiedenis nog in settings.
+# Een sleutelconflict breekt de transactie af. Zo overschrijft geen van beide versies een bewijsrij.
+RESTORE_HISTORY = """
+    WITH history AS (
+        DELETE FROM settings
+        WHERE value->>'format' = 'connector-0007' AND key = 'connector_history:' || (value->'v'->>'id')
+        RETURNING value->'v' AS proof
+    )
+    INSERT INTO connector_changes SELECT (jsonb_populate_record(NULL::connector_changes, proof)).* FROM history
+    WHERE NOT EXISTS (SELECT 1 FROM connector_changes c WHERE c.id::text = proof->>'id' AND to_jsonb(c) = proof)
+"""
+
+# De zone kan intussen een andere unit hebben. De uitgevoerde opdracht bewaart de oorspronkelijke apparaat-ID.
+REMEMBER_FIELDS = """
+    WITH measured AS (
+        SELECT DISTINCT cmd.device_id, measured_fields.field_name
+        FROM connector_changes c JOIN commands cmd ON cmd.id = c.command_id AND cmd.source = 'connector'
+        CROSS JOIN LATERAL (VALUES (c.before), (c.after), (c.rollback_from->'state'), (c.rollback_after)) s(state)
+        CROSS JOIN LATERAL jsonb_object_keys(s.state->'controls') AS measured_fields(field_name)
+        WHERE c.action_id = 'zone.command'
+    ), fields AS (
+        SELECT device_id, jsonb_agg(field_name ORDER BY field_name) AS known FROM measured GROUP BY device_id
+    )
+    UPDATE devices d SET state = jsonb_set(d.state, '{gree_control_fields}', (
+        SELECT jsonb_agg(names.field_name ORDER BY names.field_name) FROM (
+            SELECT DISTINCT raw.field_name FROM jsonb_array_elements_text(
+                coalesce(d.state->'gree_control_fields', '[]'::jsonb) || fields.known
+            ) AS raw(field_name)
+        ) names
+    ))
+    FROM fields WHERE d.id = fields.device_id
+      AND (d.state->'gree_control_fields' @> fields.known) IS NOT TRUE
+"""
+
 # Hetzelfde open herstel blokkeert een downgrade en wordt bij logisch herstel eerst veiliggesteld.
 IN_FLIGHT = """
     EXISTS (SELECT 1 FROM commands cmd WHERE cmd.id IN (c.command_id, c.rollback_command_id)
@@ -21,10 +73,28 @@ RESTORED = """
     c.rollback_status = 'confirmed' AND c.rollback_after = c.before AND c.rollback_at IS NOT NULL
     AND EXISTS (SELECT 1 FROM commands undo WHERE undo.id = c.rollback_command_id AND undo.status = 'confirmed')
 """
+UNCHANGED = """
+    c.status = 'confirmed' AND c.observed_at IS NOT NULL AND c.after_at IS NOT NULL AND c.after = c.before
+    AND jsonb_typeof(c.before->'controls') = 'object' AND c.before->'controls' @> jsonb_build_object('TemUn', 0)
+    AND c.parameters = jsonb_build_object('target_c', c.before->'target_c')
+    AND c.rollback_command_id IS NULL AND c.rollback_status IS NULL
+    AND EXISTS (SELECT 1 FROM commands a WHERE a.id = c.command_id AND a.status = 'confirmed')
+"""
+REFUSED = """
+    c.status = 'failed' AND c.reason_code IN ('precondition_failed', 'readback_before_send_unavailable',
+                                              'refused_before_send')
+    AND c.after IS NULL AND c.after_at IS NULL AND c.rollback_command_id IS NULL AND c.rollback_status IS NULL
+    AND EXISTS (SELECT 1 FROM commands a WHERE a.id = c.command_id AND a.status IN ('failed', 'denied', 'cancelled'))
+"""
+OLD_STATE = """
+    c.before = jsonb_build_object('power', c.before->'power', 'mode', c.before->'mode',
+                                  'target_c', c.before->'target_c')
+"""
+OLD_PAIR = f"({RESTORED}) AND c.status = 'confirmed' AND c.rollback_from = c.after AND ({OLD_STATE})"
 OPEN_RECOVERY = f"""
     c.command_id IS NOT NULL AND (
         {IN_FLIGHT} OR (
-            ({RESTORED} AND jsonb_typeof(c.before->'controls') = 'object') IS NOT TRUE
+            (({RESTORED}) AND jsonb_typeof(c.before->'controls') = 'object' OR ({OLD_PAIR})) IS NOT TRUE
             AND (c.rollback_command_id IS NOT NULL OR c.rollback_status IS NOT NULL
                  OR c.status = 'confirmed' AND (c.after IS DISTINCT FROM c.before OR NOT (c.before ? 'controls'))
                  OR c.reason_code IN ('readback_unavailable', 'readback_unknown_after_restart',
@@ -36,13 +106,11 @@ OPEN_RECOVERY = f"""
 """
 
 # Het oude formaat legde alleen voeding, modus en doeltemperatuur vast. Alleen een volledig
-# afgehandeld paar mag met precies die historische metingen mee. Dit verleent geen uitvoerrecht.
+# afgehandeld paar of een bewezen weigering vóór verzending mag met die historische metingen mee.
 INCOMPLETE_PROOF = f"""
     WITH proof AS (
         SELECT c.*, (
-            {RESTORED} AND c.status = 'confirmed' AND c.rollback_from = c.after
-            AND c.before = jsonb_build_object('power', c.before->'power', 'mode', c.before->'mode',
-                                               'target_c', c.before->'target_c')
+            ({OLD_PAIR}) OR (({REFUSED}) AND ({OLD_STATE}))
         ) IS TRUE AS historical
         FROM connector_changes c
     ), links AS (
@@ -60,10 +128,10 @@ INCOMPLETE_PROOF = f"""
         SELECT 1 FROM commands cmd
         LEFT JOIN links l ON l.cmd_id = cmd.id
         WHERE cmd.source = 'connector'
-          AND (cmd.status NOT IN ('cancelled', 'denied') OR l.id IS NOT NULL OR cmd.attempts > 0)
           AND (l.id IS NULL OR (
               l.action_id = 'zone.command' AND cmd.action = 'set_hvac'
               AND l.target->>'zone_id' = cmd.zone_id::text AND l.observed_at IS NOT NULL
+              AND EXISTS (SELECT 1 FROM devices d WHERE d.id = cmd.device_id AND d.home_id = cmd.home_id)
               AND jsonb_typeof(l.before->'power') = 'boolean' AND jsonb_typeof(l.before->'mode') = 'string'
               AND jsonb_typeof(l.before->'target_c') = 'number'
               AND (l.historical OR jsonb_typeof(l.before->'controls') = 'object'
@@ -90,6 +158,50 @@ INCOMPLETE_PROOF = f"""
         SELECT 1 FROM links GROUP BY cmd_id HAVING count(*) <> 1
     )
 """  # noqa: S608 - RESTORED is vaste broncode
+
+
+# Lees de getallen in dezelfde JSON-vorm als bij het voorstel (20 en 20.0 hebben een andere hash).
+# Alleen een volledige, nog open opdracht moet ook alle nu bekende onafhankelijke velden kunnen herstellen.
+PREVIEWS = f"""
+    SELECT jsonb_build_object(
+        'action', c.action_id, 'target', c.target, 'parameters', c.parameters, 'etag', c.resource_etag,
+        'before', c.before, 'hash', c.preview_hash, 'linked', c.command_id IS NOT NULL,
+        'settled', ({RESTORED}) OR ({UNCHANGED}) OR ({REFUSED}),
+        'state', d.state, 'capabilities', d.capabilities, 'half', i.config->'half_degrees'
+    )::text
+    FROM connector_changes c LEFT JOIN commands cmd ON cmd.id = c.command_id
+    LEFT JOIN devices d ON d.id = cmd.device_id
+    LEFT JOIN integrations i ON i.id = d.integration_id
+    WHERE c.action_id = 'zone.command'
+      AND (c.before IS NOT NULL OR c.observed_at IS NOT NULL OR c.command_id IS NOT NULL OR c.status = 'proposed')
+"""  # noqa: S608 - vaste bewijsvoorwaarden
+
+
+def check_preview(raw: str) -> None:
+    from .backup import BackupError
+
+    saved = json.loads(raw)
+    before = saved["before"]
+    invalid = BackupError("Terugzetten geweigerd: het connectorherstelbewijs wijkt af van de oorspronkelijke preview.")
+    if not isinstance(before, dict) or "target_c" not in before:
+        raise invalid
+    diff = {"before": before, "proposed": saved["parameters"]}
+    recipes = [{"target_c": before["target_c"]}]
+    if not saved["linked"]:
+        recipes.append(None)  # Een incompatibele meting levert een voorstel zonder herstelrecept op.
+    hashes = (apply_preview(saved["action"], diff, saved["target"], saved["etag"], recipe,
+                            legacy="controls" not in before) for recipe in recipes)
+    if saved["hash"] not in hashes:
+        raise invalid
+    if saved["linked"] and not saved["settled"]:
+        required = known_gree_control_fields(saved["state"] or {}, saved["capabilities"] or [])
+        required.difference_update({"Pow", "Mod", "SetTem", "TemSen"})
+        if saved["half"]:
+            required.discard("TemRec")  # In halvegraadmodus is deze bit opgenomen in target_c.
+        controls = before.get("controls")
+        if not isinstance(controls, dict) or not required.issubset(controls):
+            raise invalid
+
 
 
 @asynccontextmanager
@@ -121,11 +233,14 @@ async def check_archive(archive: Path, url: str) -> None:
     pg_restore = shutil.which("pg_restore")
     if not pg_restore:
         raise BackupError("pg_restore ontbreekt. Het connectorherstelbewijs kan niet worden gecontroleerd.")
-    tables = {name: Base.metadata.tables[name] for name in ("commands", "connector_changes", "settings")}
+    tables = {name: Base.metadata.tables[name] for name in (
+        "commands", "connector_changes", "settings", "devices", "integrations",
+    )}
     async with _proof_database(url) as db:
         for name, model in tables.items():
             # Geen functies, triggers of rechten uit het archief. De tabellen bevatten alleen onze kolommen en typen.
-            table = Table(name, MetaData(), *(Column(col.name, col.type) for col in model.columns))
+            table = Table(name, MetaData(), *(Column(col.name, col.type, primary_key=col.primary_key)
+                                              for col in model.columns))
             await db.execute(str(CreateTable(table).compile(dialect=postgresql.dialect())))
         proc = await asyncio.create_subprocess_exec(
             pg_restore, "--data-only", "--schema=public", *(f"--table={t}" for t in tables),
@@ -141,13 +256,13 @@ async def check_archive(archive: Path, url: str) -> None:
                 proc.kill()
                 await proc.communicate()
         # Op 0006 zit dezelfde geschiedenis tijdelijk in de gewone instellingentabel.
-        await db.execute("""
-            INSERT INTO connector_changes
-            SELECT (jsonb_populate_record(NULL::connector_changes, value->'v')).* FROM settings
-            WHERE value->>'format' = 'connector-0007' AND key = 'connector_history:' || (value->'v'->>'id')
-        """)
+        await db.execute(RESTORE_HISTORY)
+        await db.execute(REMEMBER_FIELDS)
         if await db.fetchval(INCOMPLETE_PROOF):
             raise BackupError("Terugzetten geweigerd: het connectorherstelbewijs ontbreekt of is onvolledig.")
+        async with db.transaction():
+            async for row in db.cursor(PREVIEWS):
+                check_preview(row[0])
 
 
 async def _load_copy_data(stream, db, tables):
@@ -165,22 +280,32 @@ async def _load_copy_data(stream, db, tables):
         if not set(fields).issubset(tables[name].columns.keys()):
             raise ValueError("Onbekende kolommen")
         seen.add(name)
-        await db.copy_to_table(name, columns=fields, source=_copy_rows(stream, name, fields))
+        # Configuratie en status zijn nodig voor de bedienvelden. Apparaatsleutels horen niet in de proefdatabase.
+        projection = {
+            "devices": ("id", "home_id", "state", "capabilities", "integration_id"), "integrations": ("id", "config"),
+        }
+        columns = projection.get(name, fields)
+        await db.copy_to_table(name, columns=columns, source=_copy_rows(stream, name, fields, columns))
     if "commands" not in seen:
         raise ValueError("De opdrachten ontbreken in de database-dump")
 
 
-async def _copy_rows(stream, table_name, fields):
+async def _copy_rows(stream, table_name, fields, columns):
     # PostgreSQL COPY-tekst ontsnapt tabs en regeleinden in veldwaarden. Laat PostgreSQL de waarden decoderen.
-    index = fields.index({"settings": "key", "commands": "source"}.get(table_name, "id"))
+    selector = {"settings": "key", "commands": "source"}.get(table_name)
+    index = fields.index(selector) if selector else None
+    indexes = [fields.index(col) for col in columns] if columns != fields else None
     while line := await stream.readline():
         if line == b"\\.\n":
             return
-        if table_name != "connector_changes":
+        if index is not None:
             field = line.rstrip(b"\n").split(b"\t")[index]
             if table_name == "commands" and field != b"connector":
                 continue
             if table_name == "settings" and not field.startswith(b"connector_history:"):
                 continue
+        if indexes:
+            parts = line.rstrip(b"\n").split(b"\t")
+            line = b"\t".join(parts[i] for i in indexes) + b"\n"
         yield line
     raise ValueError("De COPY-gegevens eindigen voortijdig")

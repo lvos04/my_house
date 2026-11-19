@@ -11,6 +11,7 @@ from alembic import command
 from shc_api import backup as bk
 from shc_api import cli
 from shc_api.config import get_settings
+from shc_api.connector_changes import digest
 from shc_api.db import sessionmaker
 from shc_api.models import CommandRecord, Device, utcnow
 from shc_api.worker import Worker, core
@@ -256,19 +257,27 @@ async def test_onderbreking_na_echte_simulatorverzending(proef, tmp_path, monkey
     assert not done["recovery_required"] and len(proef.unit.commands) == 2
 
 
-@pytest.mark.parametrize("settled", [True, False])
-async def test_oud_opdrachtpaar_alleen_als_afgehandelde_historie(proef, manual_dump, settled):
+@pytest.mark.parametrize(("settled", "historical_hash"), [(True, True), (False, True), (True, False)])
+async def test_oud_opdrachtpaar_alleen_als_afgehandelde_historie(proef, manual_dump, settled, historical_hash):
     preview, _ = await _apply(proef)
     rollback_id = await _queue_rollback(proef, preview)
     if settled:
         await proef.work()
     url = get_settings().database_url
+    # De oudste preview bevatte geen richting en mat alleen voeding, modus en doeltemperatuur.
+    # Reproduceer het oude formaat inclusief zijn eigen hash, zodat een echt verloren veld detecteerbaar blijft.
+    old_before = {key: value for key, value in preview["before"].items() if key != "controls"}
+    old_hash = digest({
+        "action_id": "zone.command", "diff": {**preview["diff"], "before": old_before},
+        "blast_radius": preview["blast_radius"], "resource_etag": preview["resource_etag"],
+        "rollback_recipe": preview["rollback_recipe"],
+    })
     await sql(url, """
-        UPDATE connector_changes SET before=before-'controls', after=after-'controls',
+        UPDATE connector_changes SET preview_hash=:hash, before=before-'controls', after=after-'controls',
             rollback_from=(rollback_from->'state')-'controls', rollback_after=rollback_after-'controls'
         WHERE id=:id
-    """, {"id": uuid.UUID(preview["proposal_id"])})
-    if not settled:
+    """, {"id": uuid.UUID(preview["proposal_id"]), "hash": old_hash if historical_hash else preview["preview_hash"]})
+    if not settled or not historical_hash:
         with pytest.raises(bk.BackupError, match="connectorherstelbewijs"):
             await manual_dump()
         return
@@ -277,3 +286,15 @@ async def test_oud_opdrachtpaar_alleen_als_afgehandelde_historie(proef, manual_d
     evidence = await proef.evidence(rollback_id)
     assert evidence["rollback_reason_code"] == "readback_incomplete" and evidence["rollback_preview"] is None
     assert len(proef.unit.commands) == 2
+
+
+async def test_geannuleerde_opdracht_zonder_bewijs_blijft_verweesd(proef, manual_dump):
+    preview = await proef.propose()
+    response = await proef.post("apply", proef.request(preview=preview))
+    assert response.status_code == 202
+    url = get_settings().database_url
+    await sql(url, "UPDATE commands SET status='cancelled' WHERE id=:id", {"id": uuid.UUID(response.json()["command_id"])})
+    await sql(url, "DELETE FROM connector_changes WHERE id=:id", {"id": uuid.UUID(preview["proposal_id"])})
+    with pytest.raises(bk.BackupError, match="connectorherstelbewijs"):
+        await manual_dump()
+    assert not proef.unit.commands

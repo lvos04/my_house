@@ -88,7 +88,9 @@ ondertekende verzoeken en de lokale replaycontrole vast.
   voorstelbewijs toe en versieert zones en lichtdoelen. Open of onzeker apparaatherstel blokkeert
   terugval naar 0006. Bij toegestane terugval vervallen wachtende apply-opdrachten en lokale
   uitvoerbewijzen. De volledige voorstel- en herstelgeschiedenis reist in 0006 mee als instellingen.
-  Een volgende upgrade zet de bewijsrijen met hun oorspronkelijke opdracht-ID's terug.
+  Bij een volgende start koppelt de applicatie deze feiten binnen één transactie aan hun oorspronkelijke
+  opdracht-ID’s, ook als een eerdere versie de 0007-tabel al heeft aangemaakt. De apparaat-ID van de opdracht
+  of de ETag van een voorstel koppelt eerder gemeten bedienvelden aan de juiste unit.
 - Het contractfoutformaat `{code,message,details,trace_id}` geldt op de connectorroutes. De
   bestaande bedienroutes behouden `{"detail":{…}}` (ADR-0003).
 - Bij uitvoerbaar klimaatwerk bindt de goedkeuring de exacte preview, ETag, actie, doel,
@@ -96,8 +98,12 @@ ondertekende verzoeken en de lokale replaycontrole vast.
 - Bewijs is zichtbaar voor dezelfde aangemelde aanroeper. Een logische export bewaart vorige stand,
   opdrachtkoppelingen en herstelstatus. De lokale uitvoerrechten vervallen bij herstel.
   Voor vrijgave van een database-dump controleert de applicatie de opgeslagen koppelingen in
-  een afzonderlijke PostgreSQL-database. Een oude dump zonder connectoropdrachten kan deze controle doorstaan.
+  een afzonderlijke PostgreSQL-database. De vorige stand moet de oorspronkelijke previewhash opleveren.
+  Een vóór verzending geweigerde opdracht behoudt de reden en de destijds gemeten stand. Een ontbrekende
+  koppeling of bedienstand blokkeert het aanmaken en het ontsleutelen van de dump.
 - Na een onderbroken verzending toont de herstelpreview de actuele, volledig teruggelezen stand.
   Komt deze met de vorige stand overeen, dan bevestigt de worker na nieuwe goedkeuring het herstel
   met een tweede teruglezing. Bij open herstel uit een eerdere versie wachten de migratie en de nieuwe
-  worker op afhandeling door de vorige installatie.
+  worker op afhandeling door de vorige installatie. Bij terugkeer naar oudere software op hetzelfde schema
+  blijft een opdracht voor de huidige connector uitgesteld in de bestaande wachtrij. De bevoegde worker
+  claimt de oorspronkelijke opdracht onder de woninglock en toetst opnieuw de goedkeuring en de vervaltijd.

@@ -102,9 +102,16 @@ def _libpq(url: str) -> tuple[str, str | None]:
     return urlunsplit((u.scheme, netloc, u.path, u.query, u.fragment)), pw
 
 
+def _database_revision(conn) -> str | None:
+    from sqlalchemy import text
+
+    if conn.scalar(text("SELECT to_regclass('alembic_version')")) is None:
+        return None
+    return conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
+
+
 def current_revision(url: str | None = None) -> str | None:
     """The database's alembic revision, or None for an empty database."""
-    from sqlalchemy import text
     from sqlalchemy.ext.asyncio import create_async_engine
     from sqlalchemy.pool import NullPool
 
@@ -114,54 +121,93 @@ def current_revision(url: str | None = None) -> str | None:
         engine = create_async_engine(url or get_settings().database_url, poolclass=NullPool, hide_parameters=True)
         try:
             async with engine.connect() as conn:
-                if (await conn.execute(text("SELECT to_regclass('alembic_version')"))).scalar() is None:
-                    return None
-                return (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one_or_none()
+                return await conn.run_sync(_database_revision)
         finally:
             await engine.dispose()
 
     return _in_thread(lambda: asyncio.run(q()))
 
 
+def _check_connector_rows(conn) -> None:
+    from sqlalchemy import text
+
+    from .backup import BackupError
+    from .connector_proof import (
+        INCOMPLETE_PROOF,
+        PREVIEWS,
+        REFUSED,
+        RESTORE_HISTORY,
+        RESTORED,
+        UNCHANGED,
+        check_preview,
+    )
+
+    conn.execute(text(RESTORE_HISTORY))
+    blocked = conn.scalar(text(f"""
+        SELECT EXISTS (
+            SELECT 1 FROM commands cmd LEFT JOIN connector_changes c
+              ON cmd.id IN (c.command_id, c.rollback_command_id) OR c.rollback_from->'previous_attempts' ? cmd.id::text
+            WHERE cmd.source = 'connector' AND cmd.status NOT IN ('cancelled', 'denied')
+              AND (c.id IS NULL OR (
+                  (jsonb_typeof(c.before->'controls') IS DISTINCT FROM 'object'
+                   OR EXISTS (SELECT 1 FROM idempotency_keys k WHERE k.key = c.id AND k.scope = 'connector:voorstel'))
+                  AND (({RESTORED}) OR ({UNCHANGED}) OR ({REFUSED})) IS NOT TRUE
+              ))
+        )
+    """))  # noqa: S608 - vaste bewijsvoorwaarden
+    if blocked:
+        raise MigrationError(
+            "Apparaatherstel uit een eerdere versie staat open. Handel dit eerst met de vorige installatie af."
+        )
+    if conn.scalar(text(INCOMPLETE_PROOF)):
+        raise MigrationError("De vorige installatie bevat onvolledig connectorherstelbewijs.")
+    try:
+        for preview in conn.execute(text(PREVIEWS)).scalars():
+            check_preview(preview)
+    except BackupError as exc:
+        raise MigrationError("De vorige installatie bevat onvolledig connectorherstelbewijs.") from exc
+
+
 async def check_connector_transition(revision: str | None, url: str | None = None) -> None:
-    """Laat een eerdere installatie haar eigen open opdrachten afhandelen, ook bij dezelfde revisie."""
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import create_async_engine
     from sqlalchemy.pool import NullPool
 
     from . import backup as bk
+    from .commissioning import LOCK_SQL
     from .config import get_settings
-    from .connector_proof import RESTORED
 
     if revision is None or bk._is_older(revision, "0007"):
         return
     engine = create_async_engine(url or get_settings().database_url, poolclass=NullPool, hide_parameters=True)
     try:
-        async with engine.connect() as conn:
-            blocked = await conn.scalar(text(f"""
-                SELECT EXISTS (
-                    SELECT 1 FROM commands cmd
-                    LEFT JOIN connector_changes c ON cmd.id IN (c.command_id, c.rollback_command_id)
-                        OR c.rollback_from->'previous_attempts' ? cmd.id::text
-                    WHERE cmd.source = 'connector' AND cmd.status NOT IN ('cancelled', 'denied')
-                      AND (c.id IS NULL OR (
-                          (jsonb_typeof(c.before->'controls') IS DISTINCT FROM 'object'
-                           OR EXISTS (SELECT 1 FROM idempotency_keys k
-                                      WHERE k.key = c.id AND k.scope = 'connector:voorstel'))
-                          AND ({RESTORED}) IS NOT TRUE
-                          AND (cmd.status IN ('queued', 'sending', 'sent', 'confirmed')
-                               OR c.rollback_command_id IS NOT NULL
-                               OR c.reason_code IS NULL OR c.reason_code NOT IN (
-                                   'precondition_failed', 'readback_before_send_unavailable', 'refused_before_send'))
-                      ))
-                )
-            """))  # noqa: S608 - RESTORED is vaste broncode
+        async with engine.begin() as conn:
+            await conn.execute(text(LOCK_SQL))
+            if await conn.scalar(text("SELECT version_num FROM alembic_version")) != revision:
+                raise MigrationError("De databaserevisie is tijdens de start gewijzigd.")
+            await conn.run_sync(_check_connector_rows)
+            await _prepare_connector_worker(conn)
     finally:
         await engine.dispose()
-    if blocked:
-        raise MigrationError(
-            "Apparaatherstel uit een eerdere versie staat open. Handel dit eerst met de vorige installatie af."
-        )
+
+
+async def _prepare_connector_worker(conn) -> None:
+    from sqlalchemy import text
+
+    from .connector_changes import LOCAL_PROPOSAL, WAIT_FOR_CONNECTOR_WORKER, remember_proposal_fields
+    from .connector_proof import REMEMBER_FIELDS
+
+    await conn.execute(text(REMEMBER_FIELDS))
+    await remember_proposal_fields(conn)
+    # De startcontrole heeft open oud herstel uitgesloten. Laat ook een ongebruikt oud voorstel vervallen.
+    await conn.execute(text("DELETE FROM idempotency_keys WHERE scope = 'connector:voorstel'"))
+    # Bescherm ook eerder ingepland werk met het huidige soort lokaal ontvangstbewijs.
+    await conn.execute(text("""
+        UPDATE commands cmd SET updated_at = :wait
+        FROM connector_changes c JOIN idempotency_keys k ON k.key = c.id AND k.scope = :scope
+        WHERE cmd.source = 'connector' AND cmd.status = 'queued' AND cmd.updated_at <> :wait
+          AND cmd.id IN (c.command_id, c.rollback_command_id)
+    """), {"wait": WAIT_FOR_CONNECTOR_WORKER, "scope": LOCAL_PROPOSAL})
 
 
 def verify_migration_dump(path: Path, output: Path | None = None) -> None:
@@ -248,22 +294,45 @@ def migrate(url: str | None = None, *, backup_dir: Path | None = None, pre_dump:
     my_house made the database) raises SchemaNewerError BEFORE the dump: no dump, no migration, no write
     (S-P3-700; compared with the migration chain, V-086). Errors propagate (MigrationError or the alembic error)."""
     from alembic import command
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
 
     from . import backup as bk
+    from .commissioning import LOCK_SQL
     from .config import get_settings
 
     s = get_settings()
     target_url = url or s.database_url
-    dump = None
-    current = current_revision(target_url)
-    head = bk.head_revision()
-    if current is not None and bk.schema_relation(current) == "newer":
-        raise SchemaNewerError(current, head)
-    _in_thread(lambda: asyncio.run(check_connector_transition(current, target_url)))
-    if pre_dump and current is not None and current != head:
-        dump = pre_migration_dump(target_url, current, backup_dir or s.backup_dir)
-    command.upgrade(bk.alembic_config(url), "head")
-    return dump
+
+    def upgrade(conn):
+        conn.execute(text(LOCK_SQL))
+        current = _database_revision(conn)
+        head = bk.head_revision()
+        if current is not None and bk.schema_relation(current) == "newer":
+            raise SchemaNewerError(current, head)
+        if current is not None and not bk._is_older(current, "0007"):
+            _check_connector_rows(conn)
+        # pg_dump opent een eigen verbinding en ziet de oorspronkelijke, gecommitteerde database.
+        dump = None
+        if pre_dump and current is not None and current != head:
+            dump = pre_migration_dump(target_url, current, backup_dir or s.backup_dir)
+        command.upgrade(bk.alembic_config(connection=conn), "head")
+        if current is not None and bk._is_older(current, "0007"):
+            _check_connector_rows(conn)
+        return dump
+
+    async def run():
+        engine = create_async_engine(target_url, poolclass=NullPool, hide_parameters=True)
+        try:
+            async with engine.begin() as conn:
+                dump = await conn.run_sync(upgrade)
+                await _prepare_connector_worker(conn)
+                return dump
+        finally:
+            await engine.dispose()
+
+    return _in_thread(lambda: asyncio.run(run()))
 
 
 # --- backup -------------------------------------------------------------------------------------

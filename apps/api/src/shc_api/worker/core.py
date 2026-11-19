@@ -822,25 +822,28 @@ async def wait_while_schema_newer(retry_s: float = SCHEMA_CHECK_RETRY_S) -> None
     from .. import backup as bk
     from .. import cli
 
-    reported = False
+    reported = None
     while True:
         try:
             current = await asyncio.to_thread(cli.current_revision)
-            break
-        except Exception as exc:  # database not reachable yet: try again, without traceback or DETAIL
-            if not reported:
-                log.warning("Databaseversie niet leesbaar (%s); de worker probeert het opnieuw", fouttekst(exc))
-                reported = True
-            await asyncio.sleep(retry_s)
-    try:
-        if current is not None and bk.schema_relation(current) == "newer":
-            raise cli.SchemaNewerError(current, bk.head_revision())
-        await cli.check_connector_transition(current)
-    except cli.MigrationError as exc:
-        log.error("De worker start niet: %s De worker wacht en schrijft niets in de database.", exc)
-    else:
-        return
-    await asyncio.Event().wait()
+            relation = bk.schema_relation(current)
+            if relation == "newer":
+                raise cli.SchemaNewerError(current, bk.head_revision())
+            if relation == "same":
+                await cli.check_connector_transition(current)
+                return
+            message = "De worker wacht op de schemamigratie van deze installatie."
+            level = logging.INFO
+        except cli.MigrationError as exc:
+            message = f"De worker start niet: {exc} De worker wacht en schrijft niets in de database."
+            level = logging.ERROR
+        except Exception as exc:
+            message = f"Databaseversie niet leesbaar ({fouttekst(exc)}); de worker probeert het opnieuw"
+            level = logging.WARNING
+        if reported != message:
+            log.log(level, message)
+            reported = message
+        await asyncio.sleep(retry_s)
 
 
 async def run() -> None:

@@ -4,19 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from shc_integrations.gree import GreeAdapter
-from sqlalchemy import or_, select
+from sqlalchemy import Text, cast, or_, select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 from starlette.exceptions import HTTPException
 
 from .commanding import queue_zone_setpoint
 from .connector import RESTORED_COMMAND_DETAIL, VerifiedRequest, bounded_reservation
 from .connector_actions import ACTIONS, Target, check_target_policy, not_found, resolve_target
+from .connector_proof import apply_preview, digest
 from .contract_http import contract_error
 from .errors import require_secret_box
 from .hub_keys import utc_seconds
@@ -43,16 +43,14 @@ SETPOINT = "zone.command"
 CONCEPT = "zone.schedule.propose"
 SOURCE = "connector"
 LOCAL_PROPOSAL = "connector:voorstel:2"
+# Voor queued is updated_at het eerst toegestane claimtijdstip (ook voor gewone retries).
+# De oude worker laat deze reservering staan. De bevoegde worker zet bij claim het echte tijdstip.
+WAIT_FOR_CONNECTOR_WORKER = datetime(9999, 1, 1, tzinfo=UTC)
 UNCERTAIN = {
     "readback_unavailable", "readback_unknown_after_restart", "readback_unknown_after_restore",
     "readback_mismatch", "readback_side_effect", "readback_incomplete",
 }
 NOT_SENT = {"precondition_failed", "readback_before_send_unavailable", "refused_before_send"}
-
-
-def digest(value) -> str:
-    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
-    return "sha256:" + hashlib.sha256(encoded.encode()).hexdigest()
 
 
 def _stale():
@@ -94,6 +92,30 @@ async def _binding(db: AsyncSession, target: Target) -> str:
                         hashlib.sha256(integration.credentials_enc or b"").hexdigest()] if integration else None,
         "schedule": await _schedule(db, target.zone) if target.zone else None,
     })
+
+
+async def remember_proposal_fields(conn: AsyncConnection) -> None:
+    """Koppel ook oude metingen zonder opdracht aan de unit als de opgeslagen ETag haar identiteit bevestigt."""
+    async with AsyncSession(bind=conn) as db:
+        rows = await db.execute(
+            select(ClimateZone, Device, ConnectorChange.before, ConnectorChange.resource_etag)
+            .select_from(ConnectorChange)
+            .join(ClimateZone, cast(ClimateZone.id, Text) == ConnectorChange.target["zone_id"].astext)
+            .join(Device, Device.id == ClimateZone.unit_device_id)
+            .where(ConnectorChange.action_id == SETPOINT, ConnectorChange.command_id.is_(None),
+                   ConnectorChange.before.has_key("controls"), Device.provider == "gree")
+        )
+        bindings = {}
+        for zone, device, before, etag in rows:
+            known = device.gree_control_fields()
+            missing = before["controls"].keys() - known
+            if not missing:
+                continue
+            if zone.id not in bindings:
+                bindings[zone.id] = await _binding(db, Target(ACTIONS[SETPOINT], zone, device, {}))
+            if digest({"binding": bindings[zone.id], "before": before}) == etag:
+                device.state = {**(device.state or {}), "gree_control_fields": sorted(known | missing)}
+        await db.flush()
 
 
 async def read_setpoint(adapter, device: Device, *, remember_fields: bool = False) -> dict | None:
@@ -173,10 +195,7 @@ async def propose(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[
     recipe = None if reason or action == CONCEPT else {"target_c": before["target_c"]}
     diff = {"before": before, "proposed": prop["parameters"]}
     blast_radius = [prop["target"]]
-    preview_hash = digest({
-        "direction": "apply", "action_id": action, "diff": diff, "blast_radius": blast_radius,
-        "resource_etag": etag, "rollback_recipe": recipe,
-    })
+    preview_hash = apply_preview(action, diff, prop["target"], etag, recipe)
     status = "failed" if reason == "readback_unavailable" else "unavailable" if reason else "proposed"
     valid_until = min(req.expires_at, utcnow() + TTL)
     reserve = insert(ConnectorChange).values(
@@ -232,7 +251,9 @@ async def _approval(
 
 async def _queue(db: AsyncSession, target: Target, temperature: float) -> CommandRecord:
     try:
-        return await queue_zone_setpoint(db, target.zone, target.device, temperature, source=SOURCE, actor="Hub")
+        cmd = await queue_zone_setpoint(db, target.zone, target.device, temperature, source=SOURCE, actor="Hub")
+        cmd.updated_at = WAIT_FOR_CONNECTOR_WORKER
+        return cmd
     except PolicyDenied as exc:
         raise contract_error(409, exc.code, exc.message) from None
 
@@ -272,6 +293,8 @@ async def apply(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[in
     target, change = await _change_for_request(db, req, client)
     if change.action_id == CONCEPT or change.reason_code == "capability_unavailable":
         raise _unavailable()
+    if change.reason_code == "readback_unavailable" and change.command_id is None:
+        raise contract_error(409, "readback_unavailable", "De vorige stand is niet betrouwbaar leesbaar.")
     if change.status != "proposed" or change.valid_until <= utcnow() or "controls" not in (change.before or {}):
         raise contract_error(
             409, "proposal_unavailable", "Het voorstel is verwerkt, verlopen of zonder betrouwbare stand.",
