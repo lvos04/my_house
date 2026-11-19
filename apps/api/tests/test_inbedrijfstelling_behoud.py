@@ -27,6 +27,8 @@ from shc_api.models import (
 
 from .test_ws_backup_format import temp_db
 
+CONNECTOR_TABELLEN_NA_0004 = {"connector_hub_pins", "connector_nonces", "idempotency_keys", "connector_changes"}
+
 
 async def seed_and_bytes(url, *, archived=False, seed=False):
     engine = create_async_engine(url, poolclass=NullPool)
@@ -60,7 +62,7 @@ async def seed_and_bytes(url, *, archived=False, seed=False):
                 AND tablename<>'alembic_version' ORDER BY tablename
             """))).scalars().all()
             # Deze tabellen ontbreken in 0004. Op het nieuwe schema moeten ze leeg zijn.
-            result = {name: [] for name in bk.CONNECTOR_LOCAL_TABLES}
+            result = {name: [] for name in CONNECTOR_TABELLEN_NA_0004}
             for table in tables:
                 where = "WHERE t.key <> 'commissioning_gate'" if table == 'settings' else ''
                 # Tabelnamen komen uitsluitend uit de eigen catalogus, geen verzoekinvoer.

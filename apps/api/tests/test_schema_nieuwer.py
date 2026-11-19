@@ -45,6 +45,7 @@ from shc_api import backup as bk
 from shc_api import cli
 from shc_api.config import VERSION
 
+from .test_inbedrijfstelling_behoud import CONNECTOR_TABELLEN_NA_0004
 from .test_ws_backup_format import temp_db
 
 TEKST = (
@@ -437,7 +438,7 @@ async def test_huidig_schema_start_gewoon(monkeypatch, tmp_path):
 
 async def test_ouder_schema_migreert_met_dump(monkeypatch, tmp_path):
     """Een GEVULDE database op schema 0003 (V-003, R-HARDE-EIS-1): na ``shc-api migrate`` is per tabel het aantal rijen
-    en de md5 gelijk. Naast alembic_version komen één exact gecontroleerde gate-instelling en drie lege tabellen erbij.
+    en de md5 gelijk. Naast alembic_version komen één exact gecontroleerde gate-instelling en vier lege tabellen erbij.
     De dump geeft in een lege database precies de inhoud van vóór de migratie. Een dump met alleen het
     schema (``--schema-only``) valt hier dus op."""
     async with temp_db("0003") as url:
@@ -453,7 +454,7 @@ async def test_ouder_schema_migreert_met_dump(monkeypatch, tmp_path):
         assert cli.current_revision(url) == bk.head_revision()
         na = await _inhoud(url, zonder_nieuwe_gate=True)
         verwacht = {t: v for t, v in voor.items() if t != "alembic_version"}
-        verwacht.update({t: (0, "") for t in bk.CONNECTOR_LOCAL_TABLES})
+        verwacht.update({t: (0, "") for t in CONNECTOR_TABELLEN_NA_0004})
         assert {t: v for t, v in na.items() if t != "alembic_version"} == verwacht
         # Uitsluitend deze ene nieuwe rij is toegestaan; bestaande settings blijven integraal vergeleken.
         assert (await _inhoud(url))["settings"][0] == voor["settings"][0] + 1

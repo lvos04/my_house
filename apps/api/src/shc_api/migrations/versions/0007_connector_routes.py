@@ -79,7 +79,37 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Een oudere worker kent de readback- en herstelvoorwaarden van connectorcommando's niet.
+    # Hou nieuwe opdrachten en een worker tussen claim en verzending buiten de terugval.
+    op.execute("SELECT pg_advisory_xact_lock(hashtextextended('shc-commissioning', 0))")
+    op.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM commands cmd WHERE cmd.source = 'connector'
+                  AND (cmd.status IN ('sending', 'sent')
+                       OR cmd.status IN ('confirmed', 'failed') AND NOT EXISTS (
+                           SELECT 1 FROM connector_changes c
+                           WHERE cmd.id IN (c.command_id, c.rollback_command_id)
+                              OR c.rollback_from->'previous_attempts' ? CAST(cmd.id AS text)
+                       ))
+            ) OR EXISTS (
+                SELECT 1 FROM connector_changes c
+                WHERE c.command_id IS NOT NULL
+                  AND (c.rollback_status IS DISTINCT FROM 'confirmed'
+                       OR c.rollback_after IS DISTINCT FROM c.before OR NOT (c.before ? 'controls'))
+                  AND (c.rollback_command_id IS NOT NULL OR c.rollback_status IS NOT NULL
+                       OR c.status = 'confirmed' AND (c.after IS DISTINCT FROM c.before OR NOT (c.before ? 'controls'))
+                       OR c.reason_code IN ('readback_unavailable', 'readback_unknown_after_restart',
+                                            'readback_unknown_after_restore', 'readback_mismatch',
+                                            'readback_side_effect')
+                          AND (c.after IS NULL OR c.after IS DISTINCT FROM c.before))
+            ) THEN
+                RAISE EXCEPTION 'Apparaatherstel staat open of onzeker; schema 0007 blijft behouden.';
+            END IF;
+        END;
+        $$
+    """)
+    # Een oudere worker kent de voorwaarden voor nog niet verzonden connectorcommando's niet.
     op.execute("""
         UPDATE commands SET status = 'cancelled', detail = 'Connectorbediening vervallen bij schemaherstel'
         WHERE source = 'connector' AND status IN ('queued', 'sending', 'sent')

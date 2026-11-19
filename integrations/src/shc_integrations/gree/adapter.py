@@ -68,7 +68,10 @@ LOUVER = {
     11: "swing_upper",
 }
 SWINGING = frozenset({1, 7, 8, 9, 10, 11})
-STATUS_COLS = ["Pow", "Mod", "SetTem", "TemUn", "WdSpd", "SwUpDn", "TemSen", "TemRec", "Lig", "Quiet", "Tur"]
+STATUS_COLS = [
+    "Pow", "Mod", "SetTem", "TemUn", "WdSpd", "SwUpDn", "TemSen", "TemRec", "Lig", "Quiet", "Tur",
+    "SwLfRig", "Air", "Blo", "Health", "SwhSlp", "SlpMod", "StHt", "SvSt", "HeatCoolType",
+]
 SCAN_FIELDS = ("mac", "cid", "mid", "model", "ver", "brand", "series", "name", "subCnt", "vender", "lock", "hid")
 BIND_ORDER = ("v1", "v2")
 MIN_C, MAX_C = 16, 30
@@ -448,24 +451,31 @@ class GreeAdapter(Adapter):
             res = await self._roundtrip({"cols": cols, "mac": self.mac, "t": "status"}, self._key(), self.version)
             if res.get("t") != "dat":
                 raise AdapterError(f"Onverwacht statusantwoord: {res.get('t')}")
+            if type(res.get("r", 200)) is not int or res.get("r", 200) != 200:
+                raise AdapterError("De Gree-unit meldt een leesfout.")
             if verify_identity and res.get("mac") != self.mac:
                 raise AdapterError("De teruggelezen Gree-identiteit komt niet overeen met het doel.")
+            names, values = res.get("cols", cols), res.get("dat")
+            if (
+                not isinstance(names, list) or not isinstance(values, list) or not names
+                or len(names) != len(values) or any(not isinstance(name, str) for name in names)
+                or len(set(names)) != len(names)
+            ):
+                raise AdapterError("De Gree-unit meldt een onvolledige of ongeldige stand.")
         except PairingRequired:
             raise
         except AdapterError as exc:
             self._failures += 1
             self._last_error, self._last_error_at = str(exc), now
             raise
-        state = decode_status(
-            res.get("cols", cols), res.get("dat", []), self.config.get("temsen_offset", "auto"), self.half_degrees
-        )
+        state = decode_status(names, values, self.config.get("temsen_offset", "auto"), self.half_degrees)
         self._failures, self._last_error, self._last_ok_at = 0, None, now
         if full:
             self._last_state = state
         return state
 
     async def read_recoverable_setpoint(self, device_identity: str) -> dict[str, Any]:
-        """Lees alle velden die de setpointopdracht schrijft plus de actuele bedrijfsstand."""
+        """Bewaar de gerapporteerde bedienstanden zonder verlies door vertaling of sensormetingen."""
         if device_identity != self.mac:
             raise AdapterError("De gekoppelde Gree-unit komt niet overeen met het doel.")
         state = await self.read_status(verify_identity=True)
@@ -478,7 +488,17 @@ class GreeAdapter(Adapter):
             or self.half_degrees and (type(raw.get("TemRec")) is not int or raw["TemRec"] not in (0, 1))
         ):
             raise AdapterError("De Gree-bedrijfsstand of temperatuur is onvolledig of kan niet worden hersteld.")
-        return {"power": state["power"], "mode": state["mode"], "target_c": state["target_c"]}
+        excluded = {"Pow", "Mod", "SetTem", "TemSen"}
+        if self.half_degrees:
+            excluded.add("TemRec")  # Deze bit is dan al onderdeel van target_c.
+        controls = {name: value for name, value in raw.items() if name not in excluded}
+        if any(type(value) is not int for value in controls.values()):
+            raise AdapterError("De Gree-unit meldt een ongeldige bedienstand.")
+        target = state["target_c"]
+        return {
+            "power": state["power"], "mode": state["mode"],
+            "target_c": int(target) if target.is_integer() else target, "controls": controls,
+        }
 
     async def poll(self) -> list[Event]:
         now = datetime.now(UTC)
@@ -507,10 +527,17 @@ class GreeAdapter(Adapter):
             if params.get("fan") is not None and Cap.FAN not in caps:
                 raise Unsupported("Deze unit meldt geen instelbare ventilator")
             await self._limiter.wait(self.mac)
-            res = await self._roundtrip({"opt": opt, "p": p, "t": "cmd"}, self._key(), self.version)
-            if res.get("t") != "res" or res.get("r", 200) != 200:
-                return CommandResult(ok=False, confirmed=False, detail=f"Unit weigerde commando ({res.get('r')})")
-            state = await self.read_status()
+            try:
+                res = await self._roundtrip({"opt": opt, "p": p, "t": "cmd"}, self._key(), self.version, attempts=1)
+            except (DeviceOffline, GreeProtocolError):
+                # De opdracht kan al uitgevoerd zijn. Lees terug zonder opnieuw te schrijven.
+                state = await self.read_status(verify_identity=True)
+                if any(state["raw"].get(name) != value for name, value in zip(opt, p, strict=True)):
+                    raise
+            else:
+                if res.get("t") != "res" or res.get("r", 200) != 200:
+                    return CommandResult(ok=False, confirmed=False, detail=f"Unit weigerde commando ({res.get('r')})")
+                state = await self.read_status()
         confirmed = _matches(params, state)
         detail = "" if confirmed else "Unit bevestigt de gevraagde stand niet (readback wijkt af)"
         return CommandResult(

@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException
 
 from .commanding import queue_zone_setpoint
-from .connector import VerifiedRequest, bounded_reservation
+from .connector import RESTORED_COMMAND_DETAIL, VerifiedRequest, bounded_reservation
 from .connector_actions import ACTIONS, Target, check_target_policy, not_found, resolve_target
 from .contract_http import contract_error
 from .errors import require_secret_box
@@ -24,8 +24,10 @@ from .models import (
     ClimateZone,
     CommandRecord,
     ConnectorChange,
+    ConnectorHubPin,
     ConnectorNonce,
     Device,
+    IdempotencyKey,
     Integration,
     ScheduleBlock,
     utcnow,
@@ -40,7 +42,12 @@ TTL = timedelta(seconds=MAX_AGE_S)
 SETPOINT = "zone.command"
 CONCEPT = "zone.schedule.propose"
 SOURCE = "connector"
-UNCERTAIN = {"readback_unavailable", "readback_unknown_after_restart", "readback_mismatch"}
+LOCAL_PROPOSAL = "connector:voorstel"
+UNCERTAIN = {
+    "readback_unavailable", "readback_unknown_after_restart", "readback_unknown_after_restore",
+    "readback_mismatch", "readback_side_effect", "readback_incomplete",
+}
+NOT_SENT = {"precondition_failed", "readback_before_send_unavailable", "refused_before_send"}
 
 
 def digest(value) -> str:
@@ -163,7 +170,7 @@ async def propose(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[
     diff = {"before": before, "proposed": prop["parameters"]}
     blast_radius = [prop["target"]]
     preview_hash = digest({
-        "action_id": action, "diff": diff, "blast_radius": blast_radius,
+        "direction": "apply", "action_id": action, "diff": diff, "blast_radius": blast_radius,
         "resource_etag": etag, "rollback_recipe": recipe,
     })
     status = "failed" if reason == "readback_unavailable" else "unavailable" if reason else "proposed"
@@ -178,6 +185,11 @@ async def propose(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[
     identity = await bounded_reservation(db, lambda: db.scalar(reserve))
     if identity is None:
         raise contract_error(409, "conflict", "Deze voorstel-ID is al gebruikt.")
+    if status == "proposed" and action == SETPOINT:
+        # Dit ontvangstbewijs blijft lokaal, net als de andere idempotentierijen en de Hub-pin.
+        db.add(IdempotencyKey(
+            scope=LOCAL_PROPOSAL, key=identity, request_hash=bytes.fromhex(preview_hash.removeprefix("sha256:")),
+        ))
     return 200, {
         "proposal_id": str(identity), "preview_hash": preview_hash, "resource_etag": etag,
         "diff": diff, "before": before, "blast_radius": blast_radius, "risk_claim": target.action.risk,
@@ -188,7 +200,9 @@ async def propose(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[
     }
 
 
-async def _approval(db, req: VerifiedRequest, change: ConnectorChange) -> datetime:
+async def _approval(
+    db, req: VerifiedRequest, change: ConnectorChange, preview_hash: str, parameters: dict,
+) -> datetime:
     prop, data = req.proposal, req.approval
     if data is None:
         raise contract_error(403, "approval_required", "Deze actie vraagt een menselijke goedkeuring.")
@@ -197,10 +211,11 @@ async def _approval(db, req: VerifiedRequest, change: ConnectorChange) -> dateti
     if not approved <= now < expires <= approved + timedelta(minutes=15):
         raise contract_error(403, "approval_expired", "De goedkeuring is nog niet of niet meer geldig.")
     if (
-        data["policy_hash"] != req.policy_hash or data["risk_class"] != req.risk_class
-        or data["resource_etag"] != change.resource_etag or data["preview_hash"] != change.preview_hash
+        data["request_id"] != str(change.proposal_key)
+        or data["policy_hash"] != req.policy_hash or data["risk_class"] != req.risk_class
+        or data["resource_etag"] != change.resource_etag or data["preview_hash"] != preview_hash
         or data["action_scope"] != {
-            "action_id": prop["action_id"], "target": prop["target"], "parameters_sha256": digest(prop["parameters"]),
+            "action_id": prop["action_id"], "target": prop["target"], "parameters_sha256": digest(parameters),
         }
     ):
         raise contract_error(409, "approval_mismatch", "De goedkeuring hoort niet bij dit voorstel.")
@@ -216,6 +231,14 @@ async def _queue(db: AsyncSession, target: Target, temperature: float) -> Comman
         return await queue_zone_setpoint(db, target.zone, target.device, temperature, source=SOURCE, actor="Hub")
     except PolicyDenied as exc:
         raise contract_error(409, exc.code, exc.message) from None
+
+
+async def _active_binding(db: AsyncSession, change: ConnectorChange) -> bool:
+    pin = await db.get(ConnectorHubPin, 1, populate_existing=True)
+    if pin is None or change.created_at < pin.accept_from:
+        return False
+    local = await db.get(IdempotencyKey, (LOCAL_PROPOSAL, change.id))
+    return local is not None and f"sha256:{local.request_hash.hex()}" == change.preview_hash
 
 
 async def _change_for_request(db, req: VerifiedRequest, client: str) -> tuple[Target, ConnectorChange]:
@@ -235,6 +258,9 @@ async def _change_for_request(db, req: VerifiedRequest, client: str) -> tuple[Ta
         or change.resource_etag != prop["expected_version"]
     ):
         raise _stale()
+    if change.action_id == SETPOINT and (change.status == "proposed" or change.command_id is not None):
+        if not await _active_binding(db, change):
+            raise contract_error(409, "proposal_unavailable", "Dit voorstel hoort bij een eerdere Hub-koppeling.")
     return target, change
 
 
@@ -242,14 +268,14 @@ async def apply(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[in
     target, change = await _change_for_request(db, req, client)
     if change.action_id == CONCEPT or change.reason_code == "capability_unavailable":
         raise _unavailable()
-    if change.status != "proposed" or change.valid_until <= utcnow():
+    if change.status != "proposed" or change.valid_until <= utcnow() or "controls" not in (change.before or {}):
         raise contract_error(
             409, "proposal_unavailable", "Het voorstel is verwerkt, verlopen of zonder betrouwbare stand.",
         )
     if not await _recoverable(db, target):
         raise _unavailable()
 
-    expires = await _approval(db, req, change)
+    expires = await _approval(db, req, change, change.preview_hash, change.parameters)
     current = await _read_current(db, target.device)
     if current is None:
         change.status, change.reason_code = "failed", "readback_unavailable"
@@ -265,32 +291,63 @@ async def apply(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[in
     return 202, {"command_id": str(cmd.id), "evidence_id": str(change.id), "status": "queued"}
 
 
+def _same_controls(first: dict, second: dict) -> bool:
+    return {k: v for k, v in first.items() if k != "target_c"} == {
+        k: v for k, v in second.items() if k != "target_c"
+    }
+
+
+def _rollback_preview(change: ConnectorChange) -> dict | None:
+    if (
+        not change.before or "controls" not in change.before or change.execution_expires_at is None
+        or change.rollback_command_id is not None and change.rollback_reason_code not in NOT_SENT
+        or not (change.status == "confirmed" or change.status == "failed" and change.reason_code in UNCERTAIN)
+    ):
+        return None
+    after = change.after or {**change.before, "target_c": change.parameters["target_c"]}
+    if not _same_controls(change.before, after):
+        return None
+    parameters = {"target_c": change.before["target_c"]}
+    diff = {"before": after, "after": change.before}
+    preview_hash = digest({
+        "direction": "rollback", "apply_preview_hash": change.preview_hash, "action_id": change.action_id,
+        "target": change.target, "resource_etag": change.resource_etag, "diff": diff, "parameters": parameters,
+    })
+    return {"preview_hash": preview_hash, "diff": diff, "parameters": parameters}
+
+
+def _previous_attempts(change: ConnectorChange) -> list[str]:
+    return (change.rollback_from or {}).get("previous_attempts", [])
+
+
+def _remember_rollback(change: ConnectorChange, command_id: uuid.UUID, current: dict, expires: datetime) -> None:
+    previous = _previous_attempts(change)
+    if change.rollback_command_id is not None:
+        previous = [*previous, str(change.rollback_command_id)]
+    change.rollback_from = {"state": current, "previous_attempts": previous}
+    change.rollback_command_id, change.rollback_status, change.rollback_expires_at = command_id, "queued", expires
+    change.rollback_after = change.rollback_at = change.rollback_reason_code = None
+
+
 async def rollback(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[int, dict]:
     target, change = await _change_for_request(db, req, client)
     if change.action_id == CONCEPT or change.before is None or change.command_id is None:
         raise _unavailable()
-    may_have_applied = change.status == "confirmed" or change.status == "failed" and change.reason_code in UNCERTAIN
-    if not may_have_applied or change.rollback_command_id is not None:
+    preview = _rollback_preview(change)
+    if preview is None:
         raise contract_error(409, "conflict", "Herstel is nu niet beschikbaar of is al ingepland.")
     if not await _recoverable(db, target):
         raise _unavailable()
-    if await _superseded(db, change):
+    if await _superseded(db, change, exclude_id=change.rollback_command_id):
         raise _stale()
-    expires = await _approval(db, req, change)
+    expires = await _approval(db, req, change, preview["preview_hash"], preview["parameters"])
     current = await _read_current(db, target.device)
-    # Na een onderbreking kan de opdracht al op de unit staan. Herstel alleen als de bekende
-    # oorspronkelijke of precies de aangevraagde stand weer leesbaar is.
-    expected = change.after
-    if expected is None:
-        requested = {**change.before, "target_c": change.parameters["target_c"]}
-        expected = current if current in (change.before, requested) else None
-    if not await _same_context(db, target, change, current, expected):
+    if not await _same_context(db, target, change, current, preview["diff"]["before"]):
         raise _stale()
     if utcnow() >= expires:
         raise contract_error(409, "proposal_unavailable", "Het herstelverzoek is verlopen.")
     cmd = await _queue(db, target, change.before["target_c"])
-    change.rollback_command_id, change.rollback_status, change.rollback_expires_at = cmd.id, "queued", expires
-    change.rollback_from = current
+    _remember_rollback(change, cmd.id, current, expires)
     return 202, {"command_id": str(cmd.id), "evidence_id": str(change.id), "status": "queued"}
 
 
@@ -298,18 +355,20 @@ async def _superseded(db: AsyncSession, change: ConnectorChange, *, exclude_id=N
     original = await db.get(CommandRecord, change.command_id)
     if original is None:
         return True
-    return bool(await db.scalar(select(CommandRecord.id).where(
+    intervening = select(CommandRecord.id).where(
         CommandRecord.device_id == original.device_id, CommandRecord.created_at > original.created_at,
         CommandRecord.id.is_distinct_from(exclude_id),
-    ).limit(1)))
+    )
+    previous = _previous_attempts(change)
+    if previous:
+        intervening = intervening.where(CommandRecord.id.not_in([uuid.UUID(item) for item in previous]))
+    return bool(await db.scalar(intervening.limit(1)))
 
 
 async def _same_context(db, target, change, measured, expected) -> bool:
     if measured is None or expected is None or measured != expected:
         return False
-    if {k: v for k, v in measured.items() if k != "target_c"} != {
-        k: v for k, v in change.before.items() if k != "target_c"
-    }:
+    if not _same_controls(measured, change.before):
         return False
     return digest({"binding": await _binding(db, target), "before": change.before}) == change.resource_etag
 
@@ -343,10 +402,19 @@ async def guarded_send(db, cmd, dev, adapter, send) -> tuple[str, str, dict | No
         return "denied", "Het vastgelegde connectorvoorstel ontbreekt.", None
     undo = cmd.id == change.rollback_command_id
     target = await worker_target(db, cmd, dev, change)
-    expected = change.rollback_from if undo else change.before
+    expected = (change.rollback_from or {}).get("state") if undo else change.before
     expires = change.rollback_expires_at if undo else change.execution_expires_at
-    temperature = change.before["target_c"] if undo else change.parameters.get("target_c")
-    integration = await _integration(db, dev) if target else None
+    temperature = (change.before or {}).get("target_c") if undo else change.parameters.get("target_c")
+    if not await _active_binding(db, change):
+        record_failure(change, undo, "restored_without_execution")
+        return "failed", RESTORED_COMMAND_DETAIL, None
+    if (
+        target is None or expires is None or utcnow() >= expires or cmd.params != {"target_c": temperature}
+        or "controls" not in (change.before or {}) or undo and await _superseded(db, change, exclude_id=cmd.id)
+    ):
+        record_failure(change, undo, "precondition_failed")
+        return "failed", "De vastgelegde stand is niet meer bruikbaar voor veilige bediening.", None
+    integration = await _integration(db, dev)
     try:
         active_adapter = (
             isinstance(adapter, GreeAdapter) and integration and integration.provider == "gree"
@@ -355,12 +423,9 @@ async def guarded_send(db, cmd, dev, adapter, send) -> tuple[str, str, dict | No
     except Exception:
         active_adapter = False
     current = await read_setpoint(adapter, dev) if active_adapter else None
-    if (
-        target is None or expires is None or utcnow() >= expires or cmd.params != {"target_c": temperature}
-        or undo and await _superseded(db, change, exclude_id=cmd.id)
-        or not await _same_context(db, target, change, current, expected)
-    ):
-        record_failure(change, undo, "precondition_failed")
+    if not await _same_context(db, target, change, current, expected) or utcnow() >= expires:
+        reason = "readback_before_send_unavailable" if active_adapter and current is None else "precondition_failed"
+        record_failure(change, undo, reason)
         return "failed", "De vastgelegde stand is niet meer bruikbaar voor veilige bediening.", None
     try:
         async with asyncio.timeout(12):
@@ -369,8 +434,11 @@ async def guarded_send(db, cmd, dev, adapter, send) -> tuple[str, str, dict | No
         status, adapter_state = "failed", None
     after = await read_setpoint(adapter, dev)
     now = utcnow()
-    confirmed = status == "confirmed" and after == {**current, "target_c": temperature}
+    intended = change.before if undo else {**change.before, "target_c": temperature}
+    confirmed = status == "confirmed" and after == intended
     mismatch = "readback_mismatch" if after else "readback_unavailable"
+    if after is not None and not _same_controls(after, intended):
+        mismatch = "readback_side_effect"
 
     if undo:
         change.rollback_after, change.rollback_at = after, now if after else None
@@ -381,18 +449,18 @@ async def guarded_send(db, cmd, dev, adapter, send) -> tuple[str, str, dict | No
         change.status = "confirmed" if confirmed else "failed"
         change.reason_code = None if confirmed else mismatch
         changed = after is not None and after != current
-        if not confirmed and changed and await _same_context(db, target, change, after, after):
+        if not confirmed and changed and now < expires and await _same_context(db, target, change, after, after):
             # Zelfde wachtrij, veiligheidsbeleid en TTL. De worker verifieert opnieuw vóór de herstelopdracht.
             try:
                 rollback_cmd = await _queue(db, target, change.before["target_c"])
             except HTTPException:
                 change.rollback_status, change.rollback_reason_code = "failed", "policy_denied"
             else:
-                change.rollback_command_id = rollback_cmd.id
-                change.rollback_status, change.rollback_expires_at = "queued", now + TTL
-                change.rollback_from = after
+                _remember_rollback(change, rollback_cmd.id, after, expires)
     if confirmed:
         return "confirmed", "", adapter_state
+    if mismatch == "readback_side_effect":
+        return "failed", "Een andere bedienstand is onverwacht gewijzigd. Herstel blijft open.", None
     return "failed", "De teruglezing bevestigt de stand niet.", None
 
 
@@ -407,7 +475,8 @@ async def evidence(db: AsyncSession, client: str, identity: uuid.UUID) -> dict:
     change = await db.scalar(select(ConnectorChange).where(
         ConnectorChange.client == client,
         or_(ConnectorChange.id == identity, ConnectorChange.command_id == identity,
-            ConnectorChange.rollback_command_id == identity),
+            ConnectorChange.rollback_command_id == identity,
+            ConnectorChange.rollback_from["previous_attempts"].contains([str(identity)])),
     ))
     if change is None:
         raise not_found()
@@ -415,12 +484,25 @@ async def evidence(db: AsyncSession, client: str, identity: uuid.UUID) -> dict:
     rollback_status, rollback_reason = await _evidence_status(
         db, change.rollback_status, change.rollback_reason_code, change.rollback_command_id,
     )
+    if status == "confirmed" and "controls" not in (change.before or {}):
+        status, reason = "failed", "readback_incomplete"
+    if rollback_status == "confirmed" and (
+        "controls" not in (change.before or {}) or change.rollback_after != change.before
+    ):
+        rollback_status, rollback_reason = "failed", "readback_incomplete"
+    rollback_preview = _rollback_preview(change)
+    if rollback_preview is not None and not await _active_binding(db, change):
+        rollback_preview = None
     out = {
         "id": str(change.id), "action_id": change.action_id, "status": status,
         "reason_code": reason, "resource_etag": change.resource_etag,
         "preview_hash": change.preview_hash,
         "created_at": change.created_at.isoformat(), "observed_at": None,
         "rollback_status": rollback_status, "rollback_reason_code": rollback_reason,
+        "command_id": str(change.command_id) if change.command_id else None,
+        "rollback_command_id": str(change.rollback_command_id) if change.rollback_command_id else None,
+        "previous_rollback_command_ids": _previous_attempts(change),
+        "rollback_preview": rollback_preview,
     }
     for label, state, stamp in (
         ("before", change.before, change.observed_at),
@@ -444,9 +526,9 @@ async def evidence(db: AsyncSession, client: str, identity: uuid.UUID) -> dict:
     out["freshness_reason"] = None
     if out["freshness"] == "unknown":
         out["freshness_reason"] = "meting_verouderd" if latest else "readback_unavailable"
-    unknown_or_changed = change.after is None or change.after != change.before
+    unknown_or_changed = reason == "readback_incomplete" or change.after is None or change.after != change.before
     out["recovery_required"] = (
-        rollback_status == "failed"
+        rollback_status in {"queued", "failed"}
         or status == "failed" and change.command_id is not None
         and reason in UNCERTAIN and unknown_or_changed and rollback_status != "confirmed"
     )
@@ -457,5 +539,7 @@ async def _evidence_status(db, status, reason, cmd_id):
     if status == "queued":
         cmd = await db.get(CommandRecord, cmd_id)
         if cmd is None or cmd.status == "cancelled":
+            if cmd and cmd.detail == RESTORED_COMMAND_DETAIL:
+                return "failed", "restored_without_execution"
             return "failed", "command_cancelled"
     return status, reason

@@ -64,7 +64,7 @@ class Proefconnector:
         self.key_id = str(uuid.uuid4())
 
     def request(self, *, action="zone.command", target=None, params=None, preview=None, claim="R0",
-                risk="R2", etag=None, approval=True):
+                risk="R2", etag=None, approval=True, rollback=None):
         now = utcnow().replace(microsecond=0)
         policy_hash = digest(["beleid"])
         proposal = {
@@ -86,13 +86,15 @@ class Proefconnector:
         }
         if preview and approval:
             body["approval"] = {
-                "approval_id": str(uuid.uuid4()), "request_id": str(uuid.uuid4()),
-                "preview_hash": preview["preview_hash"], "policy_hash": policy_hash, "risk_class": risk,
+                "approval_id": str(uuid.uuid4()), "request_id": proposal["idempotency_key"],
+                "preview_hash": (rollback or preview)["preview_hash"], "policy_hash": policy_hash, "risk_class": risk,
                 "resource_etag": preview["resource_etag"], "approved_by": "proefbeheer",
                 "approved_at": iso(now), "expires_at": iso(now + timedelta(minutes=1)),
                 "one_time_nonce": str(uuid.uuid4()), "backup_checkpoint_id": None,
                 "action_scope": {"action_id": action, "target": proposal["target"],
-                                 "parameters_sha256": digest(proposal["parameters"])},
+                                 "parameters_sha256": digest(
+                                     rollback["parameters"] if rollback else proposal["parameters"],
+                                 )},
             }
         return self.sign(body)
 
@@ -202,7 +204,7 @@ async def test_apply_idempotent_en_rollback_met_readback(proef):
     done = await proef.evidence(preview["proposal_id"])
     assert done["status"] == "confirmed" and done["after"]["target_c"] == 22
     assert done["after_hash"] != done["before_hash"]
-    restored = await proef.post("rollback", proef.request(preview=preview))
+    restored = await proef.post("rollback", proef.request(preview=preview, rollback=done["rollback_preview"]))
     assert restored.status_code == 202, restored.json()
     await proef.work()
     assert len(proef.unit.commands) == 2
@@ -374,7 +376,7 @@ async def test_onderbroken_worker_meldt_onbekend_en_kan_herstellen(proef):
     proof = await proef.evidence(preview["proposal_id"])
     assert proof["status"] == "failed" and proof["reason_code"] == "readback_unknown_after_restart"
     assert proof["after"] is None and proof["recovery_required"]
-    rollback = await proef.post("rollback", proef.request(preview=preview))
+    rollback = await proef.post("rollback", proef.request(preview=preview, rollback=proof["rollback_preview"]))
     assert rollback.status_code == 202
     await proef.work()
     restored = await proef.evidence(preview["proposal_id"])

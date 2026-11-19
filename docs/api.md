@@ -861,28 +861,37 @@ afdwingen. Het connectorfoutformaat heeft `code`, `message`, `details` en `trace
    het lokale beleid. Voor de eerste meting kan `proposal.expected_version`
    de waarde `eigenaar` hebben. Het antwoord bevat `proposal_id`, `preview_hash`,
    `resource_etag`, de diff, `before`, een eventueel herstelrecept en `valid_until`.
-   Een onbruikbare meting krijgt `failed`; een actie zonder herstelpad krijgt
-   `unavailable`. Gebruik het opgeslagen bewijs om die uitkomst op te vragen.
+   Een mislukt of onvolledig Gree-statusantwoord krijgt `failed` met reden
+   `readback_unavailable` en zonder vorige stand. Een actie zonder herstelpad
+   krijgt `unavailable`. Gebruik het opgeslagen bewijs om die uitkomst op te vragen.
 2. `POST /connector/v1/apply` gebruikt dezelfde ondertekende `proposal.idempotency_key`,
    actor, actie, doel en parameters. Zet `expected_version` op de ontvangen
    `resource_etag`. Voeg voor de uitvoerbare klimaatactie een menselijke
-   goedkeuring toe die onder meer `preview_hash`, `resource_etag` en
+   goedkeuring toe met `request_id` gelijk aan `proposal.idempotency_key`.
+   De goedkeuring bindt onder meer `preview_hash`, `resource_etag` en
    `action_scope.parameters_sha256` aan precies deze actie bindt. Gebruik een
    nieuwe verzoeknonce en een eigen HTTP-idempotentiesleutel. Een afwijkende
    ETag geeft 409. Een identieke herhaling levert hetzelfde antwoord met
    `Idempotent-Replay: true`.
 3. `GET /connector/v1/evidence/{id}` accepteert de voorstel-ID of opdracht-ID
    voor dezelfde aanroeper. Het toont de opgeslagen vorige en teruggelezen stand
-   met hashes en meetmomenten. `queued` betekent ingepland. `confirmed` betekent
-   dat de worker de gevraagde stand heeft teruggelezen. Na 120 seconden is de
-   meting historisch (`freshness: unknown`). Een ontbrekende of afwijkende
-   teruglezing wordt `failed` met reden.
+   met hashes en meetmomenten. `queued` betekent ingepland. Voor `confirmed`
+   moeten de gevraagde temperatuur en alle teruggelezen bedienstanden overeenkomen.
+   `controls` bevat de extra bedienvelden zoals ventilator, klepstand en stille
+   modus. Een nevenwijziging krijgt `readback_side_effect` met de gemeten afwijking
+   en houdt apparaatherstel open. Na 120 seconden is de meting historisch
+   (`freshness: unknown`).
 4. `POST /connector/v1/rollback` gebruikt opnieuw het oorspronkelijke voorstel
    met de oorspronkelijke ETag, een nieuwe ondertekening en een nieuwe
-   goedkeuring. De actuele stand en configuratie moeten nog bij de opdracht
-   horen. Bij een nieuwere opdracht of onbruikbare teruglezing blijft de
-   actuele stand behouden. Evidence meldt herstel apart met `rollback_status`,
-   `rollback_after` en zo nodig `recovery_required`.
+   goedkeuring voor `rollback_preview` uit evidence. Gebruik de hash van die
+   herstelpreview in `approval.preview_hash` en de hash van de getoonde
+   herstelparameters in `approval.action_scope.parameters_sha256`.
+   `approval.request_id` blijft gelijk aan `proposal.idempotency_key`. De
+   teruggelezen actuele stand en configuratie moeten bij de herstelpreview
+   passen. Een aantoonbaar onuitgevoerde poging mag met een nieuwe goedkeuring
+   worden herhaald als er tussentijds geen apparaatopdracht was. Evidence meldt
+   herstel met `rollback_status`, `rollback_after` en `recovery_required` en
+   houdt de eerdere opdracht-ID's beschikbaar.
 
 Acties zonder aantoonbaar herstelpad geven 501 bij apply of rollback. ADR-0002,
 bouwpunt 4, beschrijft welke beperkte temperatuurwijziging kan worden uitgevoerd.

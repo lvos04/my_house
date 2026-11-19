@@ -169,6 +169,14 @@ en stel de wachtwoordzin en het push-adres opnieuw in.
 Een `.shcdump` (database-dump) zet je met de hand terug. Hij bevat geen Zigbee2MQTT-gegevens; daarvoor
 heb je de wekelijkse volledige export.
 
+De volledige export en de database-dump bewaren het connectorbewijs met vorige stand en gekoppelde
+opdrachten. Bij herstel van een volledige export vervalt de uitvoertermijn van de bewaarde opdrachten.
+Herstel van een export wordt geweigerd als bij een oude connectoropdracht het bewijs ontbreekt of als
+bestaand open herstelbewijs verloren zou gaan. Bewaar bij handmatig terugzetten eerst een geverifieerde
+export van de huidige database. Gebruik voor vergelijking een afzonderlijke database als in het doel
+nog apparaatherstel openstaat. `decrypt-dump` weigert een dump met een connectortabel waarvan de
+rijen niet zijn opgenomen.
+
 Scherm de app af van de Hub en andere gebruikers vóór het herstel en houd die afscherming in stand
 tot en met de beheercontrole hieronder. Stop de API en worker nadat je de dump hebt ontsleuteld.
 Ga bij een fout pas verder nadat het herstel is gecorrigeerd.
@@ -197,6 +205,8 @@ SQL
 
 Start de API met toegang voor alleen de beheerder. Een dump zet de veilige modus niet aan.
 Was de app gekoppeld aan een Hub, bevestig dan de actuele publieke sleutelset opnieuw in my_house.
+Teruggezette opdrachten kunnen ook na herbevestiging uitsluitend als bewijs worden gelezen. Nieuwe opdrachten
+vereisen een nieuw lokaal voorstel en een nieuwe goedkeuring.
 Vergelijk de vingerafdruk met die van de Hub en registreer in de Hub de nieuwe bevestiging voor
 deze instantie. Start de worker en open de app pas na de beheercontrole en, bij een bestaande
 Hub-koppeling, na deze herbevestiging. Houd het Hub-schrijfpad afgeschermd zolang de herbevestiging

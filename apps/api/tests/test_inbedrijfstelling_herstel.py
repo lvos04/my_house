@@ -13,7 +13,7 @@ from shc_api import backup as bk
 from shc_api.commissioning import gate_state, read_gate
 from shc_api.models import BackupRecord, Base
 
-from .test_inbedrijfstelling_behoud import seed_and_bytes
+from .test_inbedrijfstelling_behoud import CONNECTOR_TABELLEN_NA_0004, seed_and_bytes
 from .test_inbedrijfstelling_migratie import sql
 from .test_ws_backup_format import PW, make_v1, temp_db
 
@@ -76,7 +76,7 @@ def row_bytes(rows):
     restore_settings = {"commissioning_gate", "maintenance", "safe_mode", "restored_from",
                         "restore_snapshot", "restore_report"}
     # Een oud archief kent deze tabellen nog niet. Een niet-lege tabel blijft een verschil.
-    comparable = {name: [] for name in bk.CONNECTOR_LOCAL_TABLES}
+    comparable = {name: [] for name in CONNECTOR_TABELLEN_NA_0004}
     for name, values in rows.items():
         kept = []
         for row in values:

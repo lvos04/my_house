@@ -50,6 +50,7 @@ _APPROVAL_FIELDS = {
     "action_scope",
 }
 _RISK_CLASSES = ("R0", "R1", "R2", "R3")
+RESTORED_COMMAND_DETAIL = "Connectoropdracht teruggezet als bewijs, zonder uitvoerrechten"
 
 
 @dataclass(frozen=True)

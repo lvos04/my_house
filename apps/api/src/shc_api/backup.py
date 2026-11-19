@@ -60,6 +60,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_e
 from sqlalchemy.pool import NullPool
 
 from .config import VERSION, get_settings
+from .connector import RESTORED_COMMAND_DETAIL
 from .logfilter import db_error_text
 from .models import Base, Setting
 
@@ -92,7 +93,7 @@ SECRET_COLUMNS = {("integrations", "credentials_enc"), ("sessions", "csrf_token"
 REDACTED_PASSWORD = "!geredigeerd"  # noqa: S105 - not a password; can never verify
 SECRET_SETTING_KEYS = {"backup_passphrase_enc", "notify_url_enc"}
 # Een applicatieback-up mag geen eerdere Hub-koppeling opnieuw vertrouwen geven.
-CONNECTOR_LOCAL_TABLES = {"connector_hub_pins", "connector_nonces", "idempotency_keys", "connector_changes"}
+CONNECTOR_LOCAL_TABLES = {"connector_hub_pins", "connector_nonces", "idempotency_keys"}
 SKIP_TABLES = {"sessions", "pairing_codes", "processed_events"} | CONNECTOR_LOCAL_TABLES
 
 
@@ -1088,12 +1089,31 @@ def decrypt_dump(path: Path, passphrase: str, out: Path) -> int:
             while block := stream.read(CHUNK_SIZE):
                 dst.write(block)
                 n += len(block)
+        _check_dump_connector_proof(tmp)
         os.chmod(tmp, 0o600)
         tmp.replace(out)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
     return n
+
+
+def _check_dump_connector_proof(archive: Path) -> None:
+    import shutil
+    import subprocess  # noqa: S404 - vast programma zonder shell
+
+    exe = shutil.which("pg_restore")
+    if not exe:
+        raise BackupError("pg_restore ontbreekt. Het herstelbewijs in deze database-dump is niet te controleren.")
+    result = subprocess.run([exe, "--list", str(archive)], capture_output=True, check=False)  # noqa: S603
+    if result.returncode:
+        raise BackupError("Database-dump beschadigd: de inhoudsopgave is niet leesbaar.")
+    entries = [line.split()[3:] for line in result.stdout.splitlines() if not line.startswith(b";")]
+    table = [b"public", b"connector_changes"]
+    if any(entry[:3] == [b"TABLE", *table] for entry in entries) and not any(
+        entry[:4] == [b"TABLE", b"DATA", *table] for entry in entries
+    ):
+        raise BackupError("Terugzetten geweigerd: het connectorherstelbewijs ontbreekt in deze database-dump.")
 
 
 async def run_db_dump(
@@ -1292,6 +1312,75 @@ def check_restorable(manifest: dict) -> str:
     return rel
 
 
+def _hold_connector_recovery(conn) -> None:
+    # De bestaande open herstelstand kan actueler zijn dan de back-up.
+    conn.execute(text("""
+        CREATE TEMP TABLE held_connector_recovery ON COMMIT DROP AS
+        SELECT id, "before", after, rollback_from, rollback_after, command_id, rollback_command_id,
+               status, reason_code, rollback_status, rollback_reason_code,
+               EXISTS (
+                   SELECT 1 FROM commands cmd WHERE cmd.id IN (c.command_id, c.rollback_command_id)
+                       AND cmd.status IN ('sending', 'sent')
+               ) AS command_uncertain
+        FROM connector_changes c
+        WHERE c.command_id IS NOT NULL
+          AND (c.rollback_status IS DISTINCT FROM 'confirmed' OR c.rollback_after IS DISTINCT FROM c."before"
+               OR NOT (c."before" ? 'controls'))
+          AND (c.rollback_command_id IS NOT NULL OR c.rollback_status IS NOT NULL
+               OR c.status = 'confirmed' AND (c.after IS DISTINCT FROM c."before" OR NOT (c."before" ? 'controls'))
+               OR c.reason_code IN ('readback_unavailable', 'readback_unknown_after_restart',
+                                    'readback_unknown_after_restore', 'readback_mismatch', 'readback_side_effect')
+                  AND (c.after IS NULL OR c.after IS DISTINCT FROM c."before")
+               OR EXISTS (
+                   SELECT 1 FROM commands cmd WHERE cmd.id = c.command_id AND cmd.status IN ('sending', 'sent')
+               ))
+    """))
+
+
+def _restore_connector_proof(conn, held_recovery: bool) -> None:
+    if held_recovery and conn.execute(text("""
+        SELECT EXISTS (
+            SELECT * FROM held_connector_recovery
+            EXCEPT
+            SELECT id, "before", after, rollback_from, rollback_after, command_id, rollback_command_id,
+                   status, reason_code, rollback_status, rollback_reason_code,
+                   EXISTS (
+                       SELECT 1 FROM commands cmd WHERE cmd.id IN (c.command_id, c.rollback_command_id)
+                           AND cmd.status IN ('sending', 'sent')
+                   )
+            FROM connector_changes c
+        )
+    """)).scalar_one():
+        raise BackupError("Terugzetten geweigerd: het bestaande open apparaatherstel zou bewijs verliezen.")
+    if conn.execute(text("""
+        SELECT EXISTS (
+            SELECT 1 FROM commands cmd
+            WHERE cmd.source = 'connector' AND cmd.status NOT IN ('cancelled', 'denied')
+              AND NOT EXISTS (
+                  SELECT 1 FROM connector_changes c
+                  WHERE (cmd.id IN (c.command_id, c.rollback_command_id)
+                         OR c.rollback_from->'previous_attempts' ? CAST(cmd.id AS text))
+                    AND c."before" IS NOT NULL
+              )
+        )
+    """)).scalar_one():
+        raise BackupError("Terugzetten geweigerd: bij een connectoropdracht ontbreekt het herstelbewijs.")
+    conn.execute(text("""
+        UPDATE connector_changes SET status = 'failed', reason_code = 'readback_unknown_after_restore'
+        WHERE status = 'queued' AND command_id IN (SELECT id FROM commands WHERE status IN ('sending', 'sent'))
+    """))
+    conn.execute(text("""
+        UPDATE connector_changes SET rollback_status = 'failed', rollback_reason_code = 'readback_unknown_after_restore'
+        WHERE rollback_status = 'queued'
+          AND rollback_command_id IN (SELECT id FROM commands WHERE status IN ('sending', 'sent'))
+    """))
+    conn.execute(text("UPDATE connector_changes SET execution_expires_at = NULL, rollback_expires_at = NULL"))
+    conn.execute(text("""
+        UPDATE commands SET status = 'cancelled', detail = :detail
+        WHERE source = 'connector' AND status IN ('queued', 'sending', 'sent')
+    """), {"detail": RESTORED_COMMAND_DETAIL})
+
+
 def _restore_sync(conn, path: Path, passphrase: str, manifest: dict, mode: str, report: RestoreReport) -> dict:
     from alembic import command
 
@@ -1307,6 +1396,9 @@ def _restore_sync(conn, path: Path, passphrase: str, manifest: dict, mode: str, 
     db_rev = None
     if "alembic_version" in current.tables:
         db_rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
+    held_recovery = "connector_changes" in current.tables
+    if held_recovery:
+        _hold_connector_recovery(conn)
     prior_raw = None
     if "settings" in current.tables:
         prior_raw = conn.execute(text("SELECT value FROM settings WHERE key=:key"), {"key": KEY}).scalar()
@@ -1376,6 +1468,7 @@ def _restore_sync(conn, path: Path, passphrase: str, manifest: dict, mode: str, 
                 now = conn.execute(select(func.count()).select_from(final.tables[t])).scalar_one()
                 if now < n:
                     report.dropped["rows_removed_by_migration"][t] = n - now
+    _restore_connector_proof(conn, held_recovery)
     for table in Base.metadata.sorted_tables:  # keep bigserial sequences ahead of restored ids
         pkc = list(table.primary_key.columns)
         if len(pkc) == 1 and pkc[0].autoincrement is True and isinstance(pkc[0].type, sqltypes.BigInteger):
