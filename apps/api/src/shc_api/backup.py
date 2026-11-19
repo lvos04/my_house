@@ -1534,8 +1534,9 @@ def _restore_sync(
     _set(conn, KEY, merged)
     # Een back-up op het huidige schema slaat de datamigratie over. Repareer ongedateerde koppelingen ook hier.
     conn.execute(text(
-        "UPDATE api_clients SET expires_at = LEAST(created_at, now()) + interval '4320 hours' "
-        "WHERE expires_at IS NULL AND isfinite(created_at)"
+        "UPDATE api_clients SET expires_at = CASE "
+        "WHEN isfinite(created_at) THEN LEAST(created_at, now()) + interval '4320 hours' "
+        "ELSE now() END WHERE expires_at IS NULL"
     ))
     ensure_server_identity(conn)
     _after_restore(conn, manifest, mode, report)

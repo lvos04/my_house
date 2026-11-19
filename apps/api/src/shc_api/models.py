@@ -25,6 +25,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.ext.hybrid import hybrid_method
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import ColumnElement
 
@@ -47,8 +48,8 @@ JSON_OBJECT = text("'{}'::jsonb")
 JSON_ARRAY = text("'[]'::jsonb")
 FALSE = text("false")
 TRUE = text("true")
-# asyncpg leest de PostgreSQL-waarde infinity als datetime.max. Die waarde is ook na export onbegrensd.
-MAX_CLIENT_EXPIRY = datetime.max.replace(tzinfo=UTC)
+# asyncpg zet datetime.max bij het binden om in PostgreSQL-infinity. De vorige microseconde blijft eindig.
+MAX_CLIENT_EXPIRY = datetime(9999, 12, 31, 23, 59, 59, 999998, tzinfo=UTC)
 
 
 # --- accounts -----------------------------------------------------------------
@@ -97,9 +98,16 @@ class ApiClient(Base):
     expires_at: Mapped[datetime | None]
     refreshed_at: Mapped[datetime | None]
 
+    @hybrid_method
+    def has_valid_expiry(self, now: datetime) -> bool:
+        expiry = self.expires_at
+        # asyncpg leest PostgreSQL-infinity als een datum zonder tijdzone.
+        return expiry is not None and expiry.tzinfo is not None and now < expiry <= MAX_CLIENT_EXPIRY
+
+    @has_valid_expiry.inplace.expression
     @classmethod
     def has_valid_expiry(cls, now: datetime) -> ColumnElement[bool]:
-        return (cls.expires_at > now) & (cls.expires_at < MAX_CLIENT_EXPIRY)
+        return func.coalesce((cls.expires_at > now) & (cls.expires_at <= MAX_CLIENT_EXPIRY), FALSE)
 
 
 class PairingCode(Base):

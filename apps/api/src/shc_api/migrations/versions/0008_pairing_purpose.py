@@ -16,8 +16,9 @@ def upgrade() -> None:
             f"ck_{table}_purpose", table, "purpose = 'phone' OR (purpose = 'hub' AND role = 'viewer')"
         )
     op.execute(
-        "UPDATE api_clients SET expires_at = LEAST(created_at, now()) + interval '4320 hours' "
-        "WHERE expires_at IS NULL AND isfinite(created_at)"
+        "UPDATE api_clients SET expires_at = CASE "
+        "WHEN isfinite(created_at) THEN LEAST(created_at, now()) + interval '4320 hours' "
+        "ELSE now() END WHERE expires_at IS NULL"
     )
 
 

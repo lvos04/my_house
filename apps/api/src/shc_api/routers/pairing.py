@@ -21,7 +21,7 @@ from ..config import get_settings
 from ..deps import CLIENT_TTL, DB, Phone, WebAdmin
 from ..errors import SECRET_KEY_INVALID_RESPONSE, api_error, not_found, require_secret_box
 from ..events import publish_auth_revoked
-from ..models import MAX_CLIENT_EXPIRY, ApiClient, Home, PairingCode, User
+from ..models import ApiClient, Home, PairingCode, User
 from ..security import (
     AttemptLimiter,
     lan_url_problem,
@@ -187,7 +187,7 @@ def client_view(c: ApiClient, username: str | None = None) -> dict:
         "expires_at": c.expires_at,
         "refreshed_at": c.refreshed_at,
         "revoked": c.revoked_at is not None,
-        "expired": c.expires_at is None or not now < c.expires_at < MAX_CLIENT_EXPIRY,
+        "expired": not c.has_valid_expiry(now),
     }
     if username is not None:
         v["user"] = username
