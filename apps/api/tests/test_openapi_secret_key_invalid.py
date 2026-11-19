@@ -39,8 +39,18 @@ def test_alleen_deze_routes_noemen_503(spec: dict) -> None:
         for method, op in ops.items()
         if "503" in op.get("responses", {})
     }
-    assert met_503 == set(ROUTES) | {("get", "/readyz")}
+    hub_routes = {
+        ("get", "/api/v1/system/hub-keys"),
+        ("put", "/api/v1/system/hub-keys"),
+        ("post", "/api/v1/system/hub-keys/verify"),
+    }
+    assert met_503 == set(ROUTES) | {("get", "/readyz")} | hub_routes
     readiness = spec["paths"]["/readyz"]["get"]["responses"]["503"]
     assert "secret_key_invalid" not in readiness["description"]
     assert all(code in readiness["description"] for code in ("database_unavailable", "database_newer"))
     assert "Retry-After" in readiness["headers"]
+    for method, path in hub_routes:
+        response = spec["paths"][path][method]["responses"]["503"]
+        assert "secret_key_invalid" not in response["description"]
+        assert "dependency_unavailable" in response["description"]
+        assert "Retry-After" in response["headers"]

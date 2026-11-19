@@ -18,7 +18,11 @@ router = APIRouter(prefix="/system/hub-keys", tags=["system"], route_class=Admin
 AUTH_ERRORS = {
     401: {"model": ContractProblem},
     403: {"model": ContractProblem},
-    503: {"model": ContractProblem},
+    503: {
+        "model": ContractProblem,
+        "description": "`dependency_unavailable`: de database is tijdelijk niet beschikbaar.",
+        "headers": {"Retry-After": {"schema": {"type": "integer"}}},
+    },
 }
 CHECK_ERRORS = {
     **AUTH_ERRORS,

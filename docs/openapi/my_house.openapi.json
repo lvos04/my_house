@@ -6835,7 +6835,14 @@
                 }
               }
             },
-            "description": "Service Unavailable"
+            "description": "`dependency_unavailable`: de database is tijdelijk niet beschikbaar.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Hub Pin Status",
@@ -6983,7 +6990,14 @@
                 }
               }
             },
-            "description": "Service Unavailable"
+            "description": "`dependency_unavailable`: de database is tijdelijk niet beschikbaar.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Confirm Hub Keys",
@@ -7114,7 +7128,14 @@
                 }
               }
             },
-            "description": "Service Unavailable"
+            "description": "`dependency_unavailable`: de database is tijdelijk niet beschikbaar.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Verify Hub Keys",
