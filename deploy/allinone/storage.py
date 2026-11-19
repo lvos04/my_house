@@ -96,18 +96,19 @@ def first_start_leftover(data: Path) -> Path | None:
             or stat.S_IMODE(info.st_mode) != 0o600 or info.st_uid != path.parent.stat().st_uid):
         raise ValueError(INCOMPLETE)
 
-    for name in CORE_SECRETS:
+    named = tuple(name for name in CORE_SECRETS if path.name.startswith(f"{PENDING_PREFIX}{name}-"))
+    # Oude versies lieten in secrets ook namen zonder sleutelnaam achter.
+    # Daar is alleen een tweede naam voor een vastgelegde inode herkenbaar.
+    candidates = CORE_SECRETS if not named and path.parent == secret_dir else named
+    for name in candidates:
         key = secret_dir / name
-        prefix = f"{PENDING_PREFIX}{name}-"
-        if path.parent == marker and (not path.name.startswith(prefix) or len(path.name) == len(prefix)):
+        if path.name == f"{PENDING_PREFIX}{name}-":
             continue
         if os.path.lexists(key):
-            # Een oudere schrijver liet de tijdelijke naam naast de sleutel staan. Alleen
-            # een alias van precies dezelfde inode kan daar veilig worden verwijderd.
             if info.st_nlink == 2 and os.path.samestat(info, key.lstat()):
                 return path
-        elif path.parent == marker and info.st_nlink == 1:
-            # Alleen in de startmarkering is ook een onafgemaakt schrijfbestand herkenbaar.
+        elif named and info.st_nlink == 1:
+            # Een afgebroken schrijfbestand kan ook leeg of onvolledig zijn.
             return path
     raise ValueError(INCOMPLETE)
 
@@ -151,12 +152,11 @@ def sync_directory(path: Path) -> None:
         os.close(fd)
 
 
-def create_once(path: Path, content: bytes, *, staging: Path | None = None) -> None:
+def create_once(path: Path, content: bytes) -> None:
     if os.path.lexists(path):
         return
     # De uiteindelijke naam wordt pas zichtbaar als de inhoud is weggeschreven.
-    prefix = PENDING_PREFIX if staging is None else f"{PENDING_PREFIX}{path.name}-"
-    with tempfile.NamedTemporaryFile(dir=staging or path.parent, prefix=prefix) as out:
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f"{PENDING_PREFIX}{path.name}-") as out:
         out.write(content)
         out.flush()
         os.fsync(out.fileno())
@@ -165,8 +165,7 @@ def create_once(path: Path, content: bytes, *, staging: Path | None = None) -> N
         except FileExistsError:
             return
         sync_directory(path.parent)
-    if staging is not None:
-        sync_directory(staging)
+    sync_directory(path.parent)
 
 
 def read_private(path: Path, limit: int = 4096) -> str:
@@ -195,9 +194,8 @@ def prepare_secrets(data: Path) -> str:
     first, leftover = _check_layout(data)
     secret_dir = data / "secrets"
     values = {name: password(secret_dir / name) for name in CORE_SECRETS if os.path.lexists(secret_dir / name)}
-    marker = data / FIRST_START
     if first:
-        marker.mkdir(mode=0o700, exist_ok=True)
+        (data / FIRST_START).mkdir(mode=0o700, exist_ok=True)
         sync_directory(data)
     for part in CORE_DIRS:
         directory(data / part)
@@ -211,7 +209,7 @@ def prepare_secrets(data: Path) -> str:
         if name not in values:
             path = secret_dir / name
             if first:
-                create_once(path, (secrets.token_urlsafe(48) + "\n").encode(), staging=marker)
+                create_once(path, (secrets.token_urlsafe(48) + "\n").encode())
             values[name] = password(path)
     return values["mqtt-shc"]
 

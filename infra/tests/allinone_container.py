@@ -43,24 +43,33 @@ import sys
 from shc_allinone import storage, supervisor
 
 run = supervisor.Supervisor.run
-link = os.link
+sync = storage.sync_directory
+phase = sys.argv[1]
+
+def stop():
+    print("Gesimuleerde onderbreking tijdens " + phase, file=sys.stderr, flush=True)
+    os._exit(1)
 
 def interrupt_link(source, target):
-    link(source, target)
-    if target.name == "app-key":
-        print("Gesimuleerde onderbreking tijdens sleutelopslag", file=sys.stderr, flush=True)
-        os._exit(1)
+    stop()
+
+def interrupt_sync(path):
+    sync(path)
+    if path == supervisor.DATA / "secrets" and (path / "app-key").is_file():
+        stop()
 
 def interrupt(self, name, command):
-    if name == sys.argv[1]:
+    if name == phase:
         if name == "initialisatie":
             print("Gesimuleerde onderbreking vóór initialisatie", file=sys.stderr, flush=True)
             os._exit(1)
         raise supervisor.StartFout("Gesimuleerde onderbreking vóór " + name)
     return run(self, name, command)
 
-if sys.argv[1] == "sleutelopslag":
+if phase == "sleutelopslag-voor-link":
     storage.os.link = interrupt_link
+elif phase == "sleutelopslag":
+    storage.sync_directory = interrupt_sync
 else:
     supervisor.Supervisor.run = interrupt
 raise SystemExit(supervisor.main())
@@ -464,26 +473,42 @@ assert broker_accepts(password, "zigbee2mqtt")
     def interrupted_first_start(self):
         volume = self.storage("onderbroken")
         before = None
-        for phase in ("sleutelopslag", "initialisatie", "databaseaanmaak"):
+        for phase in ("sleutelopslag-voor-link", "sleutelopslag", "initialisatie", "databaseaanmaak"):
             interrupted = self.container(f"voor-{phase}", volume, options=("--no-healthcheck",),
                                          entrypoint=(*PYTHON, "-c", ONDERBROKEN_START, phase))
             assert docker("wait", interrupted).stdout.strip() == b"1"
-            moment = "tijdens" if phase == "sleutelopslag" else "vóór"
+            moment = "tijdens" if phase.startswith("sleutelopslag") else "vóór"
             assert f"Gesimuleerde onderbreking {moment} {phase}".encode() in self.logs(interrupted)
             keys = """
 from pathlib import Path
 from hashlib import sha256
+from stat import S_IMODE
 import sys
 
 data = Path("/appdata")
 phase = sys.argv[1]
 assert (data / "postgres/data/PG_VERSION").is_file() == (phase in ("databaseaanmaak", "hervat"))
-if phase == "sleutelopslag":
-    assert not (data / "secrets/mqtt-shc").exists()
-    assert (data / "secrets/app-key").stat().st_nlink == 2
-names = ("app-key",) if phase == "sleutelopslag" else ("app-key", "mqtt-shc")
+secret_dir = data / "secrets"
+if phase.startswith("sleutelopslag"):
+    assert not any(p.is_file() and p.parent != secret_dir for p in data.rglob("*"))
+    assert S_IMODE(secret_dir.stat().st_mode) == 0o700
+    assert not (secret_dir / "mqtt-shc").exists()
+    (pending,) = secret_dir.glob(".nieuw-app-key-*")
+    info = pending.stat()
+    assert (info.st_uid, info.st_gid, S_IMODE(info.st_mode)) == (568, 568, 0o600)
+    key = secret_dir / "app-key"
+    if phase == "sleutelopslag-voor-link":
+        assert not key.exists() and info.st_nlink == 1
+        names = ()
+    else:
+        assert pending.samefile(key) and info.st_nlink == 2
+        names = ("app-key",)
+else:
+    names = ("app-key", "mqtt-shc")
+    assert {p.name for p in secret_dir.iterdir()} == set(names)
 for name in names:
-    print(sha256((data / "secrets" / name).read_bytes()).hexdigest())
+    path = secret_dir / name
+    print(path.stat().st_ino, sha256(path.read_bytes()).hexdigest())
 """
             contents = docker(
                 "run", "--rm", "--network", "none", "--user", "568:568", "--mount",
@@ -499,8 +524,8 @@ for name in names:
         assert self.sql(resumed, ZOEK_REVISIE).strip()
         assert self.exec(resumed, "test", "!", "-e", "/appdata/.eerste-start").returncode == 0
         docker("stop", resumed)
-        print("Eerste start hervat tijdens sleutelopslag, vóór initdb en vóór databaseaanmaak, met dezelfde sleutels.",
-              flush=True)
+        print("Eerste start hervat vóór publicatie en na mapsynchronisatie in secrets, vóór initdb en "
+              "vóór databaseaanmaak. Vastgelegde sleutels behielden inhoud en inode.", flush=True)
 
     def incomplete_zigbee_storage(self):
         volume = self.storage("zigbee-onvolledig")

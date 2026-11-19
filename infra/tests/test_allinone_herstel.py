@@ -21,8 +21,73 @@ ASSETS = ROOT / "infra/compose/config"
 
 
 class OpslagHerstel(unittest.TestCase):
+    def test_opslaggrens_voor_publicatie(self):
+        self.controleer_opslaggrens("voor-link")
+
+    def test_opslaggrens_na_mapsynchronisatie(self):
+        self.controleer_opslaggrens("na-mapsync")
+
+    def controleer_opslaggrens(self, phase):
+        with tempfile.TemporaryDirectory() as d:
+            data = Path(d)
+            stopped = subprocess.run(  # noqa: S603 - vaste proefcode in een eigen subprocess
+                [sys.executable, "-B", "-c", """
+import os
+import sys
+from pathlib import Path
+from deploy.allinone import storage
+
+phase, directory = sys.argv[1:]
+data = Path(directory)
+sync = storage.sync_directory
+
+def interrupt_link(source, target):
+    os._exit(75)
+
+def interrupt_sync(path):
+    sync(path)
+    if path == data / "secrets" and (path / "app-key").is_file():
+        os._exit(75)
+
+if phase == "voor-link":
+    storage.os.link = interrupt_link
+else:
+    storage.sync_directory = interrupt_sync
+storage.prepare_secrets(data)
+""", phase, d],
+                cwd=ROOT, capture_output=True, check=False,
+            )
+            self.assertEqual(stopped.returncode, 75, stopped.stderr.decode())
+            secret_dir = data / "secrets"
+            self.assertFalse(
+                any(p.is_file() and p.parent != secret_dir for p in data.rglob("*")),
+                f"{phase}: sleutelbestand buiten secrets",
+            )
+            self.assertEqual(stat.S_IMODE(secret_dir.stat().st_mode), 0o700)
+            key = secret_dir / "app-key"
+            self.assertEqual(key.exists(), phase == "na-mapsync")
+            self.assertFalse((secret_dir / "mqtt-shc").exists())
+            self.assertFalse(any((data / "postgres").iterdir()))
+            (pending,) = (p for p in secret_dir.iterdir() if p != key)
+            self.assertRegex(pending.name, r"^\.nieuw-app-key-.+$")
+            info = pending.stat()
+            self.assertEqual((info.st_uid, info.st_gid), (os.geteuid(), os.getegid()))
+            self.assertEqual(stat.S_IMODE(info.st_mode), 0o600)
+            storage.password(pending)
+            before = (key.read_bytes(), key.stat().st_ino) if key.exists() else None
+            if before is not None:
+                self.assertTrue(pending.samefile(key))
+                self.assertEqual(info.st_nlink, 2)
+
+            self.assertTrue(storage.check_layout(data))
+            storage.prepare_secrets(data)
+            self.assertEqual({p.name for p in secret_dir.iterdir()}, set(storage.CORE_SECRETS))
+            self.assertEqual(key.stat().st_nlink, 1)
+            if before is not None:
+                self.assertEqual((key.read_bytes(), key.stat().st_ino), before)
+
     def test_harde_stop_tijdens_sleutelopslag_hervat_voor_initdb(self):
-        for phase in ("voor-link", "na-link", "oude-schrijfmethode"):
+        for phase in ("voor-link", "na-link", "oude-schrijfmethode", "oude-startmarkering"):
             with self.subTest(phase=phase), tempfile.TemporaryDirectory() as d:
                 data = Path(d)
                 stopped = subprocess.run(  # noqa: S603 - vaste proefcode in een eigen subprocess
@@ -34,15 +99,20 @@ from deploy.allinone import storage
 
 phase, data = sys.argv[1:]
 link = os.link
-create = storage.create_once
+temporary_file = storage.tempfile.NamedTemporaryFile
 
 def interrupt(source, target):
     if phase != "voor-link":
         link(source, target)
     os._exit(75)
 
-if phase == "oude-schrijfmethode":
-    storage.create_once = lambda path, content, **kwargs: create(path, content)
+def legacy_file(*, dir, prefix):
+    if phase == "oude-startmarkering":
+        return temporary_file(dir=Path(data) / storage.FIRST_START, prefix=".nieuw-app-key-")
+    return temporary_file(dir=Path(data) / "secrets", prefix=".nieuw-")
+
+if phase in ("oude-startmarkering", "oude-schrijfmethode"):
+    storage.tempfile.NamedTemporaryFile = legacy_file
 storage.os.link = interrupt
 storage.prepare_secrets(Path(data))
 """, phase, d],
@@ -64,13 +134,14 @@ storage.prepare_secrets(Path(data))
                 self.assertFalse(any((data / storage.FIRST_START).iterdir()))
 
     def test_restbestand_wordt_bij_onbekende_of_gebruikte_opslag_behouden(self):
-        for scenario in ("onbekend", "externe-link", "extra-link", "gegevens", "ongeldige-sleutel"):
+        for scenario in ("onbekend", "externe-link", "extra-link", "gegevens", "ongeldige-sleutel", "verkeerde-naam"):
             with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as d:
                 data = Path(d) / "appdata"
                 data.mkdir()
                 storage.prepare_secrets(data)
                 key = data / "secrets/app-key"
-                rest = key.parent / ".nieuw-proef"
+                filename = ".nieuw-mqtt-shc-proef" if scenario == "verkeerde-naam" else ".nieuw-proef"
+                rest = key.parent / filename
                 if scenario == "onbekend":
                     storage.create_once(rest, b"onbekende proefgegevens")
                 elif scenario == "externe-link":
