@@ -10,7 +10,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    for table in ("api_clients", "pairing_codes"):
+    for table in ("pairing_codes", "api_clients"):
         op.add_column(table, sa.Column("purpose", sa.String(16), nullable=False, server_default="phone"))
         op.create_check_constraint(
             f"ck_{table}_purpose", table, "purpose = 'phone' OR (purpose = 'hub' AND role = 'viewer')"
@@ -23,6 +23,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # Een versie zonder doel kan het Hub-recht niet handhaven. Trek het in vóór het doel verdwijnt.
+    # Houd intussen nieuwe inwisselingen tegen, in dezelfde tabelvolgorde als de koppelroute.
+    op.execute("LOCK TABLE pairing_codes, api_clients IN ACCESS EXCLUSIVE MODE")
     op.execute("UPDATE api_clients SET revoked_at = now() WHERE purpose = 'hub' AND revoked_at IS NULL")
     op.execute("UPDATE pairing_codes SET used_at = now() WHERE purpose = 'hub' AND used_at IS NULL")
     for table in ("api_clients", "pairing_codes"):
