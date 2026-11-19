@@ -226,6 +226,16 @@ def run(args) -> str:
         f"/_shc/config.json: {status} {body!r}, Cache-Control {cache}",
     )
 
+    status, headers, body = c.request("GET", "/connector/v1/discover")
+    check(
+        status == 401 and isinstance(body, dict) and body.get("code") == "unauthorized"
+        and set(body) == {"code", "message", "details", "trace_id"},
+        "connector-discover gaat via nginx naar de API en vraagt aanmelding",
+    )
+    status, headers, body = c.request("POST", "/connector/v1/propose", raw=b" " * ((1 << 20) + 1))
+    check(status == 413 and isinstance(body, dict) and body.get("code") == "payload_too_large",
+          "nginx geeft de contractfout voor een te grote connectorbody")
+
     password = args.password or secrets.token_urlsafe(18)
     # Spoofed proxy headers from the LAN must be ignored: the cookie stays without "Secure".
     status, headers, body = c.request(

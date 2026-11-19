@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select, update
 
 from .. import climate as cl
-from .. import events
+from .. import connector_changes, events
 from ..commanding import (
     check_active_target,
     check_scene_group_policy,
@@ -78,8 +78,19 @@ class CommandsMixin:
                 await db.commit()
 
     async def _send_command(self, db, cmd: CommandRecord, dev: Device):
+        if cmd.source == connector_changes.SOURCE:
+            adapter = self._adapter_for(dev)
+            return await connector_changes.guarded_send(
+                db, cmd, dev, adapter, lambda: self._send_to_adapter(db, cmd, dev, adapter=adapter),
+            )
+        return await self._send_to_adapter(db, cmd, dev)
+
+    async def _send_to_adapter(self, db, cmd: CommandRecord, dev: Device, *, adapter=None):
         try:
-            res = await self._execute_command(db, cmd, dev)
+            res = (
+                await self._execute_command(db, cmd, dev)
+                if adapter is None else await self._execute_command(db, cmd, dev, adapter=adapter)
+            )
         except PolicyDenied as exc:
             return "denied", exc.message, None
         except Exception as exc:  # time-out, adapterfout, niet ondersteund
@@ -89,11 +100,11 @@ class CommandsMixin:
             status = "sent"
         return status, res.detail or "", res.state
 
-    async def _execute_command(self, db, cmd: CommandRecord, dev: Device):
+    async def _execute_command(self, db, cmd: CommandRecord, dev: Device, *, adapter=None):
         from shc_integrations.base import Command
         from shc_integrations.hue import HueAdapter
 
-        adapter = self._adapter_for(dev)
+        adapter = adapter if adapter is not None else self._adapter_for(dev)
         if adapter is None:
             raise RuntimeError("Geen actieve integratie voor dit apparaat")
         action = cmd.action
@@ -123,7 +134,14 @@ class CommandsMixin:
             )
             if home_ids:
                 q = q.where(CommandRecord.home_id.in_(home_ids))
-            await db.execute(q)
+            interrupted = (await db.execute(q.returning(CommandRecord.id, CommandRecord.source))).all()
+            for command_id, source in interrupted:
+                if source == connector_changes.SOURCE:
+                    record = await connector_changes.linked_change(db, command_id)
+                    if record:
+                        connector_changes.record_failure(
+                            record, command_id == record.rollback_command_id, "readback_unknown_after_restart",
+                        )
             await db.commit()
             return marker
 
@@ -230,11 +248,17 @@ class CommandsMixin:
         self, db, cmd: CommandRecord, dev: Device | None, zone: ClimateZone | None, now, allow_retry: bool = True
     ) -> None:
         """Zone bookkeeping and realtime events for a command that reached a status."""
+        if cmd.source == connector_changes.SOURCE and not allow_retry:
+            record = await connector_changes.linked_change(db, cmd.id)
+            if record:
+                connector_changes.record_failure(record, cmd.id == record.rollback_command_id, "refused_before_send")
         if zone is not None and cmd.zone_id == zone.id:
             if cmd.status == "confirmed" and dev is not None:
                 await zone_command_confirmed(db, zone, cmd, dev, now)
             elif cmd.status == "failed":
-                await zone_command_failed(db, zone, cmd, now, retry=allow_retry)
+                await zone_command_failed(
+                    db, zone, cmd, now, retry=allow_retry and cmd.source != connector_changes.SOURCE,
+                )
             elif cmd.status in ("denied", "cancelled"):
                 if zone.pending_command_id == cmd.id:
                     zone.pending_command_id = None

@@ -41,6 +41,7 @@ map $uri $cache_control {
     default    "no-cache";
     ~^/assets/ "public, max-age=31536000, immutable";
     ~^/api/    "";
+    ~^/connector/ "";
     ~^/_shc/   "";
 }
 
@@ -53,7 +54,12 @@ map $uri $retry_after {
     default                  "";
     /_shc/unavailable.html   5;
     /_shc/unavailable.json   5;
+    /_shc/connector-unavailable.json 5;
     /_shc/rate-limited.json  60;
+}
+
+map $request_id $connector_trace {
+    "~^(.{8})(.{4})(.{4})(.{4})(.{12})$" $1-$2-$3-$4-$5;
 }
 
 # Brake on unauthenticated endpoints, per real client address: 10 per minute, burst of 5.
@@ -186,6 +192,25 @@ server {
         proxy_read_timeout 120s;
         proxy_buffering off;  # streamed exports
         proxy_pass $api_upstream;
+    }
+
+    location ^~ /connector/v1/ {
+        proxy_request_buffering off;
+        error_page 413 =413 /_shc/connector-too-large.json;
+        error_page 502 503 504 =503 /_shc/connector-unavailable.json;
+        proxy_pass $api_upstream;
+    }
+
+    location = /_shc/connector-too-large.json {
+        internal;
+        default_type "application/json; charset=utf-8";
+        return 413 '{"code":"payload_too_large","message":"Het verzoek is te groot.","details":{"max_bytes":1048576},"trace_id":"$connector_trace"}';
+    }
+
+    location = /_shc/connector-unavailable.json {
+        internal;
+        default_type "application/json; charset=utf-8";
+        return 503 '{"code":"dependency_unavailable","message":"De API is tijdelijk niet beschikbaar.","details":{},"trace_id":"$connector_trace"}';
     }
 
     location /assets/ {

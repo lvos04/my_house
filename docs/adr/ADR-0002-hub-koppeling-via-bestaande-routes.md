@@ -18,7 +18,8 @@ my_house heeft al:
   toegangsniveau `auth`, en een WebSocket die ook met een token werkt;
 - één commandoroute (`commanding.request_zone_command` / `queue_command`) met het volledige veiligheidsbeleid.
 
-Er is geen machine-identiteit, geen connectorcontract, geen idempotency, geen verificatie van een Hub-handtekening.
+my_house behoudt de bestaande koppeling met kijkrechten voor de Hub. ADR-0016 legt de verificatie van
+ondertekende verzoeken en de lokale replaycontrole vast.
 
 ## Besluit
 
@@ -47,8 +48,27 @@ Er is geen machine-identiteit, geen connectorcontract, geen idempotency, geen ve
 5. **Boiler:** elk propose/apply-verzoek waarvan het doel een apparaat met beschermde rol is, of een meter, geeft
    **altijd** `409 {code:"policy_denied"}` — ook met geldige handtekening en goedkeuring. Bestaande routes die een
    beschermd apparaat als doel krijgen, antwoorden voortaan ook `409 policy_denied` in plaats van 404/422.
-6. **Rollback:** `POST /connector/v1/rollback` → `501 {code:"capability_unavailable"}` (een fysieke
-   klimaatwijziging is niet betrouwbaar terug te draaien; *Terug naar schema* is een eigen actie `zone.resume`).
+6. **Apparaatherstel (S-P3-742, bouwpunt 4, besluit 19 november 2026).** Apply vereist een duurzaam
+   voorstel met betrouwbaar herstelrecept. De API leest bij het voorstel rechtstreeks terug, bewaart
+   de vorige stand en bindt de diff aan de doelversie en de ETag. Apply leest opnieuw en de worker
+   controleert de stand en het bestaande apparaatbeleid vlak voor verzending. Evidence meldt per
+   handeling de stand, hash en tijd van elke bruikbare teruglezing.
+
+   | Actie | Apply en herstel |
+   |---|---|
+   | `zone.command` | Uitvoering is beschikbaar voor alleen een doeltemperatuur op een geteste, ingeschakelde Gree-unit met actieve handmatige bediening. De adapter moet de gekoppelde identiteit, bedrijfsstand en de herstelbare Celsius-doeltemperatuur lezen. De API slaat deze stand vóór apply op. Apply en rollback gebruiken dezelfde `queue_command` en wachtrij, met de bestaande opdrachtadministratie. Readback bevestigt de doeltemperatuur, voeding en modus. Rollback zet de oude temperatuur terug en vergelijkt opnieuw met de volledige bewaarde stand. |
+   | `light.group.set` | Apply en rollback geven 501. De individuele teruglezing van het groepscommando levert hier geen duurzaam herstelrecept voor alle vorige lampstanden. |
+   | `light.scene.recall` | Apply en rollback geven 501. Het vorige lichtbeeld en alle toestand die een scène kan wijzigen zijn niet betrouwbaar terug te zetten via deze actie. |
+   | `zone.resume` | Apply en rollback geven 501. Het schema hervatten kan later andere fysieke opdrachten veroorzaken. |
+   | `zone.schedule.propose` | Het voorstel is een concept. Apply en rollback geven 501. Het actieve schema wordt niet aangepast. |
+
+   Een onbekende vorige stand blokkeert apply. Een afwijkende teruglezing geeft `failed`. Als de
+   gedeeltelijke verandering betrouwbaar leesbaar is en de context gelijk blijft, plant de worker
+   meteen herstel in via dezelfde wachtrij. Onbekende of onbevestigde uitkomsten blijven zichtbaar
+   in evidence. Na een onderbreking kan een nieuw ondertekend rollbackverzoek alleen herstellen als
+   de actuele stand overeenkomt met de bewaarde of aangevraagde stand en er geen nieuwere opdracht
+   is. Gewijzigde configuratie of een onleesbare stand blokkeert verdere bediening. De applicatie
+   bewaart de actieve handmatige override en wijzigt de configuratie van het apparaat of schema niet.
 
 ## Afgewezen alternatieven
 
@@ -64,7 +84,13 @@ Er is geen machine-identiteit, geen connectorcontract, geen idempotency, geen ve
 
 ## Gevolgen
 
-- Nieuwe tabellen (migratie 0005, met downgrade): `connector_outbox`, `connector_nonces`, `idempotency_keys`,
-  kolom `api_clients.kind`.
-- Contractfoutformaat `{code,message,details,trace_id}` geldt alleen op de nieuwe connector- en health-routes; de
-  bestaande routes houden `{"detail":{…}}` (web en Android-app hangen ervan af) — zie ADR-0003.
+- Migratie 0006 voegt de Hub-pin, de nonces en idempotentieantwoorden toe. Migratie 0007 voegt
+  voorstelbewijs toe en versieert zones en lichtdoelen. Downgrade naar 0006 annuleert open
+  connectoropdrachten en verwijdert uitsluitend het nieuwe bewijs, de versievelden en de triggers.
+- Het contractfoutformaat `{code,message,details,trace_id}` geldt op de connectorroutes. De
+  bestaande bedienroutes behouden `{"detail":{…}}` (ADR-0003).
+- Bij uitvoerbaar klimaatwerk bindt de goedkeuring de exacte preview, ETag, actie, doel,
+  parameters, risicoklasse en beleidshash. Apply en rollback verbruiken elk een eigen nonce.
+- Bewijs is zichtbaar voor dezelfde aangemelde aanroeper. Logisch applicatieherstel neemt
+  het tijdelijke voorstelbewijs niet mee. Het ontvangen van een opdracht wordt als `queued`
+  gerapporteerd totdat de worker de uitkomst terugleest.

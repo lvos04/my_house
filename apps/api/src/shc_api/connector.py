@@ -11,8 +11,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
-from sqlalchemy import update
+from sqlalchemy import text, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .commissioning import lock_commissioning_shared
@@ -88,6 +89,7 @@ class VerifiedRequest:
     approval: dict[str, Any] | None
     risk_class: str
     policy_hash: str
+    expires_at: datetime
 
 
 def _status(pin: ConnectorHubPin | None) -> PinStatus | None:
@@ -461,24 +463,39 @@ async def process_request(
         if pin is None:
             raise _unavailable()
         body, digest, issued, expires, nonce = _signed_content(request, _stored_keyset(pin))
-        key, stored = await reserve_idempotency(db, scope, idempotency_key, digest)
+        key, stored = await bounded_reservation(db, lambda: reserve_idempotency(db, scope, idempotency_key, digest))
         if stored is not None:
             status, response = stored
             return status, response, True
 
         _check_times(issued, expires, pin.accept_from)
         consume = insert(ConnectorNonce).values(nonce=nonce).on_conflict_do_nothing().returning(ConnectorNonce.nonce)
-        if await db.scalar(consume) is None:
+        if await bounded_reservation(db, lambda: db.scalar(consume)) is None:
             raise contract_error(409, "nonce_al_gebruikt", "Dit uitvoeringsverzoek is al gebruikt.")
         # Wachtte de nonce op een afgebroken transactie, controleer dan de geldigheid opnieuw.
         _check_times(issued, expires, pin.accept_from)
 
         proposal, decision = body["proposal"], body["policy_decision"]
         proposal.pop("risk_claim", None)
-        verified = VerifiedRequest(proposal, body["approval"], decision["risk_class"], decision["policy_hash"])
+        verified = VerifiedRequest(proposal, body["approval"], decision["risk_class"], decision["policy_hash"], expires)
         status, response = await operation(db, verified)
         await record_idempotency(db, scope, key, status, response)
         return status, response, False
+
+
+async def bounded_reservation(db: AsyncSession, operation: Callable[[], Awaitable[Any]]) -> Any:
+    previous = await db.scalar(text("SELECT current_setting('lock_timeout')"))
+    await db.execute(text("SELECT set_config('lock_timeout', '2s', true)"))
+    try:
+        result = await operation()
+    except DBAPIError as exc:
+        if getattr(exc.orig, "sqlstate", None) == "55P03":
+            raise contract_error(
+                409, "idempotency_in_progress", "Dit verzoek is nog in behandeling.",
+            ) from None
+        raise
+    await db.execute(text("SELECT set_config('lock_timeout', :prior, true)"), {"prior": previous})
+    return result
 
 
 async def reserve_idempotency(

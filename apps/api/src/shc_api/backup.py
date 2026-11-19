@@ -92,7 +92,7 @@ SECRET_COLUMNS = {("integrations", "credentials_enc"), ("sessions", "csrf_token"
 REDACTED_PASSWORD = "!geredigeerd"  # noqa: S105 - not a password; can never verify
 SECRET_SETTING_KEYS = {"backup_passphrase_enc", "notify_url_enc"}
 # Een applicatieback-up mag geen eerdere Hub-koppeling opnieuw vertrouwen geven.
-CONNECTOR_LOCAL_TABLES = {"connector_hub_pins", "connector_nonces", "idempotency_keys"}
+CONNECTOR_LOCAL_TABLES = {"connector_hub_pins", "connector_nonces", "idempotency_keys", "connector_changes"}
 SKIP_TABLES = {"sessions", "pairing_codes", "processed_events"} | CONNECTOR_LOCAL_TABLES
 
 

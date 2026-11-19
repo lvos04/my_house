@@ -835,3 +835,45 @@ van die woning (plus algemene).
 De client verbindt opnieuw met backoff en haalt na elke nieuwe verbinding het volledige `overview`
 opnieuw op. Intern gebruiken de API-processen ook `auth.revoked` om verbindingen te sluiten; dat bericht
 gaat nooit naar clients.
+
+## Bewaakt Hub-schrijfpad
+
+`GET /connector/v1/discover` geeft de vijf acties met hun doeltype, doelveld,
+parameterschema, minimale bedienrol en maximale leeftijd van een meting. Voeg
+`?zone_id=<uuid>` toe om de temperatuurgrenzen en modi van een zone op te vragen.
+Het bestaande viewer-token volstaat als aanmelding bij de connector. Elke POST
+vraagt daarnaast een met de gepinde Hub-sleutel ondertekend `ExecutionRequest` en
+een UUID in `Idempotency-Key`. De gewone bedienroutes blijven hun eigen rechten
+afdwingen. Het connectorfoutformaat heeft `code`, `message`, `details` en `trace_id`.
+
+1. `POST /connector/v1/propose` controleert de actie, parameters, apparaatstatus en
+   het lokale beleid. Voor de eerste meting kan `proposal.expected_version`
+   de waarde `eigenaar` hebben. Het antwoord bevat `proposal_id`, `preview_hash`,
+   `resource_etag`, de diff, `before`, een eventueel herstelrecept en `valid_until`.
+   Een onbruikbare meting krijgt `failed`; een actie zonder herstelpad krijgt
+   `unavailable`. Gebruik het opgeslagen bewijs om die uitkomst op te vragen.
+2. `POST /connector/v1/apply` gebruikt dezelfde ondertekende `proposal.idempotency_key`,
+   actor, actie, doel en parameters. Zet `expected_version` op de ontvangen
+   `resource_etag`. Voeg voor de uitvoerbare klimaatactie een menselijke
+   goedkeuring toe die onder meer `preview_hash`, `resource_etag` en
+   `action_scope.parameters_sha256` aan precies deze actie bindt. Gebruik een
+   nieuwe verzoeknonce en een eigen HTTP-idempotentiesleutel. Een afwijkende
+   ETag geeft 409. Een identieke herhaling levert hetzelfde antwoord met
+   `Idempotent-Replay: true`.
+3. `GET /connector/v1/evidence/{id}` accepteert de voorstel-ID of opdracht-ID
+   voor dezelfde aanroeper. Het toont de opgeslagen vorige en teruggelezen stand
+   met hashes en meetmomenten. `queued` betekent ingepland. `confirmed` betekent
+   dat de worker de gevraagde stand heeft teruggelezen. Na 120 seconden is de
+   meting historisch (`freshness: unknown`). Een ontbrekende of afwijkende
+   teruglezing wordt `failed` met reden.
+4. `POST /connector/v1/rollback` gebruikt opnieuw het oorspronkelijke voorstel
+   met de oorspronkelijke ETag, een nieuwe ondertekening en een nieuwe
+   goedkeuring. De actuele stand en configuratie moeten nog bij de opdracht
+   horen. Bij een nieuwere opdracht of onbruikbare teruglezing blijft de
+   actuele stand behouden. Evidence meldt herstel apart met `rollback_status`,
+   `rollback_after` en zo nodig `recovery_required`.
+
+Acties zonder aantoonbaar herstelpad geven 501 bij apply of rollback. ADR-0002,
+bouwpunt 4, beschrijft welke beperkte temperatuurwijziging kan worden uitgevoerd.
+Een schemavoorstel blijft een concept. De connector heeft geen algemene leesroutes
+voor apparaten. Echte lampen en airco's zijn niet gevalideerd voor deze routes.

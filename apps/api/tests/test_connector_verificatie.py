@@ -645,3 +645,29 @@ async def test_shcdump_slaat_gevulde_koppeltabellen_over(gevulde_koppeling, tmp_
                 await engine.dispose()
     finally:
         archive.unlink(missing_ok=True)
+
+
+async def test_idempotentiewacht_vervalt_zonder_tweede_actie(connector_db):
+    sessions, clock = connector_db
+    key = Ed25519PrivateKey.generate()
+    await pin(sessions, key)
+    clock[0] = NOW
+    request, idem = envelope(key), str(uuid.uuid4())
+    handling, finish = asyncio.Event(), asyncio.Event()
+
+    async def operation(db, verified):
+        handling.set()
+        await finish.wait()
+        return 202, {"status": "ingepland"}
+
+    first = asyncio.create_task(apply(sessions, request, operation, idem=idem))
+    try:
+        await asyncio.wait_for(handling.wait(), timeout=5)
+        with pytest.raises(HTTPException) as refused:
+            async with asyncio.timeout(5):
+                await apply(sessions, request, forbidden_operation, idem=idem)
+        assert (refused.value.status_code, refused.value.detail["code"]) == (409, "idempotency_in_progress")
+    finally:
+        finish.set()
+        await first
+    assert await apply(sessions, request, forbidden_operation, idem=idem) == (202, {"status": "ingepland"}, True)

@@ -440,7 +440,7 @@ class GreeAdapter(Adapter):
             "swing": "SwUpDn" in raw,
         }
 
-    async def read_status(self, cols: list[str] | None = None) -> dict[str, Any]:
+    async def read_status(self, cols: list[str] | None = None, *, verify_identity: bool = False) -> dict[str, Any]:
         full = cols is None
         cols = cols or STATUS_COLS
         now = datetime.now(UTC)
@@ -448,6 +448,8 @@ class GreeAdapter(Adapter):
             res = await self._roundtrip({"cols": cols, "mac": self.mac, "t": "status"}, self._key(), self.version)
             if res.get("t") != "dat":
                 raise AdapterError(f"Onverwacht statusantwoord: {res.get('t')}")
+            if verify_identity and res.get("mac") != self.mac:
+                raise AdapterError("De teruggelezen Gree-identiteit komt niet overeen met het doel.")
         except PairingRequired:
             raise
         except AdapterError as exc:
@@ -461,6 +463,22 @@ class GreeAdapter(Adapter):
         if full:
             self._last_state = state
         return state
+
+    async def read_recoverable_setpoint(self, device_identity: str) -> dict[str, Any]:
+        """Lees alle velden die de setpointopdracht schrijft plus de actuele bedrijfsstand."""
+        if device_identity != self.mac:
+            raise AdapterError("De gekoppelde Gree-unit komt niet overeen met het doel.")
+        state = await self.read_status(verify_identity=True)
+        raw = state["raw"]
+        if (
+            type(raw.get("Pow")) is not int or raw["Pow"] not in (0, 1)
+            or type(raw.get("Mod")) is not int or raw["Mod"] not in MODES
+            or type(raw.get("TemUn")) is not int or raw["TemUn"] != 0
+            or type(raw.get("SetTem")) is not int or not MIN_C <= raw["SetTem"] <= MAX_C
+            or self.half_degrees and (type(raw.get("TemRec")) is not int or raw["TemRec"] not in (0, 1))
+        ):
+            raise AdapterError("De Gree-bedrijfsstand of temperatuur is onvolledig of kan niet worden hersteld.")
+        return {"power": state["power"], "mode": state["mode"], "target_c": state["target_c"]}
 
     async def poll(self) -> list[Event]:
         now = datetime.now(UTC)

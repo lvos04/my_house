@@ -179,6 +179,7 @@ class Device(Base):
         CheckConstraint("detection_method IN ('scan', 'manual')", name="ck_devices_detection_method"),
     )
     id: Mapped[uuid.UUID] = pk()
+    connector_version: Mapped[int] = mapped_column(BigInteger, server_default="1")
     home_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("homes.id", ondelete="CASCADE"), index=True)
     integration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("integrations.id", ondelete="SET NULL"))
     room_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("rooms.id", ondelete="SET NULL"))
@@ -265,6 +266,7 @@ class ComfortProfile(Base):
 class ClimateZone(Base):
     __tablename__ = "climate_zones"
     id: Mapped[uuid.UUID] = pk()
+    connector_version: Mapped[int] = mapped_column(BigInteger, server_default="1")
     home_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("homes.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(100))
     room_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("rooms.id", ondelete="SET NULL"))
@@ -475,3 +477,35 @@ class IdempotencyKey(Base):
     request_hash: Mapped[bytes] = mapped_column(LargeBinary)
     response_status: Mapped[int | None]
     response_body: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+
+
+class ConnectorChange(Base):
+    __tablename__ = "connector_changes"
+    __table_args__ = (UniqueConstraint("client", "proposal_key"),)
+
+    id: Mapped[uuid.UUID] = pk()
+    client: Mapped[str] = mapped_column(Text)
+    proposal_key: Mapped[uuid.UUID]
+    action_id: Mapped[str] = mapped_column(String(32))
+    target: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    parameters: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    actor_hash: Mapped[str] = mapped_column(String(71))
+    resource_etag: Mapped[str] = mapped_column(String(71))
+    preview_hash: Mapped[str] = mapped_column(String(71))
+    before: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    after: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    rollback_from: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    rollback_after: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    observed_at: Mapped[datetime | None]
+    after_at: Mapped[datetime | None]
+    rollback_at: Mapped[datetime | None]
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    valid_until: Mapped[datetime]
+    execution_expires_at: Mapped[datetime | None]
+    rollback_expires_at: Mapped[datetime | None]
+    status: Mapped[str] = mapped_column(String(24))
+    rollback_status: Mapped[str | None] = mapped_column(String(24))
+    reason_code: Mapped[str | None] = mapped_column(String(64))
+    rollback_reason_code: Mapped[str | None] = mapped_column(String(64))
+    command_id: Mapped[uuid.UUID | None] = mapped_column(unique=True)
+    rollback_command_id: Mapped[uuid.UUID | None] = mapped_column(unique=True)

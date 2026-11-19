@@ -162,6 +162,9 @@ async def test_oude_backup_behoudt_eerder_aan_ook_bij_nieuwe_woning(tmp_path, pr
             for row in restored["devices"]:
                 assert row.pop("detection_method") is None
                 assert row.pop("fallback") is None
+                assert row.pop("connector_version") == 1
+            for row in restored["climate_zones"]:
+                assert row.pop("connector_version") == 1
             assert row_bytes(restored) == row_bytes(rows)
 
 

@@ -28,6 +28,7 @@ from .models import AuditLog
 from .routers import (
     auth,
     commissioning,
+    connector_routes,
     devices,
     energy,
     homes,
@@ -48,7 +49,7 @@ API_PREFIX = "/api/v1"
 UPLOAD_PREFIX = f"{API_PREFIX}/system/restore"
 COMMISSIONING_PREFIX = f"{API_PREFIX}{commissioning.router.prefix}"
 HUB_KEYS_PREFIX = f"{API_PREFIX}{hub_key_management.router.prefix}"
-CONTRACT_PREFIXES = (COMMISSIONING_PREFIX, HUB_KEYS_PREFIX)
+CONTRACT_PREFIXES = (COMMISSIONING_PREFIX, HUB_KEYS_PREFIX, connector_routes.router.prefix)
 CONTRACT_BODY_LIMIT = 1 << 20
 log = logging.getLogger(__name__)
 
@@ -334,6 +335,7 @@ def create_app() -> FastAPI:
     for r in ROUTERS:
         app.include_router(r.router, prefix=API_PREFIX)
     app.include_router(system.readiness_router)
+    app.include_router(connector_routes.router)
 
     @app.get(f"{API_PREFIX}/openapi.json", include_in_schema=False)
     async def _openapi(p: Admin) -> JSONResponse:

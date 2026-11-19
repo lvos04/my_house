@@ -42,12 +42,14 @@ def _http_error(exc: HTTPException) -> JSONResponse:
     return JSONResponse(problem(code, message, **details), status_code=exc.status_code, headers=exc.headers)
 
 
-async def _validation_error(request: Request, errors: list[dict]) -> JSONResponse:
+async def _validation_error(request: Request, errors: list[dict], *, admin: bool = True) -> JSONResponse:
     if not getattr(request.state, "principal", None):
         # Een JSON-leesfout kan vóór FastAPI's dependencycontrole optreden.
         try:
             async with sessionmaker()() as db:
-                await require_admin(await current_principal(request, db))
+                principal = await current_principal(request, db)
+                if admin:
+                    await require_admin(principal)
         except HTTPException as auth_error:
             return _http_error(auth_error)
     return JSONResponse(problem("validation_error", "Controleer de invoer.", fouten=errors), status_code=422)
@@ -55,6 +57,8 @@ async def _validation_error(request: Request, errors: list[dict]) -> JSONRespons
 
 class AdminContractRoute(APIRoute):
     """Pas het foutformaat toe terwijl de bestaande sessie-, telefoon- en CSRF-controles gelden."""
+
+    requires_admin = True
 
     def get_route_handler(self):
         route_handler = super().get_route_handler()
@@ -64,10 +68,18 @@ class AdminContractRoute(APIRoute):
                 return await route_handler(request)
             except HTTPException as exc:
                 if not isinstance(exc.detail, dict):
-                    return await _validation_error(request, [{"loc": ["body"], "type": "body_invalid"}])
+                    return await _validation_error(
+                        request, [{"loc": ["body"], "type": "body_invalid"}], admin=self.requires_admin,
+                    )
                 return _http_error(exc)
             except RequestValidationError as exc:
                 errors = [{"loc": list(e["loc"]), "type": e["type"]} for e in exc.errors()]
-                return await _validation_error(request, errors)
+                return await _validation_error(request, errors, admin=self.requires_admin)
 
         return handler
+
+
+class ConnectorContractRoute(AdminContractRoute):
+    """Gebruikt gewone aanmelding; mutaties vereisen aanvullend een ondertekend Hub-verzoek."""
+
+    requires_admin = False

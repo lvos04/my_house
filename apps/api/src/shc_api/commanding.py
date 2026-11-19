@@ -299,6 +299,16 @@ def _mark_pending(zone: ClimateZone, cmd: CommandRecord, now: datetime) -> None:
     zone.last_command_at = now
 
 
+async def queue_zone_setpoint(
+    db: AsyncSession, zone: ClimateZone, unit: Device, target_c: float, *, source: str, actor: str,
+) -> CommandRecord:
+    """Volg de bestaande opdrachtadministratie bij een wijziging zonder nieuwe override."""
+    await lock_outdoor_group(db, zone)
+    cmd = await queue_command(db, zone.home_id, unit, "set_hvac", {"target_c": target_c}, source, actor, zone.id)
+    _mark_pending(zone, cmd, cmd.created_at)
+    return cmd
+
+
 async def request_zone_command(
     db: AsyncSession,
     zone: ClimateZone,

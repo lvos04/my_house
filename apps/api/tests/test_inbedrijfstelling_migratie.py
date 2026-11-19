@@ -53,7 +53,11 @@ async def test_migratie_0005_bestaand_op_neer_op_bewaart_apparaat(archived):
                 await asyncio.to_thread(command.downgrade, bk.alembic_config(url), revision)
             else:
                 await asyncio.to_thread(command.upgrade, bk.alembic_config(url), revision)
-            after = await sql(url, "SELECT (to_jsonb(d) - 'detection_method' - 'fallback')::text FROM devices d")
+            if revision == "head":
+                assert await sql(url, "SELECT connector_version FROM devices") == [(1,)]
+            after = await sql(url, """
+                SELECT (to_jsonb(d) - 'detection_method' - 'fallback' - 'connector_version')::text FROM devices d
+            """)
             assert json.loads(before[0][0]) == json.loads(after[0][0])
         value = (await sql(url, "SELECT value->'v' FROM settings WHERE key='commissioning_gate'"))[0][0]
         assert value["enabled"] is False and value["origin"] == "existing_devices"

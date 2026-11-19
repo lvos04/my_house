@@ -64,9 +64,20 @@ async def seed_and_bytes(url, *, archived=False, seed=False):
             for table in tables:
                 where = "WHERE t.key <> 'commissioning_gate'" if table == 'settings' else ''
                 # Tabelnamen komen uitsluitend uit de eigen catalogus, geen verzoekinvoer.
-                row = "(to_jsonb(t) - 'detection_method' - 'fallback')" if table == 'devices' else "to_jsonb(t)"
+                row = "to_jsonb(t)"
+                if table == "devices":
+                    row += " - 'detection_method' - 'fallback'"
+                if table in {"devices", "climate_zones"}:
+                    # 0007 voegt alleen versiemetadata toe. Controleer de startwaarde apart
+                    # en vergelijk daarna alle velden die de oude installatie kon opslaan.
+                    versions = (await conn.execute(text(
+                        f"""SELECT to_jsonb(t)->'connector_version' FROM "{table}" t"""  # noqa: S608
+                    ))).scalars().all()
+                    revision = await conn.scalar(text("SELECT version_num FROM alembic_version"))
+                    assert all(version == (1 if revision == "0007" else None) for version in versions)
+                    row += " - 'connector_version'"
                 rows = (await conn.execute(text(
-                    f'''SELECT {row}::text FROM "{table}" t {where}'''  # noqa: S608
+                    f'''SELECT ({row})::text FROM "{table}" t {where}'''  # noqa: S608
                 ))).scalars().all()
                 result[table] = sorted(rows)
             result['sequences'] = [tuple(row) for row in (await conn.execute(text(
