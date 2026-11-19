@@ -82,3 +82,30 @@ async def test_verouderde_zigbeemeting_geeft_geen_groene_dongle(admin, zigbee_in
             await db.commit()
         checks = {c["key"]: c for c in (await admin.get("/system/status")).json()["checks"]}
         assert all(checks[f"integration:{integ.id}:{part}"]["state"] == "unknown" for part in ("mqtt", "dongle"))
+
+
+@pytest.mark.parametrize("minutes_ago", [None, 60, -60, 0], ids=["ontbreekt", "oud", "toekomstig", "actueel"])
+async def test_zigbeekoppeling_weigert_onbruikbare_meting(admin, home, zigbee_in_de_woning, minutes_ago):
+    integ = await zigbee_in_de_woning()
+    now = datetime.now(UTC)
+    when = (now - timedelta(minutes=minutes_ago)).isoformat() if minutes_ago is not None else None
+    health = {"checked_at": when, "extra": {"mqtt_connected": True, "bridge_online": True}}
+    async with sessionmaker()() as db:
+        await db.execute(update(Integration).where(Integration.id == integ.id).values(
+            state="ok", detail="Verbonden", diagnostics={"health": health},
+        ))
+        await db.commit()
+
+    status = await admin.get("/system/status")
+    overview = await admin.get(f"/homes/{home['id']}/overview")
+    assert status.status_code == overview.status_code == 200
+    key = f"integration:{integ.id}"
+    system = {check["key"]: check for check in status.json()["checks"]}
+    home_status = {check["key"]: check for check in overview.json()["status"]}
+    expected = "ok" if minutes_ago == 0 else "unknown"
+    assert system[key]["state"] == home_status[key]["state"] == expected
+    assert all(system[f"{key}:{part}"]["state"] == expected for part in ("mqtt", "dongle"))
+    assert system[key]["details"]["checked_at"] == when
+    if expected == "unknown":
+        assert system[key]["code"] == home_status[key]["code"] == "meting_verouderd"
+        assert system[key]["details"]["extra"] == {}

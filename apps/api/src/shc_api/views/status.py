@@ -264,10 +264,15 @@ def _label(i: Integration, counts: dict[str, int]) -> str:
     return base
 
 
-def zigbee_parts(i: Integration, extra: dict) -> list[dict]:
+def _zigbee_health_is_current(checked_at: str | None, now: datetime) -> bool:
+    age = _age_s(checked_at, now)
+    return age is not None and 0 <= age <= ZIGBEE_HEALTH_MAX_AGE_S
+
+
+def zigbee_parts(i: Integration, extra: dict, *, now: datetime | None = None) -> list[dict]:
     """MQTT connection and USB dongle (Zigbee2MQTT bridge) as two separate checks."""
-    age = _age_s(((i.diagnostics or {}).get("health") or {}).get("checked_at"), datetime.now(UTC))
-    if age is None or not 0 <= age <= ZIGBEE_HEALTH_MAX_AGE_S:
+    checked_at = ((i.diagnostics or {}).get("health") or {}).get("checked_at")
+    if not _zigbee_health_is_current(checked_at, now or datetime.now(UTC)):
         extra = {}
     mqtt = extra.get("mqtt_connected")
     since = _hhmm(extra.get("mqtt_connected_since"))
@@ -334,8 +339,11 @@ async def integration_checks(db: AsyncSession, home_id: uuid.UUID | None, detail
     for i in rows:
         counts[i.provider] = counts.get(i.provider, 0) + 1
     out = []
+    now = datetime.now(UTC)
     for i in rows:
         det = integration_details(i)
+        is_zigbee = i.provider == "zigbee"
+        current = not is_zigbee or _zigbee_health_is_current(det["checked_at"], now)
         entry = {
             "key": f"integration:{i.id}",
             "label": _label(i, counts),
@@ -345,12 +353,18 @@ async def integration_checks(db: AsyncSession, home_id: uuid.UUID | None, detail
             "provider": i.provider,
             "code": det["code"],
         }
+        if not current:
+            entry.update(state="unknown", detail="Geen actuele Zigbee-meting", code="meting_verouderd")
         if detailed:
-            entry["details"] = {k: v for k, v in det.items() if k != "extra"}
-            entry["details"]["extra"] = det["extra"]
+            entry["details"] = det
+            if not current:
+                entry["details"] = {
+                    **det, "extra": {}, "health_state": "unknown", "health_detail": None,
+                    "connected_since": None, "code": entry["code"],
+                }
         out.append(entry)
-        if i.provider == "zigbee" and (detailed or det["extra"]):
-            parts = zigbee_parts(i, det["extra"])
+        if is_zigbee and (detailed or (current and det["extra"])):
+            parts = zigbee_parts(i, det["extra"], now=now)
             if detailed:
                 out.extend(parts)
             else:
