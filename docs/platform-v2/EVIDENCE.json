@@ -151,13 +151,13 @@
  },
  {
   "id": "C1.3-MH-05",
-  "status": "Niet gestart",
-  "validatie": "Niet getest",
-  "bewijs": "",
+  "status": "Bezig",
+  "validatie": "Unit-getest",
+  "bewijs": "S-P3-750: apps/web/src/test/terugkeerpad.test.tsx",
   "blokkade": "",
-  "opmerking": "Moment P3: nieuwe routes volgens §5/§6 (foutcatalogus, health met vaste checknamen, max_age) en het terugkeerpad na inloggen (§4.1). Volgens DELTA_MATRIX §11.6 alleen op verzoek van de eigenaar van de Hub-adapter (ADR-0006). Open.",
+  "opmerking": "Terugkeerpad conform: geen terugkeerpad na inloggen; Access gebruikt het eigen adres. Leesconnector P3-03 vervalt volgens ADR-0034. Foutcatalogus en max_age van nieuwe routes volgen in S-P3-742.",
   "repo": "my_house",
-  "bijgewerkt": "2026-11-10"
+  "bijgewerkt": "2026-11-19"
  },
  {
   "id": "C1.3-MH-06",

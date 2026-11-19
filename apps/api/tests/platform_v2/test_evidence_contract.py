@@ -150,10 +150,16 @@ def test_p3_bewijs_dekt_verificatiekern_en_open_punten(echt: list[dict[str, Any]
     assert "Unit-getest" in kern["validatie"].split("; ")
     assert "apps/api/tests/test_connector_verificatie.py" in kern["bewijs"]
     assert "S-P3-742" in kern["blokkade"] and "S-P3-745" in kern["blokkade"]
-    for punt in ("C1.3-MH-05", "C1.3-MH-06"):
-        assert per_id[punt]["status"] == "Niet gestart", punt
-        assert per_id[punt]["validatie"] == "Niet getest", punt
-        assert "P3" in per_id[punt]["opmerking"], punt
+    terugkeer = per_id["C1.3-MH-05"]
+    assert terugkeer["status"] == "Bezig"
+    assert terugkeer["validatie"] == "Unit-getest"
+    assert "apps/web/src/test/terugkeerpad.test.tsx" in terugkeer["bewijs"]
+    assert "geen terugkeerpad" in terugkeer["opmerking"]
+    assert "S-P3-742" in terugkeer["opmerking"]
+    punt = per_id["C1.3-MH-06"]
+    assert punt["status"] == "Niet gestart"
+    assert punt["validatie"] == "Niet getest"
+    assert "P3" in punt["opmerking"]
 
 
 def test_alles_in_een_bewijs_dekt_simulatie_en_open_acceptatie(echt: list[dict[str, Any]]) -> None:
