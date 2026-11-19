@@ -28,6 +28,8 @@ from .hub_keys import (
 from .models import ConnectorHubPin, ConnectorNonce, IdempotencyKey, utcnow
 
 _POLICY_HASH = re.compile(r"sha256:[0-9a-f]{64}")
+# Dezelfde versievormen als de Hub-vormcontrole voor ExecutionRequest.
+_EXPECTED_VERSION = re.compile(r"sha256:[0-9a-f]{64}|absent|dataset:[^\s]{1,200}|snapshot:[^\s]{1,264}|geen|eigenaar")
 _REQUEST_FIELDS = {"proposal", "approval", "policy_decision", "issued_at", "expires_at", "nonce", "signature"}
 _REQUIRED_PROPOSAL = {"idempotency_key", "action_id", "target", "parameters", "actor", "expected_version"}
 _PROPOSAL_FIELDS = _REQUIRED_PROPOSAL | {"reason", "risk_claim", "evidence_ids", "expires_in_seconds"}
@@ -79,7 +81,10 @@ def _status(pin: ConnectorHubPin | None) -> PinStatus | None:
 
 
 async def pinned_status(db: AsyncSession) -> PinStatus | None:
-    return _status(await db.get(ConnectorHubPin, 1, populate_existing=True))
+    pin = await db.get(ConnectorHubPin, 1, populate_existing=True)
+    if pin is not None:
+        _stored_keyset(pin)
+    return _status(pin)
 
 
 def _unavailable():
@@ -93,7 +98,10 @@ def _stored_keyset(pin: ConnectorHubPin) -> HubKeyset:
             raise ValueError
     except ValueError:
         raise contract_error(
-            503, "connector_pins_unavailable", "De opgeslagen Hub-sleutelset is onbruikbaar."
+            503,
+            "connector_pins_unavailable",
+            "De opgeslagen Hub-sleutelset is onbruikbaar.",
+            headers={"Retry-After": "60"},
         ) from None
     return keyset
 
@@ -265,6 +273,7 @@ def _validate_envelope(request: Any) -> None:
         or not _REQUIRED_PROPOSAL <= proposal.keys() <= _PROPOSAL_FIELDS
         or not isinstance(proposal["action_id"], str)
         or not isinstance(proposal["expected_version"], str)
+        or not _EXPECTED_VERSION.fullmatch(proposal["expected_version"])
         or not all(isinstance(proposal[field], dict) for field in ("actor", "target", "parameters"))
         or not all(isinstance(proposal["actor"].get(field), str) for field in ("type", "id"))
     ):

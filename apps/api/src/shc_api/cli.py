@@ -273,8 +273,9 @@ async def _decrypt_dump(args) -> int:
         return 2
     print(f"Database-dump ontsleuteld: {out} ({n} bytes, pg_dump custom format).")
     print(
-        "Terugzetten (worker gestopt of onderhoudsmodus aan): pg_restore --clean --if-exists --no-owner "
-        f"--dbname=<database-url> {out}  -- verwijder het bestand daarna, het is niet versleuteld."
+        "Volg ‘Database-dump terugzetten’ in docs/onderhoud.md. Stop de API en worker vóór herstel. "
+        "Gebruik pg_restore --clean --if-exists --single-transaction en verwijder het ontsleutelde bestand daarna. "
+        "Wis de koppeltabellen en bevestig een Hub-koppeling opnieuw vóór openstelling."
     )
     return 0
 

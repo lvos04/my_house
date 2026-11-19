@@ -85,6 +85,8 @@ database-dump). Bij **Gemaakte back-ups** kun je elke back-up downloaden.
   koppelcodes zitten er nooit in.
 - **Database-dump (`.shcdump`):** alleen de database (pg_dump), versleuteld. Geen Zigbee2MQTT-gegevens.
   Terugzetten gaat met de hand, zie [Database-dump terugzetten](#database-dump-terugzetten).
+- **Hub-koppeling:** de gepinde sleutelset, gebruikte nonces en opgeslagen idempotentieantwoorden
+  blijven buiten nieuwe exports en database-dumps. Bevestig een bestaande Hub-koppeling opnieuw na herstel.
 - **Zonder geheimen** (geredigeerd): de export bewaart bekende gewone Zigbee-instellingen en lege
   geheimvelden. De netwerksleutel, coördinatorback-ups, overige Zigbee-bestanden, apparaatsleutels en
   wachtwoord-hashes vallen buiten deze export. Bij herstel blijven bestaande Zigbee-configuratie en
@@ -167,16 +169,38 @@ en stel de wachtwoordzin en het push-adres opnieuw in.
 Een `.shcdump` (database-dump) zet je met de hand terug. Hij bevat geen Zigbee2MQTT-gegevens; daarvoor
 heb je de wekelijkse volledige export.
 
+Scherm de app af van de Hub en andere gebruikers vóór het herstel en houd die afscherming in stand
+tot en met de beheercontrole hieronder. Stop de API en worker nadat je de dump hebt ontsleuteld.
+Ga bij een fout pas verder nadat het herstel is gecorrigeerd.
+
 ```bash
 docker exec -it <api-container> shc-api decrypt-dump /backups/<bestand>.shcdump --out /backups/herstel.pgdump
 docker stop <worker-container> <api-container>
-docker exec -i <db-container> pg_restore --clean --if-exists --no-owner -U shc -d shc < <root>/backups/herstel.pgdump
+docker exec -i <db-container> pg_restore --clean --if-exists --no-owner --single-transaction -U shc -d shc < <root>/backups/herstel.pgdump
 rm <root>/backups/herstel.pgdump
-docker start <api-container> <worker-container>
 ```
 
-Verwijder het ontsleutelde bestand meteen: het is niet versleuteld. Een dump terugzetten zet de veilige
-modus niet aan.
+Verwijder het ontsleutelde bestand ook als `pg_restore` faalt. Oudere dumps kunnen opgeslagen
+koppelgegevens bevatten. Maak daarom direct na een geslaagd herstel de aanwezige koppeltabellen
+leeg, terwijl de API en worker nog gestopt zijn. Het commando werkt ook bij een schema waarin deze
+tabellen nog ontbreken.
+
+```bash
+docker exec -i <db-container> psql -X --single-transaction -v ON_ERROR_STOP=1 -U shc -d shc -f - <<'SQL'
+SELECT format('TRUNCATE TABLE %I.%I', schemaname, tablename)
+FROM pg_catalog.pg_tables
+WHERE schemaname = 'public'
+  AND tablename IN ('connector_hub_pins', 'connector_nonces', 'idempotency_keys')
+\gexec
+SQL
+```
+
+Start de API met toegang voor alleen de beheerder. Een dump zet de veilige modus niet aan.
+Was de app gekoppeld aan een Hub, bevestig dan de actuele publieke sleutelset opnieuw in my_house.
+Vergelijk de vingerafdruk met die van de Hub en registreer in de Hub de nieuwe bevestiging voor
+deze instantie. Start de worker en open de app pas na de beheercontrole en, bij een bestaande
+Hub-koppeling, na deze herbevestiging. Houd het Hub-schrijfpad afgeschermd zolang de herbevestiging
+ontbreekt. Bij een installatie zonder Hub-koppeling blijft het schrijfpad uit.
 
 ## Herstel oefenen (aanbevolen elk kwartaal)
 

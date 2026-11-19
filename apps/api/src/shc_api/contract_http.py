@@ -24,8 +24,10 @@ def problem(code: str, message: str, **details) -> dict:
     return ContractProblem(code=code, message=message, details=details, trace_id=uuid.uuid4()).model_dump(mode="json")
 
 
-def contract_error(status: int, code: str, message: str, **details) -> HTTPException:
-    return HTTPException(status, detail={"code": code, "message": message, "details": details})
+def contract_error(
+    status: int, code: str, message: str, *, headers: dict[str, str] | None = None, **details
+) -> HTTPException:
+    return HTTPException(status, detail={"code": code, "message": message, "details": details}, headers=headers)
 
 
 def _http_error(exc: HTTPException) -> JSONResponse:

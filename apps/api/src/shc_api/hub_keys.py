@@ -117,6 +117,10 @@ class HubKeyset:
     policy: tuple[HubKey, ...]
     sequence: int
 
+    def __post_init__(self) -> None:
+        if {key.x for key in self.jwt}.intersection(key.x for key in self.policy):
+            raise ValueError("JWT en policy moeten verschillend publiek sleutelmateriaal gebruiken.")
+
     @classmethod
     def from_keys(cls, jwt: Any, policy: Any, sequence: Any) -> "HubKeyset":
         if type(sequence) is not int or not 0 <= sequence < 2**63:

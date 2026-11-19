@@ -1033,10 +1033,11 @@ def _pg_dump_sync(url: str, target: Path, passphrase: str, created_at: str) -> d
     env = dict(os.environ)
     if pw:
         env["PGPASSWORD"] = pw
+    connector_excludes = [f"--exclude-table-data=public.{table}" for table in sorted(CONNECTOR_LOCAL_TABLES)]
     with open(target, "wb") as raw:
         enc = EncryptingWriter(raw, passphrase, created_at, content=DUMP_CONTENT)
         proc = subprocess.Popen(  # noqa: S603 - fixed executable, no shell
-            [exe, "--format=custom", "--no-owner", "--no-privileges", f"--dbname={dsn}"],
+            [exe, "--format=custom", "--no-owner", "--no-privileges", *connector_excludes, f"--dbname={dsn}"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=env,
@@ -1158,7 +1159,7 @@ async def run_db_dump(
                 "content": DUMP_CONTENT,
                 "secrets_included": True,
                 "plain_bytes": info["plain_bytes"],
-                "restore": "shc-api decrypt-dump <bestand> --out <dump>; daarna pg_restore --clean --if-exists",
+                "restore": "Volg docs/onderhoud.md, ‘Database-dump terugzetten’, voor herstel en Hub-herbevestiging.",
             }
             await db.commit()
             return record_dict(rec)
