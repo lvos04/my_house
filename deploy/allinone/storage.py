@@ -1,5 +1,7 @@
 """Ingebruikname van appdata met behoud van bestaande waarden."""
 
+import base64
+import hashlib
 import os
 import re
 import secrets
@@ -14,6 +16,33 @@ ASSETS = Path("/opt/shc")
 ZIGBEE = Path("/dev/zigbee")
 ADAPTERS = {"ember", "zstack", "deconz", "zigate", "zboss"}
 PASSWORD = re.compile(r"[A-Za-z0-9_-]{32,128}")
+
+
+def check_layout(data: Path) -> bool:
+    """Alleen een lege map is nieuw. Weiger onbekende opslag vóór chown en initdb."""
+    if not stat.S_ISDIR(data.lstat().st_mode):
+        raise ValueError("De opslag moet een gewone map zijn.")
+    entries = {p.name for p in data.iterdir()}
+    if not entries:
+        return True
+    allowed = {"postgres", "app", "backups", "secrets", "mosquitto", "zigbee2mqtt"}
+    if entries - allowed or any(not stat.S_ISDIR((data / name).lstat().st_mode) for name in entries):
+        raise ValueError("Onbekende opslag. Bewaar deze map en herstel een back-up op aparte opslag.")
+    legacy = ("secrets/secret_key", "secrets/db_password", "secrets/mqtt_shc_password", "postgres/PG_VERSION")
+    if any(os.path.lexists(data / name) for name in legacy):
+        raise ValueError("Opslag van de vorige Compose-installatie. Herstel de back-up op aparte opslag.")
+    for name in ("app-key", "mqtt-shc"):
+        path = data / "secrets" / name
+        if not path.is_file() or path.is_symlink():
+            raise ValueError(f"Bestaande opslag mist {name}. Zet de oorspronkelijke geheimen uit de snapshot terug.")
+    cluster = data / "postgres/data"
+    version = cluster / "PG_VERSION"
+    if cluster.is_symlink() or version.is_symlink() or not version.is_file():
+        raise ValueError("De bestaande database is onvolledig. Zet de bijbehorende snapshot terug.")
+    with version.open("rb") as source:
+        if source.read(16).strip() != b"16":
+            raise ValueError("De bestaande database vereist een andere PostgreSQL-versie. Bewaar de snapshot.")
+    return False
 
 
 def transfer_ownership(data: Path) -> None:
@@ -89,10 +118,12 @@ def password(path: Path) -> str:
 
 
 def prepare_secrets(data: Path) -> str:
+    first = check_layout(data)
     for part in ("postgres", "app", "backups", "secrets", "mosquitto"):
         directory(data / part)
     for name in ("app-key", "mqtt-shc"):
-        create_once(data / "secrets" / name, (secrets.token_urlsafe(48) + "\n").encode())
+        if first:
+            create_once(data / "secrets" / name, (secrets.token_urlsafe(48) + "\n").encode())
         password(data / "secrets" / name)
     return password(data / "secrets" / "mqtt-shc")
 
@@ -104,10 +135,14 @@ def prepare_zigbee(path: Path) -> str:
     directory(path)
     config = path / "configuration.yaml"
     secret = path / "secret.yaml"
-    template = (ASSETS / "zigbee2mqtt.yaml.template").read_text()
-    initial = template.replace("mqtt://mosquitto:1883", "mqtt://127.0.0.1:1883").replace("__ADAPTER__", adapter)
-    create_once(config, initial.encode())
-    create_once(secret, f"mqtt_password: '{secrets.token_urlsafe(48)}'\n".encode())
+    first = not any(path.iterdir())
+    if not first and not (config.is_file() and secret.is_file()):
+        raise ValueError("De Zigbee-opslag is onvolledig. Zet de oorspronkelijke Zigbee-bestanden terug.")
+    if first:
+        template = (ASSETS / "zigbee2mqtt.yaml.template").read_text()
+        initial = template.replace("mqtt://mosquitto:1883", "mqtt://127.0.0.1:1883").replace("__ADAPTER__", adapter)
+        create_once(config, initial.encode())
+        create_once(secret, f"mqtt_password: '{secrets.token_urlsafe(48)}'\n".encode())
     if not isinstance(read_yaml(config, 1024 * 1024), dict):
         raise ValueError("De inhoud van configuration.yaml is ongeldig.")
     values = read_yaml(secret, 4096)
@@ -131,17 +166,17 @@ def prepare_broker(run_dir: Path, mqtt_dir: Path, app_password: str, zigbee_pass
     passwords = run_dir / "mqtt-users"
     acl = run_dir / "mqtt-acl"
     create_once(acl, (ASSETS / "acl").read_bytes())
-    contents = f"shc:{app_password}\n"
-    if zigbee_password:
-        contents += f"zigbee2mqtt:{zigbee_password}\n"
-    create_once(passwords, contents.encode())
-    subprocess.run(  # noqa: S603 - vast programma en afgeschermd lokaal bestand
-        ["/usr/bin/mosquitto_passwd", "-U", str(passwords)],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=True,
-    )
-    passwords.chmod(0o600)
+    # Mosquitto-formaat $7$ (PBKDF2-SHA512). Ook een afgebroken start laat uitsluitend hashes achter.
+    users = {"shc": app_password}
+    if zigbee_password is not None:
+        users["zigbee2mqtt"] = zigbee_password
+    lines = []
+    for user, value in users.items():
+        salt = secrets.token_bytes(12)
+        rounds = 100_000
+        digest = hashlib.pbkdf2_hmac("sha512", value.encode(), salt, rounds)
+        lines.append(f"{user}:$7${rounds}${base64.b64encode(salt).decode()}${base64.b64encode(digest).decode()}\n")
+    create_once(passwords, "".join(lines).encode())
     config.write_text(
         "listener 1883 127.0.0.1\nallow_anonymous false\n"
         f"password_file {passwords}\nacl_file {acl}\n"

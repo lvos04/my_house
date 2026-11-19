@@ -5,6 +5,7 @@ import json
 import secrets
 import subprocess
 import sys
+import textwrap
 import time
 from contextlib import ExitStack
 from uuid import uuid4
@@ -25,6 +26,7 @@ from shc_allinone.supervisor import Supervisor, service_env
 
 drop_privileges()
 control = Supervisor(service_env())
+control.new_storage = True  # Deze afzonderlijke testdatabase mag bij de eerste proefstart worden aangemaakt.
 signal.signal(signal.SIGTERM, control.stop)
 try:
     control.database()
@@ -259,9 +261,126 @@ os.execvpe("shc-api", ["shc-api", "backup", "--passphrase-stdin", "--json"], ser
         result = self.exec(name, *PYTHON, "-c", code, content=(secrets.token_urlsafe(32) + "\n").encode())
         assert json.loads(result.stdout)["zigbee2mqtt_included"] is zigbee
 
+    def zigbee_file_boundary(self):
+        # Dit kleine Node-programma doorloopt dezelfde fork, startvolgorde en rechtenwissel als Zigbee2MQTT.
+        script = """
+const fs = require("node:fs");
+function denied(name) {
+  try { fs.closeSync(fs.openSync(name, "r")); }
+  catch (e) { return e.code === "EACCES" || e.code === "EPERM"; }
+  return false;
+}
+const own = process.env.ZIGBEE2MQTT_DATA + "/secret.yaml";
+const restricted = ["/appdata/secrets/app-key", "/appdata/secrets/mqtt-shc",
+                    "/appdata/postgres/data/PG_VERSION"].every(denied);
+fs.closeSync(fs.openSync(own, "r"));
+console.log(restricted && !process.env.PGPROEF && !process.env.SHC_PROEF
+  ? "Zigbee-bestandsgrens bevestigd." : "Zigbee-bestandsgrens ontbreekt.");
+"""
+        setup = textwrap.dedent("""
+            from pathlib import Path
+            from shc_allinone import supervisor
+            import os, sys
+            supervisor.ZIGBEE_JS = Path("/opt/zigbee-leesproef")
+            supervisor.ZIGBEE_JS.mkdir()
+            (supervisor.ZIGBEE_JS / "index.js").write_text(sys.argv[1])
+            os.environ.update(PGPROEF="aanwezig", SHC_PROEF="aanwezig")
+            raise SystemExit(supervisor.main())
+        """)
+        name = self.container("bestandsgrens", self.storage("leesproef"), options=("--device", "/dev/null:/dev/zigbee"),
+                              entrypoint=(*PYTHON, "-c", setup, script))
+        within(lambda: b"Zigbee-bestandsgrens " in self.logs(name), "De Node-leesproef gaf geen uitslag")
+        assert b"Zigbee-bestandsgrens bevestigd." in self.logs(name), "De Zigbee-bestandsgrens ontbreekt"
+        self.healthy(name)
+        docker("stop", name)
+        print("Node leest eigen Zigbee-opslag. Appgeheimen en databasebestanden zijn afgeschermd.", flush=True)
+
+    def direct_device(self):
+        name = self.container("direct-apparaat", self.storage("direct-apparaat"), user="568:568",
+                              options=("--device", "/dev/null:/dev/zigbee"))
+        self.healthy(name)
+        tree = self.processes(name)
+        for status, *_ in tree.values():
+            self.identity(status, root=False, groups={"568"})
+        if int(tree["1"][0]["CapBnd"][0], 16):
+            assert not any(node for _, node, *_ in tree.values())
+            assert b"bounding set" in self.logs(name)
+        else:
+            within(lambda: any(node for _, node, *_ in self.processes(name).values()), "Veilige Zigbee-start ontbreekt")
+        docker("stop", name)
+        print("Directe 568-start met apparaat: bounding set getoetst, kernapp gezond.", flush=True)
+
+    def zigbee_status(self, name):
+        # De volgende start leest een rij zoals opgeslagen door de vorige installatie.
+        self.sql(name, """
+            WITH woning AS (
+              INSERT INTO homes (id,name,timezone,currency,active_from)
+              VALUES (gen_random_uuid(),'Zigbeeproef','UTC','EUR',now()) RETURNING id
+            )
+            INSERT INTO integrations(id,home_id,provider,name,config,state,detail,enabled,created_at)
+            SELECT gen_random_uuid(),id,'zigbee','Zigbeeproef','{"host":"mosquitto","port":1883,"username":"shc"}',
+                   'warn','',true,now() FROM woning;
+        """)
+        docker("restart", name, "--time", "10")
+        self.healthy(name)
+        ready = """SELECT count(*) FROM integrations WHERE name='Zigbeeproef'
+                   AND diagnostics #>> '{health,extra,mqtt_connected}' = 'true'"""
+        within(lambda: self.sql(name, ready).strip() == b"1", "De worker bereikte de interne broker niet", seconds=150)
+        check = """
+import httpx, secrets
+from shc_allinone.runtime import NGINX_HEALTH
+with httpx.Client(base_url=NGINX_HEALTH.removesuffix("/healthz"), trust_env=False) as client:
+    login = client.post("/api/v1/auth/setup", json={"username":"proefbeheer", "password":secrets.token_urlsafe(32)})
+    login.raise_for_status()
+    reply = client.get("/api/v1/system/status")
+    reply.raise_for_status()
+    parts = {row["key"].split(":")[-1]:row["state"] for row in reply.json()["checks"]}
+    assert parts["mqtt"] == "ok" and parts["dongle"] in {"error", "unknown"}
+"""
+        self.exec(name, *PYTHON, "-c", check)
+        self.exec(name, *HEALTH)
+        print("Opgeslagen brokernaam werkt; de statusroute meldt de falende proefdongle.", flush=True)
+
     def file(self, name, target):
         result = self.exec(name, "cat", f"/appdata/{target}")
         return result.stdout
+
+    def missing_key(self, name, volume):
+        check = """
+import asyncio, os, sys
+from shc_allinone.supervisor import service_env
+os.environ.update(service_env())
+from shc_api.db import sessionmaker
+from shc_api.store import get_secret_setting, set_secret_setting
+async def check():
+    value = sys.stdin.read()
+    async with sessionmaker()() as db:
+        if sys.argv[1] == "schrijf":
+            await set_secret_setting(db, "sleutelproef", value)
+            await db.commit()
+        assert await get_secret_setting(db, "sleutelproef") == value
+asyncio.run(check())
+"""
+        value = secrets.token_urlsafe(32).encode()
+        self.exec(name, *PYTHON, "-c", check, "schrijf", content=value)
+        self.exec(name, "mv", "/appdata/secrets/app-key", "/appdata/secrets/app-key.proef")
+        docker("restart", name, "--time", "10")
+        assert docker("wait", name).stdout.strip() == b"1"
+        assert b"app-key" in self.logs(name)
+        restore = """
+from pathlib import Path
+key = Path("/appdata/secrets/app-key")
+assert not key.exists()
+key.hardlink_to(key.with_suffix(".proef"))
+key.with_suffix(".proef").unlink()
+"""
+        docker("run", "--rm", "--network", "none", "--user", "568:568", "--mount",
+               f"type=volume,source={volume},target=/appdata", "--entrypoint", PYTHON[0],
+               self.image, *PYTHON[1:], "-c", restore)
+        docker("start", name)
+        self.healthy(name)
+        self.exec(name, *PYTHON, "-c", check, "lees", content=value)
+        print("Start zonder sleutel geweigerd. De oorspronkelijke sleutel ontsluit dezelfde proefwaarde.", flush=True)
 
     def installed(self, root, zigbee=False):
         label = "zigbee" if zigbee else "root" if root else "direct"
@@ -277,6 +396,7 @@ os.execvpe("shc-api", ["shc-api", "backup", "--passphrase-stdin", "--json"], ser
             within(lambda: b"Nieuwe poging over 4 seconden." in self.logs(name), "Zigbee-herstart vertraagde niet")
             self.healthy(name)
             self.exec(name, *HEALTH)
+            self.zigbee_status(name)
             self.exec(
                 name, "/bin/sh", "-c",
                 'printf "\\n# Bestaande configuratie\\n" >> /appdata/zigbee2mqtt/configuration.yaml',
@@ -306,6 +426,8 @@ password = Path("/appdata/zigbee2mqtt/secret.yaml").read_text().split("'")[1]
 assert broker_accepts(password, "zigbee2mqtt")
 """
             self.exec(name, *PYTHON, "-c", code)
+        if not root:
+            self.missing_key(name, volume)
         print(f"Eerste start en behoud bij herstart: {label}", flush=True)
         docker("stop", name)
         return volume
@@ -357,8 +479,9 @@ command.downgrade(alembic_config(service_env()["SHC_DATABASE_URL"]), "0003")
         assert len(dumps) == 1
         backup = self.exec(upgraded, "cat", dumps[0].decode()).stdout
         assert b"bewoner" in gzip.decompress(backup)
+        self.exec(upgraded, "shc-api", "verify-migration-dump", dumps[0].decode(), "--out", "/appdata/app/herstel.sql")
         self.exec(upgraded, "createdb", "-h", "/appdata/postgres", "my_house_s_p3_720_herstel")
-        self.exec(upgraded, "psql", *PG, "-d", "my_house_s_p3_720_herstel", content=gzip.decompress(backup))
+        self.exec(upgraded, "psql", *PG, "-d", "my_house_s_p3_720_herstel", "-f", "/appdata/app/herstel.sql")
         assert self.snapshot(upgraded, "my_house_s_p3_720_herstel") == before_dump
         print("PostgreSQL 16 via unix-socket: dumpweigering, gevulde upgrade en exact terugzetten bewezen.", flush=True)
 
@@ -401,6 +524,8 @@ def main():
         trial.installed(root=True)
         upgrade_volume = trial.installed(root=False)
         trial.installed(root=True, zigbee=True)
+        trial.direct_device()
+        trial.zigbee_file_boundary()
         trial.migration(upgrade_volume)
     print("Containerproeven S-P3-720 afgerond.")
 

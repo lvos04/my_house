@@ -1,6 +1,7 @@
 """PID 1, opslag, startvolgorde en herstart van de Custom App."""
 
 import contextlib
+import fcntl
 import os
 import select
 import shutil
@@ -12,8 +13,18 @@ import tempfile
 import time
 from pathlib import Path
 
+from . import runtime
 from .runtime import ALIVE, API_READY, DATA, GID, PG_SOCKET, RECOVERY, UID, drop_privileges, http_status
-from .storage import ZIGBEE, prepare_broker, prepare_secrets, prepare_web, prepare_zigbee, transfer_ownership
+from .storage import (
+    ZIGBEE,
+    check_layout,
+    prepare_broker,
+    prepare_secrets,
+    prepare_web,
+    prepare_zigbee,
+    transfer_ownership,
+)
+from .zigbee_sandbox import restrict_files
 
 SCHEMA_NIEUWER = 3
 ZIGBEE_JS = Path("/opt/zigbee2mqtt")
@@ -28,6 +39,13 @@ def log(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
 
+def zigbee_bounding_set_empty() -> bool:
+    try:
+        return int(runtime.identity()["CapBnd"], 16) == 0
+    except (OSError, KeyError, ValueError):
+        return False
+
+
 def zigbee_groups(path: Path, *, root: bool) -> tuple[int, ...] | None:
     try:
         device = path.lstat()
@@ -36,6 +54,9 @@ def zigbee_groups(path: Path, *, root: bool) -> tuple[int, ...] | None:
     if not stat.S_ISCHR(device.st_mode):
         return None
     if not root:
+        if not zigbee_bounding_set_empty():
+            log("Zigbee2MQTT blijft uit: een lege bounding set voor gebruiker 568 is vereist.")
+            return None
         if os.access(path, os.R_OK | os.W_OK):
             return ()
     else:
@@ -100,7 +121,7 @@ def stop_child(process: subprocess.Popen, *, postgres: bool = False) -> None:
 class Zigbee:
     """Eén bewaker erft uitsluitend de eventueel benodigde apparaatgroep."""
 
-    def __init__(self, groups: tuple[int, ...]):
+    def __init__(self, groups: tuple[int, ...], storage_fd: int | None = None):
         read_fd, self.write_fd = os.pipe()
         self.pid = os.fork()
         if self.pid:
@@ -108,12 +129,27 @@ class Zigbee:
             return
         os.close(self.write_fd)
         try:
+            if storage_fd is not None:
+                os.close(storage_fd)
             os.setsid()
             drop_privileges(groups)
-            if os.access(ZIGBEE, os.R_OK | os.W_OK):
-                self.watch(read_fd)
-            else:
+            os.environ.clear()
+            if not zigbee_bounding_set_empty():
+                log("Zigbee2MQTT blijft uit: een lege bounding set voor gebruiker 568 is vereist.")
+                return
+            if not os.access(ZIGBEE, os.R_OK | os.W_OK):
                 log("Zigbee2MQTT blijft uit: gebruiker 568 heeft geen toegang tot het apparaat.")
+                return
+            # De ouder maakt de Zigbee-map als 568. Het eerste plusteken volgt na de brokeraanmelding.
+            while command := os.read(read_fd, 1):
+                if command == b"+":
+                    try:
+                        restrict_files(ZIGBEE_JS, ZIGBEE_RUNTIME, DATA / "zigbee2mqtt", ZIGBEE)
+                    except OSError:
+                        log("Zigbee2MQTT blijft uit: de kernel kan de bestandstoegang niet veilig begrenzen.")
+                        return
+                    self.watch(read_fd, enabled=True)
+                    break
         except (OSError, ValueError, KeyError, subprocess.SubprocessError):
             log("Zigbee2MQTT blijft uit: de veilige start is mislukt.")
         finally:
@@ -129,10 +165,9 @@ class Zigbee:
             os.waitpid(self.pid, 0)
 
     @staticmethod
-    def watch(read_fd: int) -> None:
+    def watch(read_fd: int, *, enabled: bool = False) -> None:
         # Geen geheim in argumenten: de broker leest een hashbestand, Node leest secret.yaml.
-        env = {k: v for k, v in os.environ.items() if not k.startswith("ZIGBEE2MQTT_")}
-        env.update(
+        env = dict(
             LD_LIBRARY_PATH=f"{ZIGBEE_RUNTIME}/lib:{ZIGBEE_RUNTIME}/usr/lib",
             ZIGBEE2MQTT_DATA=str(DATA / "zigbee2mqtt"),
             ZIGBEE2MQTT_CONFIG_FRONTEND_ENABLED="false",
@@ -142,7 +177,7 @@ class Zigbee:
             NODE_ENV="production",
         )
         process = None
-        enabled, start_at, delay = False, 0.0, 2
+        start_at, delay = 0.0, 2
         try:
             while True:
                 if select.select([read_fd], [], [], 0.25)[0]:
@@ -179,6 +214,7 @@ class Supervisor:
         self.env = env
         self.children: dict[str, subprocess.Popen] = {}
         self.stopping = False
+        self.new_storage = False
 
     def stop(self, *_args) -> None:
         self.stopping = True
@@ -219,6 +255,8 @@ class Supervisor:
     def database(self) -> None:
         pgdata = DATA / "postgres" / "data"
         if not pgdata.exists():
+            if not self.new_storage:
+                raise StartFout("De bestaande database ontbreekt. Zet de bijbehorende snapshot terug.")
             with tempfile.TemporaryDirectory(dir=pgdata.parent, prefix=".init-") as temp:
                 staging = Path(temp) / "data"
                 command = ["initdb", "-D", str(staging), "-U", "apps", "--auth-local=peer", "--auth-host=reject",
@@ -237,8 +275,11 @@ class Supervisor:
             return test.stdout.strip() if test.returncode == 0 else b""
         self.wait(lambda: database_answer("SELECT 1") == b"1", "PostgreSQL")
         if not database_answer("SELECT 1 FROM pg_database WHERE datname = 'shc'"):
+            if not self.new_storage:
+                raise StartFout("De bestaande applicatiedatabase ontbreekt of is onleesbaar. Herstel de snapshot.")
             if self.run("databaseaanmaak", ["createdb", "shc"]):
                 raise StartFout("De applicatiedatabase kon niet worden geopend of aangemaakt.")
+        self.new_storage = False
 
     def start_services(self, directory: Path, config: Path, password: str, zigbee: Zigbee | None) -> None:
         ALIVE.unlink(missing_ok=True)
@@ -304,6 +345,7 @@ def service_env() -> dict[str, str]:
         SHC_WORKER_ALIVE_FILE=str(ALIVE),
         SHC_FORWARDED_ALLOW_IPS="127.0.0.1",
         SHC_MQTT_HOST="127.0.0.1",
+        SHC_MQTT_COMPOSE_ALIAS="true",
         SHC_MQTT_PORT="1883",
         SHC_MQTT_USERNAME="shc",
         SHC_MQTT_PASSWORD_FILE=str(DATA / "secrets" / "mqtt-shc"),
@@ -315,15 +357,22 @@ def main() -> int:
     os.umask(0o077)
     root = os.geteuid() == 0
     zigbee = None
+    storage_fd = None
     supervisor = Supervisor(service_env())
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, supervisor.stop)
     try:
+        storage_fd = os.open(DATA, os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            fcntl.flock(storage_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise StartFout("Deze opslag is in gebruik door een andere app-instantie.") from None
+        supervisor.new_storage = check_layout(DATA)
         if root:
             transfer_ownership(DATA)
         groups = zigbee_groups(ZIGBEE, root=root)
         if groups is not None:
-            zigbee = Zigbee(groups)
+            zigbee = Zigbee(groups, storage_fd)
         drop_privileges()
         if not shutil.which("pg_dump"):
             raise StartFout("pg_dump ontbreekt. De database wordt niet gewijzigd.")
@@ -348,6 +397,8 @@ def main() -> int:
     finally:
         if zigbee:
             zigbee.close()
+        if storage_fd is not None:
+            os.close(storage_fd)
 
 
 if __name__ == "__main__":
