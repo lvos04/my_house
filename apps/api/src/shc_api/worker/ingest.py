@@ -349,6 +349,7 @@ class IngestMixin:
             if user_archived(d):
                 return
             mode = "off" if st.get("power") is False else st.get("mode")
+            st["gree_control_fields"] = sorted(d.gree_control_fields().union(st.get("gree_control_fields", [])))
             d.state = {**(d.state or {}), **st, "mode": mode}
             caps = st.get("caps")
             if isinstance(caps, dict):

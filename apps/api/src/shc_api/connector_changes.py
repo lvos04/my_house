@@ -42,7 +42,7 @@ TTL = timedelta(seconds=MAX_AGE_S)
 SETPOINT = "zone.command"
 CONCEPT = "zone.schedule.propose"
 SOURCE = "connector"
-LOCAL_PROPOSAL = "connector:voorstel"
+LOCAL_PROPOSAL = "connector:voorstel:2"
 UNCERTAIN = {
     "readback_unavailable", "readback_unknown_after_restart", "readback_unknown_after_restore",
     "readback_mismatch", "readback_side_effect", "readback_incomplete",
@@ -96,12 +96,16 @@ async def _binding(db: AsyncSession, target: Target) -> str:
     })
 
 
-async def read_setpoint(adapter, device: Device) -> dict | None:
+async def read_setpoint(adapter, device: Device, *, remember_fields: bool = False) -> dict | None:
     if not isinstance(adapter, GreeAdapter):
         return None
     try:
         async with asyncio.timeout(8):
-            return await adapter.read_recoverable_setpoint(device.stable_identity)
+            state = await adapter.read_recoverable_setpoint(device.stable_identity, device.gree_control_fields())
+            fields = sorted(adapter.control_fields())
+            if remember_fields and (device.state or {}).get("gree_control_fields") != fields:
+                device.state = {**(device.state or {}), "gree_control_fields": fields}
+            return state
     except Exception:
         # Antwoorden en adapterfouten kunnen adressen of protocolgegevens bevatten.
         return None
@@ -111,7 +115,7 @@ def _credentials(integration: Integration) -> dict:
     return require_secret_box().decrypt(integration.credentials_enc) if integration.credentials_enc else {}
 
 
-async def _read_current(db: AsyncSession, device: Device) -> dict | None:
+async def _read_current(db: AsyncSession, device: Device, *, remember_fields: bool = False) -> dict | None:
     integration = await _integration(db, device)
     if integration is None or integration.provider != "gree":
         return None
@@ -121,7 +125,7 @@ async def _read_current(db: AsyncSession, device: Device) -> dict | None:
         # Geef geen configuratie terug als de opgeslagen koppeling onleesbaar is.
         return None
     try:
-        return await read_setpoint(adapter, device)
+        return await read_setpoint(adapter, device, remember_fields=remember_fields)
     finally:
         await _close(adapter)
 
@@ -156,7 +160,7 @@ async def propose(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[
         before = {"schedule": await _schedule(db, target.zone)}
         observed_at = utcnow()
     elif action == SETPOINT and await _recoverable(db, target):
-        before = await _read_current(db, target.device)
+        before = await _read_current(db, target.device, remember_fields=True)
         observed_at = utcnow() if before is not None else None
         if before is None or not _compatible(target, before):
             reason = "readback_unavailable"
@@ -297,23 +301,35 @@ def _same_controls(first: dict, second: dict) -> bool:
     }
 
 
-def _rollback_preview(change: ConnectorChange) -> dict | None:
+async def _rollback_preview(db: AsyncSession, change: ConnectorChange) -> tuple[dict | None, str | None]:
+    interrupted = "readback_unknown_after_restart"
     if (
         not change.before or "controls" not in change.before or change.execution_expires_at is None
-        or change.rollback_command_id is not None and change.rollback_reason_code not in NOT_SENT
+        or change.rollback_command_id is not None and change.rollback_reason_code not in NOT_SENT | {interrupted}
         or not (change.status == "confirmed" or change.status == "failed" and change.reason_code in UNCERTAIN)
     ):
-        return None
+        return None, None
     after = change.after or {**change.before, "target_c": change.parameters["target_c"]}
+    if change.reason_code == interrupted or change.rollback_reason_code == interrupted:
+        if await _superseded(db, change, exclude_id=change.rollback_command_id):
+            return None, "precondition_failed"
+        original = await db.get(CommandRecord, change.command_id)
+        device = await db.get(Device, original.device_id) if original else None
+        measured = await _read_current(db, device) if device else None
+        if measured is None:
+            return None, "readback_unavailable"
+        if measured not in (change.before, after):
+            return None, "precondition_failed"
+        after = measured
     if not _same_controls(change.before, after):
-        return None
+        return None, None
     parameters = {"target_c": change.before["target_c"]}
     diff = {"before": after, "after": change.before}
     preview_hash = digest({
         "direction": "rollback", "apply_preview_hash": change.preview_hash, "action_id": change.action_id,
         "target": change.target, "resource_etag": change.resource_etag, "diff": diff, "parameters": parameters,
     })
-    return {"preview_hash": preview_hash, "diff": diff, "parameters": parameters}
+    return {"preview_hash": preview_hash, "diff": diff, "parameters": parameters}, None
 
 
 def _previous_attempts(change: ConnectorChange) -> list[str]:
@@ -333,7 +349,11 @@ async def rollback(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple
     target, change = await _change_for_request(db, req, client)
     if change.action_id == CONCEPT or change.before is None or change.command_id is None:
         raise _unavailable()
-    preview = _rollback_preview(change)
+    preview, reason = await _rollback_preview(db, change)
+    if reason == "readback_unavailable":
+        raise contract_error(409, reason, "De actuele stand is niet betrouwbaar leesbaar.")
+    if reason == "precondition_failed":
+        raise _stale()
     if preview is None:
         raise contract_error(409, "conflict", "Herstel is nu niet beschikbaar of is al ingepland.")
     if not await _recoverable(db, target):
@@ -342,6 +362,8 @@ async def rollback(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple
         raise _stale()
     expires = await _approval(db, req, change, preview["preview_hash"], preview["parameters"])
     current = await _read_current(db, target.device)
+    if current is None:
+        raise contract_error(409, "readback_unavailable", "De actuele stand is niet betrouwbaar leesbaar.")
     if not await _same_context(db, target, change, current, preview["diff"]["before"]):
         raise _stale()
     if utcnow() >= expires:
@@ -427,6 +449,10 @@ async def guarded_send(db, cmd, dev, adapter, send) -> tuple[str, str, dict | No
         reason = "readback_before_send_unavailable" if active_adapter and current is None else "precondition_failed"
         record_failure(change, undo, reason)
         return "failed", "De vastgelegde stand is niet meer bruikbaar voor veilige bediening.", None
+    if undo and current == change.before:
+        change.rollback_after, change.rollback_at = current, utcnow()
+        change.rollback_status, change.rollback_reason_code = "confirmed", None
+        return "confirmed", "De volledige vorige stand is teruggelezen.", None
     try:
         async with asyncio.timeout(12):
             status, _, adapter_state = await send()
@@ -490,9 +516,9 @@ async def evidence(db: AsyncSession, client: str, identity: uuid.UUID) -> dict:
         "controls" not in (change.before or {}) or change.rollback_after != change.before
     ):
         rollback_status, rollback_reason = "failed", "readback_incomplete"
-    rollback_preview = _rollback_preview(change)
-    if rollback_preview is not None and not await _active_binding(db, change):
-        rollback_preview = None
+    rollback_preview, preview_reason = None, None
+    if await _active_binding(db, change):
+        rollback_preview, preview_reason = await _rollback_preview(db, change)
     out = {
         "id": str(change.id), "action_id": change.action_id, "status": status,
         "reason_code": reason, "resource_etag": change.resource_etag,
@@ -504,6 +530,8 @@ async def evidence(db: AsyncSession, client: str, identity: uuid.UUID) -> dict:
         "previous_rollback_command_ids": _previous_attempts(change),
         "rollback_preview": rollback_preview,
     }
+    if preview_reason:
+        out["rollback_preview_reason_code"] = preview_reason
     for label, state, stamp in (
         ("before", change.before, change.observed_at),
         ("after", change.after, change.after_at),

@@ -832,12 +832,14 @@ async def wait_while_schema_newer(retry_s: float = SCHEMA_CHECK_RETRY_S) -> None
                 log.warning("Databaseversie niet leesbaar (%s); de worker probeert het opnieuw", fouttekst(exc))
                 reported = True
             await asyncio.sleep(retry_s)
-    if current is None or bk.schema_relation(current) != "newer":
+    try:
+        if current is not None and bk.schema_relation(current) == "newer":
+            raise cli.SchemaNewerError(current, bk.head_revision())
+        await cli.check_connector_transition(current)
+    except cli.MigrationError as exc:
+        log.error("De worker start niet: %s De worker wacht en schrijft niets in de database.", exc)
+    else:
         return
-    log.error(
-        "De worker start niet: %s De worker wacht en schrijft niets in de database.",
-        cli.SchemaNewerError(current, bk.head_revision()),
-    )
     await asyncio.Event().wait()
 
 

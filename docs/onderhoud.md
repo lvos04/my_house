@@ -203,8 +203,16 @@ opdrachten. Bij herstel van een volledige export vervalt de uitvoertermijn van d
 Herstel van een export wordt geweigerd als bij een oude connectoropdracht het bewijs ontbreekt of als
 bestaand open herstelbewijs verloren zou gaan. Bewaar bij handmatig terugzetten eerst een geverifieerde
 export van de huidige database. Gebruik voor vergelijking een afzonderlijke database als in het doel
-nog apparaatherstel openstaat. `decrypt-dump` weigert een dump met een connectortabel waarvan de
-rijen niet zijn opgenomen.
+nog apparaatherstel openstaat. Bij het maken en ontsleutelen van een database-dump controleert de
+app de vorige stand en herstelstatus van elke relevante connectoropdracht in een tijdelijke
+PostgreSQL-database. Hiervoor heeft de databaserol het recht nodig om een database aan te maken.
+De app ruimt de controledatabase na afloop op. Een eerder gecontroleerd uitvoerbestand blijft bij een fout beschikbaar.
+Van een afgehandeld opdrachtpaar uit de oudste connectorversie blijven de toen gemeten voeding, modus en
+doeltemperatuur als historie beschikbaar. Evidence vermeldt `readback_incomplete` voor de ontbrekende bedienvelden.
+
+Meldt de nieuwe versie bij het opstarten dat apparaatherstel uit een eerdere versie openstaat,
+gebruik dan de vorige installatie om de stand te herstellen en terug te lezen. Probeer de upgrade
+opnieuw zodra die installatie de rollback heeft bevestigd.
 
 Scherm de app af van de Hub en andere gebruikers vóór het herstel en houd die afscherming in stand
 tot en met de beheercontrole hieronder. Stop de API en worker nadat je de dump hebt ontsleuteld.

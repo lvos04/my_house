@@ -85,12 +85,19 @@ ondertekende verzoeken en de lokale replaycontrole vast.
 ## Gevolgen
 
 - Migratie 0006 voegt de Hub-pin, de nonces en idempotentieantwoorden toe. Migratie 0007 voegt
-  voorstelbewijs toe en versieert zones en lichtdoelen. Downgrade naar 0006 annuleert open
-  connectoropdrachten en verwijdert uitsluitend het nieuwe bewijs, de versievelden en de triggers.
+  voorstelbewijs toe en versieert zones en lichtdoelen. Open of onzeker apparaatherstel blokkeert
+  terugval naar 0006. Bij toegestane terugval vervallen wachtende apply-opdrachten en lokale
+  uitvoerbewijzen. De volledige voorstel- en herstelgeschiedenis reist in 0006 mee als instellingen.
+  Een volgende upgrade zet de bewijsrijen met hun oorspronkelijke opdracht-ID's terug.
 - Het contractfoutformaat `{code,message,details,trace_id}` geldt op de connectorroutes. De
   bestaande bedienroutes behouden `{"detail":{…}}` (ADR-0003).
 - Bij uitvoerbaar klimaatwerk bindt de goedkeuring de exacte preview, ETag, actie, doel,
   parameters, risicoklasse en beleidshash. Apply en rollback verbruiken elk een eigen nonce.
-- Bewijs is zichtbaar voor dezelfde aangemelde aanroeper. Logisch applicatieherstel neemt
-  het tijdelijke voorstelbewijs niet mee. Het ontvangen van een opdracht wordt als `queued`
-  gerapporteerd totdat de worker de uitkomst terugleest.
+- Bewijs is zichtbaar voor dezelfde aangemelde aanroeper. Een logische export bewaart vorige stand,
+  opdrachtkoppelingen en herstelstatus. De lokale uitvoerrechten vervallen bij herstel.
+  Voor vrijgave van een database-dump controleert de applicatie de opgeslagen koppelingen in
+  een afzonderlijke PostgreSQL-database. Een oude dump zonder connectoropdrachten kan deze controle doorstaan.
+- Na een onderbroken verzending toont de herstelpreview de actuele, volledig teruggelezen stand.
+  Komt deze met de vorige stand overeen, dan bevestigt de worker na nieuwe goedkeuring het herstel
+  met een tweede teruglezing. Bij open herstel uit een eerdere versie wachten de migratie en de nieuwe
+  worker op afhandeling door de vorige installatie.

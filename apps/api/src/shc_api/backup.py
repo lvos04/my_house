@@ -61,6 +61,7 @@ from sqlalchemy.pool import NullPool
 
 from .config import VERSION, get_settings
 from .connector import RESTORED_COMMAND_DETAIL
+from .connector_proof import IN_FLIGHT, INCOMPLETE_PROOF, OPEN_RECOVERY, check_archive
 from .logfilter import db_error_text
 from .models import Base, Setting
 from .store import ensure_server_identity
@@ -1068,62 +1069,39 @@ def _pg_dump_sync(url: str, target: Path, passphrase: str, created_at: str) -> d
     return {"file_sha256": enc.sha256.hexdigest(), "file_size": enc.size, "plain_bytes": plain}
 
 
-def verify_dump(path: Path, passphrase: str) -> int:
-    """Decrypt a dump completely (every chunk is authenticated) and check it is a pg_dump archive.
-    Returns the plaintext size; raises BackupError."""
-    with open(path, "rb") as f:
-        reader = DecryptingReader(f, passphrase)
-        if reader.header.get("content") != DUMP_CONTENT:
-            raise BackupError("Dit bestand is geen database-dump.")
-        stream = io.BufferedReader(reader, buffer_size=CHUNK_SIZE)
-        head = stream.read(len(PGDMP_MAGIC))
-        if head != PGDMP_MAGIC:
-            raise BackupError("Database-dump beschadigd (geen pg_dump-archief).")
-        n = len(head)
-        while block := stream.read(CHUNK_SIZE):
-            n += len(block)
-    return n
+def verify_dump(path: Path, passphrase: str, *, url: str | None = None) -> int:
+    """Ontsleutel en controleer de opdrachtkoppelingen voordat de versleutelde dump wordt vrijgegeven."""
+    with tempfile.TemporaryDirectory(dir=path.parent) as work:
+        return decrypt_dump(path, passphrase, Path(work) / "controle.pgdump", url=url)
 
 
-def decrypt_dump(path: Path, passphrase: str, out: Path) -> int:
-    """Write the plain pg_dump archive of an encrypted dump to ``out`` (for pg_restore)."""
+def decrypt_dump(path: Path, passphrase: str, out: Path, *, url: str | None = None) -> int:
+    """Geef de ontsleutelde dump pas na de geïsoleerde terugzetproef atomair vrij."""
+    import asyncpg
+
+    from .cli import _in_thread
+
     _check_passphrase(passphrase)
-    tmp = out.with_name(f".{out.name}.tmp")
-    try:
-        with open(path, "rb") as f, open(tmp, "wb") as dst:
-            reader = DecryptingReader(f, passphrase)
+    with tempfile.TemporaryDirectory(dir=out.parent) as work:
+        tmp = Path(work) / "controle.pgdump"
+        with path.open("rb") as source, tmp.open("xb") as dst:
+            os.fchmod(dst.fileno(), 0o600)
+            reader = DecryptingReader(source, passphrase)
             if reader.header.get("content") != DUMP_CONTENT:
                 raise BackupError("Dit bestand is geen database-dump; gebruik 'shc-api restore' voor een export.")
             stream = io.BufferedReader(reader, buffer_size=CHUNK_SIZE)
-            n = 0
+            if stream.read(len(PGDMP_MAGIC)) != PGDMP_MAGIC:
+                raise BackupError("Database-dump beschadigd (geen pg_dump-archief).")
+            dst.write(PGDMP_MAGIC)
             while block := stream.read(CHUNK_SIZE):
                 dst.write(block)
-                n += len(block)
-        _check_dump_connector_proof(tmp)
-        os.chmod(tmp, 0o600)
+            size = dst.tell()
+        try:
+            _in_thread(lambda: asyncio.run(check_archive(tmp, url or get_settings().database_url)))
+        except (OSError, ValueError, IndexError, asyncpg.PostgresError) as exc:
+            raise BackupError("De terugzetproef van het connectorherstelbewijs is mislukt.") from exc
         tmp.replace(out)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
-    return n
-
-
-def _check_dump_connector_proof(archive: Path) -> None:
-    import shutil
-    import subprocess  # noqa: S404 - vast programma zonder shell
-
-    exe = shutil.which("pg_restore")
-    if not exe:
-        raise BackupError("pg_restore ontbreekt. Het herstelbewijs in deze database-dump is niet te controleren.")
-    result = subprocess.run([exe, "--list", str(archive)], capture_output=True, check=False)  # noqa: S603
-    if result.returncode:
-        raise BackupError("Database-dump beschadigd: de inhoudsopgave is niet leesbaar.")
-    entries = [line.split()[3:] for line in result.stdout.splitlines() if not line.startswith(b";")]
-    table = [b"public", b"connector_changes"]
-    if any(entry[:3] == [b"TABLE", *table] for entry in entries) and not any(
-        entry[:4] == [b"TABLE", b"DATA", *table] for entry in entries
-    ):
-        raise BackupError("Terugzetten geweigerd: het connectorherstelbewijs ontbreekt in deze database-dump.")
+        return size
 
 
 async def run_db_dump(
@@ -1164,7 +1142,7 @@ async def run_db_dump(
             rid = rec.id
         try:
             info = await asyncio.to_thread(_pg_dump_sync, db_url, tmp, passphrase, created_at)
-            await asyncio.to_thread(verify_dump, tmp, passphrase)
+            await asyncio.to_thread(verify_dump, tmp, passphrase, url=db_url)
             tmp.replace(path)
         except BaseException as exc:
             tmp.unlink(missing_ok=True)
@@ -1324,56 +1302,26 @@ def check_restorable(manifest: dict) -> str:
 
 def _hold_connector_recovery(conn) -> None:
     # De bestaande open herstelstand kan actueler zijn dan de back-up.
-    conn.execute(text("""
+    conn.execute(text(f"""
         CREATE TEMP TABLE held_connector_recovery ON COMMIT DROP AS
         SELECT id, "before", after, rollback_from, rollback_after, command_id, rollback_command_id,
-               status, reason_code, rollback_status, rollback_reason_code,
-               EXISTS (
-                   SELECT 1 FROM commands cmd WHERE cmd.id IN (c.command_id, c.rollback_command_id)
-                       AND cmd.status IN ('sending', 'sent')
-               ) AS command_uncertain
-        FROM connector_changes c
-        WHERE c.command_id IS NOT NULL
-          AND (c.rollback_status IS DISTINCT FROM 'confirmed' OR c.rollback_after IS DISTINCT FROM c."before"
-               OR NOT (c."before" ? 'controls'))
-          AND (c.rollback_command_id IS NOT NULL OR c.rollback_status IS NOT NULL
-               OR c.status = 'confirmed' AND (c.after IS DISTINCT FROM c."before" OR NOT (c."before" ? 'controls'))
-               OR c.reason_code IN ('readback_unavailable', 'readback_unknown_after_restart',
-                                    'readback_unknown_after_restore', 'readback_mismatch', 'readback_side_effect')
-                  AND (c.after IS NULL OR c.after IS DISTINCT FROM c."before")
-               OR EXISTS (
-                   SELECT 1 FROM commands cmd WHERE cmd.id = c.command_id AND cmd.status IN ('sending', 'sent')
-               ))
-    """))
+               status, reason_code, rollback_status, rollback_reason_code, {IN_FLIGHT} AS command_uncertain
+        FROM connector_changes c WHERE {OPEN_RECOVERY}
+    """))  # noqa: S608 - beide SQL-fragmenten zijn vaste broncode
 
 
 def _restore_connector_proof(conn, held_recovery: bool) -> None:
-    if held_recovery and conn.execute(text("""
+    if held_recovery and conn.execute(text(f"""
         SELECT EXISTS (
             SELECT * FROM held_connector_recovery
             EXCEPT
             SELECT id, "before", after, rollback_from, rollback_after, command_id, rollback_command_id,
-                   status, reason_code, rollback_status, rollback_reason_code,
-                   EXISTS (
-                       SELECT 1 FROM commands cmd WHERE cmd.id IN (c.command_id, c.rollback_command_id)
-                           AND cmd.status IN ('sending', 'sent')
-                   )
+                   status, reason_code, rollback_status, rollback_reason_code, {IN_FLIGHT}
             FROM connector_changes c
         )
-    """)).scalar_one():
+    """)).scalar_one():  # noqa: S608 - IN_FLIGHT is vaste broncode
         raise BackupError("Terugzetten geweigerd: het bestaande open apparaatherstel zou bewijs verliezen.")
-    if conn.execute(text("""
-        SELECT EXISTS (
-            SELECT 1 FROM commands cmd
-            WHERE cmd.source = 'connector' AND cmd.status NOT IN ('cancelled', 'denied')
-              AND NOT EXISTS (
-                  SELECT 1 FROM connector_changes c
-                  WHERE (cmd.id IN (c.command_id, c.rollback_command_id)
-                         OR c.rollback_from->'previous_attempts' ? CAST(cmd.id AS text))
-                    AND c."before" IS NOT NULL
-              )
-        )
-    """)).scalar_one():
+    if conn.scalar(text(INCOMPLETE_PROOF)):
         raise BackupError("Terugzetten geweigerd: bij een connectoropdracht ontbreekt het herstelbewijs.")
     conn.execute(text("""
         UPDATE connector_changes SET status = 'failed', reason_code = 'readback_unknown_after_restore'

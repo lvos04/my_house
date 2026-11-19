@@ -123,6 +123,47 @@ def current_revision(url: str | None = None) -> str | None:
     return _in_thread(lambda: asyncio.run(q()))
 
 
+async def check_connector_transition(revision: str | None, url: str | None = None) -> None:
+    """Laat een eerdere installatie haar eigen open opdrachten afhandelen, ook bij dezelfde revisie."""
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from . import backup as bk
+    from .config import get_settings
+    from .connector_proof import RESTORED
+
+    if revision is None or bk._is_older(revision, "0007"):
+        return
+    engine = create_async_engine(url or get_settings().database_url, poolclass=NullPool, hide_parameters=True)
+    try:
+        async with engine.connect() as conn:
+            blocked = await conn.scalar(text(f"""
+                SELECT EXISTS (
+                    SELECT 1 FROM commands cmd
+                    LEFT JOIN connector_changes c ON cmd.id IN (c.command_id, c.rollback_command_id)
+                        OR c.rollback_from->'previous_attempts' ? cmd.id::text
+                    WHERE cmd.source = 'connector' AND cmd.status NOT IN ('cancelled', 'denied')
+                      AND (c.id IS NULL OR (
+                          (jsonb_typeof(c.before->'controls') IS DISTINCT FROM 'object'
+                           OR EXISTS (SELECT 1 FROM idempotency_keys k
+                                      WHERE k.key = c.id AND k.scope = 'connector:voorstel'))
+                          AND ({RESTORED}) IS NOT TRUE
+                          AND (cmd.status IN ('queued', 'sending', 'sent', 'confirmed')
+                               OR c.rollback_command_id IS NOT NULL
+                               OR c.reason_code IS NULL OR c.reason_code NOT IN (
+                                   'precondition_failed', 'readback_before_send_unavailable', 'refused_before_send'))
+                      ))
+                )
+            """))  # noqa: S608 - RESTORED is vaste broncode
+    finally:
+        await engine.dispose()
+    if blocked:
+        raise MigrationError(
+            "Apparaatherstel uit een eerdere versie staat open. Handel dit eerst met de vorige installatie af."
+        )
+
+
 def verify_migration_dump(path: Path, output: Path | None = None) -> None:
     """Controleer de gecomprimeerde bytes én het einde van de SQL-dump vóór vrijgave."""
     checksum = path.with_name(path.name + ".sha256")
@@ -218,6 +259,7 @@ def migrate(url: str | None = None, *, backup_dir: Path | None = None, pre_dump:
     head = bk.head_revision()
     if current is not None and bk.schema_relation(current) == "newer":
         raise SchemaNewerError(current, head)
+    _in_thread(lambda: asyncio.run(check_connector_transition(current, target_url)))
     if pre_dump and current is not None and current != head:
         dump = pre_migration_dump(target_url, current, backup_dir or s.backup_dir)
     command.upgrade(bk.alembic_config(url), "head")

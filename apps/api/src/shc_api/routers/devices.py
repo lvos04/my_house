@@ -1510,6 +1510,9 @@ async def pair(provider: str, body: PairIn, db: DB, p: Admin):
         d.compatibility = "untested"
     caps = extra.get("caps")
     if isinstance(caps, dict):
+        if provider == "gree":
+            fields = d.gree_control_fields().union(extra.get("gree_control_fields", []))
+            d.state = {**(d.state or {}), "gree_control_fields": sorted(fields)}
         d.state = {**(d.state or {}), "caps": caps}
         if d.kind == "ac_unit":
             d.capabilities = ["power", "hvac_mode", "setpoint", *(c for c in ("fan", "swing") if caps.get(c))]

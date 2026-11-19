@@ -412,6 +412,7 @@ class GreeAdapter(Adapter):
             ) from exc
         self.last_diagnostics["stage"] = "paired"
         dev.extra.update(encryption=version, caps=self.climate_capabilities(mac), pair_diagnostics=self.diagnostics())
+        dev.extra["gree_control_fields"] = sorted(self.control_fields())
         return PairResult(stable_identity=mac, credentials=dict(self.credentials), device=dev)
 
     def instructions(self) -> PairingInstructions:
@@ -419,6 +420,9 @@ class GreeAdapter(Adapter):
 
     def _raw(self) -> dict[str, Any]:
         return (self._last_state or {}).get("raw", {})
+
+    def control_fields(self) -> set[str]:
+        return self._raw().keys() - {"TemSen"}
 
     async def get_capabilities(self, device_identity: str) -> set[Cap]:
         caps = {Cap.POWER, Cap.HVAC_MODE, Cap.SETPOINT}
@@ -455,13 +459,15 @@ class GreeAdapter(Adapter):
                 raise AdapterError("De Gree-unit meldt een leesfout.")
             if verify_identity and res.get("mac") != self.mac:
                 raise AdapterError("De teruggelezen Gree-identiteit komt niet overeen met het doel.")
-            names, values = res.get("cols", cols), res.get("dat")
+            names, values = res.get("cols", None if verify_identity else cols), res.get("dat")
             if (
                 not isinstance(names, list) or not isinstance(values, list) or not names
                 or len(names) != len(values) or any(not isinstance(name, str) for name in names)
                 or len(set(names)) != len(names)
             ):
                 raise AdapterError("De Gree-unit meldt een onvolledige of ongeldige stand.")
+            if full and not self.control_fields().issubset(names):
+                raise AdapterError("Een eerder vastgestelde Gree-bedienstand ontbreekt.")
         except PairingRequired:
             raise
         except AdapterError as exc:
@@ -474,12 +480,16 @@ class GreeAdapter(Adapter):
             self._last_state = state
         return state
 
-    async def read_recoverable_setpoint(self, device_identity: str) -> dict[str, Any]:
+    async def read_recoverable_setpoint(
+        self, device_identity: str, required_fields: set[str] | None = None,
+    ) -> dict[str, Any]:
         """Bewaar de gerapporteerde bedienstanden zonder verlies door vertaling of sensormetingen."""
         if device_identity != self.mac:
             raise AdapterError("De gekoppelde Gree-unit komt niet overeen met het doel.")
         state = await self.read_status(verify_identity=True)
         raw = state["raw"]
+        if required_fields and not required_fields.issubset(raw):
+            raise AdapterError("Een vastgestelde Gree-bedienstand ontbreekt in de teruglezing.")
         if (
             type(raw.get("Pow")) is not int or raw["Pow"] not in (0, 1)
             or type(raw.get("Mod")) is not int or raw["Mod"] not in MODES
@@ -505,6 +515,7 @@ class GreeAdapter(Adapter):
         state = await self.read_status()
         public = {k: v for k, v in state.items() if k != "raw"}
         public["caps"] = self.climate_capabilities(self.mac)
+        public["gree_control_fields"] = sorted(self.control_fields())
         events: list[Event] = [StateUpdate(self.mac, public, now)]
         if state.get("indoor_sensor"):
             q = Quality.MEASURED if state["indoor_c"] is not None else Quality.MISSING

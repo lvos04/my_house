@@ -905,7 +905,10 @@ afdwingen. Het connectorfoutformaat heeft `code`, `message`, `details` en `trace
    `approval.request_id` blijft gelijk aan `proposal.idempotency_key`. De
    teruggelezen actuele stand en configuratie moeten bij de herstelpreview
    passen. Een aantoonbaar onuitgevoerde poging mag met een nieuwe goedkeuring
-   worden herhaald als er tussentijds geen apparaatopdracht was. Evidence meldt
+   worden herhaald als er tussentijds geen apparaatopdracht was. Na een onderbreking
+   vergelijkt de worker ook met de volledige vorige stand. Komt deze overeen, dan
+   volstaat teruglezen. Ontbreekt een bekend bedienveld bij het opvragen van de
+   herstelpreview, dan meldt evidence `rollback_preview_reason_code=readback_unavailable`. Evidence meldt
    herstel met `rollback_status`, `rollback_after` en `recovery_required` en
    houdt de eerdere opdracht-ID's beschikbaar.
 
