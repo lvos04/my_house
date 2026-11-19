@@ -14,7 +14,7 @@ dumps). Met ``restart: unless-stopped`` werd dat een herstartlus die de opslag v
     in een lege database: dezelfde inhoud als vóór de migratie).
 
 De tabellen worden vergeleken met inhoud (niet leeg, V-003); de herkenning gebruikt de migratieketen, niet de letterlijke
-waarde "0099" (V-086: ook "0006", het eerstvolgende nummer, telt als nieuwer).
+waarde "0099" (V-086: ook het eerstvolgende nummer telt als nieuwer).
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ TEKST = (
     "De database is van een nieuwere my_house-versie; kies in het formulier van de Custom App de bijpassende versie "
     "of zet de snapshot van vóór de update terug."
 )
-NIEUWER = ["0099_toekomst", "0006"]
+NIEUWER = ["0099_toekomst", f"{int(bk.head_revision()) + 1:04d}"]
 UNSAFE = ("POST", "PUT", "PATCH", "DELETE")
 
 
@@ -437,8 +437,8 @@ async def test_huidig_schema_start_gewoon(monkeypatch, tmp_path):
 
 async def test_ouder_schema_migreert_met_dump(monkeypatch, tmp_path):
     """Een GEVULDE database op schema 0003 (V-003, R-HARDE-EIS-1): na ``shc-api migrate`` is per tabel het aantal rijen
-    en de md5 gelijk (naast alembic_version uitsluitend één exact gecontroleerde gate-instelling erbij), en de dump bevat de
-    gegevens: teruggezet in een lege database geeft hij precies de inhoud van vóór de migratie. Een dump met alleen het
+    en de md5 gelijk. Naast alembic_version komen één exact gecontroleerde gate-instelling en drie lege tabellen erbij.
+    De dump geeft in een lege database precies de inhoud van vóór de migratie. Een dump met alleen het
     schema (``--schema-only``) valt hier dus op."""
     async with temp_db("0003") as url:
         await _vul(url)
@@ -452,9 +452,9 @@ async def test_ouder_schema_migreert_met_dump(monkeypatch, tmp_path):
         finished = datetime.now(UTC)
         assert cli.current_revision(url) == bk.head_revision()
         na = await _inhoud(url, zonder_nieuwe_gate=True)
-        assert {t: v for t, v in na.items() if t != "alembic_version"} == {
-            t: v for t, v in voor.items() if t != "alembic_version"
-        }
+        verwacht = {t: v for t, v in voor.items() if t != "alembic_version"}
+        verwacht.update({t: (0, "") for t in bk.CONNECTOR_LOCAL_TABLES})
+        assert {t: v for t, v in na.items() if t != "alembic_version"} == verwacht
         # Uitsluitend deze ene nieuwe rij is toegestaan; bestaande settings blijven integraal vergeleken.
         assert (await _inhoud(url))["settings"][0] == voor["settings"][0] + 1
         engine = create_async_engine(url, poolclass=NullPool)

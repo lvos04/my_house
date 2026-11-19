@@ -91,7 +91,9 @@ SECRET_COLUMNS = {("integrations", "credentials_enc"), ("sessions", "csrf_token"
 # Also replaced in a redacted backup: password hashes and phone-token hashes (verbeterlijst, kleine punten).
 REDACTED_PASSWORD = "!geredigeerd"  # noqa: S105 - not a password; can never verify
 SECRET_SETTING_KEYS = {"backup_passphrase_enc", "notify_url_enc"}
-SKIP_TABLES = {"sessions", "pairing_codes", "processed_events"}  # short-lived, never exported
+# Een applicatieback-up mag geen eerdere Hub-koppeling opnieuw vertrouwen geven.
+CONNECTOR_LOCAL_TABLES = {"connector_hub_pins", "connector_nonces", "idempotency_keys"}
+SKIP_TABLES = {"sessions", "pairing_codes", "processed_events"} | CONNECTOR_LOCAL_TABLES
 
 
 class BackupError(Exception):
@@ -1335,7 +1337,7 @@ def _restore_sync(conn, path: Path, passphrase: str, manifest: dict, mode: str, 
         tname = _table_of(name)
         if tname is None:
             continue
-        if tname not in target.tables or tname == "alembic_version":
+        if tname not in target.tables or tname == "alembic_version" or tname in CONNECTOR_LOCAL_TABLES:
             n = sum(1 for line in _lines(f) if line)
             report.dropped["tables"][tname] = report.dropped["tables"].get(tname, 0) + n
             continue

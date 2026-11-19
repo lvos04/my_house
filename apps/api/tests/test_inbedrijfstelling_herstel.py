@@ -75,7 +75,8 @@ async def tables(url):
 def row_bytes(rows):
     restore_settings = {"commissioning_gate", "maintenance", "safe_mode", "restored_from",
                         "restore_snapshot", "restore_report"}
-    comparable = {}
+    # Een oud archief kent deze tabellen nog niet. Een niet-lege tabel blijft een verschil.
+    comparable = {name: [] for name in bk.CONNECTOR_LOCAL_TABLES}
     for name, values in rows.items():
         kept = []
         for row in values:

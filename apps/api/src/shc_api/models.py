@@ -447,3 +447,31 @@ class BackupRecord(Base):
     auto: Mapped[bool] = mapped_column(Boolean, default=False, server_default=FALSE)  # made by the worker
     app_version: Mapped[str | None] = mapped_column(String(32))
     schema_revision: Mapped[str | None] = mapped_column(String(64))
+
+
+class ConnectorHubPin(Base):
+    __tablename__ = "connector_hub_pins"
+    __table_args__ = (CheckConstraint("id = 1 AND rotation_sequence >= 0", name="ck_connector_hub_pins_single"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    jwt_keys: Mapped[list[Any]] = mapped_column(JSONB)
+    policy_keys: Mapped[list[Any]] = mapped_column(JSONB)
+    fingerprint: Mapped[str] = mapped_column(String(19))
+    rotation_sequence: Mapped[int] = mapped_column(BigInteger)
+    accept_from: Mapped[datetime]
+
+
+class ConnectorNonce(Base):
+    __tablename__ = "connector_nonces"
+
+    nonce: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+
+
+class IdempotencyKey(Base):
+    __tablename__ = "idempotency_keys"
+
+    scope: Mapped[str] = mapped_column(Text, primary_key=True)
+    key: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    request_hash: Mapped[bytes] = mapped_column(LargeBinary)
+    response_status: Mapped[int | None]
+    response_body: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
