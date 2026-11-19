@@ -53,11 +53,11 @@
   "id": "B06-006",
   "status": "Bezig",
   "validatie": "Sim-getest; NIET GEVALIDEERD (echte NAS)",
-  "bewijs": "code-HEAD b0a6a98 (VERSION 0.2.0); baseline deze sessie: pytest integrations 188 geslaagd/1 overgeslagen, pytest apps/api 319/319 (run 2; run 1 hing op een flaky test), vitest 164/164, ruff schoon, validate_compose.sh ok (INVENTARIS.md §15); repo-CI run 42587407462 op 9c9d02f geslaagd (backend, web, e2e, compose, stack); leesroutes: routers/homes.py:47,75,100; routers/zones.py:39,48; routers/lights.py:36; routers/energy.py:32,45,265; routers/system.py:56,62; koppelcode: routers/pairing.py:117,197; tests/test_foundation.py::test_viewer_cannot_resume_or_control; tests/test_ws_security_pairing.py::test_pairing_roles (viewer-token → 403; gedraaid 2026-11-09: geslaagd); commando-TTL worker/commands.py:39-40, :148-149 (probe: commando van 3 min = failed 'Commando te oud'); tweede lezing DELTA_MATRIX.md §11 W2, W3, G2, G3; ADR-0006; DELTA_MATRIX.md §1 B06-006, §6; ADR-0002",
-  "blokkade": "Nog te bouwen: P3-05 (propose/apply/evidence met Ed25519-ExecutionRequest, nonce, Idempotency-Key, vervaltijd bovenop de bestaande TTL, ETag via een nieuwe versiekolom). Lees-connector (P3-03) en outbox/kind=service (P3-04, zonder enrollment en zonder push: de Hub pollt, contract 1.3 §2.3) alleen op verzoek van de eigenaar van de Hub-adapter (ADR-0006, contract_issue). Hub-zijde (adapter, kaart, stale-markering) is eigendom van ai-server-manager. Echte NAS onbekend (D01, D03, D07).",
-  "opmerking": "Validatie (toelichting, tot 2026-11-10 in het veld validatie): Leesdeel bestaat via bestaande routes met viewer-token en 'Hub kan niet schakelen' is Sim-getest; bewaakt schrijfpad (ondertekend ExecutionRequest, nonce, Idempotency-Key) ontbreekt; NIET GEVALIDEERD (echte NAS). Hub koppelt met een koppelcode met rol viewer; krijgt nooit een control-token. Contract 1.3 (§2.3 regels 2 en 5, C1.3-MH-07): geen enrollment in v1 en geen push naar de Hub-inbox; de Hub koppelt met een koppelcode (viewer) en pollt. DELTA_MATRIX.md §12. Naast de test op de echte NAS rest nog bouwwerk in my_house: P3-05, en P3-03 en P3-04 alleen op verzoek van de eigenaar van de Hub-adapter; de Hub-zijde hoort bij ai-server-manager (zie blokkade).",
+  "bewijs": "code-HEAD b0a6a98 (VERSION 0.2.0); baseline deze sessie: pytest integrations 188 geslaagd/1 overgeslagen, pytest apps/api 319/319 (run 2; run 1 hing op een flaky test), vitest 164/164, ruff schoon, validate_compose.sh ok (INVENTARIS.md §15); repo-CI run 42587407462 op 9c9d02f geslaagd (backend, web, e2e, compose, stack); leesroutes: routers/homes.py:47,75,100; routers/zones.py:39,48; routers/lights.py:36; routers/energy.py:32,45,265; routers/system.py:56,62; koppelcode: routers/pairing.py:117,197; tests/test_foundation.py::test_viewer_cannot_resume_or_control; tests/test_ws_security_pairing.py::test_pairing_roles (viewer-token → 403; gedraaid 2026-11-09: geslaagd); commando-TTL worker/commands.py:39-40, :148-149 (probe: commando van 3 min = failed 'Commando te oud'); tweede lezing DELTA_MATRIX.md §11 W2, W3, G2, G3; ADR-0006; DELTA_MATRIX.md §1 B06-006, §6; ADR-0002 S-P3-740: verificatiekern met lokale sleutel-, replay- en herstelproeven in apps/api/tests/test_connector_verificatie.py. Bouwcommit 2791f089845758155c93ae09d462341f629caae5, CI-run 44529923467 (https://github.com/lvos04/my_house/actions/runs/44529923467).",
+  "blokkade": "Nog te bouwen: routes voor propose/apply/evidence met het lokale actiebeleid, ETag, TTL en readback (S-P3-742) en bevestiging van de Hub-sleutelset in het beheerscherm (S-P3-745). Lees-connector (P3-03) en outbox/kind=service (P3-04, zonder enrollment en zonder push: de Hub pollt, contract 1.3 §2.3) alleen op verzoek van de eigenaar van de Hub-adapter (ADR-0006, contract_issue). Hub-zijde (adapter, kaart, stale-markering) is eigendom van ai-server-manager. Echte NAS onbekend (D01, D03, D07).",
+  "opmerking": "Validatie (toelichting, tot 2026-11-10 in het veld validatie): Leesdeel bestaat via bestaande routes met viewer-token en 'Hub kan niet schakelen' is Sim-getest; verificatiekern voor ondertekende verzoeken, nonce en Idempotency-Key is Unit-getest in S-P3-740, de schrijfroutes volgen in S-P3-742; NIET GEVALIDEERD (echte NAS). Hub koppelt met een koppelcode met rol viewer; krijgt nooit een control-token. Contract 1.3 (§2.3 regels 2 en 5, C1.3-MH-07): geen enrollment in v1 en geen push naar de Hub-inbox; de Hub koppelt met een koppelcode (viewer) en pollt. DELTA_MATRIX.md §12. Naast de test op de echte NAS rest nog bouwwerk in my_house: P3-05, en P3-03 en P3-04 alleen op verzoek van de eigenaar van de Hub-adapter; de Hub-zijde hoort bij ai-server-manager (zie blokkade).",
   "repo": "my_house",
-  "bijgewerkt": "2026-11-12"
+  "bijgewerkt": "2026-11-19"
  },
  {
   "id": "B06-007",
@@ -141,13 +141,13 @@
  },
  {
   "id": "C1.3-MH-04",
-  "status": "Niet gestart",
-  "validatie": "Niet getest",
-  "bewijs": "",
-  "blokkade": "",
-  "opmerking": "Moment P3: bewaakt schrijfpad propose/apply met ondertekend ExecutionRequest, back-upbevestiging waar nodig, geplakte sleutelset met vingerafdruk over alle policy-sleutels (testvector HN69-2PHK-XV2D-X85W). Was P3-05. Let op RV8: de Hub ondertekent niet met een nieuwe sleutel zolang my_house de oude set gepind heeft; hoe my_house de rotatie bevestigt, legt de Hub eerst in een ADR vast. Open.",
+  "status": "Bezig",
+  "validatie": "Unit-getest",
+  "bewijs": "S-P3-740: apps/api/tests/test_connector_verificatie.py en apps/api/tests/test_ws_followups.py. De drie contractvectoren komen overeen. Ongeldige handtekeningen, een gewijzigd veld, een verlopen verzoek en een ontbrekende pin worden geweigerd. Twee gelijktijdige PostgreSQL-transacties leveren één acceptatie per nonce. Dezelfde idempotentiesleutel met dezelfde envelope levert hetzelfde antwoord en met een andere envelope fout 422. Migratie 0006 omhoog, omlaag en omhoog behoudt bestaande rijen. Een applicatieherstel neemt geen Hub-pin uit het archief over. Bouwcommit 2791f089845758155c93ae09d462341f629caae5, CI-run 44529923467 (https://github.com/lvos04/my_house/actions/runs/44529923467).",
+  "blokkade": "Routes en lokale actiehandhaving volgen in S-P3-742, beheerbevestiging in S-P3-745.",
+  "opmerking": "Verificatiekern voor gepinde publieke Hub-sleutels en ondertekende ExecutionRequests. Contractmelding over de beleidshash in ADR-0016, ‘Meldingen bij het contract’ (optie B). Rotatiebevestiging volgt ADR-0035 §B van ai-server-manager.",
   "repo": "my_house",
-  "bijgewerkt": "2026-11-10"
+  "bijgewerkt": "2026-11-19"
  },
  {
   "id": "C1.3-MH-05",

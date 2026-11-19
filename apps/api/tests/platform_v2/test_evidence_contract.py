@@ -143,9 +143,14 @@ def test_alle_punten_van_my_house_staan_in_de_lijst(echt: list[dict[str, Any]]) 
     assert punten <= {e["id"] for e in echt}
 
 
-def test_latere_fasen_staan_open_en_ongetest(echt: list[dict[str, Any]]) -> None:
+def test_p3_bewijs_dekt_verificatiekern_en_open_punten(echt: list[dict[str, Any]]) -> None:
     per_id = {e["id"]: e for e in echt}
-    for punt in ("C1.3-MH-04", "C1.3-MH-05", "C1.3-MH-06"):
+    kern = per_id["C1.3-MH-04"]
+    assert kern["status"] == "Bezig"
+    assert "Unit-getest" in kern["validatie"].split("; ")
+    assert "apps/api/tests/test_connector_verificatie.py" in kern["bewijs"]
+    assert "S-P3-742" in kern["blokkade"] and "S-P3-745" in kern["blokkade"]
+    for punt in ("C1.3-MH-05", "C1.3-MH-06"):
         assert per_id[punt]["status"] == "Niet gestart", punt
         assert per_id[punt]["validatie"] == "Niet getest", punt
         assert "P3" in per_id[punt]["opmerking"], punt
