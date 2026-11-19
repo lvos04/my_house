@@ -6,6 +6,7 @@ import { accessLoginUrl, ACCESS_RELOAD_PARAM } from '../api/client';
 import { admin, FakeWebSocket, mockApi, newClient } from './helpers';
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   FakeWebSocket.reset();
   window.history.replaceState({}, '', '/');
@@ -27,12 +28,33 @@ it('negeert een extern terugkeerpad na inloggen', async () => {
     return undefined;
   });
   render(<App client={newClient()} />);
+  const gebruikersnaam = await screen.findByLabelText('Gebruikersnaam');
+
+  // Begin na de initialisatie van BrowserRouter, die de historystaat instelt.
+  // jsdom maakt de publieke Location-methoden en de href-setter niet configureerbaar.
+  const implementatieSleutel = Object.getOwnPropertySymbols(window.location).find((sleutel) => sleutel.description === 'impl');
+  if (!implementatieSleutel) throw new Error('De Location-implementatie van jsdom ontbreekt');
+  const locatie = Reflect.get(window.location, implementatieSleutel) as Pick<Location, 'assign' | 'replace' | 'href' | 'reload'>;
+  const navigatiepogingen = {
+    'location.assign': vi.spyOn(locatie, 'assign'),
+    'location.replace': vi.spyOn(locatie, 'replace'),
+    'location.href': vi.spyOn(locatie, 'href', 'set'),
+    'location.reload': vi.spyOn(locatie, 'reload'),
+    'history.pushState': vi.spyOn(window.history, 'pushState'),
+    'history.replaceState': vi.spyOn(window.history, 'replaceState'),
+    'history.go': vi.spyOn(window.history, 'go'),
+    'history.back': vi.spyOn(window.history, 'back'),
+    'history.forward': vi.spyOn(window.history, 'forward'),
+  };
   const gebruiker = userEvent.setup();
-  await gebruiker.type(await screen.findByLabelText('Gebruikersnaam'), 'testgebruiker');
+  await gebruiker.type(gebruikersnaam, 'testgebruiker');
   await gebruiker.type(screen.getByLabelText('Wachtwoord'), 'testwaarde');
   await gebruiker.click(screen.getByRole('button', { name: 'Inloggen' }));
   await screen.findByRole('heading', { name: 'Woning aanmaken' });
   expect(calls.some((call) => call.method === 'POST' && call.url.endsWith('/auth/login'))).toBe(true);
+  for (const [naam, spy] of Object.entries(navigatiepogingen)) {
+    expect(spy, naam).not.toHaveBeenCalled();
+  }
   expect(window.location.href).toBe(eigenAdres);
 });
 

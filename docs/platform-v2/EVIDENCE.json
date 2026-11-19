@@ -155,7 +155,7 @@
   "validatie": "Unit-getest",
   "bewijs": "S-P3-750: apps/web/src/test/terugkeerpad.test.tsx",
   "blokkade": "",
-  "opmerking": "Terugkeerpad conform: geen terugkeerpad na inloggen; Access gebruikt het eigen adres. Leesconnector P3-03 vervalt volgens ADR-0034. Foutcatalogus en max_age van nieuwe routes volgen in S-P3-742.",
+  "opmerking": "Terugkeerpad conform: geen terugkeerpad na inloggen. De inlogtest controleert de volledige URL en faalt bij een navigatiepoging via location.assign, location.replace, href, herladen of history. Een opzettelijke vaste navigatie in AuthPage.onSuccess liet de regressietest lokaal falen. Access gebruikt het eigen adres. Leesconnector P3-03 vervalt volgens ADR-0034. Foutcatalogus en max_age van nieuwe routes volgen in S-P3-742.",
   "repo": "my_house",
   "bijgewerkt": "2026-11-19"
  },
