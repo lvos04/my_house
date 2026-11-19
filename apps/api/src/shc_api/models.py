@@ -26,6 +26,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.sql import ColumnElement
 
 
 def utcnow() -> datetime:
@@ -46,6 +47,8 @@ JSON_OBJECT = text("'{}'::jsonb")
 JSON_ARRAY = text("'[]'::jsonb")
 FALSE = text("false")
 TRUE = text("true")
+# asyncpg leest de PostgreSQL-waarde infinity als datetime.max. Die waarde is ook na export onbegrensd.
+MAX_CLIENT_EXPIRY = datetime.max.replace(tzinfo=UTC)
 
 
 # --- accounts -----------------------------------------------------------------
@@ -74,9 +77,12 @@ class Session(Base):
 
 
 class ApiClient(Base):
-    """A paired phone. Token stored hashed; revocable."""
+    """Een gekoppelde telefoon of Hub met een gehasht, intrekbaar token."""
 
     __tablename__ = "api_clients"
+    __table_args__ = (
+        CheckConstraint("purpose = 'phone' OR (purpose = 'hub' AND role = 'viewer')", name="ck_api_clients_purpose"),
+    )
     id: Mapped[uuid.UUID] = pk()
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     name: Mapped[str] = mapped_column(String(100))
@@ -87,13 +93,21 @@ class ApiClient(Base):
     # admin | control | viewer. New pairings default to "control". Phones paired before migration
     # 0002 were full admins; migration 0004 limits those that never got an expiry date to "control".
     role: Mapped[str] = mapped_column(String(16), default="control", server_default="control")
+    purpose: Mapped[str] = mapped_column(String(16), default="phone", server_default="phone")
     expires_at: Mapped[datetime | None]
     refreshed_at: Mapped[datetime | None]
+
+    @classmethod
+    def has_valid_expiry(cls, now: datetime) -> ColumnElement[bool]:
+        return (cls.expires_at > now) & (cls.expires_at < MAX_CLIENT_EXPIRY)
 
 
 class PairingCode(Base):
     __tablename__ = "pairing_codes"
-    __table_args__ = (CheckConstraint("role IN ('admin', 'control', 'viewer')", name="ck_pairing_codes_role"),)
+    __table_args__ = (
+        CheckConstraint("role IN ('admin', 'control', 'viewer')", name="ck_pairing_codes_role"),
+        CheckConstraint("purpose = 'phone' OR (purpose = 'hub' AND role = 'viewer')", name="ck_pairing_codes_purpose"),
+    )
     id: Mapped[uuid.UUID] = pk()
     code_hash: Mapped[str] = mapped_column(String(64), unique=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
@@ -102,6 +116,7 @@ class PairingCode(Base):
     used_at: Mapped[datetime | None]
     # Role the phone gets when it redeems this code (migration 0003).
     role: Mapped[str] = mapped_column(String(16), default="control", server_default="control")
+    purpose: Mapped[str] = mapped_column(String(16), default="phone", server_default="phone")
 
 
 class Setting(Base):

@@ -21,7 +21,7 @@ from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from .config import VERSION, get_settings
 from .contract_http import problem
 from .db import dispose, sessionmaker
-from .deps import UNSAFE, Admin, restrict_viewer_writes
+from .deps import UNSAFE, Admin, restrict_hub_writes
 from .events import dumps, hub
 from .logfilter import db_error_text, install_log_filter
 from .models import AuditLog
@@ -42,6 +42,7 @@ from .routers import (
     ws,
     zones,
 )
+from .store import ensure_server_identity
 from .watch import watch
 
 API_PREFIX = "/api/v1"
@@ -82,7 +83,7 @@ async def lifespan(app: FastAPI):
     install_log_filter()  # vangnet: geen DETAIL van PostgreSQL in de log (KLEIN-37)
     check_secret_key()  # fail fast with a clear message (missing or too short)
     async with sessionmaker()() as db:
-        await pairing.ensure_server_identity(db)
+        await db.run_sync(ensure_server_identity)
         await db.commit()
     await hub.start()
     watch.start()  # worker heartbeat / backups: alert, status.updated, optional push (28, 36)
@@ -330,7 +331,7 @@ def create_app() -> FastAPI:
         title="Smart Home Control",
         version=VERSION,
         lifespan=lifespan,
-        dependencies=[Depends(restrict_viewer_writes)],
+        dependencies=[Depends(restrict_hub_writes)],
         # API documentation only for logged-in admins (routes below), never public via the tunnel.
         docs_url=None,
         openapi_url=None,

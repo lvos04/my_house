@@ -178,20 +178,25 @@ async def test_token_expiry_refresh_and_unpair(admin, home, app, lan):
         assert r.status_code == 401 and r.json()["detail"]["code"] == "token_expired"
         assert (await phone.post("/api/v1/clients/self/refresh", headers=h2)).status_code == 401
         assert next(x for x in (await admin.get("/clients")).json() if x["id"] == str(cid))["expired"] is True
-        # Een leesverzoek laat een oude koppeling met nog lege gebruiksgegevens intact.
+        # Een ongedateerde koppeling wordt geweigerd en het verzoek verandert geen rij.
         async with sessionmaker()() as db:
             await db.execute(update(ApiClient).where(ApiClient.id == cid).values(expires_at=None, last_used_at=None))
             await db.commit()
-        assert (await phone.get("/api/v1/homes", headers=h2)).status_code == 200
+        r = await phone.get("/api/v1/homes", headers=h2)
+        assert r.status_code == 401 and r.json()["detail"]["code"] == "token_expired"
+        zone_id = (await admin.get(f"/homes/{home['id']}/zones")).json()[0]["id"]
+        assert (await phone.post(f"/api/v1/zones/{zone_id}/resume", headers=h2)).status_code == 401
+        assert (await phone.post("/api/v1/clients/self/refresh", headers=h2)).status_code == 401
+        expires_at = datetime.now(UTC) + timedelta(days=180)
         async with sessionmaker()() as db:
             row = await db.get(ApiClient, cid)
             assert row.expires_at is None and row.last_used_at is None
-        # De eerste schrijfactie van de gewone telefoon laat de bestaande vervaltermijn ingaan.
-        zone_id = (await admin.get(f"/homes/{home['id']}/zones")).json()[0]["id"]
+            row.expires_at = expires_at
+            await db.commit()
         assert (await phone.post(f"/api/v1/zones/{zone_id}/resume", headers=h2)).status_code == 200
         async with sessionmaker()() as db:
             row = await db.get(ApiClient, cid)
-        assert row.expires_at and row.expires_at > datetime.now(UTC) + timedelta(days=179)
+        assert row.expires_at == expires_at and row.last_used_at is not None
         # "Ontkoppelen" in the app revokes the token on the server.
         assert (await phone.delete("/api/v1/clients/self", headers=h2)).status_code == 204
         r = await phone.get("/api/v1/homes", headers=h2)

@@ -14,15 +14,14 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Query, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select, update
-from sqlalchemy.dialects.postgresql import insert
 
 from ..config import get_settings
 from ..deps import CLIENT_TTL, DB, Phone, WebAdmin
 from ..errors import SECRET_KEY_INVALID_RESPONSE, api_error, not_found, require_secret_box
 from ..events import publish_auth_revoked
-from ..models import ApiClient, Home, PairingCode, Setting, User
+from ..models import MAX_CLIENT_EXPIRY, ApiClient, Home, PairingCode, User
 from ..security import (
     AttemptLimiter,
     lan_url_problem,
@@ -32,7 +31,7 @@ from ..security import (
     remote_url_problem,
     token_hash,
 )
-from ..store import audit, get_setting
+from ..store import audit, ensure_server_identity, get_setting
 from .auth import client_ip, password_matches, too_many, user_view
 
 router = APIRouter(tags=["pairing"])
@@ -50,15 +49,6 @@ async def configured_urls(db: DB) -> tuple[str | None, str | None]:
     lan = await get_setting(db, "lan_url") or s.lan_url or None
     remote = await get_setting(db, "remote_url") or s.remote_url or None
     return lan, remote
-
-
-async def ensure_server_identity(db: DB) -> str:
-    """Maak zo nodig de vaste serveridentiteit aan in een bestaande schrijftransactie."""
-    sid = await get_setting(db, "server_id")
-    if sid:
-        return str(sid)
-    await db.execute(insert(Setting).values(key="server_id", value={"v": str(uuid.uuid4())}).on_conflict_do_nothing())
-    return str(await get_setting(db, "server_id"))
 
 
 async def _active_home(db: DB) -> Home | None:
@@ -109,8 +99,15 @@ async def identity(
 class CodeRequest(BaseModel):
     label: str | None = Field(default=None, max_length=100)
     role: Literal["control", "viewer", "admin"] = "control"
+    purpose: Literal["phone", "hub"] = "phone"
     # Required for role "admin": the creator re-enters their own password.
     password: str | None = Field(default=None, max_length=256)
+
+    @model_validator(mode="after")
+    def check_purpose(self) -> CodeRequest:
+        if self.purpose == "hub" and self.role != "viewer":
+            raise ValueError("Een Hub-koppelcode vereist de rol viewer.")
+        return self
 
 
 @router.post("/pairing/codes", responses=SECRET_KEY_INVALID_RESPONSE)
@@ -144,13 +141,14 @@ async def create_code(body: CodeRequest, request: Request, db: DB, p: WebAdmin) 
     code = new_pairing_code()
     expires = datetime.now(UTC) + CODE_TTL
     pc = PairingCode(
-        code_hash=box.pairing_code_hash(code), user_id=p.user.id, label=body.label, expires_at=expires, role=body.role
+        code_hash=box.pairing_code_hash(code), user_id=p.user.id, label=body.label,
+        expires_at=expires, role=body.role, purpose=body.purpose,
     )
     db.add(pc)
     await db.flush()
     home = await _active_home(db)
-    sid = await ensure_server_identity(db)
-    await audit(db, p.actor, "pairing_code_created", body.label, role=body.role)
+    sid = await db.run_sync(ensure_server_identity)
+    await audit(db, p.actor, "pairing_code_created", body.label, role=body.role, purpose=body.purpose)
     await db.commit()
     payload = {
         "v": 1,
@@ -166,6 +164,7 @@ async def create_code(body: CodeRequest, request: Request, db: DB, p: WebAdmin) 
         "code": code,
         "expires_at": expires,
         "role": body.role,
+        "purpose": body.purpose,
         "server_id": sid,
         "qr_payload": json.dumps(payload, separators=(",", ":")),
     }
@@ -182,12 +181,13 @@ def client_view(c: ApiClient, username: str | None = None) -> dict:
         "id": c.id,
         "name": c.name,
         "role": c.role,
+        "purpose": c.purpose,
         "created_at": c.created_at,
         "last_used_at": c.last_used_at,
         "expires_at": c.expires_at,
         "refreshed_at": c.refreshed_at,
         "revoked": c.revoked_at is not None,
-        "expired": bool(c.expires_at and c.expires_at <= now),
+        "expired": c.expires_at is None or not now < c.expires_at < MAX_CLIENT_EXPIRY,
     }
     if username is not None:
         v["user"] = username
@@ -212,7 +212,7 @@ async def redeem(body: Redeem, request: Request, db: DB) -> dict:
             PairingCode.expires_at > now,
         )
         .values(used_at=now)
-        .returning(PairingCode.id, PairingCode.user_id, PairingCode.role)
+        .returning(PairingCode.user_id, PairingCode.role, PairingCode.purpose)
     )
     row = res.first()
     user = await db.get(User, row.user_id) if row else None
@@ -223,14 +223,18 @@ async def redeem(body: Redeem, request: Request, db: DB) -> dict:
     role = row.role or "control"
     token = new_token()
     client = ApiClient(
-        user_id=user.id, name=body.device_name, token_hash=token_hash(token), role=role, expires_at=now + CLIENT_TTL
+        user_id=user.id, name=body.device_name, token_hash=token_hash(token),
+        role=role, purpose=row.purpose, expires_at=now + CLIENT_TTL,
     )
     db.add(client)
     await db.flush()
-    await audit(db, user.username, "phone_paired", body.device_name, role=role, client=str(client.id), ip=ip)
+    await audit(
+        db, user.username, "phone_paired", body.device_name,
+        role=role, purpose=client.purpose, client=str(client.id), ip=ip,
+    )
     home = await _active_home(db)
     lan, remote = await configured_urls(db)
-    sid = await ensure_server_identity(db)
+    sid = await db.run_sync(ensure_server_identity)
     await db.commit()
     _redeem_attempts.reset(ip)
     return {

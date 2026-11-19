@@ -163,7 +163,7 @@ en `legacy_phone_limited` (database-update 0004). Wachtwoorden en sleutels komen
 
 | Methode | Pad | Toegang | Body | Antwoord |
 |---|---|---|---|---|
-| POST | `/pairing/codes` | `web-admin` | `{label?, role?: "control"\|"viewer"\|"admin", password?}` | `{code, expires_at, role, server_id, qr_payload}`. Rol `admin` vraagt `password` (je eigen wachtwoord): 403 `password_required` / `wrong_password`. 409 `lan_url_required` als er nog geen thuisadres is. 503 `secret_key_invalid` (er wordt geen code gemaakt). De server bewaart alleen een HMAC-SHA256 van de code, met een uit `SHC_SECRET_KEY` afgeleide sleutel |
+| POST | `/pairing/codes` | `web-admin` | `{label?, role?: "control"\|"viewer"\|"admin", purpose?: "phone"\|"hub", password?}` | `{code, expires_at, role, purpose, server_id, qr_payload}`. `purpose` is standaard `phone`. `hub` vereist rol `viewer` (anders HTTP 422). Rol `admin` vraagt `password` (je eigen wachtwoord): 403 `password_required` / `wrong_password`. 409 `lan_url_required` als er nog geen thuisadres is. 503 `secret_key_invalid` (er wordt geen code gemaakt). De server bewaart alleen een HMAC-SHA256 van de code, met een uit `SHC_SECRET_KEY` afgeleide sleutel |
 | POST | `/pairing/redeem` | `public` | `{code, device_name}` | `{token, user, client: Client, server: {server_id, lan_url, remote_url, home_id, home_name}}`. 400 `invalid_code`; 503 `secret_key_invalid` (de code wordt niet verbruikt) |
 | GET | `/pairing/identity?nonce=&client_id=` | `public` | – | `{server_id, name, proof?, proof_alg?}` (zie hieronder) |
 | GET | `/clients` | `web-admin` | – | `[Client + {user}]` |
@@ -172,11 +172,12 @@ en `legacy_phone_limited` (database-update 0004). Wachtwoorden en sleutels komen
 | POST | `/clients/self/refresh` | `phone` | – | `{token, expires_at}`: nieuw token, weer 180 dagen geldig. Het oude token werkt meteen niet meer |
 | DELETE | `/clients/self` | `phone` | – | 204: "Ontkoppelen" in de app; het token werkt ook op de server niet meer |
 
-**Alleen-lezen koppeling met de Hub.** Maak een koppelcode met rol `viewer`. Wissel die in met
-`POST /pairing/redeem` en gebruik het teruggegeven viewer-token als Bearer-token. Met dit token
-geven schrijfroutes HTTP 403 (`forbidden`), inclusief de ondertekende connectorroutes. De twee
-uitzonderingen zijn `POST /clients/self/refresh` en `DELETE /clients/self`. Ze vernieuwen of
-trekken uitsluitend de koppeling in die bij het aangeboden token hoort.
+**Alleen-lezen koppeling met de Hub.** Maak een koppelcode met `role: "viewer"` en `purpose: "hub"`.
+De server bewaart het doel op de code en neemt het over bij inwisseling via `POST /pairing/redeem`.
+Controleer `client.role` en `client.purpose` voordat de Hub het token bewaart. Een Hub-token krijgt
+HTTP 403 (`forbidden`) op schrijfroutes, inclusief de ondertekende connectorroutes. Eigen vernieuwing
+via `POST /clients/self/refresh` en eigen intrekking via `DELETE /clients/self` blijven beschikbaar.
+Een kijktelefoon met `purpose: "phone"` behoudt het recht om het eigen wachtwoord te wijzigen.
 
 GET-verzoeken schrijven geen gebruikstijd, meldingen of andere gegevens weg. De statusbewaker
 werkt de melding voor een ontbrekende of verouderde hartslag bij tijdens zijn achtergrondronde.
@@ -184,7 +185,7 @@ Hij controleert elke minuut, na een opstartvertraging van drie minuten. De wonin
 de bestaande meldingen en toont de uitgelezen hartslagstatus direct.
 
 ```
-Client = {id, name, role: "admin"|"control"|"viewer", created_at, last_used_at,
+Client = {id, name, role: "admin"|"control"|"viewer", purpose: "phone"|"hub", created_at, last_used_at,
           expires_at, refreshed_at, revoked: bool, expired: bool}
 ```
 
@@ -207,11 +208,17 @@ proof = hex(HMAC-SHA256(key = UTF-8 van sha256(token) als kleine-letter-hex,
 Alleen deze server (die de hash van het token bewaart) en de telefoon (die het token heeft) kunnen dit
 berekenen; het token zelf gaat niet over de lijn. Voor een onbekende `client_id` is `proof` `null`.
 Zonder `nonce` en `client_id` antwoordt de server alleen `{server_id, name}` (gebruikt bij het
-koppelen, waar de app de `server_id` uit de QR-code vergelijkt).
+koppelen, waar de app de `server_id` uit de QR-code vergelijkt). Bij herstel blijft de opgeslagen
+server-ID behouden. Ontbreekt hij in de back-up, dan maakt de hersteltransactie vóór afronding een
+nieuwe aan.
 
 Telefoons die vóór database-update 0002 zijn gekoppeld en nooit een vervaldatum kregen, vervallen
 sinds update 0004 180 dagen na hun laatste gebruik (minstens 30 dagen na de update) en hebben rol
 `control`. Wil je zo'n telefoon weer laten beheren, koppel hem dan opnieuw met rol `admin`.
+Update 0008 kent bestaande koppelingen en koppelcodes het doel `phone` toe. Voor een Hub-proef met
+een oudere koppelcode of koppeling is een nieuwe Hub-koppelcode nodig. Bij update en herstel krijgen
+koppelingen zonder vervaldatum een vaste datum, 180 dagen na aanmaak en hoogstens 180 dagen na de
+update of het herstel. Een koppeling zonder vaststelbare geldigheid krijgt HTTP 401 (`token_expired`).
 
 ## Woningen, overzicht en meldingen
 

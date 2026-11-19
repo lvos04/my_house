@@ -261,8 +261,9 @@ my_house).
 
 ## 6. Hub-adapter: welke bestaande routes de Hub kan gebruiken (connectorcontract §6, enrollment §3)
 
-**Koppelen (bestaat):** gebruiker maakt in my_house een koppelcode met rol `viewer` (`POST /api/v1/pairing/codes`,
-web-admin, vereist een thuisadres) → Hub wisselt in met `POST /api/v1/pairing/redeem {code, device_name}` → token
+**Koppelen (bestaat):** de beheerder maakt via `POST /api/v1/pairing/codes` een code met rol `viewer` en doel `hub`
+(websessie, vereist een thuisadres). De Hub wisselt in met `POST /api/v1/pairing/redeem {code, device_name}`,
+controleert `client.role` en `client.purpose` en bewaart het token
 `shc_…` (180 dagen; vernieuwen met `POST /api/v1/clients/self/refresh`; intrekken in my_house). Serverherkenning:
 `GET /api/v1/pairing/identity?nonce=&client_id=`.
 

@@ -7,7 +7,7 @@ import base64
 import gzip
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -19,7 +19,7 @@ from shc_api import backup as bk
 from shc_api import cli
 from shc_api.config import get_settings
 from shc_api.db import sessionmaker
-from shc_api.models import ApiClient, Integration
+from shc_api.models import ApiClient, Integration, PairingCode, User
 from shc_api.security import SecretBox
 from shc_api.store import get_setting, set_secret_setting, set_setting
 
@@ -124,6 +124,56 @@ async def test_pre_migration_dump_and_refusal_when_dump_fails(tmp_path, monkeypa
         assert "verbinding geweigerd" in str(ei.value)
         assert cli.current_revision(url) == "0001"
         assert not list((tmp_path / "x").glob("*.sql.gz"))
+
+
+async def test_migratie_0008_en_terugzetten_behouden_bestaande_telefoons(tmp_path):
+    from alembic import command
+
+    gebruiker, telefoon, hub, code = (uuid.uuid4() for _ in range(4))
+    aangemaakt = datetime.now(UTC) - timedelta(days=2)
+    vervalt = aangemaakt + timedelta(days=180)
+    async with temp_db("0007") as url:
+        engine = create_async_engine(url, poolclass=NullPool)
+        try:
+            async with engine.begin() as db:
+                await db.execute(User.__table__.insert().values(
+                    id=gebruiker, username="kijker", role="viewer", password_hash=uuid.uuid4().hex,
+                ))
+                await db.execute(text(
+                    "INSERT INTO api_clients (id, user_id, name, token_hash, role, created_at) "
+                    "VALUES (:id, :user, 'Kijktelefoon', :token_hash, 'viewer', :created)"
+                ), {"id": telefoon, "user": gebruiker, "created": aangemaakt, "token_hash": uuid.uuid4().hex})
+                gebruikersrij = await db.scalar(text("SELECT row_to_json(users) FROM users"))
+                telefoonrij = await db.scalar(text("SELECT row_to_json(api_clients) FROM api_clients"))
+            p = tmp_path / "schema0007.shcbak"
+            p.write_bytes(make_v1({"users": [gebruikersrij], "api_clients": [telefoonrij]}, "0007"))
+            dump = await asyncio.to_thread(cli.migrate, url, backup_dir=tmp_path)
+            assert dump is not None and dump.is_file()
+            async with engine.begin() as db:
+                assert (await db.execute(select(ApiClient.purpose, ApiClient.role, ApiClient.expires_at))).one() == (
+                    "phone", "viewer", vervalt,
+                )
+                await db.execute(ApiClient.__table__.insert().values(
+                    id=hub, user_id=gebruiker, name="Hub", token_hash=uuid.uuid4().hex,
+                    role="viewer", purpose="hub", expires_at=vervalt,
+                ))
+                await db.execute(PairingCode.__table__.insert().values(
+                    id=code, user_id=gebruiker, code_hash=uuid.uuid4().hex, role="viewer", purpose="hub",
+                    expires_at=vervalt,
+                ))
+            await asyncio.to_thread(command.downgrade, bk.alembic_config(url), "0007")
+            assert await _scalar(url, "SELECT revoked_at IS NOT NULL FROM api_clients WHERE id = :id", id=hub)
+            assert await _scalar(url, "SELECT used_at IS NOT NULL FROM pairing_codes WHERE id = :id", id=code)
+        finally:
+            await engine.dispose()
+
+    async with temp_db() as doel:
+        rapport = await bk.restore_file(p, PW, url=doel)
+        assert rapport.schema_from == "0007" and rapport.migrated
+        assert rapport.counts["users"] == rapport.counts["api_clients"] == 1
+        assert await _scalar(doel, "SELECT purpose FROM api_clients WHERE id = :id", id=telefoon) == "phone"
+        assert await _scalar(doel, "SELECT expires_at FROM api_clients WHERE id = :id", id=telefoon) == vervalt
+        assert await _scalar(doel, "SELECT username FROM users WHERE id = :id", id=gebruiker) == "kijker"
 
 
 async def test_migration_errors_propagate_from_env_inside_a_running_loop():

@@ -43,7 +43,6 @@ from ..worker.backup_job import (
     run_backup_process,
 )
 from ..worker.backup_job import latest as latest_time
-from .pairing import ensure_server_identity
 
 router = APIRouter(tags=["system"])
 readiness_router = APIRouter()
@@ -793,7 +792,6 @@ async def _run_restore_job(job: dict, path: Path, passphrase: str, mode: str, ma
         await asyncio.to_thread(_remove_upload, path)
         with contextlib.suppress(Exception):  # maintenance off, safe mode on: tell open screens
             async with sessionmaker()() as db:
-                await ensure_server_identity(db)  # Ook oude back-ups kunnen nog zonder server-ID zijn.
                 await publish_status(db)
                 await db.commit()
     except Exception as exc:

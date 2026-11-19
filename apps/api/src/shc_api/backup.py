@@ -63,6 +63,7 @@ from .config import VERSION, get_settings
 from .connector import RESTORED_COMMAND_DETAIL
 from .logfilter import db_error_text
 from .models import Base, Setting
+from .store import ensure_server_identity
 
 log = logging.getLogger(__name__)
 
@@ -1482,6 +1483,12 @@ def _restore_sync(conn, path: Path, passphrase: str, manifest: dict, mode: str, 
     loaded = gate_state(loaded_raw.get("v") if isinstance(loaded_raw, dict) else None)
     merged = restored_gate(prior, loaded, mode, dt.datetime.now(dt.UTC).isoformat())
     _set(conn, KEY, merged)
+    # Een back-up op het huidige schema slaat de datamigratie over. Repareer ongedateerde koppelingen ook hier.
+    conn.execute(text(
+        "UPDATE api_clients SET expires_at = LEAST(created_at, now()) + interval '4320 hours' "
+        "WHERE expires_at IS NULL AND isfinite(created_at)"
+    ))
+    ensure_server_identity(conn)
     _after_restore(conn, manifest, mode, report)
     return merged
 

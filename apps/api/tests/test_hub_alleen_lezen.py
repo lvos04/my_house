@@ -9,11 +9,15 @@ import httpx
 import pytest
 from sqlalchemy import delete, event, func, select
 
-from shc_api import watch
+from shc_api import backup, deps, watch
 from shc_api.config import get_settings
 from shc_api.db import engine, sessionmaker
 from shc_api.models import Alert, ApiClient, AuditLog
 from shc_api.store import get_setting, set_setting
+
+from .conftest import ADMIN_PW
+from .test_ws_backup_format import PW
+from .test_ws_followups import settings_restored
 
 EIGEN_SCHRIJFROUTES = {
     ("POST", "/api/v1/clients/self/refresh"),
@@ -30,8 +34,10 @@ async def koppel(admin, app, monkeypatch):
         await set_setting(db, "lan_url", "http://testwoning.local")
         await db.commit()
 
-    async def nieuw(client, rol="viewer"):
+    async def nieuw(client, rol="viewer", doel="hub"):
         body = {"role": rol}
+        if doel == "hub":
+            body["purpose"] = doel
         r = await admin.post("/pairing/codes", json=body)
         assert r.status_code == 200
         r = await client.post(
@@ -39,7 +45,7 @@ async def koppel(admin, app, monkeypatch):
         )
         assert r.status_code == 200
         data = r.json()
-        assert data["client"]["role"] == rol
+        assert (data["client"]["role"], data["client"]["purpose"]) == (rol, doel)
         return {"Authorization": f"Bearer {data['token']}"}, uuid.UUID(data["client"]["id"])
 
     try:
@@ -134,7 +140,7 @@ async def test_leesroutes_committen_niet_en_laten_meldingen_aan_de_statusbewaker
             await db.commit()
 
 
-async def test_alle_schrijfroutes_weigeren_het_viewer_token(app, admin, koppel):
+async def test_alle_schrijfroutes_weigeren_het_hub_token(app, admin, koppel):
     client, nieuw = koppel
     headers, client_id = await nieuw(client)
     toestand = await _toestand(client_id, "geen-melding")
@@ -150,20 +156,79 @@ async def test_alle_schrijfroutes_weigeren_het_viewer_token(app, admin, koppel):
     assert await _toestand(client_id, "geen-melding") == toestand
 
 
-async def test_viewer_vernieuwt_en_trekt_alleen_de_eigen_koppeling_in(koppel):
+async def test_hub_vernieuwt_en_trekt_alleen_de_eigen_koppeling_in(koppel):
     client, nieuw = koppel
     headers, client_id = await nieuw(client)
-    andere_headers, andere_id = await nieuw(client, "control")
+    andere_headers, andere_id = await nieuw(client, "control", "phone")
     andere_toestand = (await _toestand(andere_id, "geen-melding"))[2]
     response = await client.post("/api/v1/clients/self/refresh", headers=headers)
     assert response.status_code == 200
     vernieuwd = {"Authorization": f"Bearer {response.json()['token']}"}
     assert (await client.get("/api/v1/clients/self", headers=headers)).status_code == 401
     eigen = (await client.get("/api/v1/clients/self", headers=vernieuwd)).json()
-    assert eigen["role"] == "viewer" and eigen["id"] == str(client_id)
+    assert eigen["role"] == "viewer" and eigen["purpose"] == "hub" and eigen["id"] == str(client_id)
     assert (await client.post("/api/v1/auth/password", headers=vernieuwd, json={})).status_code == 403
     assert (await client.delete("/api/v1/clients/self", headers=vernieuwd)).status_code == 204
     geweigerd = await client.get("/api/v1/clients/self", headers=vernieuwd)
     assert geweigerd.status_code == 401 and geweigerd.json()["detail"]["code"] == "token_revoked"
     assert (await _toestand(andere_id, "geen-melding"))[2] == andere_toestand
     assert (await client.get("/api/v1/clients/self", headers=andere_headers)).status_code == 200
+
+
+async def test_kijktelefoon_mag_eigen_wachtwoord_wijzigen_en_hub_niet(admin, koppel):
+    client, nieuw = koppel
+    assert (await admin.post("/pairing/codes", json={"purpose": "hub", "role": "control"})).status_code == 422
+    hub, _ = await nieuw(client)
+    telefoon, _ = await nieuw(client, doel="phone")
+    pad = "/api/v1/auth/password"
+    nieuw_wachtwoord = secrets.token_urlsafe(32)
+    body = {"old_password": ADMIN_PW, "new_password": nieuw_wachtwoord, "keep_phones": True}
+    assert (await client.post(pad, headers=hub, json=body)).status_code == 403
+    assert (await client.post(pad, headers=telefoon, json=body)).status_code == 200
+    body.update(old_password=nieuw_wachtwoord, new_password=ADMIN_PW)
+    assert (await client.post(pad, headers=telefoon, json=body)).status_code == 200
+
+
+async def test_teruggezette_koppelingen_vervallen_zonder_schrijvende_get(koppel, tmp_path, monkeypatch):
+    client, nieuw = koppel
+    oud, oud_id = await nieuw(client)
+    vers, vers_id = await nieuw(client)
+    async with sessionmaker()() as db:
+        koppeling = await db.get(ApiClient, oud_id)
+        koppeling.expires_at = None
+        oorspronkelijke_datum = (await db.get(ApiClient, vers_id)).expires_at
+        await db.commit()
+
+    archief = await backup.run_backup(PW, True, backup_dir=tmp_path)
+    async with settings_restored(
+        "backup_state", "maintenance", "safe_mode", "restored_from", "restore_snapshot", "restore_report",
+        "commissioning_gate",
+    ):
+        herstel = await backup.restore_file(tmp_path / archief["filename"], PW)
+    assert not herstel.migrated
+    async with sessionmaker()() as db:
+        koppeling = await db.get(ApiClient, oud_id)
+        assert koppeling.expires_at == koppeling.created_at + timedelta(days=180)
+        assert (await db.get(ApiClient, vers_id)).expires_at == oorspronkelijke_datum
+
+    class Dag181(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(tz) + timedelta(days=181)
+
+    verbinding = engine().sync_engine
+    commits = []
+    noteer_commit = commits.append
+    event.listen(verbinding, "commit", noteer_commit)
+    try:
+        pad = "/api/v1/clients/self"
+        for headers in (oud, vers):
+            antwoord = await client.get(pad, headers=headers)
+            assert antwoord.status_code == 200 and antwoord.json()["purpose"] == "hub"
+        monkeypatch.setattr(deps, "datetime", Dag181)
+        for headers in (oud, vers):
+            antwoord = await client.get(pad, headers=headers)
+            assert antwoord.status_code == 401 and antwoord.json()["detail"]["code"] == "token_expired"
+    finally:
+        event.remove(verbinding, "commit", noteer_commit)
+    assert commits == []

@@ -8,11 +8,11 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from shc_api import backup as bk
 from shc_api.config import get_settings
-from shc_api.db import sessionmaker
+from shc_api.db import engine, sessionmaker
 from shc_api.models import Alert, BackupRecord, Device
 from shc_api.routers import system
 from shc_api.store import get_setting, set_setting
@@ -234,6 +234,7 @@ async def test_restore_via_upload_verify_apply_and_compare(admin, home, monkeypa
             last_seen=datetime.now(UTC),
         )
         db.add_all([keep, gone])
+        await set_setting(db, "server_id", None)
         await db.commit()
         keep_id, gone_id = keep.id, gone.id
     made = await admin.post("/system/backups", json={"passphrase": PW})
@@ -266,6 +267,25 @@ async def test_restore_via_upload_verify_apply_and_compare(admin, home, monkeypa
     assert job["state"] == "done", job
     assert job["report"]["schema_from"] == bk.head_revision() and job["report"]["mode"] == "same_home"
     assert (await admin.c.get("/api/v1/system/restore/jobs/onbekend")).status_code == 404
+    async with sessionmaker()() as db:
+        server_id = await get_setting(db, "server_id")
+    uuid.UUID(server_id)
+    commits = []
+    verzoektaak = asyncio.current_task()
+
+    def noteer_commit(connection):
+        if asyncio.current_task() is verzoektaak:
+            commits.append(connection)
+
+    verbinding = engine().sync_engine
+    event.listen(verbinding, "commit", noteer_commit)
+    try:
+        for _ in range(2):
+            identiteit = await admin.get("/pairing/identity")
+            assert identiteit.status_code == 200 and identiteit.json()["server_id"] == server_id
+    finally:
+        event.remove(verbinding, "commit", noteer_commit)
+    assert commits == []
 
     # sessions are not part of a backup: log in again
     r = await admin.c.post("/api/v1/auth/login", json={"username": "beheer", "password": ADMIN_PW})

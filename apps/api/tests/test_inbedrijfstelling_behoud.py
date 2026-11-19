@@ -76,7 +76,7 @@ async def seed_and_bytes(url, *, archived=False, seed=False):
                         f"""SELECT to_jsonb(t)->'connector_version' FROM "{table}" t"""  # noqa: S608
                     ))).scalars().all()
                     revision = await conn.scalar(text("SELECT version_num FROM alembic_version"))
-                    assert all(version == (1 if revision == "0007" else None) for version in versions)
+                    assert all(version == (1 if revision in {"0007", "0008"} else None) for version in versions)
                     row += " - 'connector_version'"
                 rows = (await conn.execute(text(
                     f'''SELECT ({row})::text FROM "{table}" t {where}'''  # noqa: S608

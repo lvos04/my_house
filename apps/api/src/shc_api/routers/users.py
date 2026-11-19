@@ -40,7 +40,7 @@ async def user_full(db: DB, u: User) -> dict:
             .where(
                 ApiClient.user_id == u.id,
                 ApiClient.revoked_at.is_(None),
-                (ApiClient.expires_at.is_(None)) | (ApiClient.expires_at > now),
+                ApiClient.has_valid_expiry(now),
             )
         )
     ).scalar_one()

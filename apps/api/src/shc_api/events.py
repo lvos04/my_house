@@ -223,7 +223,7 @@ class Hub:
         items = list(self.clients.items())
         if not items:
             return 0
-        from sqlalchemy import or_, select
+        from sqlalchemy import select
 
         from .db import sessionmaker
         from .models import ApiClient, User
@@ -249,7 +249,7 @@ class Hub:
                     .where(
                         ApiClient.id.in_(client_ids),
                         ApiClient.revoked_at.is_(None),
-                        or_(ApiClient.expires_at.is_(None), ApiClient.expires_at > now),
+                        ApiClient.has_valid_expiry(now),
                         User.disabled.is_(False),
                     )
                 )

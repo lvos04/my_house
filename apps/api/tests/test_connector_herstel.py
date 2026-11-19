@@ -135,7 +135,7 @@ async def test_downgrade_weigert_open_herstel_zonder_bewijs_te_verliezen(proef):
                 pytest.fail("Downgrade toegestaan terwijl herstel naar 20 °C nog openstaat.")
     finally:
         await engine.dispose()
-    assert await sql(url, "SELECT version_num FROM alembic_version") == [("0007",)]
+    assert await sql(url, "SELECT version_num FROM alembic_version") == [(bk.head_revision(),)]
     assert (await proef.evidence(rollback_id))["rollback_status"] == "queued"
     assert proef.unit.state["SetTem"] == 22
 

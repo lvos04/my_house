@@ -318,6 +318,15 @@
             ],
             "title": "Password"
           },
+          "purpose": {
+            "default": "phone",
+            "enum": [
+              "phone",
+              "hub"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          },
           "role": {
             "default": "control",
             "enum": [

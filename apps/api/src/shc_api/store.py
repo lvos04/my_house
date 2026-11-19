@@ -11,7 +11,9 @@ from typing import Any
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from . import events
 from .models import Alert, AuditLog, Device, DeviceBinding, LogicalRole, SensorReading, Setting
@@ -41,6 +43,21 @@ async def get_setting(db: AsyncSession, key: str, default: Any = None) -> Any:
 async def set_setting(db: AsyncSession, key: str, value: Any) -> None:
     stmt = insert(Setting).values(key=key, value={"v": value})
     await db.execute(stmt.on_conflict_do_update(index_elements=[Setting.key], set_={"value": {"v": value}}))
+
+
+def ensure_server_identity(db: Connection | Session) -> str:
+    """Initialiseer de server-ID binnen de schrijftransactie van de aanroeper."""
+    value = Setting.value["v"].astext
+    query = select(value).where(Setting.key == "server_id")
+    sid = db.execute(query).scalar_one_or_none()
+    if sid:
+        return sid
+
+    stmt = insert(Setting).values(key="server_id", value={"v": str(uuid.uuid4())})
+    db.execute(stmt.on_conflict_do_update(
+        index_elements=[Setting.key], set_={"value": stmt.excluded.value}, where=func.nullif(value, "").is_(None)
+    ))
+    return db.execute(query).scalar_one()
 
 
 def _box():

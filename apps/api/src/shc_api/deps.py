@@ -23,7 +23,7 @@ UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
 # Phone tokens expire; the app renews them with POST /clients/self/refresh (verbeterlijst 18).
 CLIENT_TTL = timedelta(days=180)
 CLIENT_ROLES = ("admin", "control", "viewer")
-VIEWER_WRITES = {("POST", "/api/v1/clients/self/refresh"), ("DELETE", "/api/v1/clients/self")}
+HUB_WRITES = {("POST", "/api/v1/clients/self/refresh"), ("DELETE", "/api/v1/clients/self")}
 
 DB = Annotated[AsyncSession, Depends(get_session)]
 
@@ -35,6 +35,7 @@ class Principal:
     client_id: uuid.UUID | None = None
     client_role: str | None = None  # ApiClient.role when via == "token"; any role but admin/control is read-only
     session_id: str | None = None  # Session.id (sha256 of the cookie) when via == "cookie"
+    client_purpose: str | None = None
 
     @property
     def actor(self) -> str:
@@ -78,7 +79,7 @@ async def resolve_principal(
     if bearer and bearer.startswith(TOKEN_PREFIX):
         row = (
             await db.execute(
-                select(ApiClient, User)
+                select(ApiClient, User, ApiClient.has_valid_expiry(now).label("unexpired"))
                 .join(User, User.id == ApiClient.user_id)
                 .where(ApiClient.token_hash == token_hash(bearer))
             )
@@ -87,20 +88,15 @@ async def resolve_principal(
             client: ApiClient = row.ApiClient
             if client.revoked_at is not None:
                 phone_error = "token_revoked"
-            elif client.expires_at is not None and client.expires_at <= now:
+            elif not row.unexpired:
                 phone_error = "token_expired"
             else:
                 if track_use and client.role != "viewer" and (
-                    client.expires_at is None
-                    or not client.last_used_at
-                    or now - client.last_used_at > timedelta(minutes=5)
+                    not client.last_used_at or now - client.last_used_at > timedelta(minutes=5)
                 ):
-                    values: dict = {"last_used_at": now}
-                    if client.expires_at is None:  # paired before tokens expired: start the clock now
-                        values["expires_at"] = now + CLIENT_TTL
-                    await db.execute(update(ApiClient).where(ApiClient.id == client.id).values(**values))
+                    await db.execute(update(ApiClient).where(ApiClient.id == client.id).values(last_used_at=now))
                     await db.commit()
-                return Principal(row.User, "token", client.id, client.role), None
+                return Principal(row.User, "token", client.id, client.role, client_purpose=client.purpose), None
     if cookie:
         sid = token_hash(cookie)
         row = (
@@ -122,10 +118,10 @@ def _bearer(request: HTTPConnection) -> str | None:
     return auth[7:].strip() if auth.lower().startswith("bearer ") else None
 
 
-async def restrict_viewer_writes(request: HTTPConnection, db: DB) -> None:
-    """Blokkeer viewer-tokens ook op routes die zelf geen aanmelding vragen."""
+async def restrict_hub_writes(request: HTTPConnection, db: DB) -> None:
+    """Blokkeer Hub-tokens ook op routes die zelf geen aanmelding vragen."""
     method = request.scope.get("method")
-    if method not in UNSAFE or (method, request.url.path) in VIEWER_WRITES:
+    if method not in UNSAFE or (method, request.url.path) in HUB_WRITES:
         return
     bearer = _bearer(request)
     if not bearer or not bearer.startswith(TOKEN_PREFIX):
@@ -136,7 +132,7 @@ async def restrict_viewer_writes(request: HTTPConnection, db: DB) -> None:
         if exc.status_code != 401:
             raise
         return  # Elke route houdt haar eigen afhandeling voor ontbrekende of ongeldige aanmelding.
-    if principal.client_role == "viewer":
+    if principal.client_purpose == "hub":
         raise api_error(403, "forbidden", "Alleen-lezen toegang.")
 
 
