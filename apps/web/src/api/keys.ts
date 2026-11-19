@@ -33,6 +33,7 @@ export const qk = {
   instructions: (provider: string) => ['instructions', provider] as const,
   alerts: (homeId: string) => ['alerts', homeId] as const,
   system: ['system'] as const,
+  hubPin: ['hubPin'] as const,
   preflight: ['preflight'] as const,
   settings: ['settings'] as const,
   backups: ['backups'] as const,

@@ -151,6 +151,14 @@ van 11–13 px.
 | **Help** (`/help`) | per merk: wat lokaal werkt, eerst in de app van de fabrikant, stap voor stap, foto volgt | `help-*` |
 | **Offline, nooit geladen** | een pagina die nog niet in de cache stond, blijft op "Laden…" staan | `verlichting-offline-nooit-geladen-*` |
 
+**S-P3-745 · Hub-koppeling op Systeem.** Een kaart na Adressen, zichtbaar in de beheerdersweergave.
+De bestaande Peil-formuliervelden, knoppen en meldingen dragen de statussen leeg, laden, fout,
+vastgelegd en rotatie wacht op bevestiging. Het formulier begint met een plakveld. Na controleren
+staan de berekende vingerafdruk en het veld voor de vingerafdruk uit de Hub onder elkaar. Bij een
+sleutelwissel staan de oude en nieuwe waarden erbij. Meldingen vertellen bij het betrokken veld
+wat de beheerder kan herstellen. De Tab-volgorde volgt het formulier. Na controleren gaat de
+focus naar het invoerveld. Het afzonderlijke herstel begint met **Sleutelset herstellen**.
+
 **Bevinding uit de afdrukken (geen ontwerpkeuze, wel relevant):** offline toont een nooit geladen pagina eindeloos
 "Laden…". Peil §9 (offline): *nog nooit opgehaald = Onbekend, geen skelet*. Dat vraagt een kleine codewijziging
 (laadtoestand na de offline-drempel als "Onbekend — nog niet opgehaald; je bent offline" tonen). Dat is gedrag, geen

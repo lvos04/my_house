@@ -649,6 +649,21 @@ krijgt 503 met `detail.code` gelijk aan `database_newer`, ook op de beheerroutes
 De websocket (`/ws`) wordt geaccepteerd en meteen gesloten met sluitcode 1013 en reden
 `database_newer`, zonder bericht. `shc-api migrate` stopt dan met exitcode 3.
 
+### Hub-koppeling
+
+De drie routes vragen een webbeheersessie. Voor POST en PUT geldt ook de CSRF-controle.
+
+| Methode | Pad | Invoer en antwoord |
+|---|---|---|
+| GET | `/system/hub-keys` | `state` is `empty`, `damaged` of `pinned`. Bij `pinned` bevat het antwoord ook `fingerprint` en `sequence`. De `ETag` bindt de status aan de gelezen pin. |
+| POST | `/system/hub-keys/verify` | `{mode, source}` met de gelezen `If-Match` → de berekende `{fingerprint, sequence}`. De controle laat de huidige pin intact. |
+| PUT | `/system/hub-keys` | `{mode, source, fingerprint}` met de gelezen `If-Match` en een UUID als `Idempotency-Key` → de vastgelegde status met nieuwe `ETag`. De vingerafdruk komt uit de Hub. |
+
+`source` is de geplakte JSON. `mode` is `paste` voor de publieke sleutelset, `rotation` voor het
+Hub-antwoord met ondertekende rotatieverklaringen of `recovery` voor herbevestiging bij status
+`damaged`. `sequence` is een decimale tekenreeks, zodat ook grote volgordenummers exact blijven.
+Een gewijzigde pin geeft 412. Een afwijkende vingerafdruk geeft 422 en laat de pin intact.
+
 ### Back-ups
 
 ```

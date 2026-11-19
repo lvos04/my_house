@@ -202,6 +202,25 @@ deze instantie. Start de worker en open de app pas na de beheercontrole en, bij 
 Hub-koppeling, na deze herbevestiging. Houd het Hub-schrijfpad afgeschermd zolang de herbevestiging
 ontbreekt. Bij een installatie zonder Hub-koppeling blijft het schrijfpad uit.
 
+### Hub-sleutelset bevestigen
+
+1. Open als beheerder **Instellingen → Diensten** in de Hub. Kopieer daar de publieke sleutelset.
+2. Open **Systeem → Koppeling met de Hub (bediening)** in my_house. Plak de set en kies **Controleren**.
+3. Vergelijk de berekende vingerafdruk met die in de Hub. Typ de vingerafdruk uit de Hub over en kies **Vastleggen**.
+4. Lees de vastgelegde vingerafdruk en rotatievolgorde af. Gebruik die waarden bij de bevestiging
+   van deze instantie in de Hub.
+
+Voor een ondertekende rotatie kies je **Sleutelrotatie controleren** en plak je de JSON met
+rotatieverklaringen van de Hub. Vergelijk de oude en nieuwe vingerafdruk. De oude set blijft actief
+tot de nieuwe set is bevestigd. Als de Hub alleen een publieke sleutelset levert, gebruik je
+**Opnieuw koppelen**.
+
+Meldt my_house dat de opgeslagen sleutelset beschadigd is, kies dan **Sleutelset herstellen**.
+Bevestig met dezelfde stappen de actuele sleutelset van de vertrouwde Hub. Tot die bevestiging
+weigert my_house ondertekende uitvoeringsverzoeken. Is de sleutelset intussen gewijzigd, lees dan
+de actuele status en begin de controle opnieuw. Na een herstel kunnen nieuwe uitvoeringen
+beginnen voor verzoeken die vanaf de eerste volledige seconde na bevestiging zijn uitgegeven.
+
 ## Herstel oefenen (aanbevolen elk kwartaal)
 
 ```bash

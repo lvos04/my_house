@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import update
 from sqlalchemy.dialects.postgresql import insert
@@ -22,6 +22,7 @@ from .hub_keys import (
     decode_b64url,
     fingerprints_match,
     parse_pasted_keyset,
+    parse_pasted_rotations,
     rotated_keyset,
     utc_seconds,
 )
@@ -64,6 +65,21 @@ class RotationPreview:
     sequence: int
 
 
+PinMode = Literal["paste", "rotation", "recovery"]
+
+
+@dataclass(frozen=True)
+class ManagedPin:
+    etag: str
+    status: PinStatus | None = None
+    damaged: bool = False
+
+    def payload(self) -> dict:
+        if self.status is None:
+            return {"state": "damaged" if self.damaged else "empty"}
+        return {"state": "pinned", "fingerprint": self.status.fingerprint, "sequence": str(self.status.sequence)}
+
+
 @dataclass(frozen=True)
 class VerifiedRequest:
     """Geauthenticeerde inhoud voor de onafhankelijke lokale actiecontroles."""
@@ -91,11 +107,16 @@ def _unavailable():
     return contract_error(501, "capability_unavailable", "Er is geen Hub-sleutelset bevestigd.")
 
 
+def _validated_stored_keyset(pin: ConnectorHubPin) -> HubKeyset:
+    keyset = HubKeyset.from_keys(pin.jwt_keys, pin.policy_keys, pin.rotation_sequence)
+    if keyset.fingerprint != pin.fingerprint:
+        raise ValueError
+    return keyset
+
+
 def _stored_keyset(pin: ConnectorHubPin) -> HubKeyset:
     try:
-        keyset = HubKeyset.from_keys(pin.jwt_keys, pin.policy_keys, pin.rotation_sequence)
-        if keyset.fingerprint != pin.fingerprint:
-            raise ValueError
+        return _validated_stored_keyset(pin)
     except ValueError:
         raise contract_error(
             503,
@@ -103,7 +124,6 @@ def _stored_keyset(pin: ConnectorHubPin) -> HubKeyset:
             "De opgeslagen Hub-sleutelset is onbruikbaar.",
             headers={"Retry-After": "60"},
         ) from None
-    return keyset
 
 
 def _check_fingerprint(keyset: HubKeyset, entered: str) -> None:
@@ -153,28 +173,42 @@ async def confirm_paste(
     replacing: PinStatus | None,
 ) -> PinStatus:
     """Roep alleen aan na beheerderbevestiging van de vingerafdruk. Toon de status na de commit."""
-    try:
-        keyset = parse_pasted_keyset(source)
-    except ValueError:
-        raise contract_error(422, "sleutelset_ongeldig", "De geplakte Hub-sleutelset is ongeldig.") from None
+    keyset = _paste(source)
     _check_fingerprint(keyset, fingerprint)
     old = await _locked_pin(db)
     if _status(old) != replacing:
         raise _pin_changed()
-    if old is not None and keyset.sequence < old.rotation_sequence:
-        current = _stored_keyset(old)
+    _check_paste_sequence(keyset, _stored_keyset(old) if old is not None else None)
+    return await _save_pin(db, keyset, old, _new_accept_from())
+
+
+def _paste(source: str) -> HubKeyset:
+    try:
+        return parse_pasted_keyset(source)
+    except ValueError:
+        raise contract_error(422, "sleutelset_ongeldig", "De geplakte Hub-sleutelset is ongeldig.") from None
+
+
+def _check_paste_sequence(keyset: HubKeyset, current: HubKeyset | None) -> None:
+    if current is not None and keyset.sequence < current.sequence:
         old_keys = {key.x for key in (*current.jwt, *current.policy)}
         if any(key.x in old_keys for key in (*keyset.jwt, *keyset.policy)):
             raise contract_error(
                 409, "rotatievolgorde_ouder", "Gebruik de actuele rotatievolgorde van de gekoppelde Hub."
             )
+
+
+def _new_accept_from() -> datetime:
     # De eerste volledige seconde na bevestiging sluit eerder uitgegeven verzoeken uit, ook na herstel.
-    accept_from = utcnow().replace(microsecond=0) + timedelta(seconds=1)
-    return await _save_pin(db, keyset, old, accept_from)
+    return utcnow().replace(microsecond=0) + timedelta(seconds=1)
 
 
 def _rotation(pin: ConnectorHubPin, items: Any) -> HubKeyset:
     keyset = _stored_keyset(pin)
+    return _rotate(keyset, items)
+
+
+def _rotate(keyset: HubKeyset, items: Any) -> HubKeyset:
     try:
         return rotated_keyset(keyset, items, utcnow())
     except ValueError:
@@ -207,6 +241,67 @@ async def confirm_rotation(
     keyset = _rotation(pin, items)
     _check_fingerprint(keyset, fingerprint)
     return await _save_pin(db, keyset, pin, pin.accept_from)
+
+
+def _managed_pin(pin: ConnectorHubPin | None) -> ManagedPin:
+    row = None if pin is None else [
+        pin.jwt_keys, pin.policy_keys, pin.fingerprint, pin.rotation_sequence, pin.accept_from.isoformat(),
+    ]
+    # De vergelijkingswaarde bindt ook onleesbare rijen aan de momentopname, zonder hun inhoud te tonen.
+    etag = '"' + hashlib.sha256(json.dumps(row, sort_keys=True, separators=(",", ":")).encode()).hexdigest() + '"'
+    if pin is not None:
+        try:
+            _validated_stored_keyset(pin)
+        except ValueError:
+            return ManagedPin(etag, damaged=True)
+    return ManagedPin(etag, _status(pin))
+
+
+async def read_managed_pin(db: AsyncSession) -> ManagedPin:
+    return _managed_pin(await db.get(ConnectorHubPin, 1, populate_existing=True))
+
+
+def _candidate(pin: ConnectorHubPin | None, etag: str | None, mode: PinMode, source: str) -> HubKeyset:
+    if etag is None:
+        raise contract_error(428, "precondition_required", "Haal de actuele sleutelsetstatus op.")
+    current = _managed_pin(pin)
+    if etag != current.etag:
+        raise contract_error(
+            412, "precondition_failed", "De Hub-sleutelset is gewijzigd. Controleer haar opnieuw.",
+            huidige_etag=current.etag,
+        )
+    if current.damaged != (mode == "recovery"):
+        raise contract_error(
+            409, "sleutelset_herstel_gewijzigd", "Haal de actuele status op en kies de bijbehorende handeling."
+        )
+    if mode == "rotation":
+        if pin is None:
+            raise _unavailable()
+        try:
+            items = parse_pasted_rotations(source)
+        except ValueError:
+            items = None
+        return _rotation(pin, items)
+    keyset = _paste(source)
+    if mode == "paste" and pin is not None:
+        _check_paste_sequence(keyset, _stored_keyset(pin))
+    return keyset
+
+
+async def preview_managed_pin(db: AsyncSession, etag: str | None, mode: PinMode, source: str) -> HubKeyset:
+    pin = await db.get(ConnectorHubPin, 1, populate_existing=True)
+    return _candidate(pin, etag, mode, source)
+
+
+async def save_managed_pin(
+    db: AsyncSession, etag: str | None, mode: PinMode, source: str, fingerprint: str,
+) -> ManagedPin:
+    pin = await _locked_pin(db)
+    keyset = _candidate(pin, etag, mode, source)
+    _check_fingerprint(keyset, fingerprint)
+    accept_from = pin.accept_from if mode == "rotation" and pin is not None else _new_accept_from()
+    await _save_pin(db, keyset, pin, accept_from)
+    return await read_managed_pin(db)
 
 
 def _canonical(value: Any) -> bytes:
@@ -344,31 +439,10 @@ async def process_request(
         if pin is None:
             raise _unavailable()
         body, digest, issued, expires, nonce = _signed_content(request, _stored_keyset(pin))
-        if idempotency_key is None:
-            raise contract_error(400, "idempotency_key_required", "De header Idempotency-Key ontbreekt.")
-        try:
-            key = _uuid(idempotency_key, header=True)
-        except ValueError:
-            raise contract_error(
-                400, "idempotency_key_invalid", "De header Idempotency-Key moet een UUID zijn."
-            ) from None
-
-        reserve = (
-            insert(IdempotencyKey)
-            .values(scope=scope, key=key, request_hash=digest)
-            .on_conflict_do_nothing()
-            .returning(IdempotencyKey.key)
-        )
-        if await db.scalar(reserve) is None:
-            stored = await db.get(IdempotencyKey, (scope, key), populate_existing=True)
-            assert stored is not None
-            if stored.request_hash != digest:
-                raise contract_error(
-                    422, "idempotency_key_reused", "Deze idempotentiesleutel hoort bij een ander verzoek."
-                )
-            if stored.response_status is None or stored.response_body is None:
-                raise contract_error(409, "idempotency_in_progress", "Dit verzoek is nog in behandeling.")
-            return stored.response_status, stored.response_body, True
+        key, stored = await reserve_idempotency(db, scope, idempotency_key, digest)
+        if stored is not None:
+            status, response = stored
+            return status, response, True
 
         _check_times(issued, expires, pin.accept_from)
         consume = insert(ConnectorNonce).values(nonce=nonce).on_conflict_do_nothing().returning(ConnectorNonce.nonce)
@@ -381,9 +455,42 @@ async def process_request(
         proposal.pop("risk_claim", None)
         verified = VerifiedRequest(proposal, body["approval"], decision["risk_class"], decision["policy_hash"])
         status, response = await operation(db, verified)
-        await db.execute(
-            update(IdempotencyKey)
-            .where(IdempotencyKey.scope == scope, IdempotencyKey.key == key)
-            .values(response_status=status, response_body=response)
-        )
+        await record_idempotency(db, scope, key, status, response)
         return status, response, False
+
+
+async def reserve_idempotency(
+    db: AsyncSession, scope: str, header: str | None, digest: bytes,
+) -> tuple[uuid.UUID, tuple[int, dict[str, Any]] | None]:
+    if header is None:
+        raise contract_error(400, "idempotency_key_required", "De header Idempotency-Key ontbreekt.")
+    try:
+        key = _uuid(header, header=True)
+    except ValueError:
+        raise contract_error(400, "idempotency_key_invalid", "De header Idempotency-Key moet een UUID zijn.") from None
+
+    reserve = (
+        insert(IdempotencyKey)
+        .values(scope=scope, key=key, request_hash=digest)
+        .on_conflict_do_nothing()
+        .returning(IdempotencyKey.key)
+    )
+    if await db.scalar(reserve) is not None:
+        return key, None
+    stored = await db.get(IdempotencyKey, (scope, key), populate_existing=True)
+    assert stored is not None
+    if stored.request_hash != digest:
+        raise contract_error(422, "idempotency_key_reused", "Deze idempotentiesleutel hoort bij een ander verzoek.")
+    if stored.response_status is None or stored.response_body is None:
+        raise contract_error(409, "idempotency_in_progress", "Dit verzoek is nog in behandeling.")
+    return key, (stored.response_status, stored.response_body)
+
+
+async def record_idempotency(
+    db: AsyncSession, scope: str, key: uuid.UUID, status: int, response: dict[str, Any],
+) -> None:
+    await db.execute(
+        update(IdempotencyKey)
+        .where(IdempotencyKey.scope == scope, IdempotencyKey.key == key)
+        .values(response_status=status, response_body=response)
+    )

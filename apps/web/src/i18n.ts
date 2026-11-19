@@ -198,6 +198,7 @@ export const AUDIT_ACTION_LABEL: Dict = {
   device_calibrated: 'Apparaat gekalibreerd',
   device_tested_probe: 'Apparaat getest (uitlezen)',
   device_marked_tested: 'Apparaat als getest gemarkeerd',
+  hub_keys_confirmed: 'Hub-sleutelset vastgelegd',
   commissioning_gate_enabled: COMMISSIONING_GATE_ENABLED_LABEL.nl,
   schedule_updated: 'Schema aangepast',
   zone_policy_updated: 'Regelgrenzen aangepast',

@@ -155,6 +155,10 @@ def parse_pasted_keyset(source: str) -> HubKeyset:
     return HubKeyset.from_keys(jwks.get("keys"), policy, data.get("rotation_sequence", 0))
 
 
+def parse_pasted_rotations(source: str) -> Any:
+    return _read_object(source).get("items")
+
+
 def rotated_keyset(current: HubKeyset, items: Any, now: datetime) -> HubKeyset:
     if not isinstance(items, list) or not items:
         raise ValueError("Er ontbreekt een rotatieverklaring.")

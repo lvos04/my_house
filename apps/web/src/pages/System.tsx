@@ -9,6 +9,7 @@ import { StatusSection, VersionCard } from './system/Status';
 import { AddressSettings, Homes, NotifySettings, SafeModeCard } from './system/Settings';
 import { BackupsSection } from './system/Backups';
 import { RestoreSection } from './system/Restore';
+import { HubKeysSection } from './system/HubKeys';
 
 // Kept here for existing imports (tests, other pages).
 export { PairingQr } from './account/Phones';
@@ -50,6 +51,7 @@ export function SystemPage() {
       {can.admin ? (
         <>
           <AddressSettings />
+          <HubKeysSection />
           <BackupsSection />
           <NotifySettings />
           <RestoreSection safeMode={safeMode} />

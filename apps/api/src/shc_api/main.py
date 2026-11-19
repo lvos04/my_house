@@ -31,6 +31,7 @@ from .routers import (
     devices,
     energy,
     homes,
+    hub_key_management,
     lights,
     optimization,
     pairing,
@@ -46,6 +47,8 @@ API_PREFIX = "/api/v1"
 # Restore uploads may be large (contract C6); everything else is small JSON.
 UPLOAD_PREFIX = f"{API_PREFIX}/system/restore"
 COMMISSIONING_PREFIX = f"{API_PREFIX}{commissioning.router.prefix}"
+HUB_KEYS_PREFIX = f"{API_PREFIX}{hub_key_management.router.prefix}"
+CONTRACT_PREFIXES = (COMMISSIONING_PREFIX, HUB_KEYS_PREFIX)
 CONTRACT_BODY_LIMIT = 1 << 20
 log = logging.getLogger(__name__)
 
@@ -54,6 +57,10 @@ SLEUTEL_TE_KORT_TEKST = (
     "SHC_SECRET_KEY of SHC_SECRET_KEY_FILE is te kort (minimaal 32 tekens). Genereer er een met: "
     "python -c 'import secrets;print(secrets.token_urlsafe(48))'"
 )
+
+
+def _is_contract_route(path: str) -> bool:
+    return any(path == prefix or path.startswith(prefix + "/") for prefix in CONTRACT_PREFIXES)
 
 
 def check_secret_key() -> None:
@@ -166,7 +173,7 @@ class BodyLimitMiddleware:
             await self.app(scope, receive, send)
             return
         path = scope.get("path", "")
-        contract = path == COMMISSIONING_PREFIX or path.startswith(COMMISSIONING_PREFIX + "/")
+        contract = _is_contract_route(path)
         s = get_settings()
         limit = s.max_upload_bytes if path.startswith(UPLOAD_PREFIX) else s.max_body_bytes
         if contract:
@@ -309,7 +316,8 @@ class AuditMiddleware:
 
 # Every router, included under API_PREFIX (tests enumerate routes through this, not app.routes).
 ROUTERS = (
-    auth, users, pairing, homes, zones, profiles, lights, energy, devices, commissioning, optimization, system, ws,
+    auth, users, pairing, homes, zones, profiles, lights, energy, devices, commissioning, optimization, system,
+    hub_key_management, ws,
 )
 
 
@@ -362,17 +370,17 @@ def create_app() -> FastAPI:
     async def _database_error(req: Request, exc: Exception) -> PlainTextResponse | JSONResponse:
         """Log soort, sqlstate, constraint en tabel (KLEIN-37).
 
-        Inbedrijfstelling geeft een contractfout bij een onbereikbare database. De bestaande HTTP-routes
+        De nieuwe contractroutes geven een contractfout bij een onbereikbare database. De bestaande HTTP-routes
         behouden hun platte 500-antwoord. Websockets geven de uitzondering door.
         """
         if req.scope.get("type") != "http":
             raise exc
         route = route_template(req.scope)
-        commissioning_route = route == COMMISSIONING_PREFIX or route.startswith(COMMISSIONING_PREFIX + "/")
-        if not commissioning_route and not isinstance(exc, DBAPIError):
+        contract_route = _is_contract_route(route)
+        if not contract_route and not isinstance(exc, DBAPIError):
             raise exc
         log.error("Onverwachte databasefout bij %s %s: %s", req.method, route, db_error_text(exc))
-        if commissioning_route:
+        if contract_route:
             return JSONResponse(
                 problem("dependency_unavailable", "De database is tijdelijk niet beschikbaar."),
                 status_code=503,

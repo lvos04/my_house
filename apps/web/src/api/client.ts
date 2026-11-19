@@ -300,16 +300,27 @@ async function commissioningPreview<R>(path: string, onAccessDenied?: () => void
   return { data, etag };
 }
 
-async function confirmCommissioning(path: string, etag: string, extra: Record<string, unknown> = {}) {
+function mutationId(): string {
   // getRandomValues werkt ook op de lokale ontwikkel-URL zonder TLS.
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
   const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-  const key = [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
+  return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
+}
+
+async function confirmCommissioning(path: string, etag: string, extra: Record<string, unknown> = {}) {
   return commissioningRequest('POST', path, {
-    body: { ...extra, confirmed: true }, headers: { 'If-Match': etag, 'Idempotency-Key': key },
+    body: { ...extra, confirmed: true }, headers: { 'If-Match': etag, 'Idempotency-Key': mutationId() },
   });
+}
+
+async function hubPinRequest(method: 'GET' | 'PUT', body?: T.HubPinInput & { fingerprint: string }, etag?: string) {
+  const preconditions = etag ? { 'If-Match': etag, 'Idempotency-Key': mutationId() } : undefined;
+  const { data, headers } = await requestWithHeaders<T.HubPinState>(method, '/system/hub-keys', body, preconditions);
+  const version = headers.get('ETag');
+  if (!version) throw new Error('De server gaf geen versie voor deze sleutelset.');
+  return { data, etag: version };
 }
 
 /* ---------- upload with progress (restore) ---------- */
@@ -462,6 +473,11 @@ export const api = {
   /* status */
   health: () => get<T.Health>('/health'),
   systemStatus: () => get<T.SystemStatus>('/system/status'),
+  hubPin: () => hubPinRequest('GET'),
+  verifyHubPin: async (input: T.HubPinInput, etag: string) => (
+    await requestWithHeaders<T.HubPinCandidate>('POST', '/system/hub-keys/verify', input, { 'If-Match': etag })
+  ).data,
+  confirmHubPin: (input: T.HubPinInput & { fingerprint: string }, etag: string) => hubPinRequest('PUT', input, etag),
   preflight: () => get<T.Preflight>('/system/preflight'),
 
   /* climate */

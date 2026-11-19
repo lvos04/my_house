@@ -4,6 +4,18 @@
 export type Ts = string; // ISO-8601 UTC
 export type Uuid = string;
 
+export interface HubPinCandidate {
+  fingerprint: string;
+  sequence: string;
+}
+
+export type HubPinState = { state: 'empty' | 'damaged' } | ({ state: 'pinned' } & HubPinCandidate);
+
+export interface HubPinInput {
+  mode: 'paste' | 'rotation' | 'recovery';
+  source: string;
+}
+
 /* ------------------------------------------------------------------ errors */
 
 /** `{"detail": {...}}` body of every API error (also nginx's own 503/413/429 answers). */

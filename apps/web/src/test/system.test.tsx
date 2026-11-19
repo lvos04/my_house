@@ -43,6 +43,7 @@ const retention: RetentionSettings = {
 };
 
 function systemRoutes(m: string, url: string, body: unknown) {
+  if (url.endsWith('/system/hub-keys')) return { body: { state: 'empty' }, headers: { etag: '"leeg"' } };
   if (url.endsWith('/system/status')) return { body: status };
   if (url.endsWith('/system/settings')) return { body: { lan_url: null, remote_url: null, safe_mode: false, maintenance: false } };
   if (url.endsWith('/system/backup-settings') && m === 'GET') return { body: settings };
