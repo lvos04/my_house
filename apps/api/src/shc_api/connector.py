@@ -303,6 +303,10 @@ def _candidate(pin: ConnectorHubPin | None, etag: str | None, mode: PinMode, sou
         _check_paste_sequence(keyset, _stored_keyset(pin))
     elif keyset.sequence < pin.rotation_sequence:
         raise _older_sequence()
+    elif keyset.sequence > pin.rotation_sequence:
+        raise contract_error(
+            422, "sleutelset_ongeldig", "Gebruik bij herstel de laatst vastgelegde rotatievolgorde van de Hub."
+        )
     return keyset
 
 

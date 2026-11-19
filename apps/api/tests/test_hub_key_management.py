@@ -191,11 +191,14 @@ async def test_beschadigde_pin_herstellen_uit_nieuwe_sessie_en_vervanging_detect
     assert response == (202, {"status": "simulatie"}, False)
 
 
-@pytest.mark.parametrize("sequence", [None, 0, 1], ids=["Hub-kopie", "oudere-volgorde", "actuele-volgorde"])
+@pytest.mark.parametrize(
+    "sequence", [None, 0, 1, 2], ids=["Hub-kopie", "oudere-volgorde", "actuele-volgorde", "hogere-volgorde"],
+)
 async def test_herstel_bewaakt_rotatievolgorde(pins, sequence):
     source, fingerprint, old_policy = keyset()
     etag = await install(pins, source, fingerprint)
-    current_policy = jwk(Ed25519PrivateKey.generate(), "policy-nieuw")
+    signer = Ed25519PrivateKey.generate()
+    current_policy = jwk(signer, "policy-nieuw")
     item = rotation(old_policy, "policy", 1, "policy", add=[current_policy], retire=["policy"])
     clipboard = {**json.loads(source), "policy_public_key": current_policy}
     if sequence is not None:
@@ -219,8 +222,18 @@ async def test_herstel_bewaakt_rotatievolgorde(pins, sequence):
     if sequence == 1:
         assert checked.status_code == saved.status_code == 200
         assert after.json() == {"state": "pinned", "sequence": "1", "fingerprint": current_fingerprint}
+        next_policy = jwk(Ed25519PrivateKey.generate(), "policy-volgend")
+        next_item = rotation(signer, "policy-nieuw", 2, "policy", add=[next_policy], retire=["policy-nieuw"])
+        next_fingerprint = parse_pasted_keyset(json.dumps({**clipboard, "policy_public_key": next_policy})).fingerprint
+        next_rotation = {"mode": "rotation", "source": json.dumps({"items": [next_item]})}
+        pending = await preview(pins, after.headers["etag"], next_rotation)
+        assert pending.status_code == 200
+        assert pending.json() == {"sequence": "2", "fingerprint": next_fingerprint}
+        confirmed = await put(pins, after.headers["etag"], {**next_rotation, "fingerprint": next_fingerprint})
+        assert confirmed.status_code == 200
+        assert confirmed.json() == {"state": "pinned", "sequence": "2", "fingerprint": next_fingerprint}
     else:
-        assert checked.status_code == saved.status_code == (422 if sequence is None else 409)
+        assert checked.status_code == saved.status_code == (409 if sequence == 0 else 422)
         assert after.json() == {"state": "damaged"}
         assert after.headers["etag"] == damaged_etag
 
