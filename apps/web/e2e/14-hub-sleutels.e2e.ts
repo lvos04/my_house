@@ -47,7 +47,7 @@ test('beheerder vergelijkt, pint en roteert de sleutelset via Systeem', async ({
 
   await copyField.fill(initial.toLowerCase().replaceAll('-', ' ').replaceAll('0', 'o').replaceAll('1', 'l'));
   await copyField.press('Enter');
-  await expect(card.getByText('Vastgelegde vingerafdruk')).toBeVisible();
+  await expect(card.getByText('Vastgelegde vingerafdruk', { exact: true })).toBeVisible();
   await expect(sourceField).toHaveCount(0);
   await card.getByRole('button', { name: 'Opnieuw koppelen' }).click();
   await expect(sourceField).toHaveValue('');
