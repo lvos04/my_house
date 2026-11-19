@@ -25,7 +25,7 @@ services:
       lan: {}
 
   fake-gree:
-    image: ${SHC_IMAGE_PREFIX:-ghcr.io/lvos04/my_house}-api:${SHC_VERSION:-latest}
+    image: ${SHC_IMAGE_PREFIX:-ghcr.io/lvos04/my_house}-api:${SHC_VERSION:-0.2.0@sha256:ad76e117d73a919ef01e7aac0149f738a39c704d7d4b8de85cb17b029aebffd7}
     entrypoint: ["python", "/e2e/fake_gree_unit.py"]
     user: "10001:10001"
     read_only: true

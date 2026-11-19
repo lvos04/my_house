@@ -59,6 +59,7 @@ updates:
     directories:
       - /apps/api
       - /apps/web
+      - /deploy/allinone
     schedule:
       interval: weekly
     ignore:

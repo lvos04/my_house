@@ -1,4 +1,4 @@
-"""Gerichte containerproeven voor S-P3-720. Aanroep: python3 ... <lokale-image>."""
+"""Containerproeven voor de Custom App. Aanroep: python3 ... <lokale-image>."""
 
 import gzip
 import json
@@ -8,10 +8,47 @@ import sys
 import textwrap
 import time
 from contextlib import ExitStack
+from pathlib import Path
 from uuid import uuid4
 
 PYTHON = ("/opt/venv/bin/python", "-IBu")
 HEALTH = (*PYTHON, "-m", "shc_allinone.healthcheck")
+ROOKSCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "smoke_test.py"
+ROOKPROEF = """
+import sys
+from shc_allinone.runtime import NGINX_HEALTH
+
+sys.argv[1:1] = ["--base", NGINX_HEALTH.removesuffix("/healthz")]
+exec(compile(sys.stdin.buffer.read(), "smoke_test.py", "exec"))
+"""
+HEALTH_ZONDER_WISSEL = (*PYTHON, "-c", """
+from shc_allinone import healthcheck
+
+# Alleen deze exec-proef slaat de rechtenwissel over.
+healthcheck.drop_privileges = lambda: None
+raise SystemExit(healthcheck.main(["--toon-rechten"]))
+""")
+API_GESTOPT = """
+import signal
+import time
+from shc_allinone import supervisor
+
+# Laat nginx draaien tijdens de opzettelijke uitval van de proef-API.
+def watch(self, directory, config, password, zigbee):
+    self.start_services(directory, config, password, zigbee)
+    try:
+        api = self.children["api"]
+        api.terminate()
+        assert api.wait(timeout=15) in (0, -signal.SIGTERM)
+        print("Proef-API gestopt; nginx draait door.", flush=True)
+        while not self.stopping:
+            time.sleep(0.25)
+    finally:
+        self.shutdown()
+
+supervisor.Supervisor.watch = watch
+raise SystemExit(supervisor.main())
+"""
 PG = ("-XAtq", "-v", "ON_ERROR_STOP=1", "-U", "apps", "-h", "/appdata/postgres")
 ZOEK_REVISIE = "SELECT version_num FROM alembic_version"
 GROEPSPROEF = (
@@ -170,10 +207,10 @@ SELECT value FROM settings WHERE key = 's_p3_720';
 """
 
 
-def docker(*args, content=None, check=True):
+def docker(*args, content=None, check=True, timeout=45):
     return subprocess.run(  # noqa: S603 - alleen deze lokale Docker-proef
         ["docker", *args],  # noqa: S607 - Docker uit het lokale testpad
-        input=content, capture_output=True, check=check, timeout=45,
+        input=content, capture_output=True, check=check, timeout=timeout,
     )
 
 
@@ -191,7 +228,7 @@ class Trial:
     def __init__(self, image, cleanup):
         self.image = image
         self.cleanup = cleanup
-        self.prefix = "my-house-s-p3-720-" + uuid4().hex[:10]
+        self.prefix = "my-house-s-p3-725-" + uuid4().hex[:10]
 
     def storage(self, label):
         volume = f"{self.prefix}-{label}"
@@ -211,8 +248,8 @@ class Trial:
         return name
 
     @staticmethod
-    def exec(name, *cmd, content=None, check=True, user="568"):
-        return docker("exec", "-i", "--user", user, name, *cmd, content=content, check=check)
+    def exec(name, *cmd, content=None, check=True, user="568", timeout=45):
+        return docker("exec", "-i", "--user", user, name, *cmd, content=content, check=check, timeout=timeout)
 
     @staticmethod
     def logs(name):
@@ -280,10 +317,44 @@ class Trial:
             if pid == "1":
                 assert not status["Groups"] or status["Groups"] == ["568"]
 
-        result = self.exec(name, *HEALTH, "--toon-rechten", user="0" if root else "568")
+        self.healthcheck_rights(name, root=root)
+
+    def healthcheck_rights(self, name, *, root, probe=(*HEALTH, "--toon-rechten")):
+        result = self.exec(name, *probe, user="0" if root else "568")
         health_rights = dict((key, value.split()) for key, value in
                              (line.split(":", 1) for line in result.stdout.decode().splitlines()))
         self.identity(health_rights, root, {"568"})
+
+    def healthcheck_without_drop(self, name):
+        try:
+            self.healthcheck_rights(name, root=True, probe=HEALTH_ZONDER_WISSEL)
+        except AssertionError:
+            print("Rechtenproef zonder wissel: geweigerd.", flush=True)
+        else:
+            raise AssertionError("De rechtenproef liet een healthcheck zonder wissel door.")
+        self.healthcheck_rights(name, root=True)
+        print("Rechtenproef met herstelde wissel: gebruiker 568.", flush=True)
+
+    def smoke(self, name, *args):
+        result = self.exec(
+            name, *PYTHON, "-c", ROOKPROEF, *args, content=ROOKSCRIPT.read_bytes(), check=False, timeout=360,
+        )
+        print(result.stdout.decode().rstrip(), flush=True)
+        assert result.returncode == 0, result.stderr.decode().rstrip()
+
+    def smoke_on_clean_storage(self):
+        # De rooktest maakt een beheerder en woning; de migratieproef gebruikt haar eigen gegevens.
+        name = self.container("rooktest", self.storage("rooktest"), user="568")
+        self.healthy(name)
+        self.smoke(name, "--zonder-zigbee")
+        docker("stop", name)
+
+    def unavailable(self):
+        name = self.container("api-uit", self.storage("api-uit"), entrypoint=(*PYTHON, "-c", API_GESTOPT))
+        within(lambda: b"Proef-API gestopt; nginx draait door." in self.logs(name), "De proef-API stopte niet.")
+        self.smoke(name, "--expect-unavailable")
+        assert self.exec(name, *HEALTH, check=False).returncode == 1
+        docker("stop", name)
 
     def listeners(self, name):
         rows = self.exec(name, *PYTHON, "-c", LUISTERAARS).stdout.decode().splitlines()
@@ -452,6 +523,7 @@ key.with_suffix(".proef").unlink()
         self.backup(name, zigbee=zigbee)
         if root and not zigbee:
             self.exec(name, *PYTHON, "-c", PROXYPROEF)
+            self.healthcheck_without_drop(name)
         docker("restart", name, "--time", "10")
         self.healthy(name)
         assert all(self.file(name, path) == value for path, value in values.items())
@@ -639,10 +711,12 @@ def main():
         trial.installed(root=True)
         upgrade_volume = trial.installed(root=False)
         trial.installed(root=True, zigbee=True)
+        trial.smoke_on_clean_storage()
+        trial.unavailable()
         trial.direct_device()
         trial.zigbee_file_boundary()
         trial.migration(upgrade_volume)
-    print("Containerproeven S-P3-720 afgerond.")
+    print("Containerproeven voor de Custom App afgerond.")
 
 
 if __name__ == "__main__":

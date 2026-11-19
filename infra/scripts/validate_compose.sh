@@ -55,6 +55,23 @@ done
 # The test-only additions for the browser tests (infra/e2e/compose.e2e.yaml) still merge cleanly.
 check "compose.yaml + infra/e2e/compose.e2e.yaml" \
   env SHC_ROOT="$ROOT" docker compose -f "$COMPOSE" -f "$HERE/e2e/compose.e2e.yaml" config -q
+check "ontwikkelstandaarden gepind, E2E gebruikt dezelfde API-image" bash -o pipefail -c \
+  'env -u SHC_IMAGE_PREFIX -u SHC_VERSION SHC_ROOT="$1" SHC_ZIGBEE_DEVICE=/dev/null \
+     docker compose --env-file /dev/null --profile "*" -f "$2" -f "$3" config --format json \
+     | python3 -c "$4"' \
+  _ "$ROOT" "$COMPOSE" "$HERE/e2e/compose.e2e.yaml" \
+  'import json, re, sys
+s = json.load(sys.stdin)["services"]
+assert all(re.search(r"@sha256:[0-9a-f]{64}$", service["image"]) for service in s.values())
+assert s["api"]["image"] == s["worker"]["image"] == s["fake-gree"]["image"]'
+check "CI-overschrijvingen kiezen de lokaal gebouwde API en web" bash -o pipefail -c \
+  'SHC_ROOT="$1" SHC_IMAGE_PREFIX=shc SHC_VERSION=ci \
+     docker compose -f "$2" -f "$3" config --format json | python3 -c "$4"' \
+  _ "$ROOT" "$COMPOSE" "$HERE/e2e/compose.e2e.yaml" \
+  'import json, sys
+s = json.load(sys.stdin)["services"]
+assert all(s[name]["image"] == "shc-api:ci" for name in ("api", "worker", "fake-gree"))
+assert s["web"]["image"] == "shc-web:ci"'
 
 # The push-address fallback (verbeterlijst 28) reaches api and worker from the environment; the
 # TrueNAS render leaves it empty (set it in the app there: it is stored encrypted, not in the YAML).

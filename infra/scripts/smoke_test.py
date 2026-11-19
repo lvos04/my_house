@@ -5,8 +5,8 @@
     smoke_test.py --base http://127.0.0.1:8088 --expect-unavailable   (with the api container stopped)
 
 Checks: health, cache headers, first-time setup, home creation, the live connection (WebSocket)
-on a non-default port, a backup made through the API (including the Zigbee2MQTT files that
-install.sh always creates), the body-size limit, the login rate limit and, optionally, the tunnel
+on a non-default port, a backup made through the API (use --zonder-zigbee for a Custom App
+with no Zigbee storage), the body-size limit, the login rate limit and, optionally, the tunnel
 path (X-Forwarded-Proto/CF-Connecting-IP only trusted from cloudflared).
 Prints the backup file name on the last line (or writes it to --backup-file-out).
 """
@@ -177,10 +177,19 @@ def expect_unavailable(base: str) -> None:
     check(status == 200, "de app zelf blijft bereikbaar terwijl de API weg is")
 
 
-def check_z2m_in_backup(rec: dict) -> None:
-    """install.sh always writes zigbee2mqtt/configuration.yaml and secret.yaml (group 10001 may read),
-    so the backup the API made as uid 10001 must contain them, also without --profile zigbee."""
+def check_z2m_in_backup(rec: dict, *, expected: bool = True) -> None:
+    """Controleer of de back-up de verwachte Zigbee-opslag bevat.
+
+    In Compose legt install.sh de bestanden aan, ook zonder het zigbee-profiel.
+    De Custom App zonder apparaat hoort te melden dat er geen Zigbee-opslag is gekoppeld.
+    """
     z2m = (rec.get("detail") or {}).get("zigbee2mqtt") or {}
+    if not expected:
+        check(
+            rec.get("zigbee2mqtt_included") is False and z2m.get("mounted") is False,
+            "Geen Zigbee2MQTT-opslag in de back-up (afwezige Zigbee2MQTT-opslag verwacht)",
+        )
+        return
     if rec.get("zigbee2mqtt_included") is True:
         check(True, f"Zigbee2MQTT-gegevens in de back-up ({z2m.get('files', '?')} bestanden)")
         return
@@ -246,7 +255,7 @@ def run(args) -> str:
         _s, _h, rows = c.request("GET", "/api/v1/system/backups")
         rec = next((r for r in rows if r["id"] == rec["id"]), rec)
     check(rec.get("status") == "ok", f"back-up klaar: {rec.get('filename')} ({rec.get('size_bytes')} bytes)")
-    check_z2m_in_backup(rec)
+    check_z2m_in_backup(rec, expected=not args.zonder_zigbee)
 
     status, _h, body = c.request("POST", "/api/v1/auth/login", raw=b"x" * (2 * 1024 * 1024),
                                  headers={"Content-Type": "application/json"})  # fmt: skip
@@ -297,6 +306,7 @@ def main(argv: list[str] | None = None) -> int:
         help="backup passphrase (or SHC_SMOKE_PASSPHRASE)",
     )
     ap.add_argument("--backup-file-out", help="write the backup file name here")
+    ap.add_argument("--zonder-zigbee", action="store_true", help="verwacht afwezige Zigbee2MQTT-opslag")
     ap.add_argument("--expect-unavailable", action="store_true", help="only check the answers while the API is down")
     ap.add_argument("--edge-network", help="docker network 'edge' to test the tunnel path from")
     ap.add_argument("--tunnel-ip", default="172.30.250.2")
@@ -308,6 +318,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.expect_unavailable:
             expect_unavailable(args.base)
+            print("API niet beschikbaar: nginx geeft de verwachte antwoorden.")
             return 0
         name = run(args)
     except Fail as exc:

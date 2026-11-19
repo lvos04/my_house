@@ -5,7 +5,7 @@ name: Release
 #             and, alongside it, the Android unit tests plus the signed APK (apk job)
 #   → versioned images (provenance + SBOM, signed with cosign) → GitHub release v<VERSION>.
 # Nothing is pushed or published unless every CI job and the Android unit tests passed, so a
-# failing test never leaves version/latest images behind without a release. Does nothing if that
+# failing test never leaves versioned images behind without a release. Does nothing if that
 # release already exists.
 on:
   push:
@@ -57,7 +57,7 @@ jobs:
       contents: read
 
   images:
-    # apk too: the images (and "latest") are only pushed once the Android tests and APK build passed.
+    # Publicatie wacht ook op de Android-tests en APK-build.
     needs: [prepare, ci, apk]
     runs-on: ubuntu-24.04
     permissions:
@@ -100,7 +100,6 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
           tags: |
             ${{ steps.p.outputs.prefix }}-api:${{ needs.prepare.outputs.version }}
-            ${{ steps.p.outputs.prefix }}-api:latest
       - id: web
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -115,7 +114,6 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
           tags: |
             ${{ steps.p.outputs.prefix }}-web:${{ needs.prepare.outputs.version }}
-            ${{ steps.p.outputs.prefix }}-web:latest
       # Signed by digest (exactly what was pushed; a tag can move): the multi-arch index that the
       # tags point to. Verified right away with the identity users check against.
       - name: Sign the images (cosign, keyless)
@@ -138,6 +136,14 @@ jobs:
             echo "- \`$WEB_IMAGE\`"
             echo "Identiteit: \`$identity\`"
           } >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p release
+          jq -n --arg api "$API_IMAGE" --arg web "$WEB_IMAGE" '{api: $api, web: $web}' > release/digests.json
+      - name: Bewaar de ondertekende imageverwijzingen
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-digests
+          path: release/digests.json
+          if-no-files-found: error
 
   # Android unit tests (always, verbeterlijst 41) and the signed APK (when the release key is set).
   # Runs next to the CI: it only uploads a workflow artifact, nothing is published before "images"

@@ -1,10 +1,5 @@
-# Smart Home Control — complete stack.
-#
-# Linux:   sudo infra/scripts/install.sh /srv/smart-home
-#          SHC_ROOT=/srv/smart-home SHC_VERSION=$(cat VERSION) docker compose -f infra/compose/compose.yaml up -d
-#          optional parts: add --profile zigbee and/or --profile tunnel
-# TrueNAS: render one YAML for Apps › Discover › Install via YAML with
-#          python3 infra/scripts/render_truenas.py --root /mnt/<pool>/apps/smart-home [--with zigbee,tunnel]
+# Smart Home Control — stack voor ontwikkeling, CI en E2E.
+# Gebruik SHC_ROOT voor de lokale proefopslag. De profielen zigbee en tunnel zijn optioneel.
 #
 # Everything persistent lives under ${SHC_ROOT}; nothing depends on this host, IP or NAS path.
 #
@@ -51,9 +46,10 @@ x-app-env: &app-env
   TZ: ${TZ:-Europe/Amsterdam}
 
 # api and worker run the same image as uid 10001 (owner of app/ and backups/).
+# Standaard de versie uit de releasenotities met digest. CI zet prefix en versie expliciet.
 x-app: &app
   <<: *common
-  image: ${SHC_IMAGE_PREFIX:-ghcr.io/lvos04/my_house}-api:${SHC_VERSION:-latest}
+  image: ${SHC_IMAGE_PREFIX:-ghcr.io/lvos04/my_house}-api:${SHC_VERSION:-0.2.0@sha256:ad76e117d73a919ef01e7aac0149f738a39c704d7d4b8de85cb17b029aebffd7}
   environment: *app-env
   secrets: [db_password, secret_key, mqtt_shc_password]
   volumes:
@@ -89,7 +85,7 @@ networks:
 services:
   db:
     <<: *common
-    image: postgres:16.15-alpine3.24
+    image: postgres:16.15-alpine3.24@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
     # Runs directly as the image's postgres user (uid 70): no root step, no capabilities needed.
     # install.sh gives postgres/ to 70:70 (mode 0700) and makes secrets/db_password readable for it.
     user: "70:70"
@@ -152,7 +148,7 @@ services:
 
   web:
     <<: *common
-    image: ${SHC_IMAGE_PREFIX:-ghcr.io/lvos04/my_house}-web:${SHC_VERSION:-latest}
+    image: ${SHC_IMAGE_PREFIX:-ghcr.io/lvos04/my_house}-web:${SHC_VERSION:-0.2.0@sha256:9f37f6643de62b9924b5ffaf79412b8e89488f7e869ebe7ebe8cb934948aa79a}
     environment:
       API_UPSTREAM: api:8000
       TUNNEL_IP: ${SHC_NET_PREFIX:-172.30}.250.2
@@ -175,7 +171,7 @@ services:
 
   mosquitto:
     <<: *common
-    image: eclipse-mosquitto:2.0.22
+    image: eclipse-mosquitto:2.0.22@sha256:81a6193ae693942a3231cd3ac52875b02b7e3a19da671b2fb4b55cc874c5b279
     user: "1883:1883"
     volumes:
       - ${SHC_ROOT:-./data}/mosquitto/config:/mosquitto/config:ro
@@ -195,7 +191,7 @@ services:
   zigbee2mqtt:
     <<: *common
     profiles: ["zigbee"]
-    image: koenkk/zigbee2mqtt:2.14.3
+    image: koenkk/zigbee2mqtt:2.14.3@sha256:fb4a6b0f6868ad1cd6a9996479802b2420e599c3463b62bbff8c8cd9a908f43a
     # Plain user 1000; the serial device is reachable through the dialout group.
     user: "1000:1000"
     group_add: ["dialout"]
@@ -222,7 +218,7 @@ services:
   cloudflared:
     <<: *common
     profiles: ["tunnel"]
-    image: cloudflare/cloudflared:2026.10.7
+    image: cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
     command: ["tunnel", "--no-autoupdate", "run", "--token-file", "/run/secrets/tunnel_token"]
     environment:
       TUNNEL_METRICS: 127.0.0.1:20241

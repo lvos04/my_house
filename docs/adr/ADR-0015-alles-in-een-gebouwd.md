@@ -1,6 +1,6 @@
 # ADR-0015 — Alles-in-één-image voor my_house
 
-- **Status** Gebouwd in S-P3-720, de volledige rooktest volgt in S-P3-725.
+- **Status** Image gebouwd in S-P3-720. CI-rooktest en digestcontrole toegevoegd in S-P3-725.
 - **Bronnen** ADR-0004, besluit 6 zoals ingevuld door Z-17, en PLATFORM_CONTRACTEN.md §2.2.
 
 ## Start en opslag
@@ -24,3 +24,7 @@ De volledige back-up neemt de Zigbee-map op wanneer die aanwezig is. Een geredig
 ## Validatiegrens
 
 De containerproeven in `infra/tests/allinone_container.py` gebruiken een lokaal nep-apparaat en een gevulde proefdatabase. Installatie als standaard Custom App en leesrechten op de echte dongle zijn **NIET GEVALIDEERD (echte NAS)**. De echte Zigbee-dongle is **NIET GEVALIDEERD (hardware)**. Zie D01, D13 en N-P6-06. Het manifest en de veldbeschrijving volgen in S-P3-755.
+
+De CI-job `allinone` draait de HTTP-rooktest binnen de proefcontainer zonder apparaat. De test controleert onder meer de WebSocket, de back-up zonder Zigbee-opslag en de antwoorden van nginx nadat de API is gestopt. Bij de proef met het nep-apparaat controleert de suite dat de aparte back-upproef Zigbee-opslag bevat. De browserjob `e2e` levert het browserbewijs met de testgegevens en procesbesturing van de bestaande runner.
+
+De ontwikkel-Compose gebruikt vaste digests als standaard. Voor eigen builds kan de stack een expliciete `SHC_IMAGE_PREFIX` en `SHC_VERSION` krijgen. CI controleert iedere externe Dockerfile-basisimage op een vaste digest. De release- en edge-workflows schrijven de ondertekende API- en webverwijzingen naar `release/digests.json` en bewaren dat bestand als workflowartefact `release-digests`. Bij een nieuwe standaardversie horen de API- en webdigests in de ontwikkel-Compose en de API-digest in de E2E-overlay bij dezelfde publicatie.

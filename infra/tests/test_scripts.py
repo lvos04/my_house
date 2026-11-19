@@ -113,10 +113,10 @@ class NtpServerOption(unittest.TestCase):
 
 
 class Zigbee2mqttInBackup(unittest.TestCase):
-    def quiet(self, rec: dict) -> str:
+    def quiet(self, rec: dict, **kwargs) -> str:
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            smoke_test.check_z2m_in_backup(rec)
+            smoke_test.check_z2m_in_backup(rec, **kwargs)
         return out.getvalue()
 
     def test_included(self) -> None:
@@ -166,6 +166,18 @@ class Zigbee2mqttInBackup(unittest.TestCase):
             with self.subTest(rec=rec), self.assertRaises(smoke_test.Fail) as ctx:
                 self.quiet(rec)
             self.assertIn("geen uitleg van de API", str(ctx.exception))
+
+    def test_zonder_apparaat_is_afwezige_opslag_verwacht(self) -> None:
+        rec = {"zigbee2mqtt_included": False, "detail": {"zigbee2mqtt": {"mounted": False}}}
+        self.assertIn("Geen Zigbee2MQTT-opslag in de back-up", self.quiet(rec, expected=False))
+
+    def test_zonder_apparaat_weigert_ontbrekend_bewijs_of_aanwezige_opslag(self) -> None:
+        for included, mounted in ((None, False), (True, True), (False, True), (False, None)):
+            rec = {"zigbee2mqtt_included": included, "detail": {"zigbee2mqtt": {"mounted": mounted}}}
+            with self.subTest(included=included, mounted=mounted), self.assertRaisesRegex(
+                smoke_test.Fail, "afwezige Zigbee2MQTT-opslag"
+            ):
+                self.quiet(rec, expected=False)
 
 
 # HUB_URL for "Terug naar de Hub" (contract 1.3 §3.2 and §2.3 rule 5). Shared by the shell script test below and,

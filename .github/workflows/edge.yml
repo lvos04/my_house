@@ -92,3 +92,11 @@ jobs:
             echo "- \`$WEB_IMAGE\`"
             echo "Identiteit: \`$identity\`"
           } >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p release
+          jq -n --arg api "$API_IMAGE" --arg web "$WEB_IMAGE" '{api: $api, web: $web}' > release/digests.json
+      - name: Bewaar de ondertekende imageverwijzingen
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-digests
+          path: release/digests.json
+          if-no-files-found: error
