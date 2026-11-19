@@ -145,14 +145,15 @@ def fingerprints_match(expected: str, entered: Any) -> bool:
     )
 
 
-def parse_pasted_keyset(source: str) -> HubKeyset:
+def parse_pasted_keyset(source: str, *, require_sequence: bool = False) -> HubKeyset:
     data = _read_object(source)
     jwks, policy = data.get("jwks"), data.get("policy_public_key")
     if not isinstance(jwks, dict):
         raise ValueError("De geplakte Hub-sleutelset bevat geen JWKS-object.")
     if isinstance(policy, dict):
         policy = [policy]
-    return HubKeyset.from_keys(jwks.get("keys"), policy, data.get("rotation_sequence", 0))
+    sequence = data.get("rotation_sequence", None if require_sequence else 0)
+    return HubKeyset.from_keys(jwks.get("keys"), policy, sequence)
 
 
 def parse_pasted_rotations(source: str) -> Any:

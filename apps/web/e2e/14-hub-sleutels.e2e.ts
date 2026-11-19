@@ -104,6 +104,45 @@ test('kijker ziet de Hub-koppeling nergens op Systeem', async ({ api, browser, b
   }
 });
 
+test('de open Hub-kaart sluit na rolverlies zonder herladen', async ({ api, browser, baseURL }) => {
+  await api.login(ADMIN);
+  const username = 'hub-rol-' + unique();
+  const account = await api.send<{ id: string }>('POST', '/users', {
+    username, password: VIEWER.password, role: 'admin',
+  });
+  const context = await browser.newContext({ baseURL });
+  try {
+    const other = new Api(context);
+    await other.login({ username, password: VIEWER.password });
+    const jwt = testKey('jwt');
+    const policy = testKey('policy');
+    const source = JSON.stringify({ jwks: { keys: [jwt.jwk] }, policy_public_key: policy.jwk });
+    const page = await context.newPage();
+    await page.goto('/systeem');
+    const card = page.getByRole('region', { name: title });
+    if ((await other.get(path)).state === 'pinned') {
+      await card.getByRole('button', { name: 'Opnieuw koppelen' }).click();
+    }
+    const sourceField = card.getByLabel(/Publieke sleutelset/);
+    await expect(sourceField).toHaveValue('');
+    await sourceField.fill(source);
+    const before = await api.get(path);
+    await api.send('PATCH', '/users/' + account.id, { role: 'viewer' });
+    expect((await other.get('/auth/me')).role).toBe('viewer');
+
+    const response = page.waitForResponse(r => r.url().endsWith(path + '/verify'));
+    await card.getByRole('button', { name: 'Controleren' }).click();
+    expect((await response).status()).toBe(403);
+    await expect(card).toHaveCount(0);
+    await expect(sourceField).toHaveCount(0);
+    await expect(page.getByText('Instellingen, back-ups en herstellen zijn alleen beschikbaar voor beheerders.')).toBeVisible();
+    expect(await api.get(path)).toEqual(before);
+  } finally {
+    await context.close();
+    await api.send('DELETE', '/users/' + account.id);
+  }
+});
+
 test('Hub-koppeling in Peil op zes breedtes in licht en donker', async ({ adminPage: page, api }) => {
   const jwt = testKey('jwt');
   const policy = testKey('policy');

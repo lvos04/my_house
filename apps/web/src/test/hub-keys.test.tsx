@@ -1,8 +1,12 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { useQuery } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
+import { api } from '../api/client';
+import { qk } from '../api/keys';
 import { SystemPage } from '../pages/System';
-import { mockApi, Providers, viewer } from './helpers';
+import { UserContext } from '../user';
+import { admin, mockApi, newClient, Providers, viewer } from './helpers';
 
 const title = 'Koppeling met de Hub (bediening)';
 const path = '/system/hub-keys';
@@ -76,4 +80,73 @@ it('opent bij schade alleen na de expliciete herstelhandeling een plakveld', asy
   expect(card.queryByRole('textbox')).toBeNull();
   await user.click(recover);
   expect(card.getByLabelText(/Publieke sleutelset/)).toHaveFocus();
+});
+
+function SystemWithRefreshedRole() {
+  const me = useQuery({ queryKey: qk.me, queryFn: api.me, staleTime: Infinity });
+  return <UserContext.Provider value={me.data ?? admin}><SystemPage /></UserContext.Provider>;
+}
+
+it.each(['GET', 'POST', 'PUT'])('wist invoer en pinstatus en ververst de rol bij HTTP 403 op %s', async (deniedMethod) => {
+  const client = newClient();
+  const denied = { status: 403, body: { code: 'forbidden', message: 'Alleen een beheerder mag dit doen.' } };
+  let role = admin;
+  const calls = mockApi((method, url) => {
+    if (url.endsWith('/auth/me')) return { body: role };
+    if (url.endsWith(path) && method === 'GET') return deniedMethod === 'GET' ? denied : { body: old, headers };
+    if (url.endsWith(path + '/verify')) return deniedMethod === 'POST' ? denied : { body: next };
+    if (url.endsWith(path) && method === 'PUT') return denied;
+  });
+  if (deniedMethod === 'GET') role = { ...viewer, id: admin.id };
+  const user = userEvent.setup();
+  // Houd bij GET de bestaande rol vast totdat de geweigerde kaartstatus de rol ververst.
+  client.setQueryData(qk.me, admin);
+  render(<Providers client={client}><SystemWithRefreshedRole /></Providers>);
+  const region = screen.getByRole('region', { name: title });
+  const card = within(region);
+  if (deniedMethod !== 'GET') {
+    await user.click(await card.findByRole('button', { name: 'Opnieuw koppelen' }));
+    await user.type(card.getByLabelText(/Publieke sleutelset/), 'geplakte proeftekst');
+    if (deniedMethod === 'POST') role = { ...viewer, id: admin.id };
+    await user.click(card.getByRole('button', { name: 'Controleren' }));
+    if (deniedMethod === 'PUT') {
+      await user.type(await card.findByLabelText(/Vingerafdruk uit de Hub/), next.fingerprint);
+      role = { ...viewer, id: admin.id };
+      await user.click(card.getByRole('button', { name: 'Vastleggen' }));
+    }
+  }
+  await waitFor(() => expect(calls.some(c => c.method === deniedMethod && c.url.includes(path))).toBe(true));
+  await waitFor(() => expect(region).not.toBeInTheDocument());
+  expect(client.getQueryData(qk.hubPin)).toBeUndefined();
+  await waitFor(() => expect(client.getQueryData(qk.me)).toEqual(role));
+  expect(calls.filter(c => c.url.endsWith('/auth/me'))).toHaveLength(1);
+});
+
+it('laat een vertraagde bevestiging de gewiste pinstatus na een rolwisseling niet opnieuw vullen', async () => {
+  const client = newClient();
+  mockApi((method, url) => {
+    if (url.endsWith(path) && method === 'GET') return { body: old, headers };
+    if (url.endsWith(path + '/verify')) return { body: next };
+  });
+  let finish!: (result: Awaited<ReturnType<typeof api.confirmHubPin>>) => void;
+  const confirm = vi.spyOn(api, 'confirmHubPin').mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const user = userEvent.setup();
+  const system = (account: typeof admin) => <Providers user={account} client={client}><SystemPage /></Providers>;
+  const { rerender } = render(system(admin));
+  try {
+    const card = within(screen.getByRole('region', { name: title }));
+    await user.click(await card.findByRole('button', { name: 'Opnieuw koppelen' }));
+    await user.type(card.getByLabelText(/Publieke sleutelset/), 'geplakte proeftekst');
+    await user.click(card.getByRole('button', { name: 'Controleren' }));
+    await user.type(await card.findByLabelText(/Vingerafdruk uit de Hub/), next.fingerprint);
+    await user.click(card.getByRole('button', { name: 'Vastleggen' }));
+    expect(confirm).toHaveBeenCalledOnce();
+    rerender(system({ ...viewer, id: admin.id }));
+    expect(screen.queryByRole('region', { name: title })).toBeNull();
+    await waitFor(() => expect(client.getQueryData(qk.hubPin)).toBeUndefined());
+    await act(async () => finish({ data: { ...next, state: 'pinned' }, etag: 'later' }));
+    expect(client.getQueryData(qk.hubPin)).toBeUndefined();
+  } finally {
+    confirm.mockRestore();
+  }
 });

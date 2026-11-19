@@ -661,8 +661,13 @@ De drie routes vragen een webbeheersessie. Voor POST en PUT geldt ook de CSRF-co
 
 `source` is de geplakte JSON. `mode` is `paste` voor de publieke sleutelset, `rotation` voor het
 Hub-antwoord met ondertekende rotatieverklaringen of `recovery` voor herbevestiging bij status
-`damaged`. `sequence` is een decimale tekenreeks, zodat ook grote volgordenummers exact blijven.
-Een gewijzigde pin geeft 412. Een afwijkende vingerafdruk geeft 422 en laat de pin intact.
+`damaged`. Herstel vereist in `source` de actuele `rotation_sequence` uit de Hub als expliciet
+JSON-geheel getal. Een ontbrekende of ongeldige volgorde geeft 422 en een volgorde onder de
+opgeslagen waarde geeft 409. In beide gevallen blijft de pin beschadigd.
+`sequence` in het antwoord is een decimale tekenreeks, zodat ook grote volgordenummers exact blijven.
+Een gewijzigde pin geeft 412 met de actuele ETag in `details.huidige_etag`. Dit geldt ook als een
+andere bevestiging ondertussen de eerste pin heeft vastgelegd. Een afwijkende vingerafdruk geeft
+422 en laat de pin intact.
 
 ### Back-ups
 

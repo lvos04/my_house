@@ -315,9 +315,14 @@ async function confirmCommissioning(path: string, etag: string, extra: Record<st
   });
 }
 
-async function hubPinRequest(method: 'GET' | 'PUT', body?: T.HubPinInput & { fingerprint: string }, etag?: string) {
+async function hubPinRequest(
+  method: 'GET' | 'PUT', body?: T.HubPinInput & { fingerprint: string }, etag?: string,
+  onAccessDenied?: () => void, signal?: AbortSignal,
+) {
   const preconditions = etag ? { 'If-Match': etag, 'Idempotency-Key': mutationId() } : undefined;
-  const { data, headers } = await requestWithHeaders<T.HubPinState>(method, '/system/hub-keys', body, preconditions);
+  const { data, headers } = await requestWithHeaders<T.HubPinState>(
+    method, '/system/hub-keys', body, preconditions, signal, onAccessDenied,
+  );
   const version = headers.get('ETag');
   if (!version) throw new Error('De server gaf geen versie voor deze sleutelset.');
   return { data, etag: version };
@@ -473,11 +478,15 @@ export const api = {
   /* status */
   health: () => get<T.Health>('/health'),
   systemStatus: () => get<T.SystemStatus>('/system/status'),
-  hubPin: () => hubPinRequest('GET'),
-  verifyHubPin: async (input: T.HubPinInput, etag: string) => (
-    await requestWithHeaders<T.HubPinCandidate>('POST', '/system/hub-keys/verify', input, { 'If-Match': etag })
+  hubPin: (onAccessDenied?: () => void, signal?: AbortSignal) =>
+    hubPinRequest('GET', undefined, undefined, onAccessDenied, signal),
+  verifyHubPin: async (input: T.HubPinInput, etag: string, onAccessDenied?: () => void) => (
+    await requestWithHeaders<T.HubPinCandidate>(
+      'POST', '/system/hub-keys/verify', input, { 'If-Match': etag }, undefined, onAccessDenied,
+    )
   ).data,
-  confirmHubPin: (input: T.HubPinInput & { fingerprint: string }, etag: string) => hubPinRequest('PUT', input, etag),
+  confirmHubPin: (input: T.HubPinInput & { fingerprint: string }, etag: string, onAccessDenied?: () => void) =>
+    hubPinRequest('PUT', input, etag, onAccessDenied),
   preflight: () => get<T.Preflight>('/system/preflight'),
 
   /* climate */

@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from sqlalchemy import delete
+from sqlalchemy import delete, func, select
 from starlette.exceptions import HTTPException
 
 from shc_api import connector
@@ -15,7 +15,7 @@ from shc_api.hub_keys import parse_pasted_keyset
 from shc_api.models import ConnectorHubPin
 
 from .conftest import ADMIN_PW, Session
-from .test_connector_verificatie import apply, b64, canonical, envelope, forbidden_operation, iso, jwk, pasted
+from .test_connector_verificatie import apply, b64, canonical, envelope, forbidden_operation, iso, jwk, pasted, rotation
 from .test_ws_security_auth import PW, _user
 
 PATH = "/system/hub-keys"
@@ -164,7 +164,7 @@ async def test_beschadigde_pin_herstellen_uit_nieuwe_sessie_en_vervanging_detect
         damaged = await session.get(PATH)
         assert damaged.json() == {"state": "damaged"}
         assert damaged.headers["etag"] == stale
-        data = {"mode": "recovery", "source": source}
+        data = {"mode": "recovery", "source": json.dumps({**json.loads(source), "rotation_sequence": 0})}
         assert (await preview(session, stale, {**data, "mode": "paste"})).status_code == 409
         assert (await preview(session, stale, data)).json()["fingerprint"] == fingerprint
         assert (await put(session, stale, {**data, "fingerprint": "0000"})).status_code == 422
@@ -189,3 +189,65 @@ async def test_beschadigde_pin_herstellen_uit_nieuwe_sessie_en_vervanging_detect
 
     response = await apply(sessions, envelope(policy, issued=after, expires=after + timedelta(minutes=1)), simulate)
     assert response == (202, {"status": "simulatie"}, False)
+
+
+@pytest.mark.parametrize("sequence", [None, 0, 1], ids=["Hub-kopie", "oudere-volgorde", "actuele-volgorde"])
+async def test_herstel_bewaakt_rotatievolgorde(pins, sequence):
+    source, fingerprint, old_policy = keyset()
+    etag = await install(pins, source, fingerprint)
+    current_policy = jwk(Ed25519PrivateKey.generate(), "policy-nieuw")
+    item = rotation(old_policy, "policy", 1, "policy", add=[current_policy], retire=["policy"])
+    clipboard = {**json.loads(source), "policy_public_key": current_policy}
+    if sequence is not None:
+        clipboard["rotation_sequence"] = sequence
+    clipboard_text = json.dumps(clipboard)
+    current_fingerprint = parse_pasted_keyset(clipboard_text).fingerprint
+    rotated = await put(pins, etag, {
+        "mode": "rotation", "source": json.dumps({"items": [item]}), "fingerprint": current_fingerprint,
+    })
+    assert rotated.status_code == 200 and rotated.json()["sequence"] == "1"
+    async with sessionmaker().begin() as db:
+        (await db.get(ConnectorHubPin, 1)).fingerprint = "beschadigd"
+    status = await pins.get(PATH)
+    assert status.json() == {"state": "damaged"}
+
+    damaged_etag = status.headers["etag"]
+    repair = {"mode": "recovery", "source": clipboard_text}
+    checked = await preview(pins, damaged_etag, repair)
+    saved = await put(pins, damaged_etag, {**repair, "fingerprint": current_fingerprint})
+    after = await pins.get(PATH)
+    if sequence == 1:
+        assert checked.status_code == saved.status_code == 200
+        assert after.json() == {"state": "pinned", "sequence": "1", "fingerprint": current_fingerprint}
+    else:
+        assert checked.status_code == saved.status_code == (422 if sequence is None else 409)
+        assert after.json() == {"state": "damaged"}
+        assert after.headers["etag"] == damaged_etag
+
+
+async def test_gelijktijdige_eerste_pin_houdt_het_http_contract(pins, monkeypatch):
+    etag = (await pins.get(PATH)).headers["etag"]
+    barrier = asyncio.Barrier(2)
+    save = connector._save_pin
+
+    async def synchronized(db, keyset, old, accept_from, **kwargs):
+        assert old is None
+        await asyncio.wait_for(barrier.wait(), timeout=5)
+        return await save(db, keyset, old, accept_from, **kwargs)
+
+    monkeypatch.setattr(connector, "_save_pin", synchronized)
+    candidates = [
+        {"mode": "paste", "source": source, "fingerprint": fingerprint}
+        for source, fingerprint, _ in (keyset(), keyset())
+    ]
+    winner, loser = sorted(
+        await asyncio.gather(*(put(pins, etag, candidate) for candidate in candidates)),
+        key=lambda response: response.status_code,
+    )
+    current = await pins.get(PATH)
+    assert current.json() == winner.json()
+    assert (winner.status_code, loser.status_code) == (200, 412)
+    assert loser.json()["code"] == "precondition_failed"
+    assert loser.json()["details"]["huidige_etag"] == current.headers["etag"] == winner.headers["etag"]
+    async with sessionmaker()() as db:
+        assert await db.scalar(select(func.count()).select_from(ConnectorHubPin)) == 1

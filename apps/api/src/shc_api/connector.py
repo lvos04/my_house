@@ -135,6 +135,13 @@ def _pin_changed():
     return contract_error(409, "sleutelset_gewijzigd", "De Hub-sleutelset is gewijzigd. Controleer haar opnieuw.")
 
 
+def _managed_pin_changed(current: ManagedPin):
+    return contract_error(
+        412, "precondition_failed", "De Hub-sleutelset is gewijzigd. Controleer haar opnieuw.",
+        huidige_etag=current.etag,
+    )
+
+
 async def _locked_pin(db: AsyncSession, *, read: bool = False) -> ConnectorHubPin | None:
     # De hersteltransactie neemt deze installatielock exclusief, vóór de tabellen.
     await lock_commissioning_shared(db)
@@ -146,6 +153,8 @@ async def _save_pin(
     keyset: HubKeyset,
     old: ConnectorHubPin | None,
     accept_from: datetime,
+    *,
+    managed: bool = False,
 ) -> PinStatus:
     values = {
         "jwt_keys": [key.jwk() for key in keyset.jwt],
@@ -157,6 +166,8 @@ async def _save_pin(
     if old is None:
         stmt = insert(ConnectorHubPin).values(id=1, **values).on_conflict_do_nothing().returning(ConnectorHubPin.id)
         if await db.scalar(stmt) is None:
+            if managed:
+                raise _managed_pin_changed(await read_managed_pin(db))
             raise _pin_changed()
     else:
         for field, value in values.items():
@@ -182,20 +193,26 @@ async def confirm_paste(
     return await _save_pin(db, keyset, old, _new_accept_from())
 
 
-def _paste(source: str) -> HubKeyset:
+def _paste(source: str, *, require_sequence: bool = False) -> HubKeyset:
     try:
-        return parse_pasted_keyset(source)
+        return parse_pasted_keyset(source, require_sequence=require_sequence)
     except ValueError:
-        raise contract_error(422, "sleutelset_ongeldig", "De geplakte Hub-sleutelset is ongeldig.") from None
+        message = (
+            "Plak een geldige publieke Hub-sleutelset met de actuele rotatievolgorde."
+            if require_sequence else "De geplakte Hub-sleutelset is ongeldig."
+        )
+        raise contract_error(422, "sleutelset_ongeldig", message) from None
+
+
+def _older_sequence():
+    return contract_error(409, "rotatievolgorde_ouder", "Gebruik de actuele rotatievolgorde van de gekoppelde Hub.")
 
 
 def _check_paste_sequence(keyset: HubKeyset, current: HubKeyset | None) -> None:
     if current is not None and keyset.sequence < current.sequence:
         old_keys = {key.x for key in (*current.jwt, *current.policy)}
         if any(key.x in old_keys for key in (*keyset.jwt, *keyset.policy)):
-            raise contract_error(
-                409, "rotatievolgorde_ouder", "Gebruik de actuele rotatievolgorde van de gekoppelde Hub."
-            )
+            raise _older_sequence()
 
 
 def _new_accept_from() -> datetime:
@@ -266,10 +283,7 @@ def _candidate(pin: ConnectorHubPin | None, etag: str | None, mode: PinMode, sou
         raise contract_error(428, "precondition_required", "Haal de actuele sleutelsetstatus op.")
     current = _managed_pin(pin)
     if etag != current.etag:
-        raise contract_error(
-            412, "precondition_failed", "De Hub-sleutelset is gewijzigd. Controleer haar opnieuw.",
-            huidige_etag=current.etag,
-        )
+        raise _managed_pin_changed(current)
     if current.damaged != (mode == "recovery"):
         raise contract_error(
             409, "sleutelset_herstel_gewijzigd", "Haal de actuele status op en kies de bijbehorende handeling."
@@ -282,9 +296,13 @@ def _candidate(pin: ConnectorHubPin | None, etag: str | None, mode: PinMode, sou
         except ValueError:
             items = None
         return _rotation(pin, items)
-    keyset = _paste(source)
-    if mode == "paste" and pin is not None:
+    keyset = _paste(source, require_sequence=mode == "recovery")
+    if pin is None:
+        return keyset
+    if mode == "paste":
         _check_paste_sequence(keyset, _stored_keyset(pin))
+    elif keyset.sequence < pin.rotation_sequence:
+        raise _older_sequence()
     return keyset
 
 
@@ -300,7 +318,7 @@ async def save_managed_pin(
     keyset = _candidate(pin, etag, mode, source)
     _check_fingerprint(keyset, fingerprint)
     accept_from = pin.accept_from if mode == "rotation" and pin is not None else _new_accept_from()
-    await _save_pin(db, keyset, pin, accept_from)
+    await _save_pin(db, keyset, pin, accept_from, managed=True)
     return await read_managed_pin(db)
 
 

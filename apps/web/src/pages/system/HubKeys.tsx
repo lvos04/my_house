@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api } from '../../api/client';
 import { qk } from '../../api/keys';
@@ -15,7 +15,31 @@ function normalizedFingerprint(value: string) {
 
 export function HubKeysSection() {
   const queryClient = useQueryClient();
-  const status = useQuery({ queryKey: qk.hubPin, queryFn: api.hubPin, gcTime: 0, refetchOnWindowFocus: false, retry: false });
+  const [denied, setDenied] = useState(false);
+
+  function closeCard() {
+    setDenied(true);
+    queryClient.removeQueries({ queryKey: qk.hubPin, exact: true });
+    void queryClient.invalidateQueries({ queryKey: qk.me, exact: true });
+    void queryClient.invalidateQueries({ queryKey: qk.auth, exact: true });
+  }
+
+  return denied ? null : <HubKeysCard onAccessDenied={closeCard} />;
+}
+
+function HubKeysCard({ onAccessDenied }: { onAccessDenied: () => void }) {
+  const queryClient = useQueryClient();
+  const active = useRef(false);
+  function revokeAccess() {
+    if (!active.current) return;
+    active.current = false;
+    onAccessDenied();
+  }
+
+  const status = useQuery({
+    queryKey: qk.hubPin, queryFn: ({ signal }) => api.hubPin(revokeAccess, signal),
+    gcTime: 0, refetchOnWindowFocus: false, retry: false,
+  });
   const canAct = useCanAct();
   const [mode, setMode] = useState<HubPinInput['mode'] | null>(null);
   const [source, setSource] = useState('');
@@ -29,6 +53,12 @@ export function HubKeysSection() {
   const fingerprintField = useRef<HTMLInputElement>(null);
   const pin = status.isError ? undefined : status.data?.data;
   const formMode = mode ?? (pin?.state === 'empty' ? 'paste' : null);
+
+  // Systeem verwijdert de kaart als de rol wijzigt. Een lopend antwoord mag de pinstatus dan niet terugzetten.
+  useLayoutEffect(() => {
+    active.current = true;
+    return () => { active.current = false; };
+  }, []);
 
   // De eerste laadactie laat de focus staan. Een bewust geopend formulier begint bij het plakveld.
   useEffect(() => {
@@ -54,7 +84,7 @@ export function HubKeysSection() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canAct || busy || !formMode || !status.data || !source.trim()) return;
+    if (!active.current || !canAct || busy || !formMode || !status.data || !source.trim()) return;
     if (candidate && normalizedFingerprint(fingerprint) !== normalizedFingerprint(candidate.fingerprint)) {
       setFieldError('fingerprint');
       setProblem(fingerprintError);
@@ -72,18 +102,22 @@ export function HubKeysSection() {
     const input = { mode: formMode, source };
     try {
       if (candidate) {
-        const result = await api.confirmHubPin({ ...input, fingerprint }, candidate.etag);
+        const result = await api.confirmHubPin({ ...input, fingerprint }, candidate.etag, revokeAccess);
+        if (!active.current) return;
         queryClient.setQueryData(qk.hubPin, result);
         reset();
       } else {
         const { etag } = status.data;
-        setCandidate({ ...await api.verifyHubPin(input, etag), etag });
+        const result = await api.verifyHubPin(input, etag, revokeAccess);
+        if (active.current) setCandidate({ ...result, etag });
       }
     } catch (error) {
+      if (!active.current) return;
       if (error instanceof ApiError && (error.status === 412 ||
         ['sleutelset_gewijzigd', 'sleutelset_herstel_gewijzigd'].includes(error.code))) {
         reset();
         await status.refetch();
+        if (!active.current) return;
       }
       if (error instanceof ApiError && error.code === 'vingerafdruk_verschilt') {
         setFieldError('fingerprint');
@@ -95,7 +129,7 @@ export function HubKeysSection() {
         setProblem(error instanceof ApiError ? error.message : 'De sleutelset kon niet worden gecontroleerd of vastgelegd. Probeer opnieuw.');
       }
     } finally {
-      setBusy(false);
+      if (active.current) setBusy(false);
     }
   }
 
@@ -144,6 +178,9 @@ export function HubKeysSection() {
               ? 'Plak de ondertekende rotatieverklaringen van de Hub. Heb je alleen een publieke sleutelset, kies dan Opnieuw koppelen.'
               : 'Open in de Hub Instellingen → Diensten en kopieer de publieke sleutelset van de Hub waarmee je wilt koppelen.'}
           </p>
+          {formMode === 'recovery' && (
+            <p>Voor herstel moet de geplakte sleutelset ook de actuele rotatievolgorde uit de Hub bevatten.</p>
+          )}
           <label className="field" htmlFor="hub-keys-source">
             {sourceLabel} (verplicht)
             <textarea id="hub-keys-source" ref={sourceField} value={source} readOnly={busy} required autoComplete="off" spellCheck={false}
