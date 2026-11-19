@@ -2,6 +2,7 @@
 
 import json
 import logging
+import uuid
 from datetime import UTC, datetime
 
 import pytest
@@ -91,6 +92,17 @@ def row_bytes(rows):
     return comparable
 
 
+def assert_herstelde_rijen(hersteld, archief):
+    archiefinstellingen = archief["settings"]
+    if all(rij["key"] != "server_id" for rij in archiefinstellingen):
+        [identiteit] = [rij for rij in hersteld["settings"] if rij["key"] == "server_id"]
+        server_id = identiteit["value"]["v"]
+        assert uuid.UUID(server_id).version == 4
+        toegevoegd = {"key": "server_id", "value": {"v": server_id}}
+        archief = {**archief, "settings": [*archiefinstellingen, toegevoegd]}
+    assert row_bytes(hersteld) == row_bytes(archief)
+
+
 @pytest.mark.parametrize("change", ["gewijzigd", "toegevoegd", "verwijderd"])
 def test_vergelijking_ziet_gewone_instellingen(change):
     original = [{"key": "proefinstelling", "value": {"v": 1}}]
@@ -116,17 +128,23 @@ async def test_herstel_gate_en_gewone_instellingen_exact_de_backup(tmp_path, cap
     async with temp_db() as url:
         await seed_and_bytes(url, seed=True)
         await sql(url, "INSERT INTO settings (key,value) VALUES ('proefinstelling', '{\"v\": 1}'::jsonb)")
+        await sql(url, "INSERT INTO settings (key,value) VALUES ('server_id', CAST(:v AS jsonb))", {
+            "v": json.dumps({"v": str(uuid.uuid4())}),
+        })
         await write_gate(url, state(loaded) if type(loaded) is bool else loaded)
         backup_rows = await tables(url)
         path = tmp_path / "inbedrijfstelling.shcbak"
         path.write_bytes(make_v1(backup_rows, bk.head_revision()))
         prior_value = state(prior) if type(prior) is bool else prior
         await write_gate(url, prior_value)
+        await sql(url, "UPDATE settings SET value = CAST(:v AS jsonb) WHERE key = 'server_id'", {
+            "v": json.dumps({"v": str(uuid.uuid4())}),
+        })
         started = datetime.now(UTC)
         with caplog.at_level(logging.INFO, logger="shc_api.backup"):
             await bk.restore_file(path, PW, url=url)
         finished = datetime.now(UTC)
-        assert row_bytes(await tables(url)) == row_bytes(backup_rows)
+        assert_herstelde_rijen(await tables(url), backup_rows)
         value = (await sql(url, "SELECT value->'v' FROM settings WHERE key='commissioning_gate'"))[0][0]
         assert value["enabled"] is enabled
         restored = value["restored"]
@@ -165,7 +183,7 @@ async def test_oude_backup_behoudt_eerder_aan_ook_bij_nieuwe_woning(tmp_path, pr
                 assert row.pop("connector_version") == 1
             for row in restored["climate_zones"]:
                 assert row.pop("connector_version") == 1
-            assert row_bytes(restored) == row_bytes(rows)
+            assert_herstelde_rijen(restored, rows)
 
 
 async def test_herstel_in_lege_database_geeft_geen_dubbele_initialisatierij(tmp_path):
@@ -177,7 +195,7 @@ async def test_herstel_in_lege_database_geeft_geen_dubbele_initialisatierij(tmp_
     path.write_bytes(make_v1(rows, bk.head_revision()))
     async with temp_db(None) as url:
         await bk.restore_file(path, PW, url=url)
-        assert row_bytes(await tables(url)) == row_bytes(rows)
+        assert_herstelde_rijen(await tables(url), rows)
         value = (await sql(url, "SELECT value->'v' FROM settings WHERE key='commissioning_gate'"))[0][0]
         assert value["enabled"] is False
         assert value["restored"]["enabled_before"] is None
@@ -201,7 +219,7 @@ async def test_oud_archief_bewaart_open_backuptaak_en_meldt_onderbreking(tmp_pat
         assert bk.verify_file(path, PW).manifest["tables"]["backups"]["rows"] == 1
         report = await bk.restore_file(path, PW, url=url)
         after = await tables(url)
-        assert row_bytes(after) == row_bytes(rows)
+        assert_herstelde_rijen(after, rows)
         assert report.as_dict()["interrupted_backups"] == [str(task.id)]
         assert (await sql(url, "SELECT value->'v'->'interrupted_backups' FROM settings WHERE key='restore_report'")) == [
             ([str(task.id)],),
