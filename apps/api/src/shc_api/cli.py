@@ -495,7 +495,7 @@ async def _restore(args, dry_run: bool) -> int:
 # --- restore drill --------------------------------------------------------------------------------
 
 
-async def restore_drill(path: Path, passphrase: str, *, keep: bool = False) -> dict:
+async def restore_drill(path: Path, passphrase: str, *, keep: bool = False, verified=None) -> dict:
     """Restore into a temporary database, compare row counts and try to decrypt the integration
     credentials (and encrypted settings) with the CURRENT key. Never touches the real database."""
     import asyncpg
@@ -510,7 +510,7 @@ async def restore_drill(path: Path, passphrase: str, *, keep: bool = False) -> d
     from .store import SECRET_SETTINGS
 
     s = get_settings()
-    v = await asyncio.to_thread(bk.verify_file, path, passphrase)
+    v = verified or await asyncio.to_thread(bk.verify_file, path, passphrase)
     bk.check_restorable(v.manifest)
     base = urlsplit(s.database_url)
     name = f"shc_drill_{uuid.uuid4().hex[:10]}"
@@ -573,6 +573,9 @@ async def restore_drill(path: Path, passphrase: str, *, keep: bool = False) -> d
                             sbad.append(key)
                 result["ok"] = not mismatches and not bad and not sbad
                 result["mismatches"] = mismatches
+                result["active_admin"] = bool(await db.scalar(text(
+                    "SELECT EXISTS (SELECT 1 FROM users WHERE role = 'admin' AND NOT disabled)"
+                )))
         finally:
             await engine.dispose()
     finally:
@@ -636,6 +639,7 @@ async def rekey(old_key: str, *, dry_run: bool = False, url: str | None = None) 
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
     from sqlalchemy.pool import NullPool
 
+    from .commissioning import lock_commissioning
     from .config import get_settings
     from .models import Integration
     from .security import SecretBox
@@ -647,6 +651,7 @@ async def rekey(old_key: str, *, dry_run: bool = False, url: str | None = None) 
     engine = create_async_engine(url or s.database_url, poolclass=NullPool, hide_parameters=True)
     try:
         async with AsyncSession(engine) as db:
+            await lock_commissioning(db)
             for integ in (await db.execute(select(Integration))).scalars():
                 if not integ.credentials_enc:
                     continue

@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../../api/client';
 import { qk } from '../../api/keys';
@@ -179,11 +178,11 @@ export function NotifySettings() {
   );
 }
 
-/** Shown after a restore or move: no device commands until the admin confirms (id="veilige-modus"). */
-export function SafeModeCard() {
+export function SafeModeCard({ active }: { active: boolean }) {
   const qc = useQueryClient();
-  const release = useMutation({
-    mutationFn: api.releaseSafeMode,
+  const settings = useQuery({ queryKey: qk.settings, queryFn: api.settings });
+  const change = useMutation({
+    mutationFn: (enable: boolean) => enable ? api.enableSafeMode() : api.releaseSafeMode(),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.system });
       qc.invalidateQueries({ queryKey: qk.settings });
@@ -192,18 +191,20 @@ export function SafeModeCard() {
     },
   });
   return (
-    <section aria-labelledby="safe-h" className="card attention" id="veilige-modus">
-      <h2 id="safe-h">Veilige modus actief</h2>
-      <p style={{ margin: 0, fontSize: 14 }}>
-        Na een herstel of verhuizing stuurt de app geen commando's naar apparaten. Bekijk hieronder bij <a href="#herstel">Herstellen en verhuizen</a> per
-        apparaat en functie wat werkt, en test de apparaten onder <Link to="/apparaten">Apparaten</Link> (knop Testen leest alleen uit). Hef de veilige modus daarna op.
-      </p>
+    <section aria-labelledby="safe-h" className={active ? 'card attention' : 'card'} id="veilige-modus">
+      <h2 id="safe-h">{active ? 'Veilige modus aan' : 'Veilige modus'}</h2>
+      {active ? (
+        <p className="small">Apparaatbediening is gepauzeerd. Bekijk bij <a href="#herstel">Herstellen en verhuizen</a> welke apparaten en functies beschikbaar zijn.</p>
+      ) : <p className="small">Apparaatbediening stopt. Je kunt de status blijven bekijken.</p>}
       <div>
-        <ActionButton className="btn primary" disabled={release.isPending} onClick={() => { if (window.confirm('Kloppen alle apparaatkoppelingen? Daarna mag de app weer schakelen.')) release.mutate(); }}>
-          Apparaten kloppen — veilige modus opheffen
-        </ActionButton>
+        {!active && <ActionButton className="btn" disabled={change.isPending} onClick={() => change.mutate(true)}>Veilige modus inschakelen</ActionButton>}
+        {active && settings.data && !settings.data.migration_pending && (
+          <ActionButton className="btn primary" disabled={change.isPending} onClick={() => { if (window.confirm('Kloppen alle apparaatkoppelingen? Daarna mag de app weer schakelen.')) change.mutate(false); }}>
+            Apparaten kloppen — veilige modus opheffen
+          </ActionButton>
+        )}
       </div>
-      {release.error && <ErrorNote error={release.error} />}
+      {change.error && <ErrorNote error={change.error} />}
     </section>
   );
 }

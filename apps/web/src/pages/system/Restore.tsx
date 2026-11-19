@@ -1,9 +1,9 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type UploadProgress } from '../../api/client';
 import { qk } from '../../api/keys';
-import type { CompareStatus, RestoreCompare, RestoreJob, RestoreMode, RestoreReport, RestoreVerify } from '../../api/types';
+import type { CompareStatus, RestoreCompare, RestoreDrill, RestoreJob, RestoreMode, RestoreRekey, RestoreReport, RestoreVerify } from '../../api/types';
 import { ActionButton, ErrorNote, Loading, ProgressBar, yesNo } from '../../components/bits';
 import { ago, bytes, dateTime } from '../../format';
 import { COMPARE_STATUS_LABEL, KIND_LABEL, PROVIDER_LABEL, RESTORE_MODE_LABEL, SCHEMA_RELATION_LABEL, t } from '../../i18n';
@@ -11,9 +11,10 @@ import { clearRestore, loadRestore, saveRestore, useRestoreJob, type StoredResto
 
 const MODE_HELP: Record<RestoreMode, string> = {
   same_home:
-    'Gebruik dit na een nieuwe NAS of een herinstallatie in hetzelfde huis. Alles komt terug zoals het was; apparaten worden herkend op hun identiteit.',
+    'Zet de gegevens voor dezelfde woning terug op deze installatie.',
   new_home:
     'Gebruik dit na een verhuizing. De woning(en) uit de back-up worden gearchiveerd (geschiedenis blijft bewaard, koppelingen gaan uit) en er komt een nieuwe woning bij voor het nieuwe huis.',
+  migration: 'Gebruik een nieuwe app met eigen opslag. Voer eerst de herstelproef uit.',
 };
 
 function statusClass(s: CompareStatus | 'new'): string {
@@ -116,8 +117,14 @@ export function VerifySummary({ v }: { v: RestoreVerify }) {
 function ChooseStep({ v, passphrase, onStarted, onCancel }: { v: RestoreVerify; passphrase: string; onStarted: (r: StoredRestore) => void; onCancel: () => void }) {
   const [mode, setMode] = useState<RestoreMode>('same_home');
   const [sure, setSure] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => heading.current?.focus(), []);
+  const drill = useMutation({ mutationFn: () => api.restoreDrill(v.upload_id, passphrase) });
+  const drillId = drill.data?.drill_id;
+  const migration = mode === 'migration';
+  const canApply = sure && !drill.isPending && (!migration || Boolean(drillId));
   const apply = useMutation({
-    mutationFn: () => api.restoreApply({ upload_id: v.upload_id, passphrase, mode }),
+    mutationFn: () => api.restoreApply({ upload_id: v.upload_id, passphrase, mode, ...(migration && drillId ? { drill_id: drillId } : {}) }),
     onSuccess: (r) => {
       const stored: StoredRestore = { job_id: r.job_id, mode, started_at: Date.now(), filename: v.filename };
       saveRestore(stored);
@@ -127,15 +134,15 @@ function ChooseStep({ v, passphrase, onStarted, onCancel }: { v: RestoreVerify; 
   const cancel = useMutation({ mutationFn: () => api.restoreDiscard(v.upload_id), onSettled: onCancel });
   return (
     <div className="stack">
-      <h3>2 · Controleren en kiezen</h3>
+      <h3 ref={heading} tabIndex={-1}>2 · Controleren en kiezen</h3>
       <VerifySummary v={v} />
       {v.restorable && (
-        <form className="stack" onSubmit={(e) => { e.preventDefault(); if (sure) apply.mutate(); }} aria-label="Herstel starten">
-          <fieldset className="choice">
+        <form className="stack" onSubmit={(e) => { e.preventDefault(); if (canApply && !apply.isPending) apply.mutate(); }} aria-label="Herstel starten">
+          <fieldset className="choice" disabled={apply.isPending}>
             <legend>Hoe wil je terugzetten?</legend>
-            {(['same_home', 'new_home'] as RestoreMode[]).map((m) => (
+            {(['same_home', 'new_home', 'migration'] as const).map((m) => (
               <label key={m} className={`choice-card${mode === m ? ' selected' : ''}`}>
-                <input type="radio" name="restore-mode" value={m} checked={mode === m} onChange={() => setMode(m)} />
+                <input type="radio" name="restore-mode" value={m} checked={mode === m} onChange={() => { setMode(m); setSure(false); }} />
                 <span>
                   <strong>{RESTORE_MODE_LABEL[m]}</strong>
                   <span className="small muted">{MODE_HELP[m]}</span>
@@ -143,18 +150,50 @@ function ChooseStep({ v, passphrase, onStarted, onCancel }: { v: RestoreVerify; 
               </label>
             ))}
           </fieldset>
+          <div><ActionButton className="btn" disabled={drill.isPending || apply.isPending} onClick={() => { setSure(false); drill.mutate(); }}>Herstelproef uitvoeren</ActionButton></div>
+          {drill.isPending && <ProgressBar value={null} label="Herstelproef uitvoeren…" />}
+          {drill.error && <ErrorNote error={drill.error} />}
+          {drill.data && <DrillReport data={drill.data} migration={migration} />}
           <label className="check-row">
-            <input type="checkbox" checked={sure} onChange={(e) => setSure(e.target.checked)} />
-            Ik begrijp dat alle gegevens op deze server worden vervangen door de back-up, dat de app daarna in veilige modus staat en dat ik opnieuw moet inloggen.
+            <input type="checkbox" checked={sure} disabled={migration && !drillId} onChange={(e) => setSure(e.target.checked)} />
+            {migration ? 'Vul de getoonde doelinstallatie met deze back-up. Het tijdelijke beheerdersaccount wordt vervangen.' : 'Ik begrijp dat alle gegevens op deze server worden vervangen door de back-up, dat de app daarna in veilige modus staat en dat ik opnieuw moet inloggen.'}
           </label>
           <div className="row">
-            <ActionButton type="submit" className="btn primary" disabled={!sure || apply.isPending}>{apply.isPending ? 'Starten…' : 'Herstellen'}</ActionButton>
-            <button type="button" className="btn" disabled={apply.isPending || cancel.isPending} onClick={() => cancel.mutate()}>Annuleren</button>
+            <ActionButton type="submit" className="btn primary" disabled={!canApply || apply.isPending || cancel.isPending}>{apply.isPending ? 'Starten…' : migration ? 'Nieuwe app vullen' : 'Herstellen'}</ActionButton>
+            <button type="button" className="btn" disabled={apply.isPending || drill.isPending || cancel.isPending} onClick={() => cancel.mutate()}>Annuleren</button>
           </div>
           {apply.error && <ErrorNote error={apply.error} />}
         </form>
       )}
       {!v.restorable && <div><button type="button" className="btn" onClick={() => cancel.mutate()}>Ander bestand kiezen</button></div>}
+    </div>
+  );
+}
+
+function DrillReport({ data, migration }: { data: RestoreDrill; migration: boolean }) {
+  return (
+    <div className="stack">
+      <h4>Herstelproef in tijdelijke database</h4>
+      <p role="status">{data.data_ok ? 'De tabellen zijn gecontroleerd.' : 'Herstelproef onvolledig. Bekijk de verschillen.'} Apparaatsleutels opnieuw inlezen of koppelen: {data.credentials.failed.length}.</p>
+      {migration && <dl className="facts">
+        <div><dt>Broninstallatie</dt><dd className="break-all">{data.source_id ?? 'Onbekend'}</dd></div>
+        <div><dt>Doelinstallatie</dt><dd className="break-all">{data.target_id}</dd></div>
+      </dl>}
+      {migration && data.migration_refusal && <div className="note error" role="alert">{data.migration_refusal}</div>}
+      <details>
+        <summary>Resultaat per tabel</summary>
+        <table className="stack-mobile">
+          <thead><tr><th scope="col">Tabel</th><th scope="col">Back-up</th><th scope="col">Teruggezet</th><th scope="col">Gecontroleerd</th><th scope="col">Status</th></tr></thead>
+          <tbody>{Object.entries(data.tables).map(([name, counts]) => (
+            <tr key={name}>
+              <td data-label="Tabel">{name}</td><td data-label="Back-up">{counts.backup}</td>
+              <td data-label="Teruggezet">{counts.restored ?? 'Onbekend'}</td><td data-label="Gecontroleerd">{counts.now ?? 'Onbekend'}</td>
+              <td data-label="Status">{counts.ok ? 'Komt overeen' : 'Verschil'}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+        {droppedLines(data.report.dropped).map((line) => <p key={line}>{line}</p>)}
+      </details>
     </div>
   );
 }
@@ -239,10 +278,79 @@ function RunningStep({ stored, onReset }: { stored: StoredRestore; onReset: () =
 
 /* ---------- step 4: compare + release ---------- */
 
+function RekeyForm() {
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [result, setResult] = useState<RestoreRekey | null>(null);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const input = fileInput.current;
+    const file = input?.files?.[0];
+    if (!input || !file || busy) return;
+    input.value = '';
+    setError(null);
+    setResult(null);
+    if (!file.size || file.size > 4096) {
+      setError(new Error('Kies een sleutelbestand van maximaal 4 KiB.'));
+      return;
+    }
+    setBusy(true);
+    try {
+      setResult(await api.restoreRekey(file));
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="stack" onSubmit={submit} aria-labelledby="rekey-heading">
+      <h3 id="rekey-heading">Apparaatsleutels herstellen</h3>
+      <p className="small muted">Gebruik het sleutelbestand van de broninstallatie als de teruggezette koppelingen om de oude hoofdsleutel vragen.</p>
+      <label className="field">Bestand met de oude hoofdsleutel<input ref={fileInput} type="file" required disabled={busy} /></label>
+      <div><ActionButton className="btn" type="submit" disabled={busy}>Oude hoofdsleutel uploaden</ActionButton></div>
+      {busy && <ProgressBar value={null} label="Sleutels opnieuw versleutelen…" />}
+      {error != null && <ErrorNote error={error} />}
+      {result && <p role="status">Opnieuw versleuteld: {result.rekeyed}. Al bruikbaar: {result.already_current}. Opnieuw te koppelen: {result.failed}. Opnieuw in te stellen: {result.settings_failed}.</p>}
+    </form>
+  );
+}
+
+function MigrationApproval({ migration, pending, onConfirm }: {
+  migration: NonNullable<RestoreCompare['migration']>;
+  pending: boolean;
+  onConfirm: (confirmation: string) => void;
+}) {
+  const [sure, setSure] = useState(false);
+  const confirmation = migration.confirmation;
+  return (
+    <div className="stack">
+      <dl className="facts">
+        <div><dt>Broninstallatie</dt><dd className="break-all">{migration.source_id}</dd></div>
+        <div><dt>Doelinstallatie</dt><dd className="break-all">{migration.target_id}</dd></div>
+      </dl>
+      {confirmation ? (
+        <form className="stack" aria-label="Overstap bevestigen" onSubmit={(event) => {
+          event.preventDefault();
+          if (sure && !pending) onConfirm(confirmation);
+        }}>
+          <label className="check-row"><input type="checkbox" checked={sure} onChange={(event) => setSure(event.target.checked)} />
+            Ik heb de vergelijking bekeken, vastgesteld dat de laatste gegevens zijn meegenomen en de broninstallatie stilgezet.
+          </label>
+          <div><ActionButton type="submit" className="btn primary" disabled={!sure || pending}>Overstap bevestigen</ActionButton></div>
+        </form>
+      ) : <div className="note warn" role="status">Overstap geblokkeerd. Controleer de ontbrekende of onzekere apparaten en vergelijk opnieuw.</div>}
+    </div>
+  );
+}
+
 export function CompareView({ data, onReleased }: { data: RestoreCompare; onReleased?: () => void }) {
   const qc = useQueryClient();
   const release = useMutation({
-    mutationFn: api.releaseSafeMode,
+    mutationFn: (confirmation?: string) => confirmation ? api.confirmMigration(confirmation) : api.releaseSafeMode(),
     onSuccess: () => {
       clearRestore();
       qc.invalidateQueries({ queryKey: qk.system });
@@ -262,11 +370,30 @@ export function CompareView({ data, onReleased }: { data: RestoreCompare; onRele
           Apparaten worden herkend op hun identiteit; wat de achtergronddienst sindsdien zag, telt.
         </p>
       )}
+      {data.source_homes && data.homes && <dl className="facts">
+        <div><dt>Bestaande woning</dt><dd>{Object.values(data.source_homes).join(', ') || 'Onbekend'}</dd></div>
+        <div><dt>Nieuwe woning</dt><dd>{Object.values(data.homes).join(', ') || 'Onbekend'}</dd></div>
+      </dl>}
       <div className="row" role="list" aria-label="Samenvatting">
         <span role="listitem" className="pill ok">{COMPARE_STATUS_LABEL.compatible}: {s.compatible}</span>
         <span role="listitem" className="pill warn">{COMPARE_STATUS_LABEL.partial}: {s.partial}</span>
         <span role="listitem" className="pill unknown">{COMPARE_STATUS_LABEL.unavailable}: {s.unavailable}</span>
       </div>
+      {data.duplicates && (
+        <div className="stack">
+          <h4>Dubbele apparaten</h4>
+          {data.duplicates.length ? <ul className="meter-list" aria-label="Dubbele apparaten">
+            {data.duplicates.map((group) => (
+              <li key={group.devices.map((d) => d.id).join(':')}>
+                <div><strong>Dubbel apparaat</strong> · {t(PROVIDER_LABEL, group.provider)}
+                  <ul>{group.devices.map((d) => <li key={d.id}>{d.name} · {d.home_name ?? 'Onbekende woning'}</li>)}</ul>
+                </div>
+              </li>
+            ))}
+          </ul> : <p>Geen dubbele apparaten gevonden.</p>}
+          {!!data.missing_devices && <p className="note warn">Ontbrekende apparaten: {data.missing_devices}.</p>}
+        </div>
+      )}
       <h4>Functies</h4>
       <div className="table-wrap">
         <table className="stack-mobile">
@@ -274,7 +401,7 @@ export function CompareView({ data, onReleased }: { data: RestoreCompare; onRele
           <tbody>
             {data.functions.map((f) => (
               <tr key={f.key}>
-                <td data-label="Functie">{f.label}</td>
+                <td data-label="Functie">{f.label}{data.homes?.[f.home_id] && <div className="small muted">{data.homes[f.home_id]}</div>}</td>
                 <td data-label="Apparaat">{f.device_name ?? '–'}</td>
                 <td data-label="Status"><span className={`pill ${statusClass(f.status)}`}>{t(COMPARE_STATUS_LABEL, f.status)}</span></td>
                 <td data-label="Toelichting" className="small">{f.reason}{f.suggestion && <div className="muted">{f.suggestion}</div>}</td>
@@ -308,12 +435,13 @@ export function CompareView({ data, onReleased }: { data: RestoreCompare; onRele
       </p>
       <div className="row">
         <button type="button" className="btn" onClick={() => qc.invalidateQueries({ queryKey: qk.restoreCompare })}>Opnieuw vergelijken</button>
-        {data.safe_mode && (
-          <ActionButton className="btn primary" disabled={release.isPending} onClick={() => { if (window.confirm('Werkt alles zoals verwacht? Na opheffen mag de app weer schakelen.')) release.mutate(); }}>
+        {data.safe_mode && !data.migration && (
+          <ActionButton className="btn primary" disabled={release.isPending} onClick={() => { if (window.confirm('Werkt alles zoals verwacht? Na opheffen mag de app weer schakelen.')) release.mutate(undefined); }}>
             Veilige modus opheffen
           </ActionButton>
         )}
       </div>
+      {data.migration && <MigrationApproval key={data.migration.confirmation} migration={data.migration} pending={release.isPending} onConfirm={release.mutate} />}
       {!data.safe_mode && <div className="note ok" role="status">Veilige modus is opgeheven; de app schakelt weer.</div>}
       {release.error && <ErrorNote error={release.error} />}
     </div>
@@ -340,8 +468,8 @@ export function RestoreSection({ safeMode }: { safeMode: boolean }) {
         <h2 id="rs-h">Herstellen en verhuizen</h2>
       </div>
       <p className="small muted" style={{ margin: 0 }}>
-        Zet een back-up terug op deze server: na een nieuwe NAS (A) of na een verhuizing naar een nieuw huis (B). Eerst wordt het bestand gecontroleerd,
-        dan kies je A of B, en daarna vergelijk je per apparaat wat werkt voordat de app weer mag schakelen.
+        Controleer een back-up en kies hoe je die wilt terugzetten. Kies bij een overstap een afzonderlijke Custom App.
+        De vergelijking toont welke apparaten na herstel beschikbaar zijn.
       </p>
       {step.kind === 'upload' && <UploadStep onVerified={(v, passphrase) => setStep({ kind: 'verified', v, passphrase })} />}
       {step.kind === 'verified' && (
@@ -349,9 +477,11 @@ export function RestoreSection({ safeMode }: { safeMode: boolean }) {
       )}
       {step.kind === 'running' && <RunningStep stored={step.stored} onReset={() => setStep({ kind: 'upload' })} />}
       {compare.isLoading && (safeMode || step.kind === 'running') && <Loading label="Vergelijking laden…" />}
+      {compare.error && <ErrorNote error={compare.error} />}
       {cmp && (cmp.safe_mode || step.kind === 'running') && (
         <CompareView data={cmp} onReleased={() => setStep({ kind: 'upload' })} />
       )}
+      <RekeyForm />
     </section>
   );
 }

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
+import hmac
 import json
 import logging
 import re
@@ -9,6 +11,7 @@ import secrets
 import shutil
 import time
 import uuid
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -28,9 +31,9 @@ from ..contract_http import ContractProblem, problem
 from ..deps import DB, Admin, Auth, WebAdmin
 from ..errors import SECRET_KEY_INVALID_RESPONSE, api_error, not_found, require_secret_box, secret_key_invalid
 from ..logfilter import fouttekst as _fouttekst
-from ..models import BackupRecord, Device, DeviceBinding, Home, Integration, LogicalRole
+from ..models import BackupRecord, Base, Device, DeviceBinding, Home, Integration, LogicalRole
 from ..security import lan_url_problem, normalize_server_url, remote_url_problem
-from ..store import audit, get_setting, set_secret_setting, set_setting
+from ..store import audit, ensure_server_identity, get_setting, set_secret_setting, set_setting
 from ..views.status import publish_status
 from ..worker.aggregates import RETENTION_KEY, RETENTION_MAX_DAYS, RETENTION_MIN, load_retention, retention_defaults
 from ..worker.backup_job import (
@@ -49,6 +52,7 @@ readiness_router = APIRouter()
 log = logging.getLogger(__name__)
 
 MANUAL_WAIT_S = 50.0  # a manual backup answers 200 when done within this time, else 202 (still running)
+MAX_REKEY_BYTES = 4096
 STALE_RUNNING = timedelta(hours=8)
 BACKUP_BLOCKS_RESTORE = timedelta(hours=2)  # a "running" backup older than this is treated as crashed
 UPLOAD_TTL = timedelta(hours=24)
@@ -129,6 +133,7 @@ async def get_settings_(db: DB, p: Auth) -> dict:
         "remote_url": await get_setting(db, "remote_url", s.remote_url),
         "safe_mode": bool(await get_setting(db, "safe_mode", False)),
         "maintenance": bool(await get_setting(db, "maintenance", False)),
+        "migration_pending": bool(await get_setting(db, "migration_pending", False)),
     }
 
 
@@ -141,16 +146,31 @@ async def put_settings(body: Addresses, db: DB, p: WebAdmin) -> dict:
     return await get_settings_(db, p)
 
 
+async def _set_safe_mode(db: DB, actor: str, enabled: bool) -> dict:
+    await set_setting(db, "safe_mode", enabled)
+    await audit(db, actor, "safe_mode_enabled" if enabled else "safe_mode_released")
+    await db.flush()
+    await publish_status(db)
+    await db.commit()
+    return {"safe_mode": enabled}
+
+
+@router.post("/system/safe-mode/enable")
+async def enable_safe_mode(db: DB, p: WebAdmin) -> dict:
+    """Pauzeer apparaatbediening. De status blijft beschikbaar."""
+    await lock_commissioning(db)
+    return await _set_safe_mode(db, p.actor, True)
+
+
 @router.post("/system/safe-mode/release")
 async def release_safe_mode(db: DB, p: Admin) -> dict:
     """User confirms device matching after restore/move; commands are allowed again."""
     await lock_commissioning(db)
-    await set_setting(db, "safe_mode", False)
-    await audit(db, p.actor, "safe_mode_released")
-    await db.flush()
-    await publish_status(db)
-    await db.commit()
-    return {"safe_mode": False}
+    if await get_setting(db, "migration_pending"):
+        raise api_error(
+            409, "migration_pending", "Bekijk de vergelijking en bevestig de overstap in Herstellen en verhuizen."
+        )
+    return await _set_safe_mode(db, p.actor, False)
 
 
 # --- backups ------------------------------------------------------------------------------------
@@ -680,9 +700,9 @@ def verify_summary(upload_id: str, path: Path, v: bk.Verified, filename: str | N
     if creds["failed"]:
         warnings.append(
             f"{len(creds['failed'])} apparaatsleutel(s) passen niet bij de hoofdsleutel van deze server. "
-            "Zet de oude sleutel terug en gebruik 'shc-api rekey --old-key-file', of koppel die apparaten opnieuw."
+            "Upload na herstel de oude hoofdsleutel in Systeem, of koppel die apparaten opnieuw."
         )
-    if settings_warning := bk.key_check_warning(creds):
+    if settings_warning := bk.key_check_warning(creds, web=True):
         warnings.append(settings_warning)
     return {
         "upload_id": upload_id,
@@ -766,17 +786,124 @@ async def restore_discard(upload_id: str, p: WebAdmin) -> Response:
     return Response(status_code=204)
 
 
-class ApplyIn(BaseModel):
+class RestoreUploadIn(BaseModel):
     upload_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     passphrase: str = Field(min_length=1, max_length=256)
-    mode: Literal["same_home", "new_home"] = "same_home"
+
+
+class ApplyIn(RestoreUploadIn):
+    mode: Literal["same_home", "new_home", "migration"] = "same_home"
+    drill_id: uuid.UUID | None = None
+
+
+def _backup_fingerprint(v: bk.Verified) -> str:
+    return hashlib.sha256(json.dumps(v.manifest, sort_keys=True).encode()).hexdigest()
+
+
+async def _check_migration_target(db: DB, target: bk.MigrationTarget) -> None:
+    conn = await db.connection()
+    await conn.run_sync(bk.check_migration_target, Base.metadata.tables, target)
+
+
+@router.post("/system/restore/rekey", responses=SECRET_KEY_INVALID_RESPONSE)
+async def restore_rekey(request: Request, db: DB, p: WebAdmin) -> dict:
+    """Lees een bestand met de oude hoofdsleutel als ruwe octet-stream, uitsluitend in geheugen."""
+    from ..cli import rekey
+
+    data = bytearray()
+    try:
+        async for chunk in request.stream():
+            if len(data) + len(chunk) > MAX_REKEY_BYTES:
+                raise api_error(413, "payload_too_large", "Het sleutelbestand mag maximaal 4 KiB groot zijn.")
+            data.extend(chunk)
+        try:
+            key = data.decode("utf-8").strip()
+        except UnicodeError:
+            key = ""
+    finally:
+        data.clear()
+    if len(key) < 32 or not key.isprintable():
+        raise api_error(422, "invalid_key_file", "Dit bestand bevat geen geldige hoofdsleutel.")
+    require_secret_box()
+    result = await rekey(key)
+    del key
+    counts = {name: len(result[name]) for name in ("rekeyed", "already_current", "failed")}
+    counts["settings_failed"] = sum(state == "failed" for state in result["settings"].values())
+    await audit(db, p.actor, "restore_rekeyed", **counts)
+    await db.commit()
+    return counts
+
+
+@router.post("/system/restore/drill")
+async def web_restore_drill(body: RestoreUploadIn, db: DB, p: WebAdmin) -> dict:
+    """Toets een geüploade back-up in een tijdelijke database."""
+    from ..cli import restore_drill
+
+    path = _upload_path(body.upload_id)
+    meta = _verified_upload(path)
+    if not meta.get("restorable"):
+        raise api_error(409, "restore_refused", "Deze back-up kan niet hersteld worden (zie de controle).")
+    try:
+        verified = await asyncio.to_thread(_verify, path, body.passphrase)
+        result = await restore_drill(path, body.passphrase, verified=verified)
+    except bk.BackupError as exc:
+        raise api_error(422, "backup_invalid", str(exc)) from exc
+    # Problemen met oude sleutels kunnen na herstel worden opgelost. Gegevensverlies kan dat niet.
+    data_ok = result["active_admin"] and all(t["ok"] for t in result["tables"].values()) and not any(
+        result["report"]["dropped"].values()
+    )
+    source_id = verified.summary.get("_server_id")
+    zigbee = verified.manifest.get("zigbee2mqtt") or {}
+    await lock_commissioning(db)
+    target_id = await db.run_sync(ensure_server_identity)
+    meta = _verified_upload(path)
+    meta.pop("drill", None)
+    refusal = None
+    if not data_ok or not verified.manifest.get("secrets_included") or verified.manifest.get("redacted"):
+        refusal = "Voor overstap is een volledige back-up en herstelproef zonder gegevensverlies nodig."
+    elif not source_id:
+        refusal = "De back-up heeft geen herkenbare broninstallatie."
+    elif (verified.manifest.get("zigbee2mqtt_included") or zigbee.get("unreadable")
+          or any(integration["provider"] == "zigbee" for integration in verified.summary["integrations"])):
+        refusal = "Voor de Zigbee2MQTT-bestanden ontbreekt een terugzetproef. Laat de broninstallatie in gebruik."
+    else:
+        target = bk.MigrationTarget(target_id, p.user.id, source_id)
+        try:
+            await _check_migration_target(db, target)
+        except bk.BackupError as exc:
+            refusal = str(exc)
+    if refusal is None:
+        meta["drill"] = {
+            "id": str(uuid.uuid4()), "fingerprint": _backup_fingerprint(verified), "target_id": target_id,
+            "source_id": source_id, "admin_id": str(p.user.id), "expires_at": time.time() + 3600,
+        }
+    path.with_suffix(".json").write_text(json.dumps(meta))
+    await audit(db, p.actor, "restore_drill", body.upload_id, ok=result["ok"])
+    await db.commit()
+    return {
+        **{k: v for k, v in result.items() if k not in {"database", "active_admin"}},
+        "data_ok": data_ok, "drill_id": (meta.get("drill") or {}).get("id"),
+        "target_id": target_id, "source_id": source_id, "migration_refusal": refusal,
+    }
+
+
+def _verified_upload(path: Path) -> dict:
+    if path.is_file():
+        with contextlib.suppress(OSError, ValueError):
+            meta = json.loads(path.with_suffix(".json").read_text())
+            if isinstance(meta, dict):
+                return meta
+    raise not_found("Gecontroleerde upload")
 
 
 def _job_view(job: dict) -> dict:
     return {k: v for k, v in job.items() if not k.startswith("_")}
 
 
-async def _run_restore_job(job: dict, path: Path, passphrase: str, mode: str, maint_before: bool) -> None:
+async def _run_restore_job(
+    job: dict, path: Path, passphrase: str, mode: str, maint_before: bool,
+    migration: bk.MigrationTarget | None = None, fingerprint: str | None = None,
+) -> None:
     from ..db import sessionmaker
 
     try:
@@ -785,7 +912,12 @@ async def _run_restore_job(job: dict, path: Path, passphrase: str, mode: str, ma
         job["step"] = "controleren en terugzetten"
 
         def run() -> dict:
-            return asyncio.run(bk.restore_file(path, passphrase, mode=mode)).as_dict()
+            verified = _verify(path, passphrase) if migration else None
+            if verified and _backup_fingerprint(verified) != fingerprint:
+                raise bk.BackupError("De back-up wijkt af van de bevestigde herstelproef.")
+            return asyncio.run(
+                bk.restore_file(path, passphrase, mode=mode, verified=verified, migration=migration)
+            ).as_dict()
 
         report = await asyncio.to_thread(run)
         job.update(state="done", step="klaar", report=report, finished_at=datetime.now(UTC))
@@ -814,6 +946,9 @@ async def restore_apply(body: ApplyIn, db: DB, p: WebAdmin) -> dict:
     path = _upload_path(body.upload_id)
     if not path.is_file():
         raise not_found("Upload")
+    await lock_commissioning(db)
+    if await get_setting(db, "migration_pending"):
+        raise api_error(409, "migration_pending", "Deze doelinstallatie heeft al een openstaande overstap.")
     if any(j["state"] == "running" for j in _jobs.values()):
         raise api_error(409, "restore_running", "Er loopt al een herstel.")
     interrupted = await bk.restored_interrupted_backup_ids(db)
@@ -834,6 +969,19 @@ async def restore_apply(body: ApplyIn, db: DB, p: WebAdmin) -> dict:
         meta = json.loads(path.with_suffix(".json").read_text())
     if meta and not meta.get("restorable", True):
         raise api_error(409, "restore_refused", "Deze back-up kan niet hersteld worden (zie de controle).")
+    migration = None
+    fingerprint = None
+    if body.mode == "migration":
+        drill = meta.get("drill") or {}
+        if (not body.drill_id or drill.get("id") != str(body.drill_id) or drill.get("admin_id") != str(p.user.id)
+                or drill.get("expires_at", 0) <= time.time()):
+            raise api_error(409, "migration_drill_required", "Voer de herstelproef uit en bevestig het getoonde doel.")
+        migration = bk.MigrationTarget(drill["target_id"], p.user.id, drill["source_id"])
+        fingerprint = drill["fingerprint"]
+        try:
+            await _check_migration_target(db, migration)
+        except bk.BackupError as exc:
+            raise api_error(409, "migration_target_refused", str(exc)) from exc
 
     def quick_check() -> None:  # wrong passphrase -> immediate answer (decrypts only the first chunk)
         _fmt, plain = bk.open_plaintext(path, body.passphrase)
@@ -864,7 +1012,7 @@ async def restore_apply(body: ApplyIn, db: DB, p: WebAdmin) -> dict:
         "report": None,
     }
     _jobs[job_id] = job
-    _spawn(_run_restore_job(job, path, body.passphrase, body.mode, maint_before))
+    _spawn(_run_restore_job(job, path, body.passphrase, body.mode, maint_before, migration, fingerprint))
     return {"job_id": job_id, "status": "running", "poll": f"/api/v1/system/restore/jobs/{job_id}"}
 
 
@@ -878,10 +1026,95 @@ async def restore_job(job_id: str) -> dict:
     return _job_view(job)
 
 
+def _duplicate_devices(before: dict, devices: list[Device], names: dict) -> list[dict]:
+    groups = defaultdict(dict)
+    for device_id, d in before.items():
+        if d.get("stable_identity") and d.get("home_id"):
+            groups[d["provider"], d["stable_identity"]][device_id] = (d["home_id"], d["name"])
+    for d in devices:
+        if d.stable_identity:
+            groups[d.provider, d.stable_identity][str(d.id)] = (str(d.home_id), d.name)
+    return [
+        {"provider": provider, "devices": [
+            {"id": did, "home_id": hid, "home_name": names.get(hid), "name": name}
+            for did, (hid, name) in sorted(entries.items())
+        ]}
+        for (provider, _), entries in sorted(groups.items())
+        if len({hid for hid, _ in entries.values()}) > 1
+    ]
+
+
 @router.get("/system/restore/compare")
 async def restore_compare(db: DB, p: WebAdmin, home_id: uuid.UUID | None = None) -> dict:
     """Per device and per function: compatible / partial / unavailable, comparing the restored devices
     (snapshot taken at restore) with what the worker has seen since (identity, online, capabilities)."""
+    migration = await get_setting(db, "migration_pending")
+    if migration and home_id is None:
+        await lock_commissioning(db)
+        migration = await get_setting(db, "migration_pending")
+    comparison = await _restore_comparison(db, home_id)
+    if migration:
+        summary = {"source_id": migration["source_id"], "target_id": migration["target_id"], "confirmation": None}
+        comparison["migration"] = summary
+        if home_id is None:
+            migration = {**migration, "comparison_id": uuid.uuid4().hex}
+            await set_setting(db, "migration_pending", migration)
+            if _comparison_complete(comparison):
+                expires = int(time.time()) + 900
+                signature = _comparison_signature(comparison, migration, p.session_id, expires)
+                summary["confirmation"] = f"{expires}.{signature}"
+            await db.commit()
+    return comparison
+
+
+def _comparison_complete(data: dict) -> bool:
+    return bool(data["restored_at"]) and not (
+        data["source_homes"].keys() - data["homes"].keys()
+        or data["missing_devices"] or data["summary"]["unavailable"] or data["summary"]["partial"] or any(
+            d["status"] != "compatible" or not d["stable_identity"] for d in data["devices"] if not d["archived"]
+        ) or any(sum(entry["home_id"] in data["active_home_ids"] for entry in d["devices"]) > 1
+                 for d in data["duplicates"])
+    )
+
+
+def _comparison_signature(data: dict, migration: dict, session_id: str | None, expires: int) -> str:
+    # Tijden van metingen kunnen veranderen zonder dat de beoordeelde apparaatstand wijzigt.
+    devices = [{k: v for k, v in d.items() if k != "last_seen"} for d in data["devices"]]
+    keys = ("restored_from", "source_homes", "homes", "functions", "duplicates", "missing_devices")
+    signed = {**{k: data[k] for k in keys}, "devices": devices, "migration": migration,
+              "session": session_id, "expires": expires}
+    return hmac.new(
+        get_settings().resolved_secret_key().encode(),
+        b"shc-migration-compare-v1\0" + _dumps(signed).encode(), hashlib.sha256,
+    ).hexdigest()
+
+
+class MigrationConfirm(BaseModel):
+    confirmation: str = Field(pattern=r"^[0-9]{1,12}\.[0-9a-f]{64}$")
+    source_stopped: Literal[True]
+
+
+@router.post("/system/restore/confirm")
+async def confirm_migration(body: MigrationConfirm, db: DB, p: WebAdmin) -> dict:
+    """Geef de doelinstallatie vrij na een bevestigde vergelijking."""
+    await lock_commissioning(db)
+    migration = await get_setting(db, "migration_pending")
+    if not migration or migration.get("target_id") != await get_setting(db, "server_id"):
+        raise api_error(409, "migration_refused", "Er is geen overstap voor deze installatie bevestigd.")
+    expiry, _, signature = body.confirmation.partition(".")
+    expires = int(expiry)
+    data = await _restore_comparison(db)
+    if (expires <= time.time() or not _comparison_complete(data)
+            or not hmac.compare_digest(signature, _comparison_signature(data, migration, p.session_id, expires))):
+        raise api_error(
+            409, "comparison_changed", "Vergelijk opnieuw. De vergelijking is gewijzigd, onvolledig of verlopen."
+        )
+    await set_setting(db, "migration_pending", None)
+    await audit(db, p.actor, "migration_confirmed", migration["target_id"])
+    return await _set_safe_mode(db, p.actor, False)
+
+
+async def _restore_comparison(db: DB, home_id: uuid.UUID | None = None) -> dict:
     snap = await get_setting(db, "restore_snapshot") or {}
     restored_at = datetime.fromisoformat(snap["restored_at"]) if snap.get("restored_at") else None
     before: dict = snap.get("devices") or {}
@@ -895,7 +1128,10 @@ async def restore_compare(db: DB, p: WebAdmin, home_id: uuid.UUID | None = None)
         .all()
     )
     home_ids = [h.id for h in homes]
-    devices = (await db.execute(select(Device).where(Device.home_id.in_(home_ids)))).scalars().all()
+    all_devices = list(await db.scalars(select(Device).order_by(Device.id)))
+    device_ids = {str(d.id) for d in all_devices}
+    names = {str(hid): name for hid, name in (await db.execute(select(Home.id, Home.name).order_by(Home.id))).all()}
+    devices = [d for d in all_devices if d.home_id in home_ids]
     by_id = {d.id: d for d in devices}
     out_devices = []
     status_of: dict[uuid.UUID, tuple[str, str]] = {}
@@ -929,6 +1165,7 @@ async def restore_compare(db: DB, p: WebAdmin, home_id: uuid.UUID | None = None)
                 "status": st,
                 "reason": reason,
                 "online": d.online,
+                "archived": d.lifecycle != "active",
                 "last_seen": d.last_seen,
                 "missing": missing,
             }
@@ -1003,7 +1240,12 @@ async def restore_compare(db: DB, p: WebAdmin, home_id: uuid.UUID | None = None)
         "safe_mode": bool(await get_setting(db, "safe_mode", False)),
         "restored_from": await get_setting(db, "restored_from"),
         "devices": out_devices,
-        "functions": functions,
+        "functions": sorted(functions, key=lambda item: (str(item["home_id"]), item["key"])),
+        "duplicates": _duplicate_devices(before, all_devices, names),
+        "source_homes": snap.get("homes", {}),
+        "homes": names,
+        "active_home_ids": sorted(str(h) for h in home_ids),
+        "missing_devices": len(before.keys() - device_ids),
         "summary": counts,
     }
 

@@ -1325,6 +1325,26 @@
         "title": "MappingPatch",
         "type": "object"
       },
+      "MigrationConfirm": {
+        "properties": {
+          "confirmation": {
+            "pattern": "^[0-9]{1,12}\\.[0-9a-f]{64}$",
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "source_stopped": {
+            "const": true,
+            "title": "Source Stopped",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirmation",
+          "source_stopped"
+        ],
+        "title": "MigrationConfirm",
+        "type": "object"
+      },
       "NewUser": {
         "properties": {
           "password": {
@@ -1962,6 +1982,27 @@
         "title": "ReplaceIn",
         "type": "object"
       },
+      "RestoreUploadIn": {
+        "properties": {
+          "passphrase": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Passphrase",
+            "type": "string"
+          },
+          "upload_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Upload Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_id",
+          "passphrase"
+        ],
+        "title": "RestoreUploadIn",
+        "type": "object"
+      },
       "RetentionIn": {
         "additionalProperties": false,
         "description": "Days to keep raw data. Omitted fields stay as they are; null goes back to the default.",
@@ -2417,11 +2458,24 @@
       },
       "shc_api__routers__system__ApplyIn": {
         "properties": {
+          "drill_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drill Id"
+          },
           "mode": {
             "default": "same_home",
             "enum": [
               "same_home",
-              "new_home"
+              "new_home",
+              "migration"
             ],
             "title": "Mode",
             "type": "string"
@@ -7621,6 +7675,94 @@
         ]
       }
     },
+    "/api/v1/system/restore/confirm": {
+      "post": {
+        "description": "Geef de doelinstallatie vrij na een bevestigde vergelijking.",
+        "operationId": "confirm_migration_api_v1_system_restore_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MigrationConfirm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Confirm Migration Api V1 System Restore Confirm Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Confirm Migration",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/system/restore/drill": {
+      "post": {
+        "description": "Toets een geüploade back-up in een tijdelijke database.",
+        "operationId": "web_restore_drill_api_v1_system_restore_drill_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreUploadIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Web Restore Drill Api V1 System Restore Drill Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Web Restore Drill",
+        "tags": [
+          "system"
+        ]
+      }
+    },
     "/api/v1/system/restore/jobs/{job_id}": {
       "get": {
         "description": "Progress of a restore. Needs no login (the database, including sessions, is being replaced);\nthe job id is a long random secret only the admin who started the restore received.",
@@ -7661,6 +7803,33 @@
           }
         },
         "summary": "Restore Job",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/system/restore/rekey": {
+      "post": {
+        "description": "Lees een bestand met de oude hoofdsleutel als ruwe octet-stream, uitsluitend in geheugen.",
+        "operationId": "restore_rekey_api_v1_system_restore_rekey_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Restore Rekey Api V1 System Restore Rekey Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "description": "`secret_key_invalid`: de sleutel van deze server ontbreekt of is ongeldig."
+          }
+        },
+        "summary": "Restore Rekey",
         "tags": [
           "system"
         ]
@@ -7787,6 +7956,30 @@
           }
         },
         "summary": "Put Retention",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/system/safe-mode/enable": {
+      "post": {
+        "description": "Pauzeer apparaatbediening. De status blijft beschikbaar.",
+        "operationId": "enable_safe_mode_api_v1_system_safe_mode_enable_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Enable Safe Mode Api V1 System Safe Mode Enable Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Enable Safe Mode",
         "tags": [
           "system"
         ]

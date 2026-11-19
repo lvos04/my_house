@@ -344,3 +344,182 @@ async def test_restore_as_new_home_archives_the_old_home_and_switches_its_integr
         assert await _scalar(url, "SELECT count(*) FROM logical_roles WHERE home_id = :h", h=new) == len(DEFAULT_ROLES)
         assert await _scalar(url, "SELECT count(*) FROM climate_zones WHERE home_id = :h", h=new) == 2
         assert await _scalar(url, "SELECT value->>'v' FROM settings WHERE key = 'safe_mode'") == "true"
+
+
+async def test_web_rekey_uses_old_key_without_persisting_it(admin, tmp_path, monkeypatch, caplog):
+    import logging
+    import secrets
+
+    caplog.set_level(logging.INFO)
+    async with sessionmaker()() as db:
+        await db.execute(text("SELECT 1"))  # Initialiseer de API-pool vóór de tijdelijke configuratie.
+    cfg = get_settings()
+    old_key, new_key = secrets.token_urlsafe(48), secrets.token_urlsafe(48)
+    async with temp_db() as url:
+        await _integration_with_creds(url, old_key, {"kenmerk": "proef"})
+        # De API-sessie blijft in de eigen testdatabase. Het gedeelde rekey-pad schrijft in de proefdatabase.
+        monkeypatch.setattr(cfg, "database_url", url)
+        monkeypatch.setattr(cfg, "secret_key", new_key)
+        monkeypatch.setattr(cfg, "backup_dir", tmp_path)
+        r = await admin.post("/system/restore/rekey", content=old_key.encode())
+        assert r.status_code == 200, r.text
+        assert r.json()["rekeyed"] == 1
+        enc = await _scalar(url, "SELECT credentials_enc FROM integrations")
+        assert SecretBox(new_key).decrypt(enc) == {"kenmerk": "proef"}
+        assert old_key not in caplog.text and old_key not in r.text
+        assert not any(old_key.encode() in p.read_bytes() for p in tmp_path.rglob("*") if p.is_file())
+        r = await admin.post("/system/restore/rekey", content=b"x" * 4097)
+        assert r.status_code == 413
+
+
+async def test_web_restore_drill_reports_sandbox_counts(admin, tmp_path, monkeypatch):
+    from .test_ws_backup_api import _upload
+
+    monkeypatch.setattr(get_settings(), "backup_dir", tmp_path)
+    async with temp_db() as url:
+        await _integration_with_creds(url, get_settings().resolved_secret_key(), {"kenmerk": "proef"})
+        rec = await bk.run_backup(PW, url=url, backup_dir=tmp_path)
+    blob = (tmp_path / rec["filename"]).read_bytes()
+    verified = (await _upload(admin, blob, PW)).json()
+    r = await admin.post("/system/restore/drill", {"upload_id": verified["upload_id"], "passphrase": PW})
+    assert r.status_code == 200, r.text
+    assert r.json()["tables"]["integrations"] == {"backup": 1, "restored": 1, "now": 1, "ok": True}
+    assert r.json()["credentials"]["total"] == 1
+    assert "database" not in r.json()
+    newer = (await _upload(admin, _old_backup("0099_toekomst"), PW)).json()
+    r = await admin.post("/system/restore/drill", {"upload_id": newer["upload_id"], "passphrase": PW})
+    assert r.status_code == 409
+
+
+async def test_web_migration_preserves_source_and_requires_current_comparison(tmp_path, monkeypatch):
+    import secrets
+
+    from shc_api.db import dispose
+    from shc_api.main import create_app
+    from shc_api.models import Device, Home, SensorReading
+    from shc_api.routers import system
+    from shc_api.store import ensure_server_identity
+
+    from .conftest import Session
+    from .test_ws_backup_api import _upload
+
+    cfg = get_settings()
+    passphrase, password = secrets.token_urlsafe(24), secrets.token_urlsafe(24)
+    monkeypatch.setattr(cfg, "backup_dir", tmp_path)
+    monkeypatch.setattr(cfg, "secret_key", secrets.token_urlsafe(48))
+    monkeypatch.setattr(system, "MAINTENANCE_SETTLE_S", 0)
+    app = create_app()
+    async with temp_db() as source, temp_db() as target:
+        await dispose()
+        try:
+            monkeypatch.setattr(cfg, "database_url", source)
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
+                r = await c.post("/api/v1/auth/setup", json={"username": "bron", "password": password})
+                assert r.status_code == 200
+                admin = Session(c, r.json()["csrf_token"])
+                home = await admin.post("/homes", {"name": "Proefwoning"})
+                assert home.status_code == 200
+            hid, did = uuid.UUID(home.json()["id"]), uuid.uuid4()
+            async with sessionmaker()() as db:
+                source_id = await db.run_sync(ensure_server_identity)
+                db.add(Device(id=did, home_id=hid, provider="hue", kind="light_group", name="Proeflamp",
+                              stable_identity=uuid.uuid4().hex, capabilities=["power"]))
+                await db.flush()
+                db.add(SensorReading(device_id=did, metric="power", value=2.5, unit="W",
+                                     event_id=uuid.uuid4().hex, observed_at=datetime.now(UTC)))
+                await db.commit()
+            snapshot = """SELECT jsonb_build_object(
+                'users', (SELECT jsonb_agg(p) FROM (SELECT id, username, role FROM users) p),
+                'homes', (SELECT jsonb_agg(homes) FROM homes),
+                'history', (SELECT jsonb_agg(sensor_readings) FROM sensor_readings))"""
+            before = await _scalar(source, snapshot)
+            backup = await bk.run_backup(passphrase, url=source, backup_dir=tmp_path)
+            payload = (tmp_path / backup["filename"]).read_bytes()
+            await dispose()
+            monkeypatch.setattr(cfg, "database_url", target)
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
+                r = await c.post("/api/v1/auth/setup", json={"username": "doel", "password": password})
+                assert r.status_code == 200
+                admin = Session(c, r.json()["csrf_token"])
+                checked = (await _upload(admin, payload, passphrase)).json()
+                upload = {"upload_id": checked["upload_id"], "passphrase": passphrase}
+                apply = {**upload, "mode": "migration"}
+                assert (await admin.post("/system/restore/apply", apply)).status_code == 409
+                drill = (await admin.post("/system/restore/drill", upload)).json()
+                assert drill["data_ok"] and drill["source_id"] == source_id != drill["target_id"]
+                apply["drill_id"] = drill["drill_id"]
+                async with sessionmaker()() as db:
+                    extra = Home(name="Al in gebruik")
+                    db.add(extra)
+                    await db.commit()
+                    extra_id = extra.id
+                refused = await admin.post("/system/restore/apply", apply)
+                assert refused.status_code == 409 and refused.json()["detail"]["code"] == "migration_target_refused"
+                prep = bk.MigrationTarget(drill["target_id"], uuid.UUID(r.json()["user"]["id"]), source_id)
+                with pytest.raises(bk.BackupError, match="doel bevat al gegevens"):
+                    await bk.restore_file(tmp_path / backup["filename"], passphrase, url=target,
+                                          mode="migration", migration=prep)
+                assert await _scalar(target, "SELECT name FROM homes") == "Al in gebruik"
+                async with sessionmaker()() as db:
+                    await db.delete(await db.get(Home, extra_id))
+                    await db.commit()
+                accepted = await admin.post("/system/restore/apply", apply)
+                assert accepted.status_code == 202, accepted.text
+                job_id = accepted.json()["job_id"]
+                async with asyncio.timeout(30):
+                    while (job := (await admin.get(f"/system/restore/jobs/{job_id}")).json())["state"] == "running":
+                        await asyncio.sleep(0.05)
+                assert job["state"] == "done", job
+                assert await _scalar(target, snapshot) == before == await _scalar(source, snapshot)
+                r = await c.post("/api/v1/auth/login", json={"username": "bron", "password": password})
+                assert r.status_code == 200
+                admin = Session(c, r.json()["csrf_token"])
+                assert (await admin.post("/system/safe-mode/release")).status_code == 409
+                comparison = (await admin.get("/system/restore/compare")).json()
+                assert comparison["migration"]["confirmation"] is None
+                assert comparison["migration"]["target_id"] == drill["target_id"]
+                assert comparison["source_homes"] == comparison["homes"] == {str(hid): "Proefwoning"}
+                async with sessionmaker()() as db:
+                    device = await db.get(Device, did)
+                    device.last_seen, device.online = datetime.now(UTC), True
+                    home2 = Home(name="Tweede proefwoning")
+                    db.add(home2)
+                    await db.flush()
+                    duplicate = Device(home_id=home2.id, provider=device.provider, kind=device.kind,
+                                       name="Tweede proeflamp", stable_identity=device.stable_identity)
+                    db.add(duplicate)
+                    await db.commit()
+                    dup_id, other_id = duplicate.id, home2.id
+                comparison = (await admin.get("/system/restore/compare")).json()
+                assert comparison["migration"]["confirmation"] is None
+                assert {x["home_name"] for x in comparison["duplicates"][0]["devices"]} == {
+                    "Proefwoning", "Tweede proefwoning",
+                }
+                async with sessionmaker()() as db:
+                    await db.delete(await db.get(Device, dup_id))
+                    await db.delete(await db.get(Home, other_id))
+                    await db.commit()
+                comparison = (await admin.get("/system/restore/compare")).json()
+                approval = {"confirmation": comparison["migration"]["confirmation"], "source_stopped": True}
+                assert approval["confirmation"]
+                async with sessionmaker()() as db:
+                    (await db.get(Device, did)).name = "Naam na vergelijking"
+                    await db.commit()
+                assert (await admin.post("/system/restore/confirm", approval)).status_code == 409
+                fresh = (await admin.get("/system/restore/compare")).json()["migration"]["confirmation"]
+                assert (await admin.post("/system/restore/confirm", {"confirmation": fresh})).status_code == 422
+                next_confirmation = (await admin.get("/system/restore/compare")).json()["migration"]["confirmation"]
+                assert (await admin.post("/system/restore/confirm", {**approval, "confirmation": fresh})).status_code == 409
+                fresh = next_confirmation
+                r = await admin.post("/system/restore/confirm", {**approval, "confirmation": fresh})
+                assert r.status_code == 200 and r.json() == {"safe_mode": False}
+                assert (await admin.post("/system/restore/confirm", {**approval, "confirmation": fresh})).status_code == 409
+                assert await _scalar(source, snapshot) == before
+            await dispose()
+            monkeypatch.setattr(cfg, "database_url", source)
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
+                r = await c.post("/api/v1/auth/login", json={"username": "bron", "password": password})
+                assert r.status_code == 200
+                assert [h["id"] for h in (await Session(c, r.json()["csrf_token"]).get("/homes")).json()] == [str(hid)]
+        finally:
+            await dispose()

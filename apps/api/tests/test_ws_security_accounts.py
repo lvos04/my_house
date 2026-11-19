@@ -127,6 +127,12 @@ async def test_control_phone_and_viewer_are_kept_out(app, admin, home):
         zid = (await v.get(f"/homes/{home['id']}/zones")).json()[0]["id"]
         r = await v.post(f"/zones/{zid}/resume")
         assert r.status_code == 403 and r.json()["detail"]["message"] == "Alleen-lezen toegang."
+        for url in ("/system/safe-mode/enable", "/system/restore/drill", "/system/restore/rekey"):
+            assert (await v.post(url)).status_code == 403, url
+    assert (await admin.post("/system/safe-mode/enable")).json() == {"safe_mode": True}
+    assert (await admin.get("/system/settings")).json()["safe_mode"] is True
+    assert (await admin.post("/system/safe-mode/release")).json() == {"safe_mode": False}
+    assert (await admin.c.post("/connector/v1/system/restore/drill")).status_code == 404
     rows = (await admin.get("/audit?action=request&actor=sec_acc_viewer")).json()
     assert rows == []
 

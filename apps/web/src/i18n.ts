@@ -147,8 +147,9 @@ export const SCHEMA_RELATION_LABEL: Dict = {
   unknown: 'Versie onbekend',
 };
 export const RESTORE_MODE_LABEL: Dict = {
-  same_home: 'A · Zelfde woning, nieuwe server',
+  same_home: 'A · Zelfde woning herstellen',
   new_home: 'B · Nieuwe woning (verhuisd)',
+  migration: 'Overstappen naar een afzonderlijke Custom App',
 };
 export const COMPARE_STATUS_LABEL: Dict = { compatible: 'Werkt', partial: 'Gedeeltelijk', unavailable: 'Niet beschikbaar', new: 'Nieuw gevonden' };
 export const RESTORE_STATE_LABEL: Dict = { running: 'Bezig', done: 'Klaar', failed: 'Mislukt' };
@@ -182,11 +183,15 @@ export const AUDIT_ACTION_LABEL: Dict = {
   home_archived: 'Woning gearchiveerd',
   settings_updated: 'Adressen gewijzigd',
   safe_mode_released: 'Veilige modus opgeheven',
+  safe_mode_enabled: 'Veilige modus ingeschakeld',
   backup_started: 'Back-up gestart',
   backup_created: 'Back-up gemaakt',
   backup_settings_updated: 'Back-upinstellingen gewijzigd',
   restore_verified: 'Back-up gecontroleerd',
   restore_started: 'Herstel gestart',
+  restore_drill: 'Herstelproef uitgevoerd',
+  restore_rekeyed: 'Apparaatsleutels opnieuw versleuteld',
+  migration_confirmed: 'Overstap bevestigd',
   integration_paired: 'Apparaat gekoppeld',
   integration_address: 'Adres van koppeling gewijzigd',
   integration_removed: 'Koppeling verwijderd',

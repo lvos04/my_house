@@ -87,6 +87,16 @@ test('back-up: instellingen, nu maken, downloaden en controleren via upload', as
   await expect(restore.getByRole('radio', { name: /Zelfde woning/ })).toBeChecked();
   await expect(restore.getByRole('button', { name: 'Herstellen' })).toBeDisabled();
 
+  // Een echte herstelproef maakt een tijdelijke database. Dezezelfde app blijft ongeschikt als verhuisdoel.
+  await restore.getByRole('radio', { name: /Overstappen naar een afzonderlijke Custom App/ }).check();
+  await expect(restore.getByRole('button', { name: 'Nieuwe app vullen' })).toBeDisabled();
+  await restore.getByRole('button', { name: 'Herstelproef uitvoeren' }).click();
+  await expect(restore.getByRole('heading', { name: 'Herstelproef in tijdelijke database' })).toBeVisible({ timeout: 60_000 });
+  await expect(restore.getByRole('alert')).toContainText('De back-up komt van deze installatie');
+  await expect(restore.getByRole('button', { name: 'Nieuwe app vullen' })).toBeDisabled();
+  await restore.getByText('Resultaat per tabel').click();
+  await expect(restore.getByRole('row', { name: /^homes / })).toContainText('Komt overeen');
+
   // Cancel: the upload is discarded and nothing changed.
   await restore.getByRole('button', { name: 'Annuleren' }).click();
   await expect(restore.getByRole('form', { name: 'Back-up uploaden' })).toBeVisible();

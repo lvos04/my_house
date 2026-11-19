@@ -445,6 +445,7 @@ def verify_file(path: Path, passphrase: str, collect: bool = True) -> Verified:
     meta = None
     rows_by_table: dict[str, list[dict]] = {t: [] for t in SUMMARY_TABLES}
     secret_settings: list[dict] = []
+    source_id = None
     fmt_info: dict = {}
     for name, f in iter_members(path, passphrase, fmt_info):
         if name == "manifest.json":
@@ -468,6 +469,11 @@ def verify_file(path: Path, passphrase: str, collect: bool = True) -> Verified:
                         rows_by_table[table].append(json.loads(line))
                 elif keep_secrets and (row := _secret_setting_row(line)) is not None:
                     secret_settings.append(row)
+                elif keep_secrets and b'"server_id"' in line:
+                    with contextlib.suppress(ValueError, TypeError, AttributeError, KeyError):
+                        row = json.loads(line)
+                        if row.get("key") == "server_id":
+                            source_id = str(uuid.UUID(row["value"]["v"]))
         seen[name] = {"sha256": h.sha.hexdigest(), "size": h.size, "lines": lines}
     if manifest is None:
         raise BackupError("manifest.json ontbreekt.")
@@ -489,6 +495,7 @@ def verify_file(path: Path, passphrase: str, collect: bool = True) -> Verified:
     summary = _summary(rows_by_table) if collect else {}
     if collect:
         summary["_secret_settings"] = secret_settings
+        summary["_server_id"] = source_id
     return Verified(manifest, fmt_info.get("format_version", 0), summary)
 
 
@@ -547,7 +554,7 @@ def decrypt_check(rows: list[dict], key: str | None = None, settings: list[dict]
     }
 
 
-def key_check_warning(check: dict) -> str | None:
+def key_check_warning(check: dict, *, web: bool = False) -> str | None:
     """Dutch restore warning for encrypted settings that do not fit this server's master key."""
     bad = [k for k in check.get("settings_failed") or [] if k in SECRET_SETTING_LABELS]
     if not bad:
@@ -556,10 +563,12 @@ def key_check_warning(check: dict) -> str | None:
     effects = " en ".join(_SECRET_SETTING_EFFECTS[k][1] for k in bad)
     again = " en ".join(_SECRET_SETTING_EFFECTS[k][2] for k in bad)
     fits = "past" if len(bad) == 1 else "passen"
+    rekey = "de oude hoofdsleutel uploadt bij Herstellen en verhuizen" if web else (
+        "de oude sleutel omzet met 'shc-api rekey --old-key-file'"
+    )
     return (
         f"{what[0].upper()}{what[1:]} in deze back-up {fits} niet bij de hoofdsleutel van deze "
-        f"server. Na het terugzetten {effects}, tot je de oude sleutel omzet met 'shc-api rekey --old-key-file' "
-        f"of {again} opnieuw instelt bij Systeem."
+        f"server. Na het terugzetten {effects}, tot je {rekey} of {again} opnieuw instelt bij Systeem."
     )
 
 
@@ -1382,7 +1391,41 @@ def _restore_connector_proof(conn, held_recovery: bool) -> None:
     """), {"detail": RESTORED_COMMAND_DETAIL})
 
 
-def _restore_sync(conn, path: Path, passphrase: str, manifest: dict, mode: str, report: RestoreReport) -> dict:
+@dataclass(frozen=True)
+class MigrationTarget:
+    server_id: str
+    admin_id: uuid.UUID
+    source_id: str
+
+
+def check_migration_target(conn, tables, target: MigrationTarget) -> None:
+    try:
+        uuid.UUID(target.server_id)
+    except (ValueError, AttributeError) as exc:
+        raise BackupError("De doelinstallatie is niet herkenbaar.") from exc
+    if target.server_id == target.source_id:
+        raise BackupError("De back-up komt van deze installatie. Kies een afzonderlijke doelinstallatie.")
+    settings = dict(conn.execute(text("SELECT key, value->'v' FROM settings")).all())
+    if settings.get("server_id") != target.server_id:
+        raise BackupError("De doelinstallatie is gewijzigd of niet herkenbaar.")
+    admins = conn.execute(text("SELECT id FROM users WHERE role = 'admin' AND NOT disabled")).scalars().all()
+    if admins != [target.admin_id] or conn.scalar(text("SELECT count(*) FROM users")) != 1:
+        raise BackupError("Het doel moet leeg zijn, met alleen het tijdelijke beheerdersaccount.")
+    runtime = {
+        "server_id", "commissioning_gate", "worker_heartbeat", "worker_loops", "clock_check",
+        "maintenance", "safe_mode",
+    }
+    if settings.keys() - runtime:
+        raise BackupError("Het doel bevat al instellingen. Gebruik een nieuwe installatie met eigen opslag.")
+    bootstrap = {"alembic_version", "settings", "users", "sessions", "audit_log", "alerts"}
+    if any(conn.scalar(select(table.select().exists())) for name, table in tables.items() if name not in bootstrap):
+        raise BackupError("Het doel bevat al gegevens. Gebruik een nieuwe installatie met eigen opslag.")
+
+
+def _restore_sync(
+    conn, path: Path, passphrase: str, manifest: dict, mode: str, report: RestoreReport,
+    migration: MigrationTarget | None = None,
+) -> dict:
     from alembic import command
 
     from .commissioning import KEY, LOCK_SQL, gate_state, restored_gate
@@ -1394,6 +1437,12 @@ def _restore_sync(conn, path: Path, passphrase: str, manifest: dict, mode: str, 
     report.schema_from, report.schema_to = rev, head
     current = MetaData()
     current.reflect(bind=conn)
+    if migration:
+        # Controle en TRUNCATE zitten onder dezelfde tabelsloten. Een gelijktijdige schrijfactie
+        # kan het doel niet tussen de twee stappen vullen.
+        names = ", ".join(conn.dialect.identifier_preparer.quote(t.name) for t in current.sorted_tables)
+        conn.execute(text(f"LOCK TABLE {names} IN ACCESS EXCLUSIVE MODE"))
+        check_migration_target(conn, current.tables, migration)
     db_rev = None
     if "alembic_version" in current.tables:
         db_rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
@@ -1490,6 +1539,13 @@ def _restore_sync(conn, path: Path, passphrase: str, manifest: dict, mode: str, 
     ))
     ensure_server_identity(conn)
     _after_restore(conn, manifest, mode, report)
+    if migration:
+        _set(conn, "server_id", migration.server_id)
+        _set(conn, "migration_pending", {"source_id": migration.source_id, "target_id": migration.server_id})
+        conn.execute(text("""
+            UPDATE commands SET status = 'cancelled', detail = 'Vervallen bij overstap.'
+            WHERE status IN ('queued', 'sending', 'sent')
+        """))
     return merged
 
 
@@ -1628,6 +1684,7 @@ def _after_restore(conn, manifest: dict, mode: str, report: RestoreReport) -> No
     new home, archive the restored home(s) (integrations off) and create a fresh one."""
     now = dt.datetime.now(dt.UTC)
     report.mode = mode
+    source_homes = {str(h.id): h.name for h in conn.execute(text("SELECT id, name FROM homes ORDER BY id"))}
     devices = conn.execute(
         text("SELECT id, provider, kind, name, stable_identity, capabilities, state, online, home_id FROM devices")
     ).all()
@@ -1725,7 +1782,7 @@ def _after_restore(conn, manifest: dict, mode: str, report: RestoreReport) -> No
             "mode": mode,
         },
     )
-    _set(conn, "restore_snapshot", {"restored_at": now.isoformat(), "devices": snapshot})
+    _set(conn, "restore_snapshot", {"restored_at": now.isoformat(), "devices": snapshot, "homes": source_homes})
     _set(conn, "restore_report", report.as_dict())
 
 
@@ -1736,18 +1793,22 @@ async def restore_file(
     url: str | None = None,
     mode: str = "same_home",
     verified: Verified | None = None,
+    migration: MigrationTarget | None = None,
 ) -> RestoreReport:
     """Verify (pass 1) and restore (pass 2) in one transaction. Caller handles maintenance mode."""
-    if mode not in ("same_home", "new_home"):
+    if mode not in ("same_home", "new_home", "migration") or (mode == "migration") != (migration is not None):
         raise BackupError("Onbekende herstelkeuze.")
-    v = verified or verify_file(path, passphrase, collect=False)
+    v = verified or verify_file(path, passphrase, collect=migration is not None)
     check_restorable(v.manifest)
+    if migration and (v.summary.get("_server_id") != migration.source_id or not v.manifest.get("secrets_included")
+                      or v.manifest.get("redacted")):
+        raise BackupError("De herkomst of volledigheid van de back-up wijkt af van de herstelproef.")
     engine = create_async_engine(url or get_settings().database_url, poolclass=NullPool, hide_parameters=True)
     report = RestoreReport()
     try:
         async with engine.connect() as conn:
             async with conn.begin():
-                gate = await conn.run_sync(_restore_sync, path, passphrase, v.manifest, mode, report)
+                gate = await conn.run_sync(_restore_sync, path, passphrase, v.manifest, mode, report, migration)
     except BackupError:
         raise
     except DBAPIError as exc:

@@ -220,7 +220,8 @@ async function requestWithHeaders<R>(
   onAccessDenied?: () => void,
 ): Promise<{ data: R; headers: Headers }> {
   const headers: Record<string, string> = { Accept: 'application/json', ...extraHeaders };
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const file = body instanceof Blob ? body : undefined;
+  if (body !== undefined) headers['Content-Type'] = file ? 'application/octet-stream' : 'application/json';
   if (MUTATING.has(method)) {
     const csrf = readCookie('shc_csrf');
     if (csrf) headers['X-CSRF-Token'] = csrf;
@@ -236,7 +237,7 @@ async function requestWithHeaders<R>(
       // CORS error and looked like "server niet bereikbaar" forever).
       redirect: 'manual',
       cache: 'no-store',
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: file ?? (body === undefined ? undefined : JSON.stringify(body)),
     });
   } catch {
     if (signal?.aborted) throw new NetworkError('De server heeft niet op tijd geantwoord.');
@@ -613,6 +614,7 @@ export const api = {
   /** 422 validation_error with a Dutch message for invalid addresses. */
   putSettings: (s: T.AddressesIn) => put<T.SystemSettings>('/system/settings', s),
   releaseSafeMode: () => post<{ safe_mode: boolean }>('/system/safe-mode/release'),
+  enableSafeMode: () => post<{ safe_mode: boolean }>('/system/safe-mode/enable'),
   backups: () => get<T.Backup[]>('/system/backups'),
   /** 200 with the finished backup, or 202 with status "running" (poll backups()). 500 backup_failed. */
   createBackup: (b: T.BackupIn) => post<T.Backup>('/system/backups', b),
@@ -636,6 +638,9 @@ export const api = {
     return uploadWithProgress<T.RestoreVerify>('/system/restore/verify', form, opts);
   },
   restoreDiscard: (uploadId: string) => del<void>(`/system/restore/uploads/${enc(uploadId)}`),
+  restoreDrill: (upload_id: string, passphrase: string) => post<T.RestoreDrill>('/system/restore/drill', { upload_id, passphrase }),
+  restoreRekey: (file: File) => post<T.RestoreRekey>('/system/restore/rekey', file),
+  confirmMigration: (confirmation: string) => post<{ safe_mode: boolean }>('/system/restore/confirm', { confirmation, source_stopped: true }),
   /** 202 {job_id}. 409 restore_running / backup_running / restore_refused; 422 backup_invalid. */
   restoreApply: (b: T.RestoreApplyIn) => post<T.RestoreApplyResult>('/system/restore/apply', b),
   /** No login needed (sessions are replaced by the restore). */

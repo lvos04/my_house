@@ -123,14 +123,43 @@ database-dump). Bij **Gemaakte back-ups** kun je elke back-up downloaden.
    - Een back-up van een **nieuwere** versie wordt geweigerd: werk de app eerst bij.
    - Een back-up van een **oudere** versie wordt na het terugzetten bijgewerkt. Het rapport noemt wat
      niet (volledig) is overgenomen.
-2. **Kiezen:** *A · Zelfde woning, nieuwe server* of *B · Nieuwe woning (verhuisd)*, zie
-   [Verhuizen](#verhuizen).
+2. **Kiezen:** *A · Zelfde woning herstellen* of *B · Nieuwe woning (verhuisd)*, zie
+   [Verhuizen](#verhuizen). Kies **Herstelproef uitvoeren** om eerst terug te zetten in een
+   tijdelijke database. Vergelijk per tabel de aantallen in de back-up en de proef.
 3. **Terugzetten.** De achtergronddienst pauzeert (onderhoudsmodus) en alles wordt in één keer
    vervangen. Daarna sta je in de **veilige modus**: er gaat geen enkel commando naar een apparaat. Je
    wordt uitgelogd (inlogsessies zitten niet in een back-up); log opnieuw in.
 4. **Vergelijken: wat werkt er?** Per apparaat en per functie (rollen, airco en sensor per zone,
    lichtgroepen): *Werkt*, *Gedeeltelijk*, *Niet beschikbaar* of *Nieuw gevonden*, met een suggestie.
    Werkt alles zoals verwacht, kies dan **Veilige modus opheffen**.
+
+### Overstappen van een bestaande Compose-installatie
+
+1. Maak in de bestaande app via **Systeem › Back-ups en bewaren** een volledige versleutelde export
+   met **Geheimen meenemen**. Download hem en bewaar hem buiten de bronapp. Bewaar de oude installatie
+   met eigen opslag, hoofdsleutel en database als terugval.
+2. Installeer de standaard Custom App via het [TrueNAS-formulier](installatie-truenas.md). Kies nieuwe
+   opslag. Maak alleen een tijdelijk beheerdersaccount aan en ga direct naar **Systeem › Herstellen en verhuizen**.
+3. Bevries wijzigingen en de verwerking van metingen op de bron vóór je definitieve export. Maak en
+   download die export via **Back-ups en bewaren** en zet de bronapp daarna stil. Gebruik het doel pas
+   wanneer je kunt vaststellen dat de definitieve export alle brongegevens bevat. Kun je de broninvoer
+   tijdens het maken van die export niet stilhouden, blijf dan op de bron werken.
+4. Kies op het doel **Uploaden en controleren**, vervolgens **Overstappen naar een afzonderlijke Custom App**
+   en **Herstelproef uitvoeren**. Controleer het bron- en doelnummer, de versie, de woning en de aantallen
+   per tabel. Meldt de proef ontbrekende gegevens, een gevuld doel of onbevestigde Zigbee2MQTT-bestanden,
+   laat dan de broninstallatie in gebruik. Bevestig het getoonde doel en kies **Nieuwe app vullen**.
+5. Log opnieuw in op het doel met het bestaande beheerdersaccount. De doelapp blijft in veilige modus.
+   Gebruik bij onleesbare apparaatsleutels **Oude hoofdsleutel uploaden** in het herstelscherm of koppel die
+   apparaten opnieuw. Wacht tot de achtergronddienst apparaten heeft gezien. Bekijk de vergelijking per
+   woning en functie en controleer ontbrekende, onbekende of dubbele apparaten. Bevestig de overstap
+   pas als de vergelijking klopt, de bron stil staat en de laatste gegevens zijn meegenomen.
+6. **Terugvallen.** Zet het doel eerst in **Veilige modus** en stop de doelapp. Is er sinds de overstap
+   nieuwe data in het doel ontstaan, maak dan vóór het stoppen een nieuwe volledige back-up van het doel.
+   Bewaar die en de doelopslag. Gebruik de bron als actieve installatie zodra je die nieuwe gegevens
+   hebt vergeleken en het behoud hebt bevestigd. Start de bestaande app met de bestaande opslag.
+
+Met **Systeem › Veilige modus inschakelen** kun je apparaatbediening pauzeren. In deze stand kan de
+achtergronddienst nog meten. Volg stap 3 voor de definitieve export.
 
 ### Met de opdrachtregel
 
@@ -160,8 +189,8 @@ docker exec -it <api-container> shc-api restore /backups/shc-YYYYMMDD-HHMMSS.shc
 
 **Sleutelcontrole.** `verify-backup`, `restore`, `restore-drill` en de controle in de app melden of de
 apparaatsleutels en versleutelde instellingen te ontsleutelen zijn met de hoofdsleutel van deze server.
-Zo niet, dan is de back-up met een andere `secret_key` gemaakt. Zet de oude sleutel om met
-`shc-api rekey` (zie [Hoofdsleutel vervangen](#hoofdsleutel-vervangen)), of koppel die apparaten opnieuw
+Zo niet, dan is de back-up met een andere hoofdsleutel gemaakt. Kies **Oude hoofdsleutel uploaden**
+bij **Systeem › Herstellen en verhuizen**, of koppel die apparaten opnieuw
 en stel de wachtwoordzin en het push-adres opnieuw in.
 
 ### Database-dump terugzetten

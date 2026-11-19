@@ -739,3 +739,77 @@ eronder. De laatste meting is een eindpunt van 12 px (vanaf 34 rem met de waarde
 `<figure>` met bron en "bijgewerkt" in het bijschrift, hele uren op de tijdas vanaf 34 rem, de aslabels binnen het
 plotvak en de legenda alleen bij een grafiek. Besluit en afwegingen: ADR-0014; bevindingen en metingen:
 [`PEIL_REVIEW.md`](PEIL_REVIEW.md) §12. "NIET GEVALIDEERD (hardware)" hierboven geldt onveranderd.
+
+## 19. Herstellen en overstappen zonder terminal (S-P3-730)
+
+**Ontwerp vóór bouw, 19 november 2026.** Bronnen: [ADR-0004, besluit 8](../adr/ADR-0004-alles-in-een-custom-app.md),
+[bouwlijst P3-11 en G8](../platform-v2/DELTA_MATRIX.md), [contract §3.1](../platform-v2/PLATFORM_CONTRACTEN.md#31-uitgangspunten)
+en [Peil 1.1.1](../../design/ontwerptaal/COMPONENTEN.md). Het ontwerp gebruikt de bestaande Systeem-pagina
+(`System.tsx`), de beheerkaart voor veilige modus (`system/Settings.tsx`) en de wizard (`system/Restore.tsx`).
+
+### Systeem › Herstellen en verhuizen
+
+1. **Back-up maken en controleren.** De oude app maakt en downloadt een volledige versleutelde back-up via
+   **Back-ups**. De beheerder start de nieuwe standaard Custom App met eigen opslag en database. In de nieuwe
+   app kiest de beheerder **Uploaden en controleren** en ziet welke versie, woningen, apparaten en tabellen
+   in de back-up staan. Een nieuwere versie sluit het vervolg af met de bestaande weigerreden.
+2. **Herstelproef uitvoeren.** De wizard gebruikt het bestaande `restore_drill` in een tijdelijke database.
+   Toon per tabel de aantallen uit de back-up en de proef, ontbrekende gegevens en het aantal opnieuw te koppelen
+   apparaten. Een ontbrekende, onvolledige of verouderde proef houdt de overgang dicht. Markeer onleesbare
+   apparaatsleutels apart. Na terugzetten volgt omzetting of opnieuw koppelen. Afbreken keert terug naar de
+   uploadstap. De proef laat de gegevens en bedrijfsmodus van beide installaties intact.
+3. **Nieuwe app vullen.** Bij de overstap accepteert de server uitsluitend een afzonderlijke doelinstallatie.
+   Bind een expliciete bevestiging aan de gecontroleerde back-up, herstelproef en het doel. Weiger een doel met
+   bestaande gebruikersgegevens, een afwijkende of onbekende doelidentiteit, of een ontbrekend controleresultaat.
+   Laat de broninstallatie beschikbaar voor terugval. Zet de nieuwe app na het terugzetten in veilige modus
+   en laat de beheerder opnieuw inloggen met het teruggezette account.
+4. **Apparaten vergelijken.** Toon het beheerdersrapport uit `restore/compare` met onderdelen **Bestaande
+   woning** en **Nieuwe woning**. Toon een apparaat met dezelfde stabiele identiteit in beide woningen als
+   **Dubbel apparaat**, gegroepeerd met naam en woning. Benoem ontbrekende of onzekere vergelijkingen als
+   **Onbekend**. Een sleutel die opnieuw moet worden ingelezen krijgt de actie **Oude hoofdsleutel uploaden**.
+   De server deelt de logica met de CLI-functie `rekey` en verwerkt het begrensde bestand in geheugen. Toon
+   alleen hoeveel koppelingen opnieuw zijn versleuteld of opnieuw gekoppeld moeten worden. Wis de selectie
+   zodra het verzoek eindigt. De sleutelwaarde blijft buiten URL’s, opslag, audit, logs en bewijs.
+5. **Overstap bevestigen.** Toon de vergelijking vóór **Overstap bevestigen**. Laat de server de bevestiging
+   binden aan precies deze vergelijking, het doel en de herstelde back-up. Een nieuwe vergelijking of nieuwe
+   terugzetting maakt het akkoord ongeldig. Voorkom verlies van wijzigingen na de back-up. Pauzeer voor de
+   definitieve export de bronmutaties en de verwerking van binnenkomende metingen, of verwerk aantoonbaar
+   alle wijzigingen uit dat interval. Controleer opnieuw met de definitieve back-up. Als die volledigheid
+   niet kan worden vastgesteld, blijft de nieuwe app in veilige modus en gaat de beheerder verder met de
+   oude app. Bewaar de oude app en de versleutelde back-up voor terugval. Het terugvalpad schakelt bediening
+   in de nieuwe app eerst uit.
+
+De wizard gebruikt `restore/apply` met `mode: migration`. De server controleert vlak vóór het schrijven dat het
+doel een afzonderlijke, lege installatie is. `restore/compare` toont de vergelijking na de proef in het doel.
+De beheerder stelt zelf vast dat de bron stil staat en de definitieve back-up alle gegevens bevat. Voor een
+bron met Zigbee2MQTT-bestanden is een afzonderlijke veilige terugzetproef nodig.
+
+### Veilige modus en Peil-toestanden
+
+Gebruik de bestaande **Veilige modus**-kaart bovenaan Systeem. De beheerder krijgt **Veilige modus inschakelen**
+met uitleg **Apparaatbediening stopt. Je kunt de status blijven bekijken.** Na antwoord van de server toont de
+kaart **Veilige modus aan**. Hervatten loopt via de bestaande vrijgaveactie. Bij een overstap verschijnt de
+vrijgave pas na bevestiging van de vergelijking. Back-upherstel en overstap blijven lokaal bij my_house en
+vereisen een webbeheersessie. De Hub heeft geen herstelactie.
+
+| Toestand | Zichtbare tekst en vervolg | Peil |
+|---|---|---|
+| Leeg | **Kies een versleutelde back-up**. De vervolgstap wordt actief na controle. **Geen dubbele apparaten gevonden** verschijnt pas na een beschikbare vergelijking. | Wizardstap C-36, Leeg C-16, GateBlokkade C-11 |
+| Bezig | **Back-up controleren…**, **Herstelproef uitvoeren…**, **Back-up terugzetten…** of **Sleutels opnieuw versleutelen…**. De lopende actie laat zich niet dubbel starten. | Bestaande `ProgressBar`, Laden C-17, één beleefde aankondiging |
+| Fout of gegevens ontbreken | **Herstelproef mislukt. Bekijk de controle en probeer opnieuw.** Bij een onvolledige vergelijking **Overstap geblokkeerd. Controleer de ontbrekende apparaten.** | Bestaande `ErrorNote`, Foutpaneel C-14, Onbekend C-18 |
+| Vergelijking beschikbaar | **Dubbel apparaat** staat als tekst in de lijst. **Overstap bevestigen** staat bij het rapport en wordt actief zodra de beheerder de controle heeft aangevinkt. | DiffWeergave C-20, responsieve lijst C-34 en zichtbare bevestiging |
+
+Hergebruik de bestaande kaart- en knopstijlen, Peil-tokens en lucide-iconen. De lijst wordt op smalle schermen
+een stapel kaarten. Gebruik zichtbare labels, focus op de kop van een nieuwe stap, bediening via Tab en
+44 px aanraakdoelen. Status staat in tekst, iconen naast die tekst zijn decoratief. De
+bouwproef gebruikt `apps/web/e2e/06-backup.e2e.ts` en de bestaande Peil-metingen op 320, 360, 390, 768, 1024
+en 1440 px in licht en donker, met toetsenbord, focus en axe WCAG 2.2 AA. De veiligheidsproef controleert
+weigering bij ontbrekend recht, onbekend of gevuld doel, ontbrekend of verouderd akkoord en een nieuwere
+back-up. Controleer ook dat de eenmalig geüploade hoofdsleutel na afloop buiten schijf en logs blijft.
+Vergelijk de woning-, gebruikers- en historiegegevens voor en na en oefen terugval op afzonderlijke
+proefinstanties. Gebruik alleen fictieve gegevens en per test gegenereerde sleutels.
+
+### Wachtwoord vergeten
+
+**Uitgesteld, keuze gebruiker.** Voor herstel van het enige beheerdersaccount is een geverifieerd
+herstelkanaal nodig. De uitgifte, route en knop blijven buiten deze bouwronde. De gebruiker kiest het kanaal.

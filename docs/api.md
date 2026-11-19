@@ -746,10 +746,14 @@ back-ups mislukken of de laatste goede back-up is ouder dan 36 uur (en weer in o
 | Methode | Pad | Toegang | Body / antwoord |
 |---|---|---|---|
 | POST | `/system/restore/verify` | `web-admin` | Upload: multipart met `file` en `passphrase` (of een binaire body met header `X-Backup-Passphrase`) → `RestoreCheck`. Wijzigt niets. 422 `backup_invalid`, 413, 503 `secret_key_invalid`, 507 `disk_full` |
+| POST | `/system/restore/drill` | `web-admin` | `{upload_id, passphrase}` → tabelvergelijking uit een tijdelijke database, status van apparaatsleutels, bron- en doel-ID en zo mogelijk `drill_id` |
 | DELETE | `/system/restore/uploads/{upload_id}` | `web-admin` | 204: upload weggooien (anders na 24 uur) |
-| POST | `/system/restore/apply` | `web-admin` | `{upload_id, passphrase, mode?: "same_home"\|"new_home"}` → 202 `{job_id, status: "running", poll}`. 409 `backup_running`, `restore_running`, `restore_refused`; 422 `backup_invalid` |
+| POST | `/system/restore/apply` | `web-admin` | `{upload_id, passphrase, mode?: "same_home"\|"new_home"\|"migration", drill_id?}` → 202 `{job_id, status: "running", poll}`. `migration` vereist `drill_id` en een afzonderlijk leeg doel |
 | GET | `/system/restore/jobs/{job_id}` | `public` | → `{job_id, state: "running"\|"done"\|"failed", step, mode, started_at, finished_at, error, report}`. Zonder login: de database (met de sessies) wordt vervangen; het `job_id` is een lang willekeurig geheim |
-| GET | `/system/restore/compare?home_id=` | `web-admin` | → `{restored_at, safe_mode, restored_from, devices: [...], functions: [...], summary: {compatible, partial, unavailable}}`: per apparaat en functie wat werkt na het herstel |
+| GET | `/system/restore/compare?home_id=` | `web-admin` | Per functie en apparaat wat beschikbaar is, met `duplicates` voor gelijke apparaatidentiteiten in meerdere woningen. Bij overstap geeft een volledige vergelijking een tijdelijke `migration.confirmation` |
+| POST | `/system/restore/confirm` | `web-admin` | `{confirmation, source_stopped: true}` → `{safe_mode: false}` nadat de beheerder de exacte vergelijking en stilstaande bron heeft bevestigd |
+| POST | `/system/restore/rekey` | `web-admin` | Ruwe bytes van het oude sleutelbestand, maximaal 4 KiB → `{rekeyed, already_current, failed, settings_failed}`. Verwerking in geheugen |
+| POST | `/system/safe-mode/enable` | `web-admin` | → `{safe_mode: true}`. Apparaatbediening pauzeert |
 
 ```
 RestoreCheck = {upload_id, filename, size_bytes, format_version, created_at, app_version, schema_revision,
@@ -765,9 +769,14 @@ RestoreCheck = {upload_id, filename, size_bytes, format_version, created_at, app
   (`report.dropped`: tabellen, kolommen en records die de update opruimde).
 - `credentials` zegt of de apparaatsleutels en de versleutelde instellingen (wachtwoordzin voor
   back-ups, push-adres) te ontsleutelen zijn met de hoofdsleutel van **deze** server. Zo niet: oude
-  sleutel terugzetten en `shc-api rekey --old-key-file`, of opnieuw koppelen / opnieuw instellen.
+  sleutel eenmalig uploaden via `restore/rekey`, of opnieuw koppelen of instellen.
 - `apply` zet de onderhoudsmodus aan (de worker pauzeert), vervangt alles in één transactie en zet daarna
   de **veilige modus** aan. Inlogsessies zitten niet in een back-up: log daarna opnieuw in.
+- `mode: "migration"` vereist een volledige back-up van een andere installatie. Het akkoord met de
+  herstelproef geldt één uur en is gebonden aan de back-up, doelinstallatie en beheerder. Het doel
+  bevat alleen het tijdelijke beheerdersaccount. De controle wordt binnen dezelfde transactie herhaald.
+  Tijdens een open overstap houdt `safe-mode/release` de veilige modus aan. Pas na de apparaatvergelijking
+  en expliciete bevestiging met `restore/confirm` kan de doelinstallatie bedienen.
 - `mode: "new_home"` (verhuisd): de woningen uit de back-up worden gearchiveerd (historie blijft,
   koppelingen gaan uit), er komt een nieuwe woning "<naam> (nieuw)" bij met kamers en zones, en
   comfortprofielen en zoneschema's worden als concept overgenomen. Die zones staan uit tot *Terug naar

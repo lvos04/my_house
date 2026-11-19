@@ -1115,6 +1115,7 @@ export interface SystemSettings {
   remote_url: string | null;
   safe_mode: boolean;
   maintenance: boolean;
+  migration_pending?: boolean;
 }
 export interface AddressesIn {
   lan_url: string | null;
@@ -1250,11 +1251,29 @@ export interface RestoreVerify {
   warnings: string[];
 }
 /** A: same home on a new server. B: new home (old one archived, its integrations off). */
-export type RestoreMode = 'same_home' | 'new_home';
+export type RestoreMode = 'same_home' | 'new_home' | 'migration';
 export interface RestoreApplyIn {
   upload_id: string;
   passphrase: string;
   mode: RestoreMode;
+  drill_id?: string;
+}
+export interface RestoreDrill {
+  data_ok: boolean;
+  tables: Record<string, { backup: number; restored: number | null; now: number | null; ok: boolean }>;
+  credentials: { ok: number; failed: string[]; total: number };
+  settings: Record<string, 'ok' | 'failed'>;
+  report: RestoreReport;
+  drill_id: string | null;
+  target_id: string;
+  source_id: string | null;
+  migration_refusal: string | null;
+}
+export interface RestoreRekey {
+  rekeyed: number;
+  already_current: number;
+  failed: number;
+  settings_failed: number;
 }
 export interface RestoreApplyResult {
   job_id: string;
@@ -1319,6 +1338,11 @@ export interface RestoreCompare {
   devices: CompareDevice[];
   functions: CompareFunction[];
   summary: Record<CompareStatus, number>;
+  duplicates?: { provider: string; devices: { id: Uuid; home_id: Uuid; home_name: string | null; name: string }[] }[];
+  source_homes?: Record<Uuid, string>;
+  homes?: Record<Uuid, string>;
+  missing_devices?: number;
+  migration?: { source_id: string; target_id: string; confirmation: string | null };
 }
 
 /* ------------------------------------------------------------------ websocket */

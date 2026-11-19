@@ -45,7 +45,7 @@ export function SystemPage() {
           <Link className="btn small" to="/help">Help</Link>
         </nav>
       </header>
-      {safeMode && can.admin && <SafeModeCard />}
+      {can.admin && status.data && <SafeModeCard active={safeMode} />}
       <StatusSection />
       <VersionCard />
       {can.admin ? (
