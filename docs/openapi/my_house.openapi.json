@@ -9039,7 +9039,15 @@
                 }
               }
             },
-            "description": "Service Unavailable"
+            "description": "dependency_unavailable of connector_pins_unavailable",
+            "headers": {
+              "Retry-After": {
+                "description": "Wachttijd in seconden.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Apply",
@@ -9169,7 +9177,15 @@
                 }
               }
             },
-            "description": "Service Unavailable"
+            "description": "dependency_unavailable of connector_pins_unavailable",
+            "headers": {
+              "Retry-After": {
+                "description": "Wachttijd in seconden.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Discover",
@@ -9294,7 +9310,15 @@
                 }
               }
             },
-            "description": "Service Unavailable"
+            "description": "dependency_unavailable of connector_pins_unavailable",
+            "headers": {
+              "Retry-After": {
+                "description": "Wachttijd in seconden.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Evidence",
@@ -9435,7 +9459,15 @@
                 }
               }
             },
-            "description": "Service Unavailable"
+            "description": "dependency_unavailable of connector_pins_unavailable",
+            "headers": {
+              "Retry-After": {
+                "description": "Wachttijd in seconden.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Propose",
@@ -9576,7 +9608,15 @@
                 }
               }
             },
-            "description": "Service Unavailable"
+            "description": "dependency_unavailable of connector_pins_unavailable",
+            "headers": {
+              "Retry-After": {
+                "description": "Wachttijd in seconden.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Rollback",

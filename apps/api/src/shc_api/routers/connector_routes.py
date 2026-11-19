@@ -16,7 +16,12 @@ from ..deps import DB, Auth, Principal
 from ..models import ClimateZone, Device
 
 router = APIRouter(prefix="/connector/v1", tags=["connector"], route_class=ConnectorContractRoute)
-ERRORS = {status: {"model": ContractProblem} for status in (400, 401, 403, 404, 409, 413, 422, 501, 503)}
+ERRORS = {status: {"model": ContractProblem} for status in (400, 401, 403, 404, 409, 413, 422, 501)}
+ERRORS[503] = {
+    "model": ContractProblem,
+    "description": "dependency_unavailable of connector_pins_unavailable",
+    "headers": {"Retry-After": {"schema": {"type": "integer"}, "description": "Wachttijd in seconden."}},
+}
 Idem = Annotated[str | None, Header(alias="Idempotency-Key", description="Verplichte UUID per verzoek.")]
 
 
