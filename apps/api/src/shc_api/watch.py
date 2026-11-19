@@ -3,10 +3,10 @@
 The worker cannot report its own absence, and a backup that silently stops changes no row anyone
 listens to. So every API process runs ``StatusWatch``: once a minute one of them (advisory lock)
 compares the overview checks "Achtergronddienst" and "Back-up" with the previous round (Setting
-``status_watch``, so a restart of the API does not repeat anything) and on a change
+``status_watch``, so a restart of the API does not repeat anything).
 
-- raises or resolves the "achtergronddienst reageert niet" alert of every active home,
-- publishes ``status.updated`` so open screens (web, Android) show it at once, and
+- reconciles the "achtergronddienst reageert niet" alert of every active home each round,
+- publishes ``status.updated`` on a status change so open screens (web, Android) show it at once, and
 - sends the optional push message outside the app (``notify``), only when the worker goes down or
   comes back, or the backups start or stop failing / getting too old.
 """
@@ -104,13 +104,13 @@ async def check_once(db: AsyncSession, now: datetime | None = None) -> dict | No
         "backup_problem": _backup_problem(backup),
     }
     changed = sorted(k for k in cur if prev.get(k) != cur[k])
+    # Ook woningen die tijdens een bestaande storing zijn aangemaakt hebben een melding nodig.
+    for home_id in (await db.execute(select(Home.id).where(Home.active_to.is_(None)))).scalars().all():
+        await sync_worker_alert(db, home_id, now)
     if not changed:
-        await db.rollback()
+        await db.commit()
         return None
     await set_setting(db, WATCH_KEY, cur)
-    if "worker" in changed or "worker_down" in changed:
-        for home_id in (await db.execute(select(Home.id).where(Home.active_to.is_(None)))).scalars().all():
-            await sync_worker_alert(db, home_id)
     if "worker" in changed or "backup" in changed:
         await publish_status(db)
     messages = _messages(prev, cur, worker, backup)

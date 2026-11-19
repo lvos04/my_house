@@ -52,11 +52,8 @@ async def configured_urls(db: DB) -> tuple[str | None, str | None]:
     return lan, remote
 
 
-async def server_identity(db: DB) -> str:
-    """Stable random id of this installation (Setting "server_id"), created on first use.
-
-    Phones store it at pairing and check GET /pairing/identity before sending their token to an
-    address, so they never hand the token to another device that answers on the home address."""
+async def ensure_server_identity(db: DB) -> str:
+    """Maak zo nodig de vaste serveridentiteit aan in een bestaande schrijftransactie."""
     sid = await get_setting(db, "server_id")
     if sid:
         return str(sid)
@@ -96,14 +93,16 @@ async def identity(
     ``proof`` = :func:`identity_proof`. The phone sends its token only when the proof matches. For an
     unknown client id ``proof`` is null. Revoked or expired phones still get a proof, so the app can
     show "koppel opnieuw" after the 401 instead of "onbekende server"."""
-    sid = await server_identity(db)
+    sid = await get_setting(db, "server_id")
+    if not sid:
+        raise api_error(503, "identity_unavailable", "De serveridentiteit is tijdelijk niet beschikbaar.")
+    sid = str(sid)
     home = await _active_home(db)
     out: dict = {"server_id": sid, "name": home.name if home else None}
     if nonce is not None and client_id is not None:
         hashed = (await db.execute(select(ApiClient.token_hash).where(ApiClient.id == client_id))).scalar()
         out["proof"] = identity_proof(hashed, sid, nonce) if hashed else None
         out["proof_alg"] = IDENTITY_PROOF_ALG
-    await db.commit()
     return out
 
 
@@ -150,7 +149,7 @@ async def create_code(body: CodeRequest, request: Request, db: DB, p: WebAdmin) 
     db.add(pc)
     await db.flush()
     home = await _active_home(db)
-    sid = await server_identity(db)
+    sid = await ensure_server_identity(db)
     await audit(db, p.actor, "pairing_code_created", body.label, role=body.role)
     await db.commit()
     payload = {
@@ -231,7 +230,7 @@ async def redeem(body: Redeem, request: Request, db: DB) -> dict:
     await audit(db, user.username, "phone_paired", body.device_name, role=role, client=str(client.id), ip=ip)
     home = await _active_home(db)
     lan, remote = await configured_urls(db)
-    sid = await server_identity(db)
+    sid = await ensure_server_identity(db)
     await db.commit()
     _redeem_attempts.reset(ip)
     return {

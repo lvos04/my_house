@@ -5,9 +5,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import HTTPConnection
 
 from .db import get_session
 from .errors import api_error
@@ -22,6 +23,7 @@ UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
 # Phone tokens expire; the app renews them with POST /clients/self/refresh (verbeterlijst 18).
 CLIENT_TTL = timedelta(days=180)
 CLIENT_ROLES = ("admin", "control", "viewer")
+VIEWER_WRITES = {("POST", "/api/v1/clients/self/refresh"), ("DELETE", "/api/v1/clients/self")}
 
 DB = Annotated[AsyncSession, Depends(get_session)]
 
@@ -63,7 +65,9 @@ def _phone_gone(code: str) -> Exception:
     )
 
 
-async def resolve_principal(db: AsyncSession, cookie: str | None, bearer: str | None) -> tuple[Principal, str | None]:
+async def resolve_principal(
+    db: AsyncSession, cookie: str | None, bearer: str | None, *, track_use: bool = True
+) -> tuple[Principal, str | None]:
     """Return principal and (for cookie auth) the session CSRF token.
 
     A revoked or expired phone token raises 401 with code ``token_revoked`` / ``token_expired`` (the app
@@ -86,7 +90,7 @@ async def resolve_principal(db: AsyncSession, cookie: str | None, bearer: str | 
             elif client.expires_at is not None and client.expires_at <= now:
                 phone_error = "token_expired"
             else:
-                if (
+                if track_use and client.role != "viewer" and (
                     client.expires_at is None
                     or not client.last_used_at
                     or now - client.last_used_at > timedelta(minutes=5)
@@ -113,10 +117,33 @@ async def resolve_principal(db: AsyncSession, cookie: str | None, bearer: str | 
     raise api_error(401, "auth_required", "Log in om verder te gaan.")
 
 
-async def current_principal(request: Request, db: DB) -> Principal:
+def _bearer(request: HTTPConnection) -> str | None:
     auth = request.headers.get("authorization", "")
-    bearer = auth[7:].strip() if auth.lower().startswith("bearer ") else None
-    principal, csrf = await resolve_principal(db, request.cookies.get(SESSION_COOKIE), bearer)
+    return auth[7:].strip() if auth.lower().startswith("bearer ") else None
+
+
+async def restrict_viewer_writes(request: HTTPConnection, db: DB) -> None:
+    """Blokkeer viewer-tokens ook op routes die zelf geen aanmelding vragen."""
+    method = request.scope.get("method")
+    if method not in UNSAFE or (method, request.url.path) in VIEWER_WRITES:
+        return
+    bearer = _bearer(request)
+    if not bearer or not bearer.startswith(TOKEN_PREFIX):
+        return
+    try:
+        principal, _ = await resolve_principal(db, None, bearer, track_use=False)
+    except HTTPException as exc:
+        if exc.status_code != 401:
+            raise
+        return  # Elke route houdt haar eigen afhandeling voor ontbrekende of ongeldige aanmelding.
+    if principal.client_role == "viewer":
+        raise api_error(403, "forbidden", "Alleen-lezen toegang.")
+
+
+async def current_principal(request: Request, db: DB) -> Principal:
+    principal, csrf = await resolve_principal(
+        db, request.cookies.get(SESSION_COOKIE), _bearer(request), track_use=request.method in UNSAFE
+    )
     if principal.via == "cookie" and request.method in UNSAFE:
         sent = request.headers.get("x-csrf-token", "")
         if not csrf or not sent or not constant_eq(sent, csrf):

@@ -94,12 +94,12 @@ async def worker_check(db: AsyncSession, now: datetime | None = None) -> dict:
     }
 
 
-async def sync_worker_alert(db: AsyncSession, home_id: uuid.UUID) -> None:
+async def sync_worker_alert(db: AsyncSession, home_id: uuid.UUID, now: datetime) -> None:
     """Raise/resolve "achtergronddienst reageert niet" for a home (the API side of verbeterlijst 22).
     The worker resolves it itself as soon as it beats again. Does not commit."""
     if await get_setting(db, "maintenance", False):
         return
-    age = _age_s(await get_setting(db, "worker_heartbeat"), datetime.now(UTC))
+    age = _age_s(await get_setting(db, "worker_heartbeat"), now)
     key = f"worker_heartbeat:{home_id}"
     if age is None or age > WORKER_ALERT_S:
         await raise_alert(

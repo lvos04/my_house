@@ -437,13 +437,22 @@ async def test_clock_check_against_sntp_server(admin):
 # --- item 22: overview shows worker heartbeat, safe mode, backup age; stale heartbeat alert -------
 
 
-async def test_overview_worker_heartbeat_alert(admin):
+async def test_overview_worker_heartbeat_alert(admin, monkeypatch):
+    from shc_api import watch
+
+    async def geen_push(_db):
+        return None, None
+
+    monkeypatch.setattr(watch.notify, "configured_url", geen_push)
     home_id = await new_home(admin)
     async with sessionmaker()() as db:
         before = await get_setting(db, "worker_heartbeat")
+        watch_before = await get_setting(db, watch.WATCH_KEY)
         await set_setting(db, "worker_heartbeat", (datetime.now(UTC) - timedelta(minutes=10)).isoformat())
         await db.commit()
     try:
+        async with sessionmaker()() as db:
+            await watch.check_once(db)
         o = (await admin.get(f"/homes/{home_id}/overview")).json()
         keys = {s["key"]: s for s in o["status"]}
         assert keys["worker"]["state"] == "error" and "10 min" in keys["worker"]["detail"]
@@ -460,4 +469,5 @@ async def test_overview_worker_heartbeat_alert(admin):
     finally:
         async with sessionmaker()() as db:
             await set_setting(db, "worker_heartbeat", before or datetime.now(UTC).isoformat())
+            await set_setting(db, watch.WATCH_KEY, watch_before or {})
             await db.commit()

@@ -17,7 +17,7 @@ from ..deps import DB, Admin, Auth, Control, get_home
 from ..errors import not_found
 from ..models import Alert, ClimateZone, Home, Integration, LogicalRole, Room
 from ..store import audit, get_setting
-from ..views.status import integration_details, sync_worker_alert, worker_check, zigbee_parts
+from ..views.status import integration_details, worker_check, zigbee_parts
 
 router = APIRouter(tags=["homes"])
 
@@ -75,10 +75,6 @@ async def create_home(body: HomeIn, db: DB, p: Admin) -> dict:
 @router.get("/homes/{home_id}/overview")
 async def overview(home_id: uuid.UUID, db: DB, p: Auth) -> dict:
     home = await get_home(db, home_id)
-    if home.active_to is None:
-        # The worker cannot report its own absence: raise/resolve that alert here (verbeterlijst 22).
-        await sync_worker_alert(db, home_id)
-        await db.commit()
     zones = (
         (await db.execute(select(ClimateZone).where(ClimateZone.home_id == home_id).order_by(ClimateZone.name.desc())))
         .scalars()

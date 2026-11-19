@@ -73,10 +73,11 @@ async def test_pairing_requires_a_configured_home_address(admin, home, app, lan,
 
 
 async def test_server_identity_in_qr_redeem_and_public_endpoint(admin, home, app, lan):
-    async with _client(app) as anon:
-        r = await anon.get("/api/v1/pairing/identity")
-        assert r.status_code == 200
-        ident = r.json()
+    async with app.router.lifespan_context(app):
+        async with _client(app) as anon:
+            r = await anon.get("/api/v1/pairing/identity")
+            assert r.status_code == 200
+            ident = r.json()
     uuid.UUID(ident["server_id"])
     assert ident["name"] == home["name"]
     created = await _code(admin, label="sec-ident")
@@ -177,11 +178,17 @@ async def test_token_expiry_refresh_and_unpair(admin, home, app, lan):
         assert r.status_code == 401 and r.json()["detail"]["code"] == "token_expired"
         assert (await phone.post("/api/v1/clients/self/refresh", headers=h2)).status_code == 401
         assert next(x for x in (await admin.get("/clients")).json() if x["id"] == str(cid))["expired"] is True
-        # Tokens from before expiry existed get an expiry date on first use.
+        # Een leesverzoek laat een oude koppeling met nog lege gebruiksgegevens intact.
         async with sessionmaker()() as db:
             await db.execute(update(ApiClient).where(ApiClient.id == cid).values(expires_at=None, last_used_at=None))
             await db.commit()
         assert (await phone.get("/api/v1/homes", headers=h2)).status_code == 200
+        async with sessionmaker()() as db:
+            row = await db.get(ApiClient, cid)
+            assert row.expires_at is None and row.last_used_at is None
+        # De eerste schrijfactie van de gewone telefoon laat de bestaande vervaltermijn ingaan.
+        zone_id = (await admin.get(f"/homes/{home['id']}/zones")).json()[0]["id"]
+        assert (await phone.post(f"/api/v1/zones/{zone_id}/resume", headers=h2)).status_code == 200
         async with sessionmaker()() as db:
             row = await db.get(ApiClient, cid)
         assert row.expires_at and row.expires_at > datetime.now(UTC) + timedelta(days=179)

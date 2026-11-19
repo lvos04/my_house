@@ -23,7 +23,7 @@ Elke route heeft één van deze toegangsniveaus (kolom *Toegang* in de tabellen 
 | `auth` | Elke ingelogde gebruiker en elke gekoppelde telefoon, ook `viewer`. |
 | `control` | Bedienen (klimaat, licht, meldingen afhandelen): een `admin` via de web-app, of een telefoon met rol `admin` of `control`. Anders 403 `forbidden`. |
 | `admin` | Beheren (apparaten, zones, schema's, profielen, tarieven, bewaartermijnen, veilige modus, logboek): een `admin` via de web-app, of een telefoon met rol `admin`. Anders 403 `forbidden`. |
-| `web-admin` | Alleen een `admin` in de web-app, ingelogd met wachtwoord: gebruikers, telefoons en koppelcodes, back-ups en herstellen, adressen en het push-adres. Een telefoon krijgt hier altijd 403 `web_session_required`, ook met rol `admin`. Zo kan iemand met een gestolen telefoon geen nieuwe beheerder, koppelcode of back-up maken. |
+| `web-admin` | Alleen een `admin` in de web-app, ingelogd met wachtwoord: gebruikers, telefoons en koppelcodes, back-ups en herstellen, adressen en het push-adres. De websessie is ook vereist voor wie op een telefoon rol `admin` heeft (403 `web_session_required`). |
 | `phone` | Alleen een gekoppelde telefoon zelf (bearer-token). Anders 403 `forbidden`. |
 
 `GET /auth/me` vertelt de client wat hij mag: `is_admin` (niveau `admin`) en `can_control`
@@ -171,6 +171,17 @@ en `legacy_phone_limited` (database-update 0004). Wachtwoorden en sleutels komen
 | GET | `/clients/self` | `phone` | – | `Client + {user}` |
 | POST | `/clients/self/refresh` | `phone` | – | `{token, expires_at}`: nieuw token, weer 180 dagen geldig. Het oude token werkt meteen niet meer |
 | DELETE | `/clients/self` | `phone` | – | 204: "Ontkoppelen" in de app; het token werkt ook op de server niet meer |
+
+**Alleen-lezen koppeling met de Hub.** Maak een koppelcode met rol `viewer`. Wissel die in met
+`POST /pairing/redeem` en gebruik het teruggegeven viewer-token als Bearer-token. Met dit token
+geven schrijfroutes HTTP 403 (`forbidden`), inclusief de ondertekende connectorroutes. De twee
+uitzonderingen zijn `POST /clients/self/refresh` en `DELETE /clients/self`. Ze vernieuwen of
+trekken uitsluitend de koppeling in die bij het aangeboden token hoort.
+
+GET-verzoeken schrijven geen gebruikstijd, meldingen of andere gegevens weg. De statusbewaker
+werkt de melding voor een ontbrekende of verouderde hartslag bij tijdens zijn achtergrondronde.
+Hij controleert elke minuut, na een opstartvertraging van drie minuten. De woningweergave leest
+de bestaande meldingen en toont de uitgelezen hartslagstatus direct.
 
 ```
 Client = {id, name, role: "admin"|"control"|"viewer", created_at, last_used_at,
@@ -841,9 +852,9 @@ gaat nooit naar clients.
 `GET /connector/v1/discover` geeft de vijf acties met hun doeltype, doelveld,
 parameterschema, minimale bedienrol en maximale leeftijd van een meting. Voeg
 `?zone_id=<uuid>` toe om de temperatuurgrenzen en modi van een zone op te vragen.
-Het bestaande viewer-token volstaat als aanmelding bij de connector. Elke POST
-vraagt daarnaast een met de gepinde Hub-sleutel ondertekend `ExecutionRequest` en
-een UUID in `Idempotency-Key`. De gewone bedienroutes blijven hun eigen rechten
+Het viewer-token geeft leestoegang tot de connector. Elke POST vereist een
+aanmelding met schrijfrechten, een met de gepinde Hub-sleutel ondertekend
+`ExecutionRequest` en een UUID in `Idempotency-Key`. De gewone bedienroutes blijven hun eigen rechten
 afdwingen. Het connectorfoutformaat heeft `code`, `message`, `details` en `trace_id`.
 
 1. `POST /connector/v1/propose` controleert de actie, parameters, apparaatstatus en
