@@ -21,6 +21,7 @@ from shc_api.store import get_setting, set_setting
 
 from .boiler_support import commands, protect
 from .conftest import ADMIN_PW, Session
+from .restore_approval import cli_reviewed, reviewed
 from .test_inbedrijfstelling_beheer import wait_for_lock_queue
 from .test_inbedrijfstelling_groepen import change, mapping
 from .test_inbedrijfstelling_groepen import group_rig as group_rig
@@ -80,9 +81,9 @@ async def restore_backup(admin, tmp_path, path, password, entrance, mode):
     if entrance == "web":
         verified = await _upload(admin, path.read_bytes(), password)
         assert verified.status_code == 200 and verified.json()["restorable"], verified.text
-        response = await admin.post("/system/restore/apply", json={
+        response = await admin.post("/system/restore/apply", json=await reviewed(admin, {
             "upload_id": verified.json()["upload_id"], "passphrase": password, "mode": mode,
-        })
+        }))
         assert response.status_code == 202, response.text
         for _ in range(600):
             result = await admin.c.get(f"/api/v1/system/restore/jobs/{response.json()['job_id']}")
@@ -97,7 +98,7 @@ async def restore_backup(admin, tmp_path, path, password, entrance, mode):
         passfile.write_text(password)
         passfile.chmod(0o600)
         args = argparse.Namespace(file=str(path), passphrase_file=str(passfile), mode=mode, yes=True, z2m_dir=None)
-        assert await cli._restore(args, dry_run=False) == 0
+        assert await cli._restore(await cli_reviewed(args, path, password), dry_run=False) == 0
     login = await admin.c.post("/api/v1/auth/login", json={"username": "beheer", "password": ADMIN_PW})
     assert login.status_code == 200, login.text
     return Session(admin.c, login.json()["csrf_token"])

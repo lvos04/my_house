@@ -1855,6 +1855,49 @@
         "title": "Preview",
         "type": "object"
       },
+      "PreviewIn": {
+        "properties": {
+          "drill_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drill Id"
+          },
+          "mode": {
+            "default": "same_home",
+            "enum": [
+              "same_home",
+              "new_home",
+              "migration"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "passphrase": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Passphrase",
+            "type": "string"
+          },
+          "upload_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Upload Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_id",
+          "passphrase"
+        ],
+        "title": "PreviewIn",
+        "type": "object"
+      },
       "ProfileIn": {
         "properties": {
           "band_c": {
@@ -2458,6 +2501,18 @@
       },
       "shc_api__routers__system__ApplyIn": {
         "properties": {
+          "confirmation": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmation"
+          },
           "drill_id": {
             "anyOf": [
               {
@@ -2485,6 +2540,18 @@
             "minLength": 1,
             "title": "Passphrase",
             "type": "string"
+          },
+          "rollback_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rollback Id"
           },
           "upload_id": {
             "pattern": "^[0-9a-f]{32}$",
@@ -7580,7 +7647,7 @@
     },
     "/api/v1/system/restore/apply": {
       "post": {
-        "description": "Start restoring a verified upload: maintenance mode on (the worker pauses), everything replaced\nin one transaction, safe mode on afterwards. Answers 202 with a job id; poll\nGET /system/restore/jobs/{job_id}. After success, log in again (sessions are not in backups).",
+        "description": "Start het bevestigde herstel en geef het nummer voor de duurzame taakstatus terug.",
         "operationId": "restore_apply_api_v1_system_restore_apply_post",
         "requestBody": {
           "content": {
@@ -7763,9 +7830,50 @@
         ]
       }
     },
+    "/api/v1/system/restore/files/{backup_id}": {
+      "get": {
+        "operationId": "restore_download_api_v1_system_restore_files__backup_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "backup_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Backup Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore Download",
+        "tags": [
+          "system"
+        ]
+      }
+    },
     "/api/v1/system/restore/jobs/{job_id}": {
       "get": {
-        "description": "Progress of a restore. Needs no login (the database, including sessions, is being replaced);\nthe job id is a long random secret only the admin who started the restore received.",
+        "description": "De willekeurige taakcode blijft bruikbaar wanneer de sessies door herstel zijn vervangen.",
         "operationId": "restore_job_api_v1_system_restore_jobs__job_id__get",
         "parameters": [
           {
@@ -7808,6 +7916,49 @@
         ]
       }
     },
+    "/api/v1/system/restore/preview": {
+      "post": {
+        "operationId": "restore_preview_api_v1_system_restore_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Restore Preview Api V1 System Restore Preview Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore Preview",
+        "tags": [
+          "system"
+        ]
+      }
+    },
     "/api/v1/system/restore/rekey": {
       "post": {
         "description": "Lees een bestand met de oude hoofdsleutel als ruwe octet-stream, uitsluitend in geheugen.",
@@ -7830,6 +7981,95 @@
           }
         },
         "summary": "Restore Rekey",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/system/restore/source/export": {
+      "post": {
+        "operationId": "source_export_api_v1_system_restore_source_export_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Source Export Api V1 System Restore Source Export Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Source Export",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/system/restore/source/pause": {
+      "post": {
+        "operationId": "source_pause_api_v1_system_restore_source_pause_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Source Pause Api V1 System Restore Source Pause Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Source Pause",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/system/restore/source/resume": {
+      "post": {
+        "operationId": "source_resume_api_v1_system_restore_source_resume_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Source Resume Api V1 System Restore Source Resume Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Source Resume",
         "tags": [
           "system"
         ]

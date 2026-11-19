@@ -447,6 +447,8 @@ def verify_file(path: Path, passphrase: str, collect: bool = True) -> Verified:
     rows_by_table: dict[str, list[dict]] = {t: [] for t in SUMMARY_TABLES}
     secret_settings: list[dict] = []
     source_id = None
+    last_reading = None
+    reading_ids_known = True
     fmt_info: dict = {}
     for name, f in iter_members(path, passphrase, fmt_info):
         if name == "manifest.json":
@@ -465,6 +467,13 @@ def verify_file(path: Path, passphrase: str, collect: bool = True) -> Verified:
         for line in _lines(h):
             if line:
                 lines += 1
+                if collect and table == "sensor_readings":
+                    try:
+                        reading_id = int(json.loads(line)["id"])
+                    except (ValueError, KeyError, TypeError):
+                        reading_ids_known = False
+                    else:
+                        last_reading = max(last_reading, reading_id) if last_reading is not None else reading_id
                 if keep:
                     with contextlib.suppress(ValueError):
                         rows_by_table[table].append(json.loads(line))
@@ -497,6 +506,16 @@ def verify_file(path: Path, passphrase: str, collect: bool = True) -> Verified:
     if collect:
         summary["_secret_settings"] = secret_settings
         summary["_server_id"] = source_id
+        if proof := manifest.get("source_pause"):
+            z2m = manifest.get("zigbee2mqtt") or {}
+            if (not z2m.get("mounted") or z2m.get("files") != 0 or z2m.get("unreadable") != []
+                    or manifest.get("zigbee2mqtt_included")
+                    or set(manifest["tables"]) != set(Base.metadata.tables) - SKIP_TABLES):
+                raise BackupError("De tabellen of de verwachte Zigbee-opslag ontbreken in de definitieve export.")
+            if (not reading_ids_known or not isinstance(proof, dict) or proof.get("last_reading") != last_reading
+                    or proof.get("reading_count") != manifest["tables"].get("sensor_readings", {}).get("rows")
+                    or proof.get("source_id") != source_id):
+                raise BackupError("Het laatste bronrecord of de bronidentiteit wijkt af van het pauzebewijs.")
     return Verified(manifest, fmt_info.get("format_version", 0), summary)
 
 
@@ -865,6 +884,7 @@ async def write_backup(
     include_secrets: bool,
     z2m_dir: Path | None = None,
     progress: Callable[[str], None] | None = None,
+    *, target_stamp: dict | None = None, source_proof: dict | None = None,
 ) -> dict:
     """Stream the whole database into an encrypted backup file at `path`; returns the manifest.
 
@@ -897,13 +917,26 @@ async def write_backup(
                 await snap.execute(text("SET TRANSACTION READ ONLY"))
                 restore_report = await snap.scalar(select(Setting.value["v"]).where(Setting.key == "restore_report"))
                 interrupted = _interrupted_backup_ids(restore_report)
+                if source_proof is not None:
+                    from .migration_source import PAUSE_KEY, complete, empty_zigbee_store
+                    pause = await snap.scalar(select(Setting.value["v"]).where(Setting.key == PAUSE_KEY))
+                    z2m_dir = empty_zigbee_store()
+                    source_proof.update({**(pause or {}), "zigbee_store": "verified_empty"})
+                    counts = (await snap.execute(text("SELECT max(id), count(*) FROM sensor_readings"))).one()
+                    if (not complete(source_proof, source_proof.get("source_id"))
+                            or counts != (source_proof.get("last_reading"), source_proof.get("reading_count"))):
+                        raise BackupError("De schrijfpauze en het laatste bronrecord zijn niet bevestigd.")
+                if target_stamp is not None:
+                    from .restore_control import state_stamp
+                    target_stamp["value"] = await snap.run_sync(state_stamp)
                 for table in Base.metadata.sorted_tables:
                     if table.name in SKIP_TABLES:
                         continue
                     if progress:
                         progress(table.name)
                     pw = _PartWriter(tar, table.name, tmpdir)
-                    result = await snap.stream(table.select().execution_options(yield_per=FETCH_ROWS))
+                    stmt = table.select().order_by(*table.primary_key)
+                    result = await snap.stream(stmt.execution_options(yield_per=FETCH_ROWS))
                     keys = list(result.keys())
                     redact = not include_secrets
                     async for partition in result.partitions(FETCH_ROWS):
@@ -911,6 +944,8 @@ async def write_backup(
                             obj = dict(zip(keys, r, strict=True))
                             if table.name == "backups" and obj["status"] == "running" and obj["id"] not in interrupted:
                                 continue  # Laat werkelijk lopende taken weg, inclusief deze export.
+                            if table.name == "settings" and obj["key"] == "migration_source_pause":
+                                continue  # Een lokale bronpauze wordt nooit op het doel geïnstalleerd.
                             if redact:
                                 if table.name == "settings" and obj.get("key") in SECRET_SETTING_KEYS:
                                     continue
@@ -930,6 +965,10 @@ async def write_backup(
                 "files": files,
                 "checksums": {k: v["sha256"] for k, v in files.items()},
             }
+            if source_proof is not None:
+                if z2m["files"] or z2m["unreadable"] or not z2m["mounted"]:
+                    raise BackupError("De geverifieerde Zigbee2MQTT-opslag is gewijzigd.")
+                manifest["source_pause"] = source_proof
             _add_bytes(tar, "manifest.json", json.dumps(manifest, indent=2).encode())
         enc.finish()
         raw.flush()
@@ -1361,18 +1400,32 @@ def check_migration_target(conn, tables, target: MigrationTarget) -> None:
         raise BackupError("Het doel moet leeg zijn, met alleen het tijdelijke beheerdersaccount.")
     runtime = {
         "server_id", "commissioning_gate", "worker_heartbeat", "worker_loops", "clock_check",
-        "maintenance", "safe_mode",
+        "maintenance", "safe_mode", "status_watch",
     }
     if settings.keys() - runtime:
         raise BackupError("Het doel bevat al instellingen. Gebruik een nieuwe installatie met eigen opslag.")
-    bootstrap = {"alembic_version", "settings", "users", "sessions", "audit_log", "alerts"}
+    gate = settings.get("commissioning_gate") or {}
+    if gate.get("origin") != "fresh" or gate.get("enabled") is not True or gate.get("enabled_by") != "systeem":
+        raise BackupError("Het doel bevat een gewijzigde inbedrijfstelling.")
+    # Alleen het aanmaken van de tijdelijke beheerder en de eigen herstelwizard horen bij de inrichting.
+    # Een login, gelezen melding of eerdere beheerhandeling is geschiedenis op het doel.
+    if conn.scalar(text("""
+        SELECT (SELECT count(*) FROM audit_log WHERE action = 'setup_admin') <> 1
+        OR EXISTS (SELECT FROM audit_log a WHERE (
+            a.actor = (SELECT username FROM users WHERE id = :admin) AND (
+                (a.action = 'setup_admin' AND a.target IS NULL) OR
+                (a.action IN ('restore_verified', 'restore_drill') AND a.target ~ '^[0-9a-f]{32}$')
+            )) IS NOT TRUE)
+        """), {"admin": target.admin_id}):
+        raise BackupError("Het doel bevat al gebruikershistorie in het auditlog.")
+    bootstrap = {"alembic_version", "settings", "users", "sessions", "audit_log"}
     if any(conn.scalar(select(table.select().exists())) for name, table in tables.items() if name not in bootstrap):
         raise BackupError("Het doel bevat al gegevens. Gebruik een nieuwe installatie met eigen opslag.")
 
 
 def _restore_sync(
     conn, path: Path, passphrase: str, manifest: dict, mode: str, report: RestoreReport,
-    migration: MigrationTarget | None = None,
+    migration: MigrationTarget | None = None, guard: dict | None = None, job_key: str | None = None,
 ) -> dict:
     from alembic import command
 
@@ -1385,12 +1438,20 @@ def _restore_sync(
     report.schema_from, report.schema_to = rev, head
     current = MetaData()
     current.reflect(bind=conn)
-    if migration:
+    if migration or guard:
         # Controle en TRUNCATE zitten onder dezelfde tabelsloten. Een gelijktijdige schrijfactie
         # kan het doel niet tussen de twee stappen vullen.
         names = ", ".join(conn.dialect.identifier_preparer.quote(t.name) for t in current.sorted_tables)
         conn.execute(text(f"LOCK TABLE {names} IN ACCESS EXCLUSIVE MODE"))
-        check_migration_target(conn, current.tables, migration)
+        if migration:
+            check_migration_target(conn, current.tables, migration)
+        if guard:
+            from .restore_control import check_guard
+            pending = conn.scalar(text("SELECT value->'v' FROM settings WHERE key='migration_pending'"))
+            if pending and (not isinstance(pending, dict)
+                            or pending.get("rollback_sha256") != guard["comparison"]["archive_sha256"]):
+                raise BackupError("Bij een open overstap kun je uitsluitend de geverifieerde doelback-up terugzetten.")
+            check_guard(conn, guard, path)
     db_rev = None
     if "alembic_version" in current.tables:
         db_rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
@@ -1442,6 +1503,8 @@ def _restore_sync(
             if not line:
                 continue
             obj = json.loads(line)
+            if tname == "settings" and obj.get("key") == "migration_source_pause":
+                continue  # Een bronpauze en de bijbehorende triggers zijn lokaal.
             row = {}
             for k, v in obj.items():
                 c = cols.get(k)
@@ -1490,11 +1553,17 @@ def _restore_sync(
     _after_restore(conn, manifest, mode, report)
     if migration:
         _set(conn, "server_id", migration.server_id)
-        _set(conn, "migration_pending", {"source_id": migration.source_id, "target_id": migration.server_id})
+        _set(conn, "migration_pending", {"source_id": migration.source_id, "target_id": migration.server_id,
+                                         "source_pause": manifest.get("source_pause"),
+                                         "archive_sha256": guard["comparison"]["archive_sha256"] if guard else None,
+                                         "rollback_sha256": guard["comparison"]["rollback_sha256"] if guard else None})
         conn.execute(text("""
             UPDATE commands SET status = 'cancelled', detail = 'Vervallen bij overstap.'
             WHERE status IN ('queued', 'sending', 'sent')
         """))
+    if job_key:
+        from .restore_control import finish_job
+        finish_job(conn, job_key, state="done", step="teruggezet", report=report.as_dict())
     return merged
 
 
@@ -1635,7 +1704,8 @@ def _after_restore(conn, manifest: dict, mode: str, report: RestoreReport) -> No
     report.mode = mode
     source_homes = {str(h.id): h.name for h in conn.execute(text("SELECT id, name FROM homes ORDER BY id"))}
     devices = conn.execute(
-        text("SELECT id, provider, kind, name, stable_identity, capabilities, state, online, home_id FROM devices")
+        text("SELECT id, provider, kind, name, stable_identity, capabilities, state, online, home_id, lifecycle "
+             "FROM devices")
     ).all()
     snapshot = {
         str(d.id): {
@@ -1645,10 +1715,30 @@ def _after_restore(conn, manifest: dict, mode: str, report: RestoreReport) -> No
             "stable_identity": d.stable_identity,
             "capabilities": d.capabilities or [],
             "caps": (d.state or {}).get("caps"),
-            "home_id": str(d.home_id),
+            "home_id": str(d.home_id), "lifecycle": d.lifecycle,
         }
         for d in devices
     }
+    functions = [dict(row) for row in conn.execute(text("""
+        SELECT 'role:' || r.key AS key, r.label, r.home_id::text, b.device_id::text,
+               b.id::text AS binding_id, r.id::text AS function_id
+        FROM logical_roles r JOIN device_bindings b ON b.role_id = r.id
+        WHERE b.effective_to IS NULL
+        UNION ALL
+        SELECT 'zone:' || z.id || ':' || p.part, z.name || ' (' || p.part || ')', z.home_id::text,
+               p.device_id::text, NULL, z.id::text
+        FROM climate_zones z CROSS JOIN LATERAL
+        (VALUES ('airco', z.unit_device_id), ('sensor', z.sensor_device_id)) AS p(part, device_id)
+        WHERE p.device_id IS NOT NULL
+        UNION ALL
+        SELECT 'lights:' || id, 'Licht ' || name, home_id::text, id::text, NULL, id::text
+        FROM devices WHERE kind = 'light_group'
+    """)).mappings()]
+    definitions = [dict(row) for row in conn.execute(text("""
+        SELECT id::text, home_id::text, 'role:' || key AS key, label FROM logical_roles
+        UNION ALL SELECT id::text, home_id::text, 'zone:' || id, name FROM climate_zones
+    """)).mappings()]
+    active_homes = [str(h) for h in conn.execute(text("SELECT id FROM homes WHERE active_to IS NULL")).scalars()]
     if mode == "new_home":
         from .routers.homes import DEFAULT_ROLES
 
@@ -1731,7 +1821,9 @@ def _after_restore(conn, manifest: dict, mode: str, report: RestoreReport) -> No
             "mode": mode,
         },
     )
-    _set(conn, "restore_snapshot", {"restored_at": now.isoformat(), "devices": snapshot, "homes": source_homes})
+    _set(conn, "restore_snapshot", {"restored_at": now.isoformat(), "devices": snapshot, "homes": source_homes,
+                                    "mode": mode, "active_homes": active_homes, "functions": functions,
+                                    "definitions": definitions})
     _set(conn, "restore_report", report.as_dict())
 
 
@@ -1743,6 +1835,7 @@ async def restore_file(
     mode: str = "same_home",
     verified: Verified | None = None,
     migration: MigrationTarget | None = None,
+    guard: dict | None = None, job_key: str | None = None,
 ) -> RestoreReport:
     """Verify (pass 1) and restore (pass 2) in one transaction. Caller handles maintenance mode."""
     if mode not in ("same_home", "new_home", "migration") or (mode == "migration") != (migration is not None):
@@ -1757,7 +1850,8 @@ async def restore_file(
     try:
         async with engine.connect() as conn:
             async with conn.begin():
-                gate = await conn.run_sync(_restore_sync, path, passphrase, v.manifest, mode, report, migration)
+                gate = await conn.run_sync(_restore_sync, path, passphrase, v.manifest, mode, report,
+                                           migration, guard, job_key)
     except BackupError:
         raise
     except DBAPIError as exc:

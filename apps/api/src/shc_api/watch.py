@@ -94,6 +94,8 @@ async def check_once(db: AsyncSession, now: datetime | None = None) -> dict | No
     now = now or datetime.now(UTC)
     if not (await db.execute(select(func.pg_try_advisory_xact_lock(WATCH_LOCK)))).scalar():
         return None
+    if await get_setting(db, "migration_source_pause"):
+        return None
     prev = await get_setting(db, WATCH_KEY, {}) or {}
     worker = await worker_check(db, now)
     backup = await backup_check(db, now)

@@ -97,6 +97,15 @@ test('back-up: instellingen, nu maken, downloaden en controleren via upload', as
   await restore.getByText('Resultaat per tabel').click();
   await expect(restore.getByRole('row', { name: /^homes / })).toContainText('Komt overeen');
 
+  // Voor de gewone herstelroute toont de app eerst de terugvalkopie en de werkelijke doelvergelijking.
+  await restore.getByRole('radio', { name: /Zelfde woning/ }).check();
+  await expect(restore.getByRole('checkbox')).toBeDisabled();
+  await restore.getByRole('button', { name: 'Doelback-up maken en vergelijken' }).click();
+  await expect(restore.getByRole('heading', { name: 'Vergelijking vóór terugzetten' })).toBeVisible({ timeout: 60_000 });
+  await expect(restore.getByRole('link', { name: 'Geverifieerde doelback-up downloaden' })).toBeVisible();
+  await expect(restore.getByRole('checkbox')).toBeEnabled();
+  await expect(restore.getByRole('button', { name: 'Herstellen' })).toBeDisabled();
+
   // Cancel: the upload is discarded and nothing changed.
   await restore.getByRole('button', { name: 'Annuleren' }).click();
   await expect(restore.getByRole('form', { name: 'Back-up uploaden' })).toBeVisible();

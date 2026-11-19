@@ -82,7 +82,10 @@ async def lifespan(app: FastAPI):
     logging.basicConfig(level=get_settings().log_level)
     install_log_filter()  # vangnet: geen DETAIL van PostgreSQL in de log (KLEIN-37)
     check_secret_key()  # fail fast with a clear message (missing or too short)
+    from .restore_control import recover
+
     async with sessionmaker()() as db:
+        await recover(db)
         await db.run_sync(ensure_server_identity)
         await db.commit()
     await hub.start()
@@ -384,6 +387,9 @@ def create_app() -> FastAPI:
             raise exc
         route = route_template(req.scope)
         contract_route = _is_contract_route(route)
+        if not contract_route and getattr(getattr(exc, "orig", None), "sqlstate", None) == "25006":
+            detail = {"code": "source_paused", "message": "De bron is gepauzeerd voor de overstap."}
+            return JSONResponse({"detail": detail}, status_code=409)
         if not contract_route and not isinstance(exc, DBAPIError):
             raise exc
         log.error("Onverwachte databasefout bij %s %s: %s", req.method, route, db_error_text(exc))

@@ -90,8 +90,7 @@ database-dump). Bij **Gemaakte back-ups** kun je elke back-up downloaden.
 - **Zonder geheimen** (geredigeerd): de export bewaart bekende gewone Zigbee-instellingen en lege
   geheimvelden. De netwerksleutel, coördinatorback-ups, overige Zigbee-bestanden, apparaatsleutels en
   wachtwoord-hashes vallen buiten deze export. Bij herstel blijven bestaande Zigbee-configuratie en
-  geheimen behouden. Na terugzetten is
-  `shc-api reset-password` nodig en moet je apparaten opnieuw koppelen.
+  geheimen behouden. Voor herstel via de webapp heb je een volledige export nodig waarmee een beheerder kan inloggen.
 - **Versleuteling:** AES-256-GCM in blokken van 1 MB, met een sleutel uit je wachtwoordzin (scrypt).
   Elk bestand in het archief heeft een SHA-256-controlegetal. Een beschadigd of aangepast bestand wordt
   geweigerd.
@@ -123,75 +122,41 @@ database-dump). Bij **Gemaakte back-ups** kun je elke back-up downloaden.
    - Een back-up van een **nieuwere** versie wordt geweigerd: werk de app eerst bij.
    - Een back-up van een **oudere** versie wordt na het terugzetten bijgewerkt. Het rapport noemt wat
      niet (volledig) is overgenomen.
-2. **Kiezen:** *A · Zelfde woning herstellen* of *B · Nieuwe woning (verhuisd)*, zie
-   [Verhuizen](#verhuizen). Kies **Herstelproef uitvoeren** om eerst terug te zetten in een
-   tijdelijke database. Vergelijk per tabel de aantallen in de back-up en de proef.
-3. **Terugzetten.** De achtergronddienst pauzeert (onderhoudsmodus) en alles wordt in één keer
-   vervangen. Daarna sta je in de **veilige modus**: er gaat geen enkel commando naar een apparaat. Je
-   wordt uitgelogd (inlogsessies zitten niet in een back-up); log opnieuw in.
-4. **Vergelijken: wat werkt er?** Per apparaat en per functie (rollen, airco en sensor per zone,
-   lichtgroepen): *Werkt*, *Gedeeltelijk*, *Niet beschikbaar* of *Nieuw gevonden*, met een suggestie.
-   Werkt alles zoals verwacht, kies dan **Veilige modus opheffen**.
+2. Kies **Zelfde woning**, **Nieuwe woning** of **Overstappen naar een afzonderlijke Custom App**.
+   De herstelproef controleert het archief in een tijdelijke database. Bij overstappen is die proef verplicht.
+3. Kies **Doelback-up maken en vergelijken**. Bekijk de woningen en de inhoudsverschillen per tabel,
+   ook als de aantallen gelijk zijn. Download de geverifieerde doelback-up en bewaar de wachtwoordzin
+   van het gekozen archief erbij op een veilige plek. Je kunt deze kopie later via dezelfde wizard terugzetten.
+4. Bevestig de vergelijking en kies **Herstellen** of **Nieuwe app vullen**. Bij gewijzigde doelgegevens
+   vraagt de app om een nieuwe vergelijking. Na terugzetten staat de app in veilige modus.
+   Log in met een beheerder uit de teruggezette back-up om apparaten en functies te vergelijken.
+   Bij een onderbreking toont de taak of de databasevervanging is vastgelegd. Staat er **Onbekende uitkomst**,
+   log dan in op de doelapp en controleer de taak en het herkomstrapport voordat je opnieuw begint.
 
 ### Overstappen van een bestaande Compose-installatie
 
-1. Maak in de bestaande app via **Systeem › Back-ups en bewaren** een volledige versleutelde export
-   met **Geheimen meenemen**. Download hem en bewaar hem buiten de bronapp. Bewaar de oude installatie
-   met eigen opslag, hoofdsleutel en database als terugval.
-2. Installeer de standaard Custom App via het [TrueNAS-formulier](installatie-truenas.md). Kies nieuwe
-   opslag. Maak alleen een tijdelijk beheerdersaccount aan en ga direct naar **Systeem › Herstellen en verhuizen**.
-3. Bevries wijzigingen en de verwerking van metingen op de bron vóór je definitieve export. Maak en
-   download die export via **Back-ups en bewaren** en zet de bronapp daarna stil. Gebruik het doel pas
-   wanneer je kunt vaststellen dat de definitieve export alle brongegevens bevat. Kun je de broninvoer
-   tijdens het maken van die export niet stilhouden, blijf dan op de bron werken.
-4. Kies op het doel **Uploaden en controleren**, vervolgens **Overstappen naar een afzonderlijke Custom App**
-   en **Herstelproef uitvoeren**. Controleer het bron- en doelnummer, de versie, de woning en de aantallen
-   per tabel. Meldt de proef ontbrekende gegevens, een gevuld doel of onbevestigde Zigbee2MQTT-bestanden,
-   laat dan de broninstallatie in gebruik. Bevestig het getoonde doel en kies **Nieuwe app vullen**.
-5. Log opnieuw in op het doel met het bestaande beheerdersaccount. De doelapp blijft in veilige modus.
-   Gebruik bij onleesbare apparaatsleutels **Oude hoofdsleutel uploaden** in het herstelscherm of koppel die
-   apparaten opnieuw. Wacht tot de achtergronddienst apparaten heeft gezien. Bekijk de vergelijking per
-   woning en functie en controleer ontbrekende, onbekende of dubbele apparaten. Bevestig de overstap
-   pas als de vergelijking klopt, de bron stil staat en de laatste gegevens zijn meegenomen.
-6. **Terugvallen.** Zet het doel eerst in **Veilige modus** en stop de doelapp. Is er sinds de overstap
-   nieuwe data in het doel ontstaan, maak dan vóór het stoppen een nieuwe volledige back-up van het doel.
-   Bewaar die en de doelopslag. Gebruik de bron als actieve installatie zodra je die nieuwe gegevens
-   hebt vergeleken en het behoud hebt bevestigd. Start de bestaande app met de bestaande opslag.
-
-Met **Systeem › Veilige modus inschakelen** kun je apparaatbediening pauzeren. In deze stand kan de
-achtergronddienst nog meten. Volg stap 3 voor de definitieve export.
-
-### Met de opdrachtregel
-
-```bash
-docker exec -it <api-container> shc-api verify-backup /backups/shc-YYYYMMDD-HHMMSS.shcbak
-```
-
-Dit controleert alleen: versie, aantallen per tabel, Zigbee2MQTT-gegevens en of de sleutels passen bij
-deze server. Echt terugzetten:
-
-```bash
-docker exec -it <api-container> shc-api maintenance on
-docker exec -it <api-container> shc-api restore /backups/shc-YYYYMMDD-HHMMSS.shcbak --z2m-dir /data/zigbee2mqtt-restore
-```
-
-- `restore` weigert zolang de worker draait. Zet eerst de onderhoudsmodus aan (zoals hierboven) of stop
-  de worker-container.
-- Je moet `HERSTEL` typen (of `--yes` meegeven). Met `--mode new_home` werkt het als keuze B in de app.
-- Daarna staat de app in **veilige modus**: bevestig in **Systeem** dat de apparaten kloppen.
-- **Zigbee:** de bestanden komen in `<root>/app/zigbee2mqtt-restore/`. Zet ze terug in
-  `<root>/zigbee2mqtt/` voordat Zigbee2MQTT start en voer `install.sh` opnieuw uit (eigenaar en rechten).
-  Zitten ze niet in de back-up, dan moeten de sensoren opnieuw gekoppeld worden.
-- **Back-up zonder geheimen en Zigbee:** staat er in de doelmap al een `secret.yaml`, dan blijft die staan
-  (*secret.yaml behouden; deze back-up bevat geen wachtwoorden*). Anders komt er een `secret.yaml` zonder
-  waarden. Zet het MQTT-wachtwoord er dan weer in:
-  `printf 'mqtt_password: "%s"\n' "$(sudo cat <root>/secrets/mqtt_z2m_password)" | sudo tee <root>/zigbee2mqtt/secret.yaml`.
-
-**Sleutelcontrole.** `verify-backup`, `restore`, `restore-drill` en de controle in de app melden of de
-apparaatsleutels en versleutelde instellingen te ontsleutelen zijn met de hoofdsleutel van deze server.
-Zo niet, dan is de back-up met een andere hoofdsleutel gemaakt. Kies **Oude hoofdsleutel uploaden**
-bij **Systeem › Herstellen en verhuizen**, of koppel die apparaten opnieuw
-en stel de wachtwoordzin en het push-adres opnieuw in.
+1. Open op de bron **Systeem › Herstellen en verhuizen › Definitieve export op de bron**. Werk de
+   bronapp zo nodig eerst bij zodat deze bediening beschikbaar is. Bewaar de broninstallatie met eigen opslag
+   en hoofdsleutel voor terugval.
+2. Kies **Bron pauzeren voor overstap**. De app controleert de verwachte Zigbee2MQTT-opslag en blokkeert
+   schrijfacties in de database, ook binnenkomende metingen. Houd de beheerderssessie open. Het scherm toont
+   het laatste meetrecord, het aantal metingen en de vervaltijd. Tijdens het geldigheidsvenster van één uur
+   blijft de bron gepauzeerd, ook na een herstart. Bij ontbrekende opslag, Zigbee-bestanden of een gekoppelde
+   Zigbee-integratie blijft de overstap dicht. Voor deze bestanden ontbreekt een beproefd webherstel.
+3. Kies **Definitieve export maken** en download het bestand. Een gewone of oudere export bewijst de laatste
+   bronstand niet. Bij een verlopen bewijs kun je op de bron hervatten en opnieuw een definitieve export maken.
+4. Installeer het doel als afzonderlijke standaard Custom App met eigen opslag. Maak alleen de tijdelijke
+   beheerder aan. Upload de definitieve export en kies **Overstappen naar een afzonderlijke Custom App**.
+   Voer de herstelproef uit. Een doel met gebruikershistorie, waaronder gelezen meldingen of beheerhandelingen,
+   wordt geweigerd. Vergelijk de bron en het doel, bewaar de doelback-up en bevestig de vervanging.
+5. Log opnieuw in op het doel. Lees zo nodig de oude hoofdsleutel in via **Oude hoofdsleutel uploaden**.
+   Controleer woningen, apparaten en functies. Een ontbrekende of vervangen koppeling houdt de vrijgave tegen.
+   Bij een open overstap vind je de oorspronkelijke kopie onder **Doelback-up van deze taak downloaden**.
+   Je kunt die via **Zelfde woning** terugzetten na een nieuwe doelback-up en vergelijking.
+   De actuele vergelijking en het bronbewijs moeten geldig zijn wanneer je **Overstap bevestigen** kiest.
+6. Voor terugval zet je het doel in veilige modus. Bewaar bij nieuwe doelgegevens eerst een volledige export
+   en de doelopslag. Stop de doelapp. Vergelijk de wijzigingen en bevestig het behoud voordat je op de bron
+   verder werkt. Na de vervaltijd kun je weer inloggen op de bron en **Bron hervatten** kiezen.
 
 ### Database-dump terugzetten
 
@@ -294,19 +259,12 @@ koppelen.
 
 Gebruik de verhuisassistent: **Systeem › Herstellen en verhuizen**.
 
-**A. Zelfde woning, nieuwe server** (nieuwe NAS, herinstallatie):
+**A. Zelfde woning herstellen**
 
-1. Installeer op de nieuwe server ([installatie-truenas.md](installatie-truenas.md)). Zet de
-   `secret_key` van de oude server in `<root>/secrets/secret_key` (maak de map `secrets` zo nodig eerst
-   aan) **voordat** je `install.sh` uitvoert: dan maakt het script geen nieuwe en zet het de rechten. Geen oude sleutel? Zie
-   [Hoofdsleutel vervangen](#hoofdsleutel-vervangen).
-2. Maak het beheerdersaccount aan, upload de back-up en kies **A**. De controle zegt vooraf of de
-   sleutels passen.
-3. Alles komt terug zoals het was. Apparaten worden herkend op serienummer, MAC of bridge-id, niet op
-   IP-adres. Controleer bij stap 4 wat werkt en hef de veilige modus op.
-4. Zigbee: zet de Zigbee2MQTT-gegevens terug (zit in de volledige export) voordat Zigbee2MQTT start.
-5. Telefoons blijven gekoppeld als de server dezelfde adressen en sleutels heeft. Anders: opnieuw
-   koppelen via **Account › Telefoons**.
+Kies **Zelfde woning** voor herstel op dezelfde installatie. Volg de stappen onder **In de app**.
+Gebruik voor een overstap naar een nieuwe server het afzonderlijke doel en de definitieve bronexport uit
+**Overstappen van een bestaande Compose-installatie**. De app toont welke apparaatsleutels opnieuw
+moeten worden ingelezen. Voor Zigbee2MQTT-bestanden ontbreekt een beproefde terugzetweg in de webapp.
 
 **B. Nieuwe woning (verhuisd):**
 
@@ -438,13 +396,10 @@ porties, zodat de database niet lang bezig is.
 
 ## Wachtwoord vergeten
 
-```bash
-docker exec -it <api-container> shc-api reset-password <gebruikersnaam>
-```
-
-Alle web-sessies van die gebruiker worden uitgelogd en zijn telefoons ingetrokken (opnieuw koppelen met
-een QR-code). Een geblokkeerde gebruikersnaam (te veel mislukte pogingen) kan een andere beheerder
-vrijgeven bij **Account › Gebruikers › Ontgrendelen**.
+Een ingelogde beheerder kan bij **Account › Gebruikers** het wachtwoord van een andere gebruiker opnieuw
+instellen of diens account ontgrendelen. Na een wachtwoordreset vervallen de bestaande sessies en
+telefoonkoppelingen van die gebruiker. Je eigen wachtwoord wijzig je bij **Account › Wachtwoord wijzigen**
+met je huidige wachtwoord. Zonder toegankelijk beheerdersaccount is er geen zelfherstel via de webapp.
 
 ## Afhankelijkheden bijwerken (voor wie de code bijhoudt)
 

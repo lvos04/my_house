@@ -748,7 +748,12 @@ back-ups mislukken of de laatste goede back-up is ouder dan 36 uur (en weer in o
 | POST | `/system/restore/verify` | `web-admin` | Upload: multipart met `file` en `passphrase` (of een binaire body met header `X-Backup-Passphrase`) → `RestoreCheck`. Wijzigt niets. 422 `backup_invalid`, 413, 503 `secret_key_invalid`, 507 `disk_full` |
 | POST | `/system/restore/drill` | `web-admin` | `{upload_id, passphrase}` → tabelvergelijking uit een tijdelijke database, status van apparaatsleutels, bron- en doel-ID en zo mogelijk `drill_id` |
 | DELETE | `/system/restore/uploads/{upload_id}` | `web-admin` | 204: upload weggooien (anders na 24 uur) |
-| POST | `/system/restore/apply` | `web-admin` | `{upload_id, passphrase, mode?: "same_home"\|"new_home"\|"migration", drill_id?}` → 202 `{job_id, status: "running", poll}`. `migration` vereist `drill_id` en een afzonderlijk leeg doel |
+| POST | `/system/restore/source/pause` | `web-admin` | Pauzeert de bron na opslagcontrole. Geeft vervaltijd, aantal metingen en laatste meetrecord |
+| POST | `/system/restore/source/export` | `web-admin` | `{passphrase}` geeft een geverifieerde definitieve export van de gepauzeerde bron |
+| POST | `/system/restore/source/resume` | `web-admin` | Hervat de bron na het vervallen van het bewijs |
+| POST | `/system/restore/preview` | `web-admin` | `{upload_id, passphrase, mode, drill_id?}` geeft de doelback-up, de vergelijking van woningen en tabellen en een sessiegebonden bevestiging |
+| GET | `/system/restore/files/{backup_id}` | `web-admin` | Downloadt de versleutelde doelback-up of definitieve bronexport |
+| POST | `/system/restore/apply` | `web-admin` | Voeg `rollback_id` en `confirmation` uit de vergelijking toe aan de invoer van `preview`. Na controle volgt HTTP 202 met `job_id`, `status` en `poll`. Migratie vereist ook de herstelproef en een afzonderlijk leeg doel |
 | GET | `/system/restore/jobs/{job_id}` | `public` | → `{job_id, state: "running"\|"done"\|"failed", step, mode, started_at, finished_at, error, report}`. Zonder login: de database (met de sessies) wordt vervangen; het `job_id` is een lang willekeurig geheim |
 | GET | `/system/restore/compare?home_id=` | `web-admin` | Per functie en apparaat wat beschikbaar is, met `duplicates` voor gelijke apparaatidentiteiten in meerdere woningen. Bij overstap geeft een volledige vergelijking een tijdelijke `migration.confirmation` |
 | POST | `/system/restore/confirm` | `web-admin` | `{confirmation, source_stopped: true}` → `{safe_mode: false}` nadat de beheerder de exacte vergelijking en stilstaande bron heeft bevestigd |
@@ -770,6 +775,10 @@ RestoreCheck = {upload_id, filename, size_bytes, format_version, created_at, app
 - `credentials` zegt of de apparaatsleutels en de versleutelde instellingen (wachtwoordzin voor
   back-ups, push-adres) te ontsleutelen zijn met de hoofdsleutel van **deze** server. Zo niet: oude
   sleutel eenmalig uploaden via `restore/rekey`, of opnieuw koppelen of instellen.
+- Het akkoord bij `apply` is dertig minuten geldig. De taakcontrole herhaalt de vergelijking van de actuele
+  doelstand en de integriteitscontrole van beide archieven onder de tabelsloten. Na herstart herstelt
+  het lokale journaal de eerdere onderhoudsstand bij een onderbroken taak. Na een vastgelegde vervanging
+  levert hetzelfde taaknummer het resultaat. Bij HTTP 404 is de uitkomst onbekend.
 - `apply` zet de onderhoudsmodus aan (de worker pauzeert), vervangt alles in één transactie en zet daarna
   de **veilige modus** aan. Inlogsessies zitten niet in een back-up: log daarna opnieuw in.
 - `mode: "migration"` vereist een volledige back-up van een andere installatie. Het akkoord met de

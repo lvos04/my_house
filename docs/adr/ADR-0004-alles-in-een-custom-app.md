@@ -39,8 +39,9 @@ geheimen die de app zelf maakt, en processen als 568. Voorbeeld: `media-source-o
 7. **Cloudflared**: niet in de image; optioneel als catalogusapp of later via de netwerkbouwplannen (B10). Een
    tunneltoken in een formulier is een geheim (contract §3) — dat besluit ligt bij B10/de gebruiker.
 8. **Bestaande compose-installaties migreren zonder shell:** (1) in de oude app een volledige versleutelde back-up
-   maken en downloaden (bestaande route); (2) de nieuwe Custom App installeren; (3) daar *Herstellen › zelfde woning*
-   kiezen en de back-up uploaden (bestaande `restore/verify` + `apply`, veilige modus erna). Apparaatsleutels zijn
+   maken en downloaden tijdens de schrijfpauze, (2) de nieuwe Custom App met eigen opslag installeren en (3) daar
+   *Herstellen › Overstappen naar een afzonderlijke Custom App* kiezen. Na de herstelproef, geverifieerde doelback-up
+   en bevestigde vergelijking wordt het doel in veilige modus gevuld. Apparaatsleutels zijn
    versleuteld met de oude hoofdsleutel: de herstelcontrole meldt dat al (`credentials`), en P3 voegt een
    UI-route toe om de oude hoofdsleutel eenmalig te uploaden (nu alleen `shc-api rekey`) of meldt *opnieuw koppelen*.
    De oude app blijft tot de controle klaar is (A20: "in één handeling terug naar de oude app").

@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, text, update
 
 from .. import backup as bk
-from .. import events, notify, views
+from .. import events, migration_source, notify, restore_control, views
 from ..adaptive import BASELINE_DAYS
 from ..commissioning import lock_commissioning
 from ..config import VERSION, get_settings
@@ -58,7 +58,6 @@ BACKUP_BLOCKS_RESTORE = timedelta(hours=2)  # a "running" backup older than this
 UPLOAD_TTL = timedelta(hours=24)
 MAINTENANCE_SETTLE_S = 12.0  # the worker checks the maintenance flag at most every 10 s
 _background: set[asyncio.Task] = set()
-_jobs: dict[str, dict] = {}
 
 
 @router.get("/health")
@@ -134,6 +133,8 @@ async def get_settings_(db: DB, p: Auth) -> dict:
         "safe_mode": bool(await get_setting(db, "safe_mode", False)),
         "maintenance": bool(await get_setting(db, "maintenance", False)),
         "migration_pending": bool(await get_setting(db, "migration_pending", False)),
+        "source_pause": await get_setting(db, migration_source.PAUSE_KEY) if p.is_admin else None,
+        "last_restore": await restore_control.latest_job(db) if p.via == "cookie" and p.is_admin else None,
     }
 
 
@@ -688,9 +689,10 @@ def verify_summary(upload_id: str, path: Path, v: bk.Verified, filename: str | N
             "wat niet meer bestaat, wordt gemeld."
         )
     if m.get("redacted") or not m.get("secrets_included", True):
+        refusal = refusal or "Voor webherstel is een volledige export met een toegankelijk beheerdersaccount nodig."
         warnings.append(
-            "Geredigeerde back-up: wachtwoorden en apparaatsleutels ontbreken. Na het terugzetten is "
-            "'shc-api reset-password' nodig en moet je apparaten opnieuw koppelen."
+            "Deze export mist wachtwoorden en apparaatsleutels. Kies een volledige export waarmee een beheerder "
+            "kan inloggen. Zonder toegankelijk beheerdersaccount is er geen zelfherstel via de app."
         )
     if not m.get("zigbee2mqtt_included"):
         warnings.append(
@@ -791,9 +793,60 @@ class RestoreUploadIn(BaseModel):
     passphrase: str = Field(min_length=1, max_length=256)
 
 
-class ApplyIn(RestoreUploadIn):
+class PreviewIn(RestoreUploadIn):
     mode: Literal["same_home", "new_home", "migration"] = "same_home"
     drill_id: uuid.UUID | None = None
+
+
+class ApplyIn(PreviewIn):
+    rollback_id: uuid.UUID | None = None
+    confirmation: str | None = Field(None, max_length=128)
+
+
+@router.get("/system/restore/files/{backup_id}")
+async def restore_download(backup_id: uuid.UUID, p: WebAdmin):
+    path = restore_control.rollback_dir() / f"{backup_id}.shcbak"
+    if not path.is_file():
+        raise not_found("Back-up")
+    return FileResponse(path, media_type="application/octet-stream", filename=f"woning-{backup_id}.shcbak")
+
+
+@router.post("/system/restore/source/pause")
+async def source_pause(db: DB, p: WebAdmin) -> dict:
+    try:
+        return await migration_source.pause(db, p.actor)
+    except (bk.BackupError, OSError) as exc:
+        raise api_error(409, "source_unverified", str(exc) if isinstance(exc, bk.BackupError)
+                        else "De verwachte Zigbee2MQTT-opslag is niet leesbaar.") from exc
+
+
+@router.post("/system/restore/source/resume")
+async def source_resume(db: DB, p: WebAdmin) -> dict:
+    try:
+        await migration_source.resume(db, p.actor)
+    except bk.BackupError as exc:
+        raise api_error(409, "source_paused", str(exc)) from exc
+    return {"paused": False}
+
+
+@router.post("/system/restore/source/export")
+async def source_export(body: BackupIn, db: DB, p: WebAdmin) -> dict:
+    from ..db import engine
+
+    if not await get_setting(db, migration_source.PAUSE_KEY):
+        raise api_error(409, "source_unverified", "Pauzeer de bron vóór de definitieve export.")
+    key = uuid.uuid4()
+    path = restore_control.rollback_dir() / f"{key}.shcbak"
+    try:
+        path.touch(mode=0o600, exist_ok=False)
+        async with engine().connect() as conn:
+            manifest = await bk.write_backup(conn, path, body.passphrase, True, source_proof={})
+        await asyncio.to_thread(bk.verify_file, path, body.passphrase)
+    except (bk.BackupError, OSError) as exc:
+        path.unlink(missing_ok=True)
+        raise api_error(409, "source_unverified", str(exc) if isinstance(exc, bk.BackupError)
+                        else "De bronexport kon niet worden geverifieerd.") from exc
+    return {"file_id": key, "source_pause": manifest["source_pause"]}
 
 
 def _backup_fingerprint(v: bk.Verified) -> str:
@@ -872,6 +925,8 @@ async def web_restore_drill(body: RestoreUploadIn, db: DB, p: WebAdmin) -> dict:
             await _check_migration_target(db, target)
         except bk.BackupError as exc:
             refusal = str(exc)
+    if refusal is None and not migration_source.complete(verified.manifest.get("source_pause"), source_id):
+        refusal = "Bronvolledigheid onbekend. Pauzeer de bron en maak de definitieve export met Zigbee-opslagcontrole."
     if refusal is None:
         meta["drill"] = {
             "id": str(uuid.uuid4()), "fingerprint": _backup_fingerprint(verified), "target_id": target_id,
@@ -896,61 +951,81 @@ def _verified_upload(path: Path) -> dict:
     raise not_found("Gecontroleerde upload")
 
 
-def _job_view(job: dict) -> dict:
-    return {k: v for k, v in job.items() if not k.startswith("_")}
+async def _migration(body: PreviewIn, db: DB, p: WebAdmin, meta: dict):
+    if body.mode != "migration":
+        return None
+    drill = meta.get("drill") or {}
+    if (not body.drill_id or drill.get("id") != str(body.drill_id) or drill.get("admin_id") != str(p.user.id)
+            or drill.get("expires_at", 0) <= time.time()):
+        raise api_error(409, "migration_drill_required", "Voer de herstelproef uit en bevestig het getoonde doel.")
+    target = bk.MigrationTarget(drill["target_id"], p.user.id, drill["source_id"])
+    try:
+        await _check_migration_target(db, target)
+    except bk.BackupError as exc:
+        raise api_error(409, "migration_target_refused", str(exc)) from exc
+    return target
 
 
-async def _run_restore_job(
-    job: dict, path: Path, passphrase: str, mode: str, maint_before: bool,
-    migration: bk.MigrationTarget | None = None, fingerprint: str | None = None,
-) -> None:
+@router.post("/system/restore/preview")
+async def restore_preview(body: PreviewIn, db: DB, p: WebAdmin) -> dict:
+    path = _upload_path(body.upload_id)
+    meta = _verified_upload(path)
+    if not meta.get("restorable"):
+        raise api_error(409, "restore_refused", "Deze back-up kan niet worden teruggezet.")
+    await lock_commissioning(db)
+    await _migration(body, db, p, meta)
+    try:
+        verified = await asyncio.to_thread(_verify, path, body.passphrase)
+        return await restore_control.prepare(path, body.passphrase, body.mode, p.session_id, body.upload_id, verified)
+    except bk.BackupError as exc:
+        raise api_error(409, "preview_refused", str(exc)) from exc
+
+
+async def _run_restore_job(owner, key, path, passphrase, mode, maint_before, migration, guard, fingerprint):
     from ..db import sessionmaker
 
     try:
-        job["step"] = "wachten tot de worker pauzeert"
         await asyncio.sleep(MAINTENANCE_SETTLE_S)
-        job["step"] = "controleren en terugzetten"
 
-        def run() -> dict:
-            verified = _verify(path, passphrase) if migration else None
-            if verified and _backup_fingerprint(verified) != fingerprint:
-                raise bk.BackupError("De back-up wijkt af van de bevestigde herstelproef.")
-            return asyncio.run(
-                bk.restore_file(path, passphrase, mode=mode, verified=verified, migration=migration)
-            ).as_dict()
+        def run():
+            verified = _verify(path, passphrase)
+            if migration and (_backup_fingerprint(verified) != fingerprint
+                              or not migration_source.complete(verified.manifest.get("source_pause"),
+                                                               migration.source_id)):
+                raise bk.BackupError("De definitieve bronexport of de schrijfpauze is veranderd of verlopen.")
+            return asyncio.run(bk.restore_file(path, passphrase, mode=mode, verified=verified, migration=migration,
+                                               guard=guard, job_key=key))
 
-        report = await asyncio.to_thread(run)
-        job.update(state="done", step="klaar", report=report, finished_at=datetime.now(UTC))
+        await asyncio.to_thread(run)
         await asyncio.to_thread(_remove_upload, path)
-        with contextlib.suppress(Exception):  # maintenance off, safe mode on: tell open screens
-            async with sessionmaker()() as db:
-                await publish_status(db)
-                await db.commit()
+        async with sessionmaker()() as db:
+            await publish_status(db)
+            await db.commit()
     except Exception as exc:
         msg = str(exc) if isinstance(exc, bk.BackupError) else f"{exc.__class__.__name__}: {_fouttekst(exc)}"
-        job.update(state="failed", step="mislukt", error=msg[:500], finished_at=datetime.now(UTC))
         log.warning("Herstel mislukt: %s", msg)
-        with contextlib.suppress(Exception):
-            async with sessionmaker()() as db:
+        async with sessionmaker()() as db:
+            # Een fout na COMMIT mag de duurzame eindstand niet terugdraaien.
+            job = await restore_control.job_record(db, key)
+            if job and job["state"] == "running":
+                conn = await db.connection()
+                await conn.run_sync(restore_control.finish_job, key, state="failed", step="mislukt", error=msg[:500])
                 await set_setting(db, "maintenance", maint_before)
                 await db.flush()
                 await publish_status(db)
                 await db.commit()
+    finally:
+        await restore_control.release_worker(owner)
 
 
 @router.post("/system/restore/apply", status_code=202)
 async def restore_apply(body: ApplyIn, db: DB, p: WebAdmin) -> dict:
-    """Start restoring a verified upload: maintenance mode on (the worker pauses), everything replaced
-    in one transaction, safe mode on afterwards. Answers 202 with a job id; poll
-    GET /system/restore/jobs/{job_id}. After success, log in again (sessions are not in backups)."""
+    """Start het bevestigde herstel en geef het nummer voor de duurzame taakstatus terug."""
     path = _upload_path(body.upload_id)
-    if not path.is_file():
-        raise not_found("Upload")
+    meta = _verified_upload(path)
+    await restore_control.recover(db)
     await lock_commissioning(db)
-    if await get_setting(db, "migration_pending"):
-        raise api_error(409, "migration_pending", "Deze doelinstallatie heeft al een openstaande overstap.")
-    if any(j["state"] == "running" for j in _jobs.values()):
-        raise api_error(409, "restore_running", "Er loopt al een herstel.")
+    pending = await get_setting(db, "migration_pending")
     interrupted = await bk.restored_interrupted_backup_ids(db)
     busy = (
         await db.execute(
@@ -964,25 +1039,9 @@ async def restore_apply(body: ApplyIn, db: DB, p: WebAdmin) -> dict:
         raise api_error(
             409, "backup_running", "Er loopt nog een back-up. Wacht tot die klaar is en probeer het dan opnieuw."
         )
-    meta = {}
-    with contextlib.suppress(OSError, ValueError):
-        meta = json.loads(path.with_suffix(".json").read_text())
-    if meta and not meta.get("restorable", True):
-        raise api_error(409, "restore_refused", "Deze back-up kan niet hersteld worden (zie de controle).")
-    migration = None
-    fingerprint = None
-    if body.mode == "migration":
-        drill = meta.get("drill") or {}
-        if (not body.drill_id or drill.get("id") != str(body.drill_id) or drill.get("admin_id") != str(p.user.id)
-                or drill.get("expires_at", 0) <= time.time()):
-            raise api_error(409, "migration_drill_required", "Voer de herstelproef uit en bevestig het getoonde doel.")
-        migration = bk.MigrationTarget(drill["target_id"], p.user.id, drill["source_id"])
-        fingerprint = drill["fingerprint"]
-        try:
-            await _check_migration_target(db, migration)
-        except bk.BackupError as exc:
-            raise api_error(409, "migration_target_refused", str(exc)) from exc
-
+    if not meta.get("restorable"):
+        raise api_error(409, "restore_refused", "Deze back-up kan niet worden teruggezet.")
+    migration = await _migration(body, db, p, meta)
     def quick_check() -> None:  # wrong passphrase -> immediate answer (decrypts only the first chunk)
         _fmt, plain = bk.open_plaintext(path, body.passphrase)
         try:
@@ -994,36 +1053,49 @@ async def restore_apply(body: ApplyIn, db: DB, p: WebAdmin) -> dict:
         await asyncio.to_thread(quick_check)
     except bk.BackupError as e:
         raise api_error(422, "backup_invalid", str(e)) from e
-    maint_before = bool(await get_setting(db, "maintenance", False))
-    await set_setting(db, "maintenance", True)
-    await audit(db, p.actor, "restore_started", body.upload_id, mode=body.mode)
-    await db.flush()
-    await publish_status(db)
-    await db.commit()
-    job_id = secrets.token_urlsafe(24)
-    job = {
-        "job_id": job_id,
-        "state": "running",
-        "step": "gestart",
-        "mode": body.mode,
-        "started_at": datetime.now(UTC),
-        "finished_at": None,
-        "error": None,
-        "report": None,
-    }
-    _jobs[job_id] = job
-    _spawn(_run_restore_job(job, path, body.passphrase, body.mode, maint_before, migration, fingerprint))
+    try:
+        guard = await asyncio.to_thread(restore_control.approval, body.rollback_id, body.confirmation, body.mode,
+                                        p.session_id, body.upload_id, path)
+        if pending and (not isinstance(pending, dict)
+                        or pending.get("rollback_sha256") != guard["comparison"]["archive_sha256"]):
+            raise api_error(409, "migration_pending", "Kies bij deze open overstap de geverifieerde doelback-up.")
+        if await (await db.connection()).run_sync(restore_control.state_stamp) != guard["stamp"]:
+            raise bk.BackupError("De doelgegevens zijn gewijzigd. Vergelijk opnieuw.")
+        owner = await restore_control.claim_worker()
+    except bk.BackupError as exc:
+        raise api_error(409, "restore_refused", str(exc)) from exc
+    try:
+        job_id = secrets.token_urlsafe(24)
+        key = restore_control.job_key(job_id)
+        maint_before = bool(await get_setting(db, "maintenance", False))
+        job = {"state": "running", "step": "wachten op de databasevervanging", "mode": body.mode,
+               "started_at": restore_control.job_time(), "finished_at": None, "report": None, "error": None,
+               "_maintenance_before": maint_before}
+        await restore_control.create_job(db, key, job, str(body.rollback_id))
+        await set_setting(db, "maintenance", True)
+        await db.commit()
+        fingerprint = (meta.get("drill") or {}).get("fingerprint")
+        _spawn(_run_restore_job(owner, key, path, body.passphrase, body.mode, maint_before,
+                                migration, guard, fingerprint))
+    except BaseException as exc:
+        await restore_control.release_worker(owner)
+        if isinstance(exc, bk.BackupError):
+            raise api_error(409, "restore_refused", str(exc)) from exc
+        raise
     return {"job_id": job_id, "status": "running", "poll": f"/api/v1/system/restore/jobs/{job_id}"}
 
 
 @router.get("/system/restore/jobs/{job_id}")
-async def restore_job(job_id: str) -> dict:
-    """Progress of a restore. Needs no login (the database, including sessions, is being replaced);
-    the job id is a long random secret only the admin who started the restore received."""
-    job = _jobs.get(job_id)
+async def restore_job(job_id: str, db: DB) -> dict:
+    """De willekeurige taakcode blijft bruikbaar wanneer de sessies door herstel zijn vervangen."""
+    key = restore_control.job_key(job_id)
+    job = await restore_control.job_record(db, key)
     if not job:
         raise not_found("Herstelopdracht")
-    return _job_view(job)
+    if job["state"] == "running":
+        await restore_control.recover(db)
+        job = await restore_control.job_record(db, key)
+    return {"job_id": job_id, **{k: v for k, v in job.items() if not k.startswith("_")}}
 
 
 def _duplicate_devices(before: dict, devices: list[Device], names: dict) -> list[dict]:
@@ -1059,7 +1131,9 @@ async def restore_compare(db: DB, p: WebAdmin, home_id: uuid.UUID | None = None)
         if home_id is None:
             migration = {**migration, "comparison_id": uuid.uuid4().hex}
             await set_setting(db, "migration_pending", migration)
-            if _comparison_complete(comparison):
+            complete = migration_source.complete(migration.get("source_pause"), migration["source_id"])
+            summary["source_complete"] = complete
+            if _comparison_complete(comparison) and complete:
                 expires = int(time.time()) + 900
                 signature = _comparison_signature(comparison, migration, p.session_id, expires)
                 summary["confirmation"] = f"{expires}.{signature}"
@@ -1069,9 +1143,11 @@ async def restore_compare(db: DB, p: WebAdmin, home_id: uuid.UUID | None = None)
 
 def _comparison_complete(data: dict) -> bool:
     return bool(data["restored_at"]) and not (
-        data["source_homes"].keys() - data["homes"].keys()
+        not data["functions_verified"] or set(data["source_active_home_ids"]) - set(data["active_home_ids"])
+        or data["source_homes"].keys() - data["homes"].keys()
         or data["missing_devices"] or data["summary"]["unavailable"] or data["summary"]["partial"] or any(
-            d["status"] != "compatible" or not d["stable_identity"] for d in data["devices"] if not d["archived"]
+            d["status"] != "compatible" or not d["stable_identity"] for d in data["devices"]
+            if not d["archived"] or d.get("expected_active")
         ) or any(sum(entry["home_id"] in data["active_home_ids"] for entry in d["devices"]) > 1
                  for d in data["duplicates"])
     )
@@ -1103,8 +1179,10 @@ async def confirm_migration(body: MigrationConfirm, db: DB, p: WebAdmin) -> dict
         raise api_error(409, "migration_refused", "Er is geen overstap voor deze installatie bevestigd.")
     expiry, _, signature = body.confirmation.partition(".")
     expires = int(expiry)
+    await db.execute(text("LOCK TABLE homes, devices, logical_roles, device_bindings, climate_zones IN SHARE MODE"))
     data = await _restore_comparison(db)
-    if (expires <= time.time() or not _comparison_complete(data)
+    if (expires <= time.time() or not migration_source.complete(migration.get("source_pause"), migration["source_id"])
+            or not _comparison_complete(data)
             or not hmac.compare_digest(signature, _comparison_signature(data, migration, p.session_id, expires))):
         raise api_error(
             409, "comparison_changed", "Vergelijk opnieuw. De vergelijking is gewijzigd, onvolledig of verlopen."
@@ -1142,12 +1220,18 @@ async def _restore_comparison(db: DB, home_id: uuid.UUID | None = None) -> dict:
         missing: list[str] = []
         if b is None and restored_at is not None:
             st, reason = "new", "Na het terugzetten gevonden; nog niet aan een functie gekoppeld."
+        elif b and b.get("lifecycle") == "active" and d.lifecycle != "active":
+            st, reason = "unavailable", "Het apparaat uit de back-up is inmiddels gearchiveerd."
+        elif b and (b.get("stable_identity"), b.get("provider"), b.get("kind"), b.get("home_id")) != (
+            d.stable_identity, d.provider, d.kind, str(d.home_id)
+        ):
+            st, reason = "unavailable", "De identiteit of woning van het apparaat wijkt af van het archief."
         elif not (seen and d.online):
             st, reason = "unavailable", "Nog niet gezien sinds het terugzetten." if restored_at else "Offline."
         else:
             missing = sorted(set((b or {}).get("capabilities") or []) - caps_now)
             old_modes = set((((b or {}).get("caps") or {}).get("modes")) or [])
-            new_modes = set((((d.state or {}).get("caps") or {}).get("modes")) or old_modes)
+            new_modes = set((((d.state or {}).get("caps") or {}).get("modes")) or [])
             missing += [f"modus {m}" for m in sorted(old_modes - new_modes)]
             if missing:
                 st, reason = "partial", "Niet alles is beschikbaar: " + ", ".join(missing)
@@ -1166,6 +1250,7 @@ async def _restore_comparison(db: DB, home_id: uuid.UUID | None = None) -> dict:
                 "reason": reason,
                 "online": d.online,
                 "archived": d.lifecycle != "active",
+                "expected_active": (b or {}).get("lifecycle") == "active",
                 "last_seen": d.last_seen,
                 "missing": missing,
             }
@@ -1190,6 +1275,7 @@ async def _restore_comparison(db: DB, home_id: uuid.UUID | None = None) -> dict:
         functions.append(
             {
                 "key": f"role:{role.key}",
+                "binding_id": str(bnd.id), "function_id": str(role.id),
                 "label": role.label,
                 "home_id": role.home_id,
                 "device_id": bnd.device_id,
@@ -1209,7 +1295,7 @@ async def _restore_comparison(db: DB, home_id: uuid.UUID | None = None) -> dict:
             dev = by_id.get(did)
             functions.append(
                 {
-                    "key": f"zone:{z.id}:{part}",
+                    "key": f"zone:{z.id}:{part}", "function_id": str(z.id),
                     "label": f"{z.name} ({'airco' if part == 'airco' else 'sensor'})",
                     "home_id": z.home_id,
                     "device_id": did,
@@ -1224,7 +1310,7 @@ async def _restore_comparison(db: DB, home_id: uuid.UUID | None = None) -> dict:
             st, reason = status_of[d.id]
             functions.append(
                 {
-                    "key": f"lights:{d.id}",
+                    "key": f"lights:{d.id}", "function_id": str(d.id),
                     "label": f"Licht {d.name}",
                     "home_id": d.home_id,
                     "device_id": d.id,
@@ -1234,15 +1320,41 @@ async def _restore_comparison(db: DB, home_id: uuid.UUID | None = None) -> dict:
                     "suggestion": suggestion.get(st),
                 }
             )
+    active = {str(h) for h in home_ids}
+    if home_id is None and snap.get("mode") != "new_home":
+        active.update(snap.get("active_homes", []))
+    actual = {(str(f["home_id"]), f["key"], str(f["device_id"]), f.get("binding_id"), f["function_id"])
+              for f in functions}
+    for expected in snap.get("functions", []):
+        if expected["home_id"] not in active:
+            continue
+        key = (expected["home_id"], expected["key"], expected["device_id"],
+               expected["binding_id"], expected.get("function_id"))
+        if key not in actual:
+            functions.append({**expected, "device_name": before.get(expected["device_id"], {}).get("name"),
+                              "status": "unavailable", "reason": "De verwachte koppeling ontbreekt of is vervangen.",
+                              "suggestion": "Controleer de functie en het oorspronkelijke apparaat."})
+    if snap.get("definitions"):
+        role_ids = await db.scalars(select(LogicalRole.id).where(LogicalRole.home_id.in_(home_ids)))
+        zone_ids = await db.scalars(select(ClimateZone.id).where(ClimateZone.home_id.in_(home_ids)))
+        definitions = {str(id_) for id_ in (*role_ids, *zone_ids)}
+        for expected in snap["definitions"]:
+            if expected["home_id"] in active and expected["id"] not in definitions:
+                functions.append({**expected, "device_id": None, "device_name": None, "status": "unavailable",
+                                  "reason": "De functie uit het archief ontbreekt of is vervangen.",
+                                  "suggestion": None})
     counts = {k: sum(1 for f in functions if f["status"] == k) for k in ("compatible", "partial", "unavailable")}
     return {
         "restored_at": restored_at,
         "safe_mode": bool(await get_setting(db, "safe_mode", False)),
         "restored_from": await get_setting(db, "restored_from"),
         "devices": out_devices,
-        "functions": sorted(functions, key=lambda item: (str(item["home_id"]), item["key"])),
+        "functions": sorted(functions, key=lambda item: (str(item["home_id"]), item["key"],
+                                                         str(item["device_id"]), item.get("binding_id") or "")),
         "duplicates": _duplicate_devices(before, all_devices, names),
         "source_homes": snap.get("homes", {}),
+        "functions_verified": "functions" in snap,
+        "source_active_home_ids": snap.get("active_homes", []),
         "homes": names,
         "active_home_ids": sorted(str(h) for h in home_ids),
         "missing_devices": len(before.keys() - device_ids),

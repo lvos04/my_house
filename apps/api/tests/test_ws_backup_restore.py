@@ -23,6 +23,7 @@ from shc_api.models import ApiClient, Integration, PairingCode, User
 from shc_api.security import SecretBox
 from shc_api.store import get_setting, set_secret_setting, set_setting
 
+from .restore_approval import verify_three_gates
 from .test_ws_backup_format import PW, make_v1, temp_db
 
 
@@ -394,9 +395,10 @@ async def test_web_restore_drill_reports_sandbox_counts(admin, tmp_path, monkeyp
 async def test_web_migration_preserves_source_and_requires_current_comparison(tmp_path, monkeypatch):
     import secrets
 
+    from shc_api import migration_source
     from shc_api.db import dispose
     from shc_api.main import create_app
-    from shc_api.models import Device, Home, SensorReading
+    from shc_api.models import Alert, AuditLog, Device, DeviceBinding, Home, LogicalRole, SensorReading
     from shc_api.routers import system
     from shc_api.store import ensure_server_identity
 
@@ -417,6 +419,7 @@ async def test_web_migration_preserves_source_and_requires_current_comparison(tm
                 r = await c.post("/api/v1/auth/setup", json={"username": "bron", "password": password})
                 assert r.status_code == 200
                 admin = Session(c, r.json()["csrf_token"])
+                source_cookies, source_csrf = dict(c.cookies), admin.csrf
                 home = await admin.post("/homes", {"name": "Proefwoning"})
                 assert home.status_code == 200
             hid, did = uuid.UUID(home.json()["id"]), uuid.uuid4()
@@ -425,6 +428,11 @@ async def test_web_migration_preserves_source_and_requires_current_comparison(tm
                 db.add(Device(id=did, home_id=hid, provider="hue", kind="light_group", name="Proeflamp",
                               stable_identity=uuid.uuid4().hex, capabilities=["power"]))
                 await db.flush()
+                role = (await db.scalars(select(LogicalRole).where(LogicalRole.home_id == hid))).first()
+                link = DeviceBinding(device_id=did, role_id=role.id)
+                db.add(link)
+                await db.flush()
+                link_id, role_id = link.id, role.id
                 db.add(SensorReading(device_id=did, metric="power", value=2.5, unit="W",
                                      event_id=uuid.uuid4().hex, observed_at=datetime.now(UTC)))
                 await db.commit()
@@ -434,20 +442,67 @@ async def test_web_migration_preserves_source_and_requires_current_comparison(tm
                 'history', (SELECT jsonb_agg(sensor_readings) FROM sensor_readings))"""
             before = await _scalar(source, snapshot)
             backup = await bk.run_backup(passphrase, url=source, backup_dir=tmp_path)
-            payload = (tmp_path / backup["filename"]).read_bytes()
+            old = (tmp_path / backup["filename"]).read_bytes()
+            zigbee = tmp_path / "zigbee2mqtt"
+            zigbee.mkdir()
+            monkeypatch.setattr(cfg, "data_dir", tmp_path / "app")
+            monkeypatch.setattr(cfg, "zigbee2mqtt_dir", tmp_path / "onjuiste-map")
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test",
+                                         cookies=source_cookies) as c:
+                source_admin = Session(c, source_csrf)
+                assert (await source_admin.post("/system/restore/source/pause")).status_code == 409
+                monkeypatch.setattr(cfg, "zigbee2mqtt_dir", zigbee)
+                (zigbee / "database.db").write_text("proef")
+                assert (await source_admin.post("/system/restore/source/pause")).status_code == 409
+                (zigbee / "database.db").unlink()
+                paused = await source_admin.post("/system/restore/source/pause")
+                assert paused.status_code == 200 and paused.json()["reading_count"] == 1, paused.text
+                assert (await source_admin.post("/homes", {"name": "Te laat"})).status_code == 409
+                from sqlalchemy.exc import DBAPIError
+                async with sessionmaker()() as db:
+                    db.add(SensorReading(device_id=did, metric="power", value=99, unit="W",
+                                         event_id=uuid.uuid4().hex, observed_at=datetime.now(UTC)))
+                    with pytest.raises(DBAPIError) as late:
+                        await db.commit()
+                    assert late.value.orig.sqlstate == "25006"
+                final = await source_admin.post("/system/restore/source/export", {"passphrase": passphrase})
+                assert final.status_code == 200, final.text
+                info = final.json()
+                assert info["source_pause"]["last_reading"] == await _scalar(source, "SELECT max(id) FROM sensor_readings")
+                payload = (await source_admin.get("/system/restore/files/" + info["file_id"])).content
+                assert (await source_admin.post("/system/restore/source/resume")).status_code == 409
             await dispose()
             monkeypatch.setattr(cfg, "database_url", target)
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
                 r = await c.post("/api/v1/auth/setup", json={"username": "doel", "password": password})
                 assert r.status_code == 200
                 admin = Session(c, r.json()["csrf_token"])
+                legacy = (await _upload(admin, old, passphrase)).json()
+                incomplete = (await admin.post("/system/restore/drill", {
+                    "upload_id": legacy["upload_id"], "passphrase": passphrase})).json()
+                assert incomplete["drill_id"] is None and "Bronvolledigheid onbekend" in incomplete["migration_refusal"]
                 checked = (await _upload(admin, payload, passphrase)).json()
                 upload = {"upload_id": checked["upload_id"], "passphrase": passphrase}
                 apply = {**upload, "mode": "migration"}
                 assert (await admin.post("/system/restore/apply", apply)).status_code == 409
                 drill = (await admin.post("/system/restore/drill", upload)).json()
                 assert drill["data_ok"] and drill["source_id"] == source_id != drill["target_id"]
+                assert drill["drill_id"], drill["migration_refusal"]
                 apply["drill_id"] = drill["drill_id"]
+                for history in (Alert(key="proef", source="systeem", title="Gelezen", severity="info",
+                                      acknowledged_at=datetime.now(UTC)),
+                                AuditLog(actor="doel", action="instelling_gewijzigd")):
+                    async with sessionmaker()() as db:
+                        db.add(history)
+                        await db.commit()
+                        key = history.id
+                    assert (await admin.post("/system/restore/preview", apply)).status_code == 409
+                    assert (await admin.post("/system/restore/apply", apply)).status_code == 409
+                    async with sessionmaker()() as db:
+                        saved = await db.get(type(history), key)
+                        assert saved is not None
+                        await db.delete(saved)
+                        await db.commit()
                 async with sessionmaker()() as db:
                     extra = Home(name="Al in gebruik")
                     db.add(extra)
@@ -463,7 +518,7 @@ async def test_web_migration_preserves_source_and_requires_current_comparison(tm
                 async with sessionmaker()() as db:
                     await db.delete(await db.get(Home, extra_id))
                     await db.commit()
-                accepted = await admin.post("/system/restore/apply", apply)
+                accepted = await admin.post("/system/restore/apply", await verify_three_gates(admin, apply))
                 assert accepted.status_code == 202, accepted.text
                 job_id = accepted.json()["job_id"]
                 async with asyncio.timeout(30):
@@ -503,6 +558,39 @@ async def test_web_migration_preserves_source_and_requires_current_comparison(tm
                 approval = {"confirmation": comparison["migration"]["confirmation"], "source_stopped": True}
                 assert approval["confirmation"]
                 async with sessionmaker()() as db:
+                    link = await db.get(DeviceBinding, link_id)
+                    link.effective_to = datetime.now(UTC)
+                    await db.commit()
+                for replaced in (False, True):
+                    if replaced:
+                        async with sessionmaker()() as db:
+                            other = DeviceBinding(role_id=role_id, device_id=did)
+                            db.add(other)
+                            await db.commit()
+                            other_id = other.id
+                    changed = (await admin.get("/system/restore/compare")).json()
+                    assert any(f["status"] == "unavailable" and f.get("binding_id") == str(link_id)
+                               for f in changed["functions"])
+                    assert changed["migration"]["confirmation"] is None
+                    assert (await admin.post("/system/restore/confirm", approval)).status_code == 409
+                async with sessionmaker()() as db:
+                    await db.delete(await db.get(DeviceBinding, other_id))
+                    (await db.get(DeviceBinding, link_id)).effective_to = None
+                    await db.commit()
+                # Ook een functie zonder actieve apparaatbinding heeft een eigen identiteit in het archief.
+                async with sessionmaker()() as db:
+                    unused = (await db.scalars(select(LogicalRole).where(LogicalRole.id != role_id))).first()
+                    old_id, label = unused.id, unused.label
+                    await db.delete(unused)
+                    await db.commit()
+                changed = (await admin.get("/system/restore/compare")).json()
+                assert changed["migration"]["confirmation"] is None
+                assert any(f["label"] == label and f["status"] == "unavailable" for f in changed["functions"])
+                async with sessionmaker()() as db:
+                    db.add(LogicalRole(id=old_id, home_id=hid, key=unused.key, label=label, protected=unused.protected))
+                    await db.commit()
+                approval["confirmation"] = (await admin.get("/system/restore/compare")).json()["migration"]["confirmation"]
+                async with sessionmaker()() as db:
                     (await db.get(Device, did)).name = "Naam na vergelijking"
                     await db.commit()
                 assert (await admin.post("/system/restore/confirm", approval)).status_code == 409
@@ -517,6 +605,15 @@ async def test_web_migration_preserves_source_and_requires_current_comparison(tm
                 assert await _scalar(source, snapshot) == before
             await dispose()
             monkeypatch.setattr(cfg, "database_url", source)
+            class NaVerval(datetime):
+                @classmethod
+                def now(cls, tz=None):
+                    return datetime.now(tz) + timedelta(hours=2)
+
+            monkeypatch.setattr(migration_source, "datetime", NaVerval)
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test",
+                                         cookies=source_cookies) as c:
+                assert (await Session(c, source_csrf).post("/system/restore/source/resume")).status_code == 200
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
                 r = await c.post("/api/v1/auth/login", json={"username": "bron", "password": password})
                 assert r.status_code == 200

@@ -642,6 +642,11 @@ export const api = {
   restoreRekey: (file: File) => post<T.RestoreRekey>('/system/restore/rekey', file),
   confirmMigration: (confirmation: string) => post<{ safe_mode: boolean }>('/system/restore/confirm', { confirmation, source_stopped: true }),
   /** 202 {job_id}. 409 restore_running / backup_running / restore_refused; 422 backup_invalid. */
+  restorePreview: (body: T.RestoreApplyIn) => post<T.RestorePreview>('/system/restore/preview', body),
+  restoreFileUrl: (id: string) => `${API_BASE}/system/restore/files/${enc(id)}`,
+  pauseSource: () => post<T.SourcePause>('/system/restore/source/pause', {}),
+  resumeSource: () => post<{ paused: boolean }>('/system/restore/source/resume', {}),
+  sourceExport: (passphrase: string) => post<{ file_id: string }>('/system/restore/source/export', { passphrase }),
   restoreApply: (b: T.RestoreApplyIn) => post<T.RestoreApplyResult>('/system/restore/apply', b),
   /** No login needed (sessions are replaced by the restore). */
   restoreJob: (jobId: string) => get<T.RestoreJob>(`/system/restore/jobs/${enc(jobId)}`),

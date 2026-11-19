@@ -192,6 +192,12 @@ async def setup(body: Credentials, request: Request, response: Response, db: DB)
 
 @router.post("/login")
 async def login(body: Credentials, request: Request, response: Response, db: DB) -> dict:
+    from ..migration_source import PAUSE_KEY
+    from ..store import get_setting
+
+    pause = await get_setting(db, PAUSE_KEY)
+    if pause and datetime.now(UTC) < datetime.fromisoformat(pause["expires"]):
+        raise api_error(409, "source_paused", "De bron is gepauzeerd. Gebruik de bestaande sessie tot de vervaltijd.")
     ip = client_ip(request)
     if _attempts.blocked(ip):
         raise too_many(_attempts.retry_after(ip))

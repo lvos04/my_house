@@ -74,7 +74,13 @@ describe('restore / verhuisassistent (item 43)', () => {
     vi.stubGlobal('XMLHttpRequest', FakeXhr);
     FakeXhr.next = { status: 200, body: verify };
     let polls = 0;
+    const approval = 'bevestiging-uit-de-proef';
+    const rollback = 'doelkopie-uit-de-proef';
     const calls = mockApi((m, url) => {
+      if (url.endsWith('/system/restore/preview')) return { body: { confirmation: approval, comparison: {
+        mode: 'new_home', rollback_id: rollback, homes_before: [{ name: 'Huidige woning' }], homes_after: verify.homes,
+        tables: { homes: { before: 1, after: 1, same: false } },
+      } } };
       if (url.endsWith('/system/restore/apply')) return { status: 202, body: { job_id: 'job1', status: 'running', poll: '/api/v1/system/restore/jobs/job1' } };
       if (url.endsWith('/system/restore/jobs/job1')) return { body: job(++polls >= 2 ? 'done' : 'running') };
       if (url.includes('/system/restore/compare')) return { body: compare };
@@ -102,9 +108,14 @@ describe('restore / verhuisassistent (item 43)', () => {
     // 2: choose B, confirm, apply
     expect(screen.getByRole('button', { name: 'Herstellen' })).toBeDisabled();
     await user.click(screen.getByRole('radio', { name: /B · Nieuwe woning/ }));
+    expect(screen.getByRole('checkbox', { name: /alle gegevens op deze server worden vervangen/ })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Doelback-up maken en vergelijken' }));
+    expect(await screen.findByRole('heading', { name: 'Vergelijking vóór terugzetten' })).toBeVisible();
+    expect(screen.getByRole('link', { name: /Geverifieerde doelback-up/ })).toHaveAttribute('href', expect.stringContaining(rollback));
+    expect(screen.getByText('Verschil')).toBeVisible();
     await user.click(screen.getByRole('checkbox', { name: /alle gegevens op deze server worden vervangen/ }));
     await user.click(screen.getByRole('button', { name: 'Herstellen' }));
-    await waitFor(() => expect(calls.find((c) => c.url.endsWith('/restore/apply'))?.body).toEqual({ upload_id: verify.upload_id, passphrase: 'mijn-lange-zin', mode: 'new_home' }));
+    await waitFor(() => expect(calls.find((c) => c.url.endsWith('/restore/apply'))?.body).toEqual({ upload_id: verify.upload_id, passphrase: 'mijn-lange-zin', mode: 'new_home', rollback_id: rollback, confirmation: approval }));
     expect(JSON.parse(localStorage.getItem(RESTORE_KEY)!)).toMatchObject({ job_id: 'job1', mode: 'new_home' });
 
     // 3: running, then done

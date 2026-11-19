@@ -19,6 +19,7 @@ from shc_api.store import get_setting, set_setting
 from shc_api.worker import backup_job as bj
 
 from .conftest import ADMIN_PW, Session
+from .restore_approval import reviewed
 
 PW = "een lange wachtwoordzin"
 AMS = ZoneInfo("Europe/Amsterdam")
@@ -256,7 +257,9 @@ async def test_restore_via_upload_verify_apply_and_compare(admin, home, monkeypa
         "/system/restore/apply", {"upload_id": v["upload_id"], "passphrase": "verkeerde wachtwoordzin"}
     )
     assert bad.status_code == 422
-    r = await admin.post("/system/restore/apply", {"upload_id": v["upload_id"], "passphrase": PW, "mode": "same_home"})
+    body = {"upload_id": v["upload_id"], "passphrase": PW, "mode": "same_home"}
+    assert (await admin.post("/system/restore/apply", body)).status_code == 409
+    r = await admin.post("/system/restore/apply", await reviewed(admin, body))
     assert r.status_code == 202, r.text
     job_id = r.json()["job_id"]
     for _ in range(600):

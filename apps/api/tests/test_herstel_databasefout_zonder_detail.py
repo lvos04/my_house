@@ -18,6 +18,7 @@ from shc_api import backup as bk
 from shc_api import cli
 from shc_api.routers import system
 
+from .restore_approval import cli_reviewed, reviewed
 from .test_ws_backup_format import PW, make_v1, temp_db
 from .test_ws_backup_restore import _scalar
 
@@ -90,31 +91,25 @@ async def test_herstel_fout_toont_sqlstate_en_constraint_maar_geen_detail(tmp_pa
 
 async def test_herstel_fout_via_api_en_log_zonder_detail(admin, tmp_path, monkeypatch, caplog):
     monkeypatch.setattr(system, "MAINTENANCE_SETTLE_S", 0.0)
-    echt = bk.restore_file
-    async with temp_db() as url:
-
-        async def naar_tijdelijke_db(path, passphrase, **kw):
-            return await echt(path, passphrase, url=url, **kw)
-
-        monkeypatch.setattr(bk, "restore_file", naar_tijdelijke_db)
-        r = await admin.c.post(
-            "/api/v1/system/restore/verify",
-            files={"file": ("kapot.shcbak", _backup("check"), "application/octet-stream")},
-            data={"passphrase": PW},
-            headers=admin.h(),
-        )
-        assert r.status_code == 200, r.text
-        with caplog.at_level(logging.WARNING, logger="shc_api"):
-            upload_id = r.json()["upload_id"]
-            r = await admin.post("/system/restore/apply", {"upload_id": upload_id, "passphrase": PW})
-            assert r.status_code == 202, r.text
-            job_id = r.json()["job_id"]
-            for _ in range(600):
-                resp = await admin.c.get(f"/api/v1/system/restore/jobs/{job_id}")
-                job = resp.json()
-                if job["state"] != "running":
-                    break
-                await asyncio.sleep(0.1)
+    r = await admin.c.post(
+        "/api/v1/system/restore/verify",
+        files={"file": ("kapot.shcbak", _backup("check"), "application/octet-stream")},
+        data={"passphrase": PW},
+        headers=admin.h(),
+    )
+    assert r.status_code == 200, r.text
+    with caplog.at_level(logging.WARNING, logger="shc_api"):
+        upload_id = r.json()["upload_id"]
+        body = await reviewed(admin, {"upload_id": upload_id, "passphrase": PW})
+        r = await admin.post("/system/restore/apply", body)
+        assert r.status_code == 202, r.text
+        job_id = r.json()["job_id"]
+        for _ in range(600):
+            resp = await admin.c.get(f"/api/v1/system/restore/jobs/{job_id}")
+            job = resp.json()
+            if job["state"] != "running":
+                break
+            await asyncio.sleep(0.1)
     assert job["state"] == "failed", job
     _controleer(job["error"], "check")
     _controleer(resp.text, "check")
@@ -136,17 +131,10 @@ async def test_herstel_fout_via_cli_zonder_detail(admin, tmp_path, monkeypatch, 
         return (False, False)
 
     monkeypatch.setattr(cli, "worker_running", geen_worker)
-    echt = bk.restore_file
-    async with temp_db() as url:
-
-        async def naar_tijdelijke_db(path, passphrase, **kw):
-            return await echt(path, passphrase, url=url, **kw)
-
-        monkeypatch.setattr(bk, "restore_file", naar_tijdelijke_db)
-        try:
-            assert await cli._restore(args, dry_run=False) == 2
-        finally:
-            await cli.set_maintenance(False)
+    try:
+        assert await cli._restore(await cli_reviewed(args, p, PW), dry_run=False) == 2
+    finally:
+        await cli.set_maintenance(False)
     uit = capsys.readouterr()
     assert "MISLUKT (er is niets gewijzigd)" in uit.err
     _controleer(uit.out + uit.err, "unique")

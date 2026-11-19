@@ -14,6 +14,7 @@ from sqlalchemy.exc import DBAPIError
 from shc_api import backup as bk
 from shc_api.routers import system
 
+from .restore_approval import reviewed
 from .test_db_detail_niet_in_log import VERWACHT, _schending
 from .test_herstel_databasefout_zonder_detail import _backup
 from .test_ws_backup_format import PW
@@ -62,7 +63,8 @@ async def _herstel_faalt(admin, monkeypatch, fout: BaseException):
     )
     assert r.status_code == 200, r.text
     upload_id = r.json()["upload_id"]
-    r = await admin.post("/system/restore/apply", {"upload_id": upload_id, "passphrase": PW})
+    body = await reviewed(admin, {"upload_id": upload_id, "passphrase": PW})
+    r = await admin.post("/system/restore/apply", body)
     assert r.status_code == 202, r.text
     job_id = r.json()["job_id"]
     for _ in range(600):

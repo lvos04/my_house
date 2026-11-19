@@ -781,7 +781,11 @@ en [Peil 1.1.1](../../design/ontwerptaal/COMPONENTEN.md). Het ontwerp gebruikt d
 
 De wizard gebruikt `restore/apply` met `mode: migration`. De server controleert vlak vóór het schrijven dat het
 doel een afzonderlijke, lege installatie is. `restore/compare` toont de vergelijking na de proef in het doel.
-De beheerder stelt zelf vast dat de bron stil staat en de definitieve back-up alle gegevens bevat. Voor een
+Vóór iedere vervanging toont de wizard de geverifieerde doelkopie, doelwoningen en het verschil per tabel.
+Het akkoord hoort bij precies dit archief, deze doelkopie, herstelkeuze en beheerderssessie.
+De bron toont de schrijfpauze, het laatste meetrecord en de vervaltijd. Een onbekende bronstand blokkeert de overstap.
+Een ontbrekende taak toont **Onbekende uitkomst** op Systeem en het inlogscherm. Bij herstart gebruikt de
+app het taakjournaal om vast te stellen of de vervanging is vastgelegd. Voor een
 bron met Zigbee2MQTT-bestanden is een afzonderlijke veilige terugzetproef nodig.
 
 ### Veilige modus en Peil-toestanden

@@ -42,38 +42,45 @@ export function clearRestore() {
 
 export const RESTORE_POLL_MS = 2000;
 
-/** Poll a restore job until it is done or failed. `missing` = the server no longer knows the job
- * (e.g. the API restarted): check the comparison instead. */
+/** De taakcode blijft bruikbaar tijdens het vervangen van de sessies. */
 export function useRestoreJob(jobId: string | null) {
   const q = useQuery<RestoreJob>({
     queryKey: ['restoreJob', jobId],
     queryFn: () => api.restoreJob(jobId!),
     enabled: Boolean(jobId),
-    retry: (n, e) => !isApiError(e, 'not_found') && n < 30,
+    retry: (n, e) => !(isApiError(e) && e.status === 404) && n < 2,
     retryDelay: RESTORE_POLL_MS,
     refetchInterval: (query) => (query.state.data && query.state.data.state !== 'running' ? false : RESTORE_POLL_MS),
     staleTime: 0,
     gcTime: 60_000,
   });
-  const missing = isApiError(q.error) && q.error.status === 404;
-  return { job: q.data ?? null, missing, error: missing ? null : q.error };
+  const job = q.data;
+  const error = q.error ?? q.failureReason;
+  const report = job?.report;
+  const valid = job && job.job_id === jobId && ['running', 'failed', 'done'].includes(job.state)
+    && (job.state !== 'done' || (job.finished_at && Number.isFinite(Date.parse(job.finished_at))
+      && report && Number.isInteger(report.total_records) && Array.isArray(report.archived_homes)
+      && report.dropped && Object.hasOwn(RESTORE_MODE_LABEL, report.mode)));
+  const state = error || (job && !valid) ? 'unknown' : job?.state ?? 'loading';
+  return { job: job ?? null, state, error: isApiError(error) && error.status === 404 ? null : error };
 }
 
 /** Compact progress line for the login page while a restore runs or just finished. */
 export function PendingRestoreNotice() {
   const stored = loadRestore();
-  const { job, missing } = useRestoreJob(stored?.job_id ?? null);
+  const { job, state } = useRestoreJob(stored?.job_id ?? null);
   if (!stored) return null;
-  const state = missing ? 'done' : job?.state ?? 'running';
   return (
     <div className={`note ${state === 'failed' ? 'error' : 'info'}`} role="status" aria-live="polite">
       <strong>Herstel ({RESTORE_MODE_LABEL[stored.mode] ?? stored.mode})</strong>
+      {state === 'loading' && <div>Taakstatus opvragen…</div>}
       {state === 'running' && (
         <>
           <div>Bezig: {job?.step ?? 'gestart'}. Laat deze pagina open.</div>
           <ProgressBar value={null} label="Herstel loopt" />
         </>
       )}
+      {state === 'unknown' && <div>Onbekende uitkomst. Log in en controleer de hersteltaak in Systeem.</div>}
       {state === 'done' && <div>Klaar. Log in (met een account uit de back-up) om per apparaat te vergelijken wat werkt en daarna de veilige modus op te heffen.</div>}
       {state === 'failed' && <div>Mislukt: {job?.error ?? 'onbekende fout'}. Er is niets gewijzigd; log in en probeer het opnieuw.</div>}
     </div>

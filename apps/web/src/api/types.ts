@@ -1111,6 +1111,8 @@ export interface PermitJoinResult {
 /* ------------------------------------------------------------------ system */
 
 export interface SystemSettings {
+  source_pause?: SourcePause | null;
+  last_restore?: { rollback_id: Uuid; state: RestoreJob['state']; step: string; started_at: Ts } | null;
   lan_url: string | null;
   remote_url: string | null;
   safe_mode: boolean;
@@ -1252,11 +1254,30 @@ export interface RestoreVerify {
 }
 /** A: same home on a new server. B: new home (old one archived, its integrations off). */
 export type RestoreMode = 'same_home' | 'new_home' | 'migration';
+export interface SourcePause {
+  expires: Ts;
+  reading_count: number;
+  last_reading: number | null;
+}
+export interface RestorePreview {
+  comparison: {
+    mode: RestoreMode;
+    rollback_id: Uuid;
+    rollback_sha256: string;
+    archive_sha256: string;
+    homes_before: { name: string }[];
+    homes_after: { name: string }[];
+    tables: Record<string, { before: number; after: number; same: boolean }>;
+  };
+  confirmation: string;
+}
 export interface RestoreApplyIn {
   upload_id: string;
   passphrase: string;
   mode: RestoreMode;
   drill_id?: string;
+  rollback_id?: Uuid;
+  confirmation?: string;
 }
 export interface RestoreDrill {
   data_ok: boolean;
@@ -1320,6 +1341,7 @@ export interface CompareDevice {
   missing: string[];
 }
 export interface CompareFunction {
+  binding_id?: string | null;
   /** "role:<key>", "zone:<id>:airco|sensor", "lights:<id>" */
   key: string;
   label: string;
@@ -1342,7 +1364,7 @@ export interface RestoreCompare {
   source_homes?: Record<Uuid, string>;
   homes?: Record<Uuid, string>;
   missing_devices?: number;
-  migration?: { source_id: string; target_id: string; confirmation: string | null };
+  migration?: { source_id: string; target_id: string; confirmation: string | null; source_complete?: boolean };
 }
 
 /* ------------------------------------------------------------------ websocket */

@@ -502,6 +502,23 @@ async def _restore(args, dry_run: bool) -> int:
             file=sys.stderr,
         )
         return 3
+    from . import restore_control
+
+    try:
+        archive_id = str(await asyncio.to_thread(path.resolve))
+        if not getattr(args, "rollback_id", None):
+            preview = await restore_control.prepare(path, pw, args.mode, "cli", archive_id, v)
+            print(json.dumps(preview["comparison"], ensure_ascii=False, indent=2))
+            print("Bewaar de geverifieerde doelback-up. Bevestig deze vergelijking met --rollback-id "
+                  f"{preview['comparison']['rollback_id']} --confirmation {preview['confirmation']}.")
+            return 3
+        guard = restore_control.approval(args.rollback_id, args.confirmation, args.mode, "cli", archive_id, path)
+        extract_zigbee = args.z2m_dir and v.manifest.get("zigbee2mqtt_included")
+        if extract_zigbee and await asyncio.to_thread(Path(args.z2m_dir).exists):
+            raise bk.BackupError("Gebruik voor Zigbee2MQTT een nieuwe, afzonderlijke uitvoermap.")
+    except (bk.BackupError, OSError) as exc:
+        print(f"GEWEIGERD: {exc}", file=sys.stderr)
+        return 2
     if not args.yes:
         prompt = "Alle huidige gegevens worden vervangen. Typ HERSTEL om door te gaan: "
         if (await asyncio.to_thread(input, prompt)).strip() != "HERSTEL":
@@ -514,7 +531,7 @@ async def _restore(args, dry_run: bool) -> int:
         return 2
     await set_maintenance(True)
     try:
-        report = await bk.restore_file(path, pw, mode=args.mode, verified=v)
+        report = await bk.restore_file(path, pw, mode=args.mode, verified=v, guard=guard)
     except Exception as e:
         await set_maintenance(maint)
         print(f"MISLUKT (er is niets gewijzigd): {e}", file=sys.stderr)
@@ -845,6 +862,8 @@ def build_parser() -> argparse.ArgumentParser:
         r.add_argument("--passphrase-stdin", action="store_true")
         r.add_argument("--z2m-dir")
         r.add_argument("--yes", action="store_true")
+        r.add_argument("--rollback-id", type=uuid.UUID)
+        r.add_argument("--confirmation")
         r.add_argument("--mode", choices=["same_home", "new_home"], default="same_home")
     d = sub.add_parser("restore-drill")
     d.add_argument("file")
