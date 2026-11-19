@@ -20,15 +20,21 @@ FIRST_START = ".eerste-start"
 CORE_DIRS = ("postgres", "app", "backups", "secrets", "mosquitto")
 CORE_SECRETS = ("app-key", "mqtt-shc")
 INCOMPLETE = "De bestaande database is onvolledig. Zet de bijbehorende snapshot terug."
+PENDING_PREFIX = ".nieuw-"
 
 
 def check_layout(data: Path) -> bool:
     """Herken lege of aantoonbaar nog niet gebruikte opslag vóór chown en initdb."""
+    first, _ = _check_layout(data)
+    return first
+
+
+def _check_layout(data: Path) -> tuple[bool, Path | None]:
     if not stat.S_ISDIR(data.lstat().st_mode):
         raise ValueError("De opslag moet een gewone map zijn.")
     entries = {p.name for p in data.iterdir()}
     if not entries:
-        return True
+        return True, None
     allowed = {*CORE_DIRS, "zigbee2mqtt", FIRST_START}
     if entries - allowed or any(not stat.S_ISDIR((data / name).lstat().st_mode) for name in entries):
         raise ValueError("Onbekende opslag. Bewaar deze map en herstel een back-up op aparte opslag.")
@@ -37,16 +43,20 @@ def check_layout(data: Path) -> bool:
         raise ValueError("Opslag van de vorige Compose-installatie. Herstel de back-up op aparte opslag.")
     cluster = data / "postgres/data"
     first = FIRST_START in entries
+    leftover = None
     if first:
         # De bewaker maakt deze markering vóór de eerste bestanden en verwijdert
         # haar vóór de API, worker en optionele diensten toegang krijgen.
-        for name in (FIRST_START, "app", "backups", "mosquitto", "zigbee2mqtt"):
+        for name in ("app", "backups", "mosquitto", "zigbee2mqtt"):
             if name in entries and any((data / name).iterdir()):
                 raise ValueError(INCOMPLETE)
-        if "secrets" in entries and any(p.name not in CORE_SECRETS for p in (data / "secrets").iterdir()):
+        leftover = first_start_leftover(data)
+        if leftover is not None and not set(CORE_DIRS).issubset(entries):
             raise ValueError(INCOMPLETE)
         if "postgres" in entries:
             for path in (data / "postgres").iterdir():
+                if leftover is not None:
+                    raise ValueError(INCOMPLETE)
                 if path == cluster:
                     continue
                 if not (path.name.startswith(".init-") and not path.is_symlink()
@@ -60,14 +70,46 @@ def check_layout(data: Path) -> bool:
         if not path.is_file() or path.is_symlink():
             raise ValueError(f"Bestaande opslag mist {name}. Zet de oorspronkelijke geheimen uit de snapshot terug.")
     if not needs_cluster:
-        return True
+        return True, leftover
     version = cluster / "PG_VERSION"
     if cluster.is_symlink() or version.is_symlink() or not version.is_file():
         raise ValueError(INCOMPLETE)
     with version.open("rb") as source:
         if source.read(16).strip() != b"16":
             raise ValueError("De bestaande database vereist een andere PostgreSQL-versie. Bewaar de snapshot.")
-    return first
+    return first, None
+
+
+def first_start_leftover(data: Path) -> Path | None:
+    marker = data / FIRST_START
+    secret_dir = data / "secrets"
+    pending = list(marker.iterdir())
+    if secret_dir.is_dir():
+        pending.extend(p for p in secret_dir.iterdir() if p.name not in CORE_SECRETS)
+    if not pending:
+        return None
+    if len(pending) != 1:
+        raise ValueError(INCOMPLETE)
+    path = pending[0]
+    info = path.lstat()
+    if (not path.name.startswith(PENDING_PREFIX) or not stat.S_ISREG(info.st_mode)
+            or stat.S_IMODE(info.st_mode) != 0o600 or info.st_uid != path.parent.stat().st_uid):
+        raise ValueError(INCOMPLETE)
+
+    for name in CORE_SECRETS:
+        key = secret_dir / name
+        prefix = f"{PENDING_PREFIX}{name}-"
+        if path.parent == marker and (not path.name.startswith(prefix) or len(path.name) == len(prefix)):
+            continue
+        if os.path.lexists(key):
+            # Een oudere schrijver liet de tijdelijke naam naast de sleutel staan. Alleen
+            # een alias van precies dezelfde inode kan daar veilig worden verwijderd.
+            if info.st_nlink == 2 and os.path.samestat(info, key.lstat()):
+                return path
+        elif path.parent == marker and info.st_nlink == 1:
+            # Alleen in de startmarkering is ook een onafgemaakt schrijfbestand herkenbaar.
+            return path
+    raise ValueError(INCOMPLETE)
 
 
 def transfer_ownership(data: Path) -> None:
@@ -109,11 +151,12 @@ def sync_directory(path: Path) -> None:
         os.close(fd)
 
 
-def create_once(path: Path, content: bytes) -> None:
+def create_once(path: Path, content: bytes, *, staging: Path | None = None) -> None:
     if os.path.lexists(path):
         return
     # De uiteindelijke naam wordt pas zichtbaar als de inhoud is weggeschreven.
-    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".nieuw-") as out:
+    prefix = PENDING_PREFIX if staging is None else f"{PENDING_PREFIX}{path.name}-"
+    with tempfile.NamedTemporaryFile(dir=staging or path.parent, prefix=prefix) as out:
         out.write(content)
         out.flush()
         os.fsync(out.fileno())
@@ -122,6 +165,8 @@ def create_once(path: Path, content: bytes) -> None:
         except FileExistsError:
             return
         sync_directory(path.parent)
+    if staging is not None:
+        sync_directory(staging)
 
 
 def read_private(path: Path, limit: int = 4096) -> str:
@@ -147,20 +192,27 @@ def password(path: Path) -> str:
 
 
 def prepare_secrets(data: Path) -> str:
-    first = check_layout(data)
+    first, leftover = _check_layout(data)
+    secret_dir = data / "secrets"
+    values = {name: password(secret_dir / name) for name in CORE_SECRETS if os.path.lexists(secret_dir / name)}
+    marker = data / FIRST_START
     if first:
-        (data / FIRST_START).mkdir(mode=0o700, exist_ok=True)
+        marker.mkdir(mode=0o700, exist_ok=True)
         sync_directory(data)
     for part in CORE_DIRS:
         directory(data / part)
     if first:
         sync_directory(data)
-    values = {}
+    if leftover is not None:
+        sync_directory(secret_dir)
+        leftover.unlink()
+        sync_directory(leftover.parent)
     for name in CORE_SECRETS:
-        path = data / "secrets" / name
-        if first and not os.path.lexists(path):
-            create_once(path, (secrets.token_urlsafe(48) + "\n").encode())
-        values[name] = password(path)
+        if name not in values:
+            path = secret_dir / name
+            if first:
+                create_once(path, (secrets.token_urlsafe(48) + "\n").encode(), staging=marker)
+            values[name] = password(path)
     return values["mqtt-shc"]
 
 

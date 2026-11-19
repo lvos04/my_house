@@ -7,6 +7,8 @@ import io
 import os
 import secrets
 import stat
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,6 +21,76 @@ ASSETS = ROOT / "infra/compose/config"
 
 
 class OpslagHerstel(unittest.TestCase):
+    def test_harde_stop_tijdens_sleutelopslag_hervat_voor_initdb(self):
+        for phase in ("voor-link", "na-link", "oude-schrijfmethode"):
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as d:
+                data = Path(d)
+                stopped = subprocess.run(  # noqa: S603 - vaste proefcode in een eigen subprocess
+                    [sys.executable, "-B", "-c", """
+import os
+import sys
+from pathlib import Path
+from deploy.allinone import storage
+
+phase, data = sys.argv[1:]
+link = os.link
+create = storage.create_once
+
+def interrupt(source, target):
+    if phase != "voor-link":
+        link(source, target)
+    os._exit(75)
+
+if phase == "oude-schrijfmethode":
+    storage.create_once = lambda path, content, **kwargs: create(path, content)
+storage.os.link = interrupt
+storage.prepare_secrets(Path(data))
+""", phase, d],
+                    cwd=ROOT, capture_output=True, check=False,
+                )
+                self.assertEqual(stopped.returncode, 75, stopped.stderr.decode())
+                self.assertFalse(any((data / "postgres").iterdir()))
+                key = data / "secrets/app-key"
+                before = (key.read_bytes(), key.stat().st_ino) if key.exists() else None
+                self.assertEqual(before is None, phase == "voor-link")
+
+                self.assertTrue(storage.check_layout(data))
+                storage.prepare_secrets(data)
+                if before is not None:
+                    self.assertEqual((key.read_bytes(), key.stat().st_ino), before)
+                self.assertEqual(key.stat().st_nlink, 1)
+                self.assertEqual(stat.S_IMODE(key.stat().st_mode), 0o600)
+                self.assertEqual({p.name for p in (data / "secrets").iterdir()}, set(storage.CORE_SECRETS))
+                self.assertFalse(any((data / storage.FIRST_START).iterdir()))
+
+    def test_restbestand_wordt_bij_onbekende_of_gebruikte_opslag_behouden(self):
+        for scenario in ("onbekend", "externe-link", "extra-link", "gegevens", "ongeldige-sleutel"):
+            with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as d:
+                data = Path(d) / "appdata"
+                data.mkdir()
+                storage.prepare_secrets(data)
+                key = data / "secrets/app-key"
+                rest = key.parent / ".nieuw-proef"
+                if scenario == "onbekend":
+                    storage.create_once(rest, b"onbekende proefgegevens")
+                elif scenario == "externe-link":
+                    source = Path(d) / "proefbestand"
+                    storage.create_once(source, b"bestaande proefgegevens")
+                    os.link(source, rest)
+                else:
+                    os.link(key, rest)
+                    if scenario == "extra-link":
+                        os.link(key, Path(d) / "proefbestand")
+                    elif scenario == "gegevens":
+                        (data / "postgres/data").mkdir()
+                        (data / "postgres/data/PG_VERSION").write_text("16\n")
+                    else:
+                        key.write_bytes(b"")
+                before = (rest.read_bytes(), rest.stat().st_nlink, key.read_bytes())
+                with self.assertRaisesRegex(ValueError, "snapshot|ongeldig"):
+                    storage.prepare_secrets(data)
+                self.assertEqual((rest.read_bytes(), rest.stat().st_nlink, key.read_bytes()), before)
+
     def test_eerste_start_voor_initdb_hervat_met_dezelfde_geheimen(self):
         with tempfile.TemporaryDirectory() as d:
             data = Path(d)

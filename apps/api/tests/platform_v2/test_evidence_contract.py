@@ -137,8 +137,10 @@ def test_vaste_lijst_is_de_tabel_van_paragraaf_11() -> None:
     assert in_tabel == VALIDATIE, f"verschil met contract §11: {sorted(in_tabel ^ VALIDATIE)}"
 
 
-def test_alle_punten_van_my_house_staan_in_de_lijst() -> None:
-    assert {f"C1.3-MH-0{n}" for n in range(1, 8)} <= conformiteitspunten()
+def test_alle_punten_van_my_house_staan_in_de_lijst(echt: list[dict[str, Any]]) -> None:
+    punten = {f"C1.3-MH-0{n}" for n in range(1, 8)} | {"C1.3-ALG-04"}
+    assert punten <= conformiteitspunten()
+    assert punten <= {e["id"] for e in echt}
 
 
 def test_latere_fasen_staan_open_en_ongetest(echt: list[dict[str, Any]]) -> None:

@@ -40,9 +40,16 @@ finally:
 ONDERBROKEN_START = """
 import os
 import sys
-from shc_allinone import supervisor
+from shc_allinone import storage, supervisor
 
 run = supervisor.Supervisor.run
+link = os.link
+
+def interrupt_link(source, target):
+    link(source, target)
+    if target.name == "app-key":
+        print("Gesimuleerde onderbreking tijdens sleutelopslag", file=sys.stderr, flush=True)
+        os._exit(1)
 
 def interrupt(self, name, command):
     if name == sys.argv[1]:
@@ -52,7 +59,10 @@ def interrupt(self, name, command):
         raise supervisor.StartFout("Gesimuleerde onderbreking vóór " + name)
     return run(self, name, command)
 
-supervisor.Supervisor.run = interrupt
+if sys.argv[1] == "sleutelopslag":
+    storage.os.link = interrupt_link
+else:
+    supervisor.Supervisor.run = interrupt
 raise SystemExit(supervisor.main())
 """
 MISLUKTE_DUMP = """
@@ -454,19 +464,25 @@ assert broker_accepts(password, "zigbee2mqtt")
     def interrupted_first_start(self):
         volume = self.storage("onderbroken")
         before = None
-        for phase in ("initialisatie", "databaseaanmaak"):
+        for phase in ("sleutelopslag", "initialisatie", "databaseaanmaak"):
             interrupted = self.container(f"voor-{phase}", volume, options=("--no-healthcheck",),
                                          entrypoint=(*PYTHON, "-c", ONDERBROKEN_START, phase))
             assert docker("wait", interrupted).stdout.strip() == b"1"
-            assert f"Gesimuleerde onderbreking vóór {phase}".encode() in self.logs(interrupted)
+            moment = "tijdens" if phase == "sleutelopslag" else "vóór"
+            assert f"Gesimuleerde onderbreking {moment} {phase}".encode() in self.logs(interrupted)
             keys = """
 from pathlib import Path
 from hashlib import sha256
 import sys
 
 data = Path("/appdata")
-assert (data / "postgres/data/PG_VERSION").is_file() == (sys.argv[1] != "initialisatie")
-for name in ("app-key", "mqtt-shc"):
+phase = sys.argv[1]
+assert (data / "postgres/data/PG_VERSION").is_file() == (phase in ("databaseaanmaak", "hervat"))
+if phase == "sleutelopslag":
+    assert not (data / "secrets/mqtt-shc").exists()
+    assert (data / "secrets/app-key").stat().st_nlink == 2
+names = ("app-key",) if phase == "sleutelopslag" else ("app-key", "mqtt-shc")
+for name in names:
     print(sha256((data / "secrets" / name).read_bytes()).hexdigest())
 """
             contents = docker(
@@ -474,16 +490,16 @@ for name in ("app-key", "mqtt-shc"):
                 f"type=volume,source={volume},target=/appdata", "--entrypoint", PYTHON[0],
                 self.image, *PYTHON[1:], "-c", keys, phase,
             ).stdout
-            if before is None:
-                before = contents
-            assert contents == before
+            if before is not None:
+                assert contents.startswith(before)
+            before = contents
         resumed = self.container("hervat", volume)
         self.healthy(resumed)
         assert self.exec(resumed, *PYTHON, "-c", keys, "hervat").stdout == before
         assert self.sql(resumed, ZOEK_REVISIE).strip()
         assert self.exec(resumed, "test", "!", "-e", "/appdata/.eerste-start").returncode == 0
         docker("stop", resumed)
-        print("Eerste start hervat vóór initdb en vóór aanmaak van de applicatiedatabase, met dezelfde sleutels.",
+        print("Eerste start hervat tijdens sleutelopslag, vóór initdb en vóór databaseaanmaak, met dezelfde sleutels.",
               flush=True)
 
     def incomplete_zigbee_storage(self):
