@@ -20,3 +20,23 @@ class Installatie(unittest.TestCase):
         self.assertNotIn("apt.postgresql.org/pub/repos/apt", dockerfile)
         self.assertRegex(dockerfile, r"snapshot\.debian\.org/archive/debian/\d{8}T\d{6}Z")
         self.assertRegex(dockerfile, r"snapshot\.debian\.org/archive/debian-security/\d{8}T\d{6}Z")
+
+    def test_standaardformulier_leidt_niet_naar_een_tunnelupdate(self):
+        readme = (ROOT / "README.md").read_text()
+        quickstart = readme.split("## Snel starten\n", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("(docs/installatie-truenas.md)", quickstart)
+        self.assertNotIn("(docs/buiten-huis.md)", quickstart)
+        development = readme.split("## Alleen voor ontwikkeling\n", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("(docs/buiten-huis.md)", development)
+
+        guide = (ROOT / "docs/installatie-truenas.md").read_text()
+        install = guide.split("## Android-app", 1)[0].lower()
+        self.assertIn("apps › discover apps › custom app", install)
+        self.assertIn("nieuwe vaste tag in het formulier", install)
+        self.assertNotRegex(install, r"yaml|render_truenas|install\.sh|sudo|docker compose")
+
+        tunnel = (ROOT / "docs/buiten-huis.md").read_text()
+        intro = tunnel.split("\n## ", 1)[0]
+        self.assertIn("lokale Compose-omgeving", intro)
+        self.assertIn("(installatie-truenas.md)", intro)
+        self.assertNotIn("werk de app bij in TrueNAS", tunnel)

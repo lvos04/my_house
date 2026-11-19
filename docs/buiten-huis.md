@@ -1,6 +1,6 @@
-# Buiten huis: Cloudflare Tunnel
+# Cloudflare Tunnel voor de Compose-ontwikkelomgeving
 
-Standaard is de app alleen thuis bereikbaar. Met Cloudflare Tunnel kun je er onderweg bij, zonder poorten open te zetten in je router. De container `cloudflared` maakt een uitgaande verbinding naar Cloudflare.
+Deze handleiding geldt voor de lokale Compose-omgeving met testgegevens. Het profiel `tunnel` start daar de container `cloudflared`. De alles-in-één-image heeft de tunnel uitgeschakeld. Installatie en updates lopen via het standaardformulier. [Installatie op TrueNAS](installatie-truenas.md)
 
 ## Wat je nodig hebt
 
@@ -10,12 +10,7 @@ Standaard is de app alleen thuis bereikbaar. Met Cloudflare Tunnel kun je er ond
 ## Stappen
 
 1. **Zero Trust › Networks › Tunnels › Create a tunnel** → type *Cloudflared* → naam `huis`.
-2. Kopieer het token (de lange tekst na `--token`) naar het bestand `secrets/tunnel_token` in je dataset, en voer daarna `install.sh` opnieuw uit. Dat geeft het bestand de juiste eigenaar (alleen `cloudflared` mag het lezen):
-
-   ```bash
-   sudo nano /mnt/tank/apps/smart-home/secrets/tunnel_token
-   sudo /mnt/tank/apps/smart-home/src/infra/scripts/install.sh /mnt/tank/apps/smart-home
-   ```
+2. Kopieer het token (de lange tekst na `--token`) naar `secrets/tunnel_token` onder de lokale proefopslag `SHC_ROOT`. Voer vanuit de repository `sudo infra/scripts/install.sh "$SHC_ROOT"` uit om de bestandsrechten in te stellen.
 
 3. **Public Hostname:** `huis.jouwdomein.nl` → Service `HTTP` → `web:8080`. Iets anders dan `web:8080` werkt niet: de tunnel kan alleen de webserver van de app bereiken, niet de database, de API of de MQTT-broker.
 4. **Zero Trust › Access › Applications › Add › Self-hosted** voor `huis.jouwdomein.nl`:
@@ -25,16 +20,22 @@ Standaard is de app alleen thuis bereikbaar. Met Cloudflare Tunnel kun je er ond
 5. **Altijd https.** Open in het gewone Cloudflare-dashboard je domein › **SSL/TLS › Edge Certificates**:
    - Zet **Always Use HTTPS** aan. Wie per ongeluk `http://huis.jouwdomein.nl` intypt, gaat dan meteen naar https.
    - Zet **HTTP Strict Transport Security (HSTS)** aan: *Max Age* 6 maanden, *Apply HSTS policy to subdomains* **uit** (tenzij al je subdomeinen https hebben), *No-Sniff* aan, *Preload* uit. Je browser gebruikt daarna voor dit adres nooit meer gewone http. De app stuurt via de tunnel zelf ook een HSTS-header mee.
-6. Maak de YAML opnieuw met `--with tunnel --remote-url https://huis.jouwdomein.nl` en werk de app bij in TrueNAS (**Apps › smart-home › Edit**). Het token komt níet in de YAML: de app leest het uit `secrets/tunnel_token`.
+6. Start de lokale proefstack met het tunnelprofiel. Compose leest het token uit `secrets/tunnel_token`.
+
+   ```bash
+   SHC_ROOT="$SHC_ROOT" SHC_VERSION="$(cat VERSION)" SHC_REMOTE_URL=https://huis.jouwdomein.nl \
+     docker compose -f infra/compose/compose.yaml --profile tunnel up -d
+   ```
+
 7. In de Android-app: **Meer › Cloudflare Access** → Client ID en Secret invullen.
 
-Werkt de tunnel niet? Kijk in TrueNAS bij **Apps › smart-home** naar de logs van `cloudflared`:
+Bekijk bij problemen de logs met `docker compose -f infra/compose/compose.yaml --profile tunnel logs cloudflared`.
 
 | Melding | Oplossing |
 |---|---|
 | `Failed to read token file … permission denied` | Voer `install.sh` opnieuw uit. |
 | `Provided Tunnel token is not valid` | Het token is niet volledig gekopieerd. Kopieer het opnieuw (één regel, zonder spaties). |
-| `tunneltoken niet gevonden` (bij het maken van de YAML) | Zet eerst het token in `secrets/tunnel_token`. |
+| `tunnel_token` ontbreekt | Zet eerst het token in `secrets/tunnel_token`. |
 
 ## Thuis http, onderweg https
 
@@ -92,9 +93,9 @@ De app heeft eigen login, rate limiting en intrekbare telefoon-sleutels. Access 
 ## Beveiliging
 
 - De inlogcookie krijgt automatisch *Secure* als je via de tunnel over https binnenkomt (zie hierboven). Zet `SHC_COOKIE_SECURE` niet zelf op `true`: dan lukt inloggen thuis via http niet meer.
-- Het tunneltoken staat alleen in `secrets/tunnel_token` (rechten 0400, alleen leesbaar voor de `cloudflared`-container). Het staat niet in de YAML van de app en niet in back-ups. Denk je dat het is uitgelekt? Maak in Cloudflare een nieuw token voor de tunnel (of een nieuwe tunnel), zet het in `secrets/tunnel_token`, voer `install.sh` opnieuw uit en herstart de app.
+- Het tunneltoken staat alleen in `secrets/tunnel_token` (rechten 0400, alleen leesbaar voor de `cloudflared`-container). Denk je dat het is uitgelekt? Maak in Cloudflare een nieuw token voor de tunnel (of een nieuwe tunnel), zet het in `secrets/tunnel_token`, voer `install.sh` opnieuw uit en herstart `cloudflared`.
 - `cloudflared` zit in een eigen netwerk, samen met alleen de webserver. Ook een verkeerde instelling in het Cloudflare-dashboard kan de database of de MQTT-broker dus niet bereikbaar maken.
 - Elke telefoon heeft een eigen sleutel, die na 180 dagen verloopt als de app hem niet vernieuwt. Telefoon kwijt: trek hem in via **Account › Telefoons** in de web-app. Ook met een gestolen telefoon met rol *Beheren* kan iemand geen gebruikers, koppelcodes of back-ups maken en geen adressen wijzigen: dat kan alleen in de web-app na inloggen met wachtwoord.
 - De Android-app stuurt zijn sleutel naar het thuisadres alleen nadat de server een controlevraag goed heeft beantwoord (zie [apps/android/README.md](../apps/android/README.md#herkent-de-app-je-server)). Via de tunnel bewijst het https-certificaat al wie er antwoordt.
-- Houd de app bijgewerkt: elke versie bevat een recente `cloudflared`. Cloudflare ondersteunt versies tot ongeveer een jaar oud; een oudere versie kan zomaar stoppen met verbinden.
-- Uitzetten: YAML opnieuw maken zonder `tunnel`, de tunnel in Cloudflare verwijderen en `secrets/tunnel_token` wissen.
+- Gebruik de `cloudflared`-versie uit het actuele Compose-bestand.
+- Stop de proefcontainer met `docker compose -f infra/compose/compose.yaml --profile tunnel stop cloudflared`. Verwijder de proeftunnel en het bijbehorende token als je ze niet meer nodig hebt.

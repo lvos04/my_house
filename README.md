@@ -25,13 +25,12 @@ De web-app en de Android-app volgen de ontwerptaal **Peil** 1.1.1 van het TrueNA
 
 - **TrueNAS SCALE:** gebruik het formulier voor een standaard Custom App. De installatiehandleiding beschrijft de opslag, poort en terugweg bij een update. [Installatie op TrueNAS](docs/installatie-truenas.md)
 - **Android-app:** [apps/android/README.md](apps/android/README.md). De ondertekende APK staat bij elke GitHub-release (zodra de release-sleutel is ingesteld); een testversie komt uit GitHub Actions (artifact `huis-debug-apk`).
-- **Buiten huis (Cloudflare Tunnel):** [docs/buiten-huis.md](docs/buiten-huis.md)
 
 Open daarna `http://<server>:8088`, maak het beheerdersaccount aan (er is geen standaardwachtwoord), maak de woning aan en volg de **installatiewizard** (`/installatie`). Uitleg per fabrikant staat in de app op **Help** (`/help`). Zet daarna automatische back-ups aan bij **Systeem › Back-ups en bewaren**.
 
 ## Alleen voor ontwikkeling
 
-De Compose-stack onder `infra/compose` en het bijbehorende installatiescript zijn bedoeld voor lokale ontwikkeling en CI met testgegevens.
+De Compose-stack onder `infra/compose` en het bijbehorende installatiescript zijn bedoeld voor lokale ontwikkeling en CI met testgegevens. Voor die omgeving is er een apart [Cloudflare Tunnel-profiel](docs/buiten-huis.md).
 
 ## Hardware-advies (open punten)
 
@@ -55,7 +54,7 @@ docs              plan, API-contract, architectuur, beslissingen, handleidingen
 
 ## Documentatie
 
-[Installatie op TrueNAS](docs/installatie-truenas.md) · [Buiten huis](docs/buiten-huis.md) · [Architectuur](docs/architectuur.md) · [API-contract](docs/api.md) · [Onderhoud, back-up en verhuizen](docs/onderhoud.md) · [Problemen oplossen](docs/problemen-oplossen.md) · [Beveiliging](SECURITY.md) · [Testlog](docs/testlog.md) · [Compatibiliteit](docs/compatibility.md) · [Verbeterlijst en status](docs/verbeterlijst.md)
+[Installatie op TrueNAS](docs/installatie-truenas.md) · [Architectuur](docs/architectuur.md) · [API-contract](docs/api.md) · [Onderhoud, back-up en verhuizen](docs/onderhoud.md) · [Problemen oplossen](docs/problemen-oplossen.md) · [Beveiliging](SECURITY.md) · [Testlog](docs/testlog.md) · [Compatibiliteit](docs/compatibility.md) · [Verbeterlijst en status](docs/verbeterlijst.md)
 
 ## Ontwikkelen
 
