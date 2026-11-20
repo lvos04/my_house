@@ -238,13 +238,23 @@ class Trial:
 
     def container(self, label, volume=None, user="0", options=(), entrypoint=(), network="none"):
         name = f"{self.prefix}-{label}"
+        owner = f"nl.medialeon.herstelproef={name}"
         volume_options = ["--mount", f"type=volume,source={volume},target=/appdata"] if volume else []
         overrides = ["--entrypoint", entrypoint[0]] if entrypoint else []
-        docker(
-            "run", "-d", "--name", name, "--network", network, "--user", user, *volume_options,
-            *options, *overrides, self.image, *entrypoint[1:],
-        )
-        self.cleanup.callback(docker, "rm", "-fv", name)
+        try:
+            created = docker(
+                "create", "--name", name, "--label", owner, "--network", network, "--user", user,
+                *volume_options, *options, *overrides, self.image, *entrypoint[1:], timeout=120,
+            )
+        except subprocess.TimeoutExpired:
+            # De daemon kan de container al hebben aangemaakt voordat de client antwoord krijgt.
+            own = docker("ps", "-aq", "--no-trunc", "--filter", f"label={owner}", timeout=120)
+            for container_id in own.stdout.decode().split():
+                self.cleanup.callback(docker, "rm", "-fv", container_id, timeout=120)
+            raise
+        container_id = created.stdout.decode().strip()
+        self.cleanup.callback(docker, "rm", "-fv", container_id, timeout=120)
+        docker("start", container_id, timeout=120)
         return name
 
     @staticmethod
@@ -266,8 +276,15 @@ class Trial:
         def status():
             state = self.state(name)
             if not state.startswith("running "):
-                # Geen onbewerkte dienstlogs uitsturen. De uitslag bevat de status van de proefcontainer.
-                raise AssertionError(f"{name}: containerstatus {state}")
+                # Alleen vaste foutcategorieën mogen het CI-log in.
+                logs = self.logs(name)
+                markers = (
+                    b"PostgreSQL is niet beschikbaar", b"API is niet beschikbaar", b"MQTT-broker is niet beschikbaar",
+                    b"Database-update geweigerd", b"De eerste database-initialisatie kan niet veilig doorgaan",
+                    b"Opstarten geweigerd", b"Opstarten mislukt",
+                )
+                reason = next((marker.decode() for marker in markers if marker in logs), "geen bekende opstartmelding")
+                raise AssertionError(f"{name}: containerstatus {state} ({reason})")
             return state == "running healthy"
         within(status, f"{name}: healthcheck werd niet groen")
 

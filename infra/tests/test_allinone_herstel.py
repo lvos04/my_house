@@ -15,9 +15,37 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from deploy.allinone import storage, supervisor
+from infra.tests import allinone_container
 
 ROOT = Path(__file__).resolve().parents[2]
 ASSETS = ROOT / "infra/compose/config"
+
+
+class ProefcontainerOpruimen(unittest.TestCase):
+    def test_de_daemon_maakt_eigen_container_tijdens_verlopen_aanroep(self):
+        for onderbreking in ("create", "start"):
+            with self.subTest(onderbreking=onderbreking):
+                self.controleer_onderbreking(onderbreking)
+
+    def controleer_onderbreking(self, onderbreking):
+        with contextlib.ExitStack() as cleanup:
+            trial = allinone_container.Trial("lokale-proef", cleanup)
+            verwijderd = []
+
+            def daemon(*args, **kwargs):
+                if args[0] == onderbreking:
+                    raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
+                if args[0] == "ps":
+                    self.assertIn(f"label=nl.medialeon.herstelproef={trial.prefix}-proef", args)
+                if args[0] == "rm":
+                    verwijderd.append(args[-1])
+                return subprocess.CompletedProcess(args, 0, stdout=b"eigen-container\n")
+
+            with patch.object(allinone_container, "docker", side_effect=daemon):
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    trial.container("proef")
+                cleanup.close()
+            self.assertEqual(verwijderd, ["eigen-container"])
 
 
 class OpslagHerstel(unittest.TestCase):
