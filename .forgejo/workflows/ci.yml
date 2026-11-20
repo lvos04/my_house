@@ -23,7 +23,6 @@ jobs:
       options: --shm-size=2g
     env:
       SHC_CI_PGROOT: /dev/shm
-    timeout-minutes: 100
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -43,7 +42,7 @@ jobs:
       - name: Adaptercontracten
         run: python -m pytest -q integrations/tests
       - name: API, engine, migraties en historische versiewissels
-        run: bash .forgejo/ci/postgresproef.sh backend
+        run: bash .forgejo/ci/backendproef.sh
       - name: Python-afhankelijkheden controleren
         run: |
           pip freeze --exclude-editable > "$RUNNER_TEMP/requirements.txt"
