@@ -2,8 +2,10 @@
 # Een venv per job. De runtimepakketten komen uit hetzelfde hashlock als de API-image.
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y --no-install-recommends python3.12-venv pipx
+bash .forgejo/ci/pakketlijst.sh
+pakketten=(python3.12-venv)
+if [[ $1 != e2e ]]; then pakketten+=(pipx); fi
+apt-get -o Acquire::Retries=2 install -y --no-install-recommends "${pakketten[@]}"
 venv="$RUNNER_TEMP/shc-venv"
 python3.12 -m venv "$venv"
 echo "$venv/bin" >> "$GITHUB_PATH"

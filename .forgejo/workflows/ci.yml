@@ -105,7 +105,7 @@ jobs:
         with: {persist-credentials: false}
       - name: ShellCheck en vaste basisimages
         run: |
-          apt-get update -qq
+          bash .forgejo/ci/pakketlijst.sh
           apt-get install -y --no-install-recommends shellcheck busybox python3-yaml
           shellcheck infra/scripts/*.sh apps/web/docker/*.sh apps/web/e2e/*.sh .forgejo/ci/*.sh
           python3 infra/scripts/check_dockerfile_digests.py

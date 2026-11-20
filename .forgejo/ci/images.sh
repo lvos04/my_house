@@ -24,7 +24,7 @@ if [[ $PUBLICEREN == true ]]; then
   cosign public-key --key env://COSIGN_PRIVATE_KEY | diff -B "$RUNNER_TEMP/cosign.pub" -
 else
   # Dit register luistert uitsluitend binnen deze jobcontainer. De echte images gaan er per digest doorheen.
-  apt-get update -qq
+  bash .forgejo/ci/pakketlijst.sh
   DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends docker-registry skopeo
   proefmap=$(mktemp -d "$RUNNER_TEMP/register.XXXXXXXX")
   # Skopeo mag uitsluitend de zojuist gebouwde lokale OCI-layout als bron gebruiken.

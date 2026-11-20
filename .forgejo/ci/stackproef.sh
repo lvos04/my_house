@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+mkdir -p "$TMPDIR"
 case $1 in
   allinone)
     image="my_house-aio:$SHC_VERSION"
@@ -14,7 +15,13 @@ case $1 in
   stack) ;;
   *) exit 2 ;;
 esac
-export SHC_IMAGE_PREFIX=shc SHC_ROOT="$PWD/proefdata" COMPOSE_FILE="$PWD/infra/compose/compose.yaml"
+# Alleen gegevens en de bestanden die Compose bind-mount worden met de bouwdaemon gedeeld.
+# De scripts, Chromium en native npm-pakketten draaien vanuit het containerbestandssysteem.
+cp --parents infra/compose/compose.yaml infra/e2e/compose.e2e.yaml infra/e2e/fake_gree_unit.py \
+  integrations/tests/fake_gree.py "$SHC_PROEFVOLUME"
+export SHC_IMAGE_PREFIX=shc SHC_ROOT="$SHC_PROEFVOLUME/rook" SHC_E2E_ROOT="$SHC_PROEFVOLUME/browser"
+export COMPOSE_FILE="$SHC_PROEFVOLUME/infra/compose/compose.yaml"
+export SHC_E2E_COMPOSE_FILE="$COMPOSE_FILE:$SHC_PROEFVOLUME/infra/e2e/compose.e2e.yaml"
 export COMPOSE_PROJECT_NAME="my-house-$SHC_VERSION" SHC_E2E_PROJECT_NAME="my-house-e2e-$SHC_VERSION"
 infra/scripts/install.sh "$SHC_ROOT"
 SHC_SMOKE_PASSPHRASE=$(openssl rand -base64 30)
@@ -35,4 +42,5 @@ docker compose up -d --wait --wait-timeout 120
 docker compose down -v --remove-orphans
 trap - EXIT
 (cd apps/web && npm ci --no-audit --no-fund && node node_modules/@playwright/test/cli.js install chromium)
+infra/scripts/install.sh "$SHC_E2E_ROOT"
 infra/scripts/e2e_compose.sh
