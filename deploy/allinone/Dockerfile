@@ -1,4 +1,4 @@
-FROM docker.io/library/python:3.12.16-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS python-build
+FROM docker.io/library/python:3.15.2-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS python-build
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 RUN python -m venv /opt/venv && python -m venv /opt/build
 ENV PATH=/opt/venv/bin:$PATH
@@ -39,7 +39,7 @@ RUN mkdir -p /runtime/usr/bin /runtime/usr/lib /runtime/lib \
 
 FROM docker.io/library/postgres:16.16-trixie@sha256:23fdb7b8156ad34bc663ed911f360764c5a5e237d6d70d1e379e025f63439a2f AS postgres
 
-FROM docker.io/library/python:3.12.16-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
+FROM docker.io/library/python:3.15.2-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 LABEL org.opencontainers.image.title="my_house" \
       org.opencontainers.image.description="Smart Home Control als één Custom App"
 # Server, client, extensies en initialisatiesjablonen komen uit dezelfde PostgreSQL-image.
