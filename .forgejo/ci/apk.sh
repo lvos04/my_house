@@ -22,7 +22,7 @@ else
     -storepass:env SHC_SIGNING_STORE_PASSWORD -keypass:env SHC_SIGNING_KEY_PASSWORD -validity 1 -dname "CN=Lokale CI-proef"
 fi
 unset ANDROID_KEYSTORE_B64
-./gradlew --no-daemon --max-workers=2 :app:assembleRelease
+bash ./gradlew --no-daemon --max-workers=2 :app:assembleRelease
 bt="${ANDROID_HOME:?}/build-tools/35.0.0"
 out=app/build/outputs/apk/release
 apk="$out/app-release.apk"

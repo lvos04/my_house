@@ -6,12 +6,14 @@ versie=$(tr -d '[:space:]' < VERSION)
 if [[ $TAG == edge ]]; then versie="$versie-edge"; fi
 proefpid=
 proefmap=
+bouwerconfig=
 bouwer=
 # shellcheck disable=SC2317,SC2329 # Wordt door de EXIT-trap aangeroepen.
 opruimen() {
   if [[ -n $proefpid ]]; then kill "$proefpid" 2>/dev/null || true; wait "$proefpid" 2>/dev/null || true; fi
   if [[ -n $proefmap ]]; then rm -rf -- "$proefmap"; fi
   if [[ -n $bouwer ]]; then docker buildx rm "$bouwer" >/dev/null; fi
+  if [[ -n $bouwerconfig ]]; then rm -rf -- "$bouwerconfig"; fi
 }
 trap opruimen EXIT
 if [[ $PUBLICEREN == true ]]; then
@@ -50,13 +52,22 @@ EOF
   cosign generate-key-pair --output-key-prefix "$proefmap/cosign"
 fi
 # Registreer uitsluitend een ontbrekende arm64-emulator in de geïsoleerde bouwengine.
-docker buildx inspect --bootstrap > "$RUNNER_TEMP/bouwplatformen"
+docker buildx inspect --bootstrap | sed -n 's/^Platforms:[[:space:]]*//p' > "$RUNNER_TEMP/bouwplatformen"
 if ! grep -q 'linux/arm64' "$RUNNER_TEMP/bouwplatformen"; then
   docker run --rm --privileged docker.io/tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0 --install arm64
 fi
-bouwer=$(docker buildx create --driver docker-container)
-docker buildx inspect "$bouwer" --bootstrap | tee "$RUNNER_TEMP/platformen"
-grep -q 'linux/arm64' "$RUNNER_TEMP/platformen"
+eindpunt=()
+if [[ -n ${DOCKER_CERT_PATH:-}${DOCKER_TLS_VERIFY:-} && $(docker context show) == default ]]; then
+  # De containerdriver heeft voor een TLS-bouwengine een benoemde context nodig.
+  # Alleen het geheugen van de job bevat de tijdelijke context en de bestaande clientcertificaten.
+  bouwerconfig=$(mktemp -d /dev/shm/shc-buildx.XXXXXXXX)
+  if [[ $PUBLICEREN == true ]]; then cp "$DOCKER_CONFIG/config.json" "$bouwerconfig/"; fi
+  export DOCKER_CONFIG="$bouwerconfig"
+  docker context create shc-ci >/dev/null
+  eindpunt=(shc-ci)
+fi
+bouwer=$(docker buildx create --driver docker-container --driver-opt cpu-quota=200000 "${eindpunt[@]}")
+docker buildx inspect "$bouwer" --bootstrap | sed -n 's/^Platforms:[[:space:]]*//p'
 mkdir -p release
 for soort in api web; do
   context=.

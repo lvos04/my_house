@@ -31,9 +31,9 @@ jobs:
       - name: Gegenereerde Peil-kleuren controleren
         run: python3 tools/peil_tokens.py --check
       - name: Unittests en Paparazzi-schermafbeeldingen
-        run: ./gradlew --no-daemon --max-workers=2 :core:test :app:verifyPaparazziDebug
+        run: bash ./gradlew --no-daemon --max-workers=2 :core:test :app:verifyPaparazziDebug
       - name: Debug-APK en verkleinde release-APK bouwen
-        run: ./gradlew --no-daemon --max-workers=2 :app:assembleDebug :app:assembleRelease
+        run: bash ./gradlew --no-daemon --max-workers=2 :app:assembleDebug :app:assembleRelease
       - uses: https://code.forgejo.org/forgejo/upload-artifact@16871d9e8cfcf27ff31822cac382bbb5450f1e1e
         with:
           name: huis-debug-apk
