@@ -1,6 +1,7 @@
 """Ingebruikname van appdata met behoud van bestaande waarden."""
 
 import base64
+import fcntl
 import hashlib
 import os
 import re
@@ -223,7 +224,20 @@ def prepare_zigbee(path: Path) -> str:
     adapter = os.environ.get("SHC_ZIGBEE_ADAPTER", "ember")
     if adapter not in ADAPTERS:
         raise ValueError("SHC_ZIGBEE_ADAPTER is ongeldig. Kies ember, zstack, deconz, zigate of zboss.")
-    directory(path)
+    # Een bronexport zet de lege map tot hervatten alleen-lezen, ook na procesherstart.
+    path.mkdir(mode=0o700, exist_ok=True)
+    fd = os.open(path, os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        if not os.fstat(fd).st_mode & 0o200:
+            raise ValueError("De Zigbee-opslag is gepauzeerd.")
+        os.fchmod(fd, 0o700)
+        return _configure_zigbee(path, adapter)
+    finally:
+        os.close(fd)
+
+
+def _configure_zigbee(path: Path, adapter: str) -> str:
     config = path / "configuration.yaml"
     secret = path / "secret.yaml"
     first = not any(path.iterdir())

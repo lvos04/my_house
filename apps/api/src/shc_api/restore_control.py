@@ -165,6 +165,19 @@ async def create_job(db, key: str, job: dict, rollback_id: str) -> None:
                      {"id": key, "rollback": rollback_id, "data": json.dumps(job)})
 
 
+async def begin_job(db, key: str, mode: str, rollback_id: str) -> None:
+    """Leg de bedrijfsstand en de taak samen met de onderhoudspauze vast."""
+    from .store import get_setting, set_setting
+
+    job = {"state": "running", "step": "wachten op de databasevervanging", "mode": mode,
+           "started_at": job_time(), "finished_at": None, "report": None, "error": None,
+           "_maintenance_before": bool(await get_setting(db, "maintenance", False)),
+           "_safe_before": bool(await get_setting(db, "safe_mode", False))}
+    await create_job(db, key, job, rollback_id)
+    await set_setting(db, "maintenance", True)
+    await db.commit()
+
+
 async def job_record(db, key: str) -> dict | None:
     if not await db.scalar(text("SELECT to_regclass('shc_restore.jobs') IS NOT NULL")):
         return None
@@ -212,17 +225,23 @@ async def release_worker(conn) -> None:
         await conn.close()
 
 
-async def recover(db) -> None:
+async def fail_job(db, key, job, step, error):
     from .store import set_setting
 
+    conn = await db.connection()
+    await conn.run_sync(finish_job, key, state="failed", step=step, error=error[:500])
+    await set_setting(db, "maintenance", job["_maintenance_before"])
+    if "_safe_before" in job:
+        await set_setting(db, "safe_mode", job["_safe_before"])
+
+
+async def recover(db) -> None:
     if not await db.scalar(text("SELECT to_regclass('shc_restore.jobs') IS NOT NULL")):
         return
     if not await db.scalar(text("SELECT pg_try_advisory_xact_lock(:lock)"), {"lock": JOB_LOCK}):
         return
     result = await db.execute(text("SELECT id, data FROM shc_restore.jobs WHERE data->>'state'='running' FOR UPDATE"))
     for key, job in result:
-        conn = await db.connection()
-        await conn.run_sync(finish_job, key, state="failed", step="onderbroken",
-                            error="Onderbroken vóór de databasevervanging. Vergelijk opnieuw om te hervatten.")
-        await set_setting(db, "maintenance", job["_maintenance_before"])
+        await fail_job(db, key, job, "onderbroken",
+                       "Onderbroken vóór de databasevervanging. Vergelijk opnieuw om te hervatten.")
     await db.commit()

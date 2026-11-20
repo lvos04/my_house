@@ -30,7 +30,7 @@ en start dan deze versie opnieuw.
 
 **Terugdraaien.** Gebruik in het formulier de vorige versie met de bijbehorende snapshot op aparte opslag. Controleer de woning en de versleutelde koppelingen voordat je de nieuwe installatie gebruikt.
 
-**Lokale herstelproef voor een pre-migratiedump.** Bewaar dump en controlesom in dezelfde map. `shc-api verify-migration-dump <dump> --out <nieuw.sql>` valideert de SHA-256, de gzip-integriteit en het einde van de SQL-export. Het uitvoerbestand moet nieuw zijn. Importeer de gecontroleerde SQL vervolgens met `psql -X --single-transaction -v ON_ERROR_STOP=1 -d <lege-proefdatabase> -f <nieuw.sql>` in een afzonderlijke lege database. Vergelijk revisie en tabelinhoud met de voorstaat en bewaar de originele geheimen voor het lezen van versleutelde gegevens. Gebruik voor oude dumps zonder opgeslagen controlesom een onafhankelijk geverifieerde snapshot of back-up.
+**Lokale herstelproef voor een pre-migratiedump.** Bewaar dump en controlesom in dezelfde map. `shc-api verify-migration-dump <dump> --out <nieuw.sql>` valideert de SHA-256, de gzip-integriteit en het einde van de SQL-export. Het uitvoerbestand moet nieuw zijn. Kies een ongebruikte databasenaam. Voer het aanmaken en importeren als één opdracht uit: `createdb --template=template0 herstelproef && psql -X --single-transaction -v ON_ERROR_STOP=1 -d herstelproef -f <nieuw.sql>`. Bij een bestaande naam stopt de opdracht vóór de import. Vergelijk revisie en tabelinhoud met de voorstaat en bewaar de originele geheimen voor het lezen van versleutelde gegevens. Gebruik voor oude dumps zonder opgeslagen controlesom een onafhankelijk geverifieerde snapshot of back-up.
 
 ## Back-ups
 
@@ -138,25 +138,30 @@ database-dump). Bij **Gemaakte back-ups** kun je elke back-up downloaden.
 1. Open op de bron **Systeem › Herstellen en verhuizen › Definitieve export op de bron**. Werk de
    bronapp zo nodig eerst bij zodat deze bediening beschikbaar is. Bewaar de broninstallatie met eigen opslag
    en hoofdsleutel voor terugval.
-2. Kies **Bron pauzeren voor overstap**. De app controleert de verwachte Zigbee2MQTT-opslag en blokkeert
-   schrijfacties in de database, ook binnenkomende metingen. Houd de beheerderssessie open. Het scherm toont
-   het laatste meetrecord, het aantal metingen en de vervaltijd. Tijdens het geldigheidsvenster van één uur
-   blijft de bron gepauzeerd, ook na een herstart. Bij ontbrekende opslag, Zigbee-bestanden of een gekoppelde
-   Zigbee-integratie blijft de overstap dicht. Voor deze bestanden ontbreekt een beproefd webherstel.
-3. Kies **Definitieve export maken** en download het bestand. Een gewone of oudere export bewijst de laatste
-   bronstand niet. Bij een verlopen bewijs kun je op de bron hervatten en opnieuw een definitieve export maken.
+2. Kies **Bron pauzeren voor overstap**. De app blokkeert wijzigingen in de database, ook binnenkomende
+   metingen. Kijkers kunnen blijven lezen en opnieuw aanmelden. Het scherm toont het laatste meetrecord,
+   het aantal metingen en de vervaltijd. De pauze overleeft een herstart. De Zigbee-opslag moet leeg zijn
+   en gedurende de overstap tegen schrijven beschermd zijn. Voor bestaande Zigbee-bestanden of een
+   gekoppelde Zigbee-integratie ontbreekt een beproefd webherstel. Gebruik in dat geval de broninstallatie verder.
+   Als de Zigbee-dienst in een lege Compose-map kan schrijven, weigert de app de pauze. Controleer in
+   het opslagbeheer het eigendom en de rechten. Een andere eigenaar dan de Zigbee-dienst en alleen
+   lees- en zoekrechten voor groep en overige gebruikers beschermen de lege map. Bewaar map en inhoud.
+3. Kies **Definitieve export maken** en download het bestand. Deze export verifieert de schrijfgrens en
+   legt de inhoud van de bron vast. Het bewijs is één uur geldig vanaf het begin van de pauze.
+   Na het verlopen kun je op de bron hervatten en een nieuwe pauze en export starten.
 4. Installeer het doel als afzonderlijke standaard Custom App met eigen opslag. Maak alleen de tijdelijke
    beheerder aan. Upload de definitieve export en kies **Overstappen naar een afzonderlijke Custom App**.
    Voer de herstelproef uit. Een doel met gebruikershistorie, waaronder gelezen meldingen of beheerhandelingen,
    wordt geweigerd. Vergelijk de bron en het doel, bewaar de doelback-up en bevestig de vervanging.
 5. Log opnieuw in op het doel. Lees zo nodig de oude hoofdsleutel in via **Oude hoofdsleutel uploaden**.
-   Controleer woningen, apparaten en functies. Een ontbrekende of vervangen koppeling houdt de vrijgave tegen.
+   Controleer woningen, apparaten, functies en de inhoudsvergelijking per gegevenssoort. Een gewijzigde
+   knopactie of ontbrekende meting houdt de vrijgave tegen. De doelretentie wacht tot de vrijgave.
    Bij een open overstap vind je de oorspronkelijke kopie onder **Doelback-up van deze taak downloaden**.
    Je kunt die via **Zelfde woning** terugzetten na een nieuwe doelback-up en vergelijking.
    De actuele vergelijking en het bronbewijs moeten geldig zijn wanneer je **Overstap bevestigen** kiest.
 6. Voor terugval zet je het doel in veilige modus. Bewaar bij nieuwe doelgegevens eerst een volledige export
    en de doelopslag. Stop de doelapp. Vergelijk de wijzigingen en bevestig het behoud voordat je op de bron
-   verder werkt. Na de vervaltijd kun je weer inloggen op de bron en **Bron hervatten** kiezen.
+   verder werkt. Na de vervaltijd kies je op de bron **Bron hervatten**.
 
 ### Database-dump terugzetten
 
@@ -179,33 +184,18 @@ Meldt de nieuwe versie bij het opstarten dat apparaatherstel uit een eerdere ver
 gebruik dan de vorige installatie om de stand te herstellen en terug te lezen. Probeer de upgrade
 opnieuw zodra die installatie de rollback heeft bevestigd.
 
-Scherm de app af van de Hub en andere gebruikers vóór het herstel en houd die afscherming in stand
-tot en met de beheercontrole hieronder. Stop de API en worker nadat je de dump hebt ontsleuteld.
-Ga bij een fout pas verder nadat het herstel is gecorrigeerd.
+Kies voor de dump een nieuwe databasenaam en gebruik de versleutelde dump rechtstreeks:
 
 ```bash
-docker exec -it <api-container> shc-api decrypt-dump /backups/<bestand>.shcdump --out /backups/herstel.pgdump
-docker stop <worker-container> <api-container>
-docker exec -i <db-container> pg_restore --clean --if-exists --no-owner --single-transaction -U shc -d shc < <root>/backups/herstel.pgdump
-rm <root>/backups/herstel.pgdump
+docker exec -it <api-container> shc-api restore-dump /backups/<bestand>.shcdump --new-database herstelproef
 ```
 
-Verwijder het ontsleutelde bestand ook als `pg_restore` faalt. Oudere dumps kunnen opgeslagen
-koppelgegevens bevatten. Maak daarom direct na een geslaagd herstel de aanwezige koppeltabellen
-leeg, terwijl de API en worker nog gestopt zijn. Het commando werkt ook bij een schema waarin deze
-tabellen nog ontbreken.
-
-```bash
-docker exec -i <db-container> psql -X --single-transaction -v ON_ERROR_STOP=1 -U shc -d shc -f - <<'SQL'
-SELECT format('TRUNCATE TABLE %I.%I', schemaname, tablename)
-FROM pg_catalog.pg_tables
-WHERE schemaname = 'public'
-  AND tablename IN ('connector_hub_pins', 'connector_nonces', 'idempotency_keys')
-\gexec
-SQL
-```
-
-Start de API met toegang voor alleen de beheerder. Een dump zet de veilige modus niet aan.
+De opdracht controleert de versleutelde dump en importeert deze in een nieuw aangemaakte, lege database.
+Ze ruimt lokale koppelgegevens uit oudere dumps op voordat ze de database onder de gekozen naam publiceert.
+Bij een bezette naam stopt de opdracht. De oorspronkelijke installatie blijft beschikbaar.
+Verbind voor de controle alleen een afzonderlijke, afgeschermde testinstallatie met de nieuwe database.
+Laat de worker uit totdat de beheerder de vergelijking en het terugvalpad heeft gecontroleerd.
+Start de afzonderlijke API met toegang voor alleen de beheerder. Een dump zet de veilige modus niet aan.
 Was de app gekoppeld aan een Hub, bevestig dan de actuele publieke sleutelset opnieuw in my_house.
 Teruggezette opdrachten kunnen ook na herbevestiging uitsluitend als bewijs worden gelezen. Nieuwe opdrachten
 vereisen een nieuw lokaal voorstel en een nieuwe goedkeuring.

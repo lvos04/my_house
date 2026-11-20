@@ -331,7 +331,7 @@ def open_plaintext(path: Path, passphrase: str) -> tuple[int, io.IOBase]:
             if reader.header.get("content") == DUMP_CONTENT:
                 raise BackupError(
                     "Dit bestand is een database-dump (pg_dump), geen volledige export. Zet hem terug met "
-                    "'shc-api decrypt-dump' en pg_restore (zie docs/onderhoud.md), of kies een volledige export."
+                    "'shc-api restore-dump' met een nieuwe databasenaam (zie docs/onderhoud.md)."
                 )
             buffered = io.BufferedReader(reader, buffer_size=CHUNK_SIZE)
             return 2, _Closing(buffered, f)
@@ -927,10 +927,17 @@ async def write_backup(
                 restore_report = await snap.scalar(select(Setting.value["v"]).where(Setting.key == "restore_report"))
                 interrupted = _interrupted_backup_ids(restore_report)
                 if source_proof is not None:
-                    from .migration_source import PAUSE_KEY, complete, empty_zigbee_store
+                    from .migration_inventory import capture
+                    from .migration_source import PAUSE_KEY, complete, empty_zigbee_store, fence_store
+
                     pause = await snap.scalar(select(Setting.value["v"]).where(Setting.key == PAUSE_KEY))
                     z2m_dir = empty_zigbee_store()
-                    source_proof.update({**(pause or {}), "zigbee_store": "verified_empty"})
+                    fence_store(pause or {})
+                    source_proof.update({k: v for k, v in (pause or {}).items() if k != "storage"})
+                    source_proof["zigbee_store"] = "write_fenced_empty"
+                    source_proof["inventory"] = await snap.run_sync(capture)
+                    if not all(item["readable"] for item in source_proof["inventory"].values()):
+                        raise BackupError("Controleer de oude hoofdsleutel op de bron vóór de definitieve export.")
                     counts = (await snap.execute(text("SELECT max(id), count(*) FROM sensor_readings"))).one()
                     if (not complete(source_proof, source_proof.get("source_id"))
                             or counts != (source_proof.get("last_reading"), source_proof.get("reading_count"))):
@@ -1543,6 +1550,16 @@ def _restore_sync(
                 now = conn.execute(select(func.count()).select_from(final.tables[t])).scalar_one()
                 if now < n:
                     report.dropped["rows_removed_by_migration"][t] = n - now
+    if migration:
+        from .migration_inventory import fingerprint
+        from .migration_inventory import tables as inventory_tables
+
+        inventory = (manifest.get("source_pause") or {}).get("inventory", {})
+        if set(inventory) != {table.name for table in inventory_tables()}:
+            raise BackupError("De bronvergelijking dekt niet alle gegevenstabellen.")
+        for name in ("commands", "connector_changes"):
+            if inventory[name] != fingerprint(conn, Base.metadata.tables[name]):
+                raise BackupError("De geïmporteerde opdrachten of het connectorbewijs wijken af van de bron.")
     _restore_connector_proof(conn, held_recovery)
     for table in Base.metadata.sorted_tables:  # keep bigserial sequences ahead of restored ids
         pkc = list(table.primary_key.columns)
@@ -1567,14 +1584,21 @@ def _restore_sync(
     _after_restore(conn, manifest, mode, report)
     if migration:
         _set(conn, "server_id", migration.server_id)
-        _set(conn, "migration_pending", {"source_id": migration.source_id, "target_id": migration.server_id,
-                                         "source_pause": manifest.get("source_pause"),
-                                         "archive_sha256": guard["comparison"]["archive_sha256"] if guard else None,
-                                         "rollback_sha256": guard["comparison"]["rollback_sha256"] if guard else None})
         conn.execute(text("""
             UPDATE commands SET status = 'cancelled', detail = 'Vervallen bij overstap.'
             WHERE status IN ('queued', 'sending', 'sent')
         """))
+        pause = {key: value for key, value in manifest["source_pause"].items() if key != "inventory"}
+        inventory = dict(inventory)
+        # Opdrachttermijnen vervallen en de strengste inbedrijfstellingsgate blijft behouden.
+        # Leg uitsluitend deze bedoelde omzettingen vast, binnen de transactie van het herstel.
+        for name in ("commands", "connector_changes"):
+            inventory[name] = fingerprint(conn, Base.metadata.tables[name])
+        _set(conn, "migration_pending", {"source_id": migration.source_id, "target_id": migration.server_id,
+                                         "source_pause": pause, "inventory": inventory, "gate": merged,
+                                         "archive_sha256": guard["comparison"]["archive_sha256"] if guard else None,
+                                         "rollback_sha256": guard["comparison"]["rollback_sha256"] if guard else None})
+
     if job_key:
         from .restore_control import finish_job
         finish_job(conn, job_key, state="done", step="teruggezet", report=report.as_dict())
@@ -1752,6 +1776,7 @@ def _after_restore(conn, manifest: dict, mode: str, report: RestoreReport) -> No
         SELECT id::text, home_id::text, 'role:' || key AS key, label FROM logical_roles
         UNION ALL SELECT id::text, home_id::text, 'zone:' || id, name FROM climate_zones
     """)).mappings()]
+    buttons = list(conn.scalars(text("SELECT to_jsonb(b) FROM button_mappings b ORDER BY id")))
     active_homes = [str(h) for h in conn.execute(text("SELECT id FROM homes WHERE active_to IS NULL")).scalars()]
     if mode == "new_home":
         from .routers.homes import DEFAULT_ROLES
@@ -1837,7 +1862,7 @@ def _after_restore(conn, manifest: dict, mode: str, report: RestoreReport) -> No
     )
     _set(conn, "restore_snapshot", {"restored_at": now.isoformat(), "devices": snapshot, "homes": source_homes,
                                     "mode": mode, "active_homes": active_homes, "functions": functions,
-                                    "definitions": definitions})
+                                    "definitions": definitions, "buttons": buttons})
     _set(conn, "restore_report", report.as_dict())
 
 
@@ -1896,7 +1921,8 @@ def z2m_kept_secrets(manifest: dict | None, target: Path) -> list[str]:
                   if f"zigbee2mqtt/{name}" in manifest["files"] and (target / name).is_file())
 
 
-def extract_z2m(path: Path, passphrase: str, target: Path, manifest: dict | None = None) -> int:
+def extract_z2m(path: Path, passphrase: str, target: Path, manifest: dict | None = None,
+                *, new_files_only: bool = False) -> int:
     """Write the Zigbee2MQTT files from a (verified) backup into `target`; returns the file count.
     With the backup's ``manifest``: a secret file that a redacted backup has without values is not
     written over an existing one (``z2m_kept_secrets``), so Zigbee2MQTT keeps its MQTT password."""
@@ -1927,7 +1953,9 @@ def extract_z2m(path: Path, passphrase: str, target: Path, manifest: dict | None
                         out.write(block)
                 out.flush()
                 os.fsync(out.fileno())
-            if redacted:
+            if new_files_only:
+                os.link(ready, p)
+            elif redacted:
                 try:
                     os.link(ready, p)
                 except FileExistsError:

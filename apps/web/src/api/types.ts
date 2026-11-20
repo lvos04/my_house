@@ -1125,7 +1125,7 @@ export interface AddressesIn {
 }
 export type BackupStatus = 'running' | 'ok' | 'failed';
 /** "export": full export (.shcbak, restorable in the app, with Zigbee2MQTT data). "db_dump": encrypted
- * pg_dump of the database only (.shcdump), restored on the command line (shc-api decrypt-dump + pg_restore). */
+ * pg_dump of the database only (.shcdump), restored on the command line (shc-api restore-dump, uitsluitend naar een nieuwe database). */
 export type BackupKind = 'export' | 'db_dump';
 export interface Backup {
   id: Uuid;
@@ -1364,6 +1364,7 @@ export interface RestoreCompare {
   source_homes?: Record<Uuid, string>;
   homes?: Record<Uuid, string>;
   missing_devices?: number;
+  inventory?: Record<string, { source: number | null; target: number; same: boolean }>;
   migration?: { source_id: string; target_id: string; confirmation: string | null; source_complete?: boolean };
 }
 

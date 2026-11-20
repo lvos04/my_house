@@ -711,7 +711,8 @@ async def test_cli_dump_and_decrypt_dump(admin, tmp_path, monkeypatch, capsys):
     args = cli.build_parser().parse_args(["decrypt-dump", str(tmp_path / rec["filename"]), "--out", str(out)])
     assert await cli._decrypt_dump(args) == 0
     assert out.read_bytes()[:5] == b"PGDMP" and (out.stat().st_mode & 0o777) == 0o600
-    assert "pg_restore --clean --if-exists" in capsys.readouterr().out
+    message = capsys.readouterr().out
+    assert "restore-dump" in message and "--new-database" in message and "--clean" not in message
     monkeypatch.setenv("SHC_BACKUP_PASSPHRASE", "verkeerde wachtwoordzin")
     assert await cli._decrypt_dump(args) == 2
     async with sessionmaker()() as db:

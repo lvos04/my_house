@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { RestoreCompare, RestoreJob, RestoreVerify } from '../api/types';
-import { droppedLines, RestoreSection } from '../pages/system/Restore';
+import { CompareView, droppedLines, RestoreSection } from '../pages/system/Restore';
 import { PendingRestoreNotice, RESTORE_KEY } from '../pages/system/restoreState';
 import { FakeXhr, mockApi, Providers } from './helpers';
 
@@ -193,4 +193,17 @@ describe('restore / verhuisassistent (item 43)', () => {
     render(<Providers user={null}><PendingRestoreNotice /></Providers>);
     expect(await screen.findByText(/Klaar\. Log in/)).toBeInTheDocument();
   });
+});
+
+it('toont een gewijzigde knopactie bij gelijke aantallen en houdt de vrijgave dicht', () => {
+  const data: RestoreCompare = {
+    ...compare, migration: { source_id: 'bron', target_id: 'doel', confirmation: null, source_complete: true },
+    inventory: { button_mappings: { source: 1, target: 1, same: false }, sensor_readings: { source: 2, target: 2, same: true } },
+  };
+  render(<Providers><CompareView data={data} /></Providers>);
+  const row = screen.getByRole('row', { name: /Knoppen, gebeurtenissen en acties/ });
+  expect(within(row).getAllByText('1')).toHaveLength(2);
+  expect(within(row).getByText('Wijkt af')).toBeVisible();
+  expect(screen.getByText('Overstap geblokkeerd.', { exact: false })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Overstap bevestigen' })).toBeNull();
 });

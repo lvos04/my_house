@@ -594,6 +594,11 @@ async def test_web_migration_preserves_source_and_requires_current_comparison(tm
                     (await db.get(Device, did)).name = "Naam na vergelijking"
                     await db.commit()
                 assert (await admin.post("/system/restore/confirm", approval)).status_code == 409
+                divergent = (await admin.get("/system/restore/compare")).json()
+                assert not divergent["inventory"]["devices"]["same"] and divergent["migration"]["confirmation"] is None
+                async with sessionmaker()() as db:
+                    (await db.get(Device, did)).name = "Proeflamp"
+                    await db.commit()
                 fresh = (await admin.get("/system/restore/compare")).json()["migration"]["confirmation"]
                 assert (await admin.post("/system/restore/confirm", {"confirmation": fresh})).status_code == 422
                 next_confirmation = (await admin.get("/system/restore/compare")).json()["migration"]["confirmation"]

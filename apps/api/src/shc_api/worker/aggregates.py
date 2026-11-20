@@ -30,6 +30,7 @@ from sqlalchemy.dialects.postgresql import insert
 from .. import adaptive as ad
 from .. import energy as en
 from .. import events
+from ..commissioning import lock_commissioning_shared
 from ..config import Settings, get_settings
 from ..db import sessionmaker
 from ..models import Device, DeviceBinding, EnergyHourly, Home, LogicalRole, SensorReading
@@ -163,6 +164,9 @@ class AggregatesMixin:
         from ..views.energy import raw_points
 
         async with sessionmaker()() as db:
+            await lock_commissioning_shared(db)
+            if await get_setting(db, "migration_pending") or await get_setting(db, "migration_source_pause"):
+                return 0
             points = await raw_points(db, device_id, metric, start, end)
             if len(points) < 2:
                 return 0  # nothing to distribute (e.g. a meter that is no longer reporting)
@@ -353,6 +357,9 @@ async def _batched_delete(sql: str, params: dict) -> int:
     stmt = text(sql)
     for _ in range(DELETE_MAX_BATCHES):
         async with sessionmaker()() as db:
+            await lock_commissioning_shared(db)
+            if await get_setting(db, "migration_pending") or await get_setting(db, "migration_source_pause"):
+                return total
             res = await db.execute(stmt, {**params, "n": DELETE_BATCH})
             await db.commit()
         n = res.rowcount or 0

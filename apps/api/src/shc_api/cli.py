@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -128,7 +129,7 @@ def current_revision(url: str | None = None) -> str | None:
     return _in_thread(lambda: asyncio.run(q()))
 
 
-def _check_connector_rows(conn) -> None:
+def _check_connector_rows(conn, *, read_only: bool = False) -> None:
     from sqlalchemy import text
 
     from .backup import BackupError
@@ -142,7 +143,12 @@ def _check_connector_rows(conn) -> None:
         check_preview,
     )
 
-    conn.execute(text(RESTORE_HISTORY))
+    if read_only:
+        if conn.scalar(text("""SELECT EXISTS (SELECT FROM settings WHERE value->>'format'='connector-0007'
+                            AND key='connector_history:' || (value->'v'->>'id'))""")):
+            raise MigrationError("Werk het connectorherstelbewijs bij op de oorspronkelijke installatie.")
+    else:
+        conn.execute(text(RESTORE_HISTORY))
     blocked = conn.scalar(text(f"""
         SELECT EXISTS (
             SELECT 1 FROM commands cmd LEFT JOIN connector_changes c
@@ -306,7 +312,6 @@ def migrate(url: str | None = None, *, backup_dir: Path | None = None, pre_dump:
     target_url = url or s.database_url
 
     def upgrade(conn):
-        conn.execute(text(LOCK_SQL))
         current = _database_revision(conn)
         head = bk.head_revision()
         if current is not None and bk.schema_relation(current) == "newer":
@@ -326,6 +331,15 @@ def migrate(url: str | None = None, *, backup_dir: Path | None = None, pre_dump:
         engine = create_async_engine(target_url, poolclass=NullPool, hide_parameters=True)
         try:
             async with engine.begin() as conn:
+                await conn.execute(text(LOCK_SQL))
+                current = await conn.run_sync(_database_revision)
+                if current == bk.head_revision() and await conn.scalar(text(
+                    "SELECT value->'v' FROM settings WHERE key='migration_source_pause'"
+                )):
+                    from .migration_source import check_database_fence
+                    await conn.run_sync(check_database_fence)
+                    await conn.run_sync(_check_connector_rows, read_only=True)
+                    return None
                 dump = await conn.run_sync(upgrade)
                 await _prepare_connector_worker(conn)
                 return dump
@@ -384,10 +398,71 @@ async def _decrypt_dump(args) -> int:
         return 2
     print(f"Database-dump ontsleuteld: {out} ({n} bytes, pg_dump custom format).")
     print(
-        "Volg ‘Database-dump terugzetten’ in docs/onderhoud.md. Stop de API en worker vóór herstel. "
-        "Gebruik pg_restore --clean --if-exists --single-transaction en verwijder het ontsleutelde bestand daarna. "
-        "Wis de koppeltabellen en bevestig een Hub-koppeling opnieuw vóór openstelling."
+        "Gebruik voor databaseherstel shc-api restore-dump met de versleutelde dump en --new-database. "
+        "Bewaar de oorspronkelijke database en verwijder de ontsleutelde werkkopie na de controle."
     )
+    return 0
+
+
+async def _restore_dump(args) -> int:
+    """Publiceer de gecontroleerde dump uitsluitend onder een nieuwe databasenaam."""
+    import asyncpg
+
+    from . import backup as bk
+    from .config import get_settings
+
+    name = args.new_database
+    if not re.fullmatch(r"[a-z][a-z0-9_]{0,62}", name):
+        print("Kies een nieuwe databasenaam met maximaal 63 kleine letters, cijfers en underscores.", file=sys.stderr)
+        return 2
+    cfg = get_settings()
+    dsn, password = _libpq(cfg.database_url)
+    parts = urlsplit(dsn)
+    staging = "shc_import_" + uuid.uuid4().hex
+    target = urlunsplit(parts._replace(path="/" + staging))
+    env = dict(os.environ)
+    if password is not None:
+        env["PGPASSWORD"] = password
+    admin = await asyncpg.connect(dsn, password=password, database="postgres")
+    try:
+        if await admin.fetchval("SELECT EXISTS (SELECT FROM pg_database WHERE datname=$1)", name):
+            raise bk.BackupError("De doelnaam bestaat al. Kies een nieuwe database.")
+        archive = Path(args.file)
+        with tempfile.TemporaryDirectory(prefix="shc-dump-") as work:
+            dump = Path(work) / "herstel.pgdump"
+            await asyncio.to_thread(bk.decrypt_dump, archive, _passphrase(args), dump)
+            await admin.execute(f'CREATE DATABASE "{staging}" TEMPLATE template0')
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "pg_restore", "--single-transaction", "--no-owner", "--no-privileges",
+                    "--dbname", target, str(dump), env=env, stderr=subprocess.DEVNULL,
+                )
+                try:
+                    if await proc.wait():
+                        raise bk.BackupError("De database-dump kon niet volledig worden teruggezet.")
+                finally:
+                    if proc.returncode is None:
+                        proc.kill()
+                        await proc.wait()
+                db = await asyncpg.connect(target, password=password)
+                try:
+                    async with db.transaction():
+                        for table in sorted(bk.CONNECTOR_LOCAL_TABLES):
+                            if await db.fetchval("SELECT to_regclass($1) IS NOT NULL", "public." + table):
+                                await db.execute(f'TRUNCATE TABLE public."{table}"')
+                finally:
+                    await db.close()
+                # PostgreSQL weigert ook een doelnaam die tijdens de import is ingenomen.
+                await admin.execute(f'ALTER DATABASE "{staging}" RENAME TO "{name}"')
+            except BaseException:
+                await admin.execute(f'DROP DATABASE "{staging}"')
+                raise
+    except (bk.BackupError, asyncpg.DuplicateDatabaseError) as exc:
+        print(str(exc) if isinstance(exc, bk.BackupError) else "De doelnaam bestaat al.", file=sys.stderr)
+        return 2
+    finally:
+        await admin.close()
+    print(f"Dump teruggezet in de nieuwe database {name}. Controleer de inhoud vóór ingebruikname.")
     return 0
 
 
@@ -598,24 +673,45 @@ async def _restore(args, dry_run: bool) -> int:
     except MigrationError as e:
         print(f"GEWEIGERD: {e}", file=sys.stderr)
         return 2
-    await set_maintenance(True)
+    from .commissioning import lock_commissioning
+    from .db import sessionmaker
+    from .logfilter import fouttekst
+
+    key = restore_control.job_key(uuid.uuid4().hex)
     try:
-        report = await bk.restore_file(path, pw, mode=args.mode, verified=v, guard=guard)
-    except Exception as e:
-        await set_maintenance(maint)
-        print(f"MISLUKT (er is niets gewijzigd): {e}", file=sys.stderr)
+        async with sessionmaker()() as db:
+            await restore_control.recover(db)
+            await lock_commissioning(db)
+            owner = await restore_control.claim_worker()
+            try:
+                await restore_control.begin_job(db, key, args.mode, str(args.rollback_id))
+                try:
+                    if extract_zigbee:
+                        target = Path(args.z2m_dir)
+                        await asyncio.to_thread(target.mkdir, mode=0o700, parents=True, exist_ok=False)
+                        files = await asyncio.to_thread(bk.extract_z2m, path, pw, target, v.manifest,
+                                                        new_files_only=True)
+                        print(f"Zigbee2MQTT: {files} bestanden teruggelezen in de nieuwe uitvoermap.")
+                    restored = await bk.restore_file(path, pw, mode=args.mode, verified=v, guard=guard, job_key=key)
+                    report = restored.as_dict()
+                except Exception as exc:
+                    job = await restore_control.job_record(db, key)
+                    if job["state"] == "done":
+                        # Ook een verloren antwoord na COMMIT heeft een duurzaam herkomstrapport.
+                        report = job["report"]
+                    else:
+                        message = str(exc) if isinstance(exc, bk.BackupError) else fouttekst(exc)
+                        await restore_control.fail_job(db, key, job, "mislukt", message)
+                        await db.commit()
+                        raise bk.BackupError(message) from exc
+            finally:
+                await restore_control.release_worker(owner)
+    except bk.BackupError as exc:
+        prefix = "MISLUKT" if extract_zigbee else "MISLUKT (er is niets gewijzigd)"
+        print(f"{prefix}: {exc}", file=sys.stderr)
         return 2
-    if args.z2m_dir and v.manifest.get("zigbee2mqtt_included"):
-        kept = bk.z2m_kept_secrets(v.manifest, Path(args.z2m_dir))
-        n = bk.extract_z2m(path, pw, Path(args.z2m_dir), v.manifest)
-        print(f"Zigbee2MQTT: {n} bestanden teruggezet in {args.z2m_dir}.")
-        if kept:
-            print(
-                f"Zigbee2MQTT: {', '.join(kept)} behouden; deze back-up bevat geen wachtwoorden "
-                "(gemaakt zonder geheimen)."
-            )
     await publish_status_now()  # maintenance off, safe mode on
-    print_report(report.as_dict())
+    print_report(report)
     print("Veilige modus staat AAN: bevestig de apparaten in de app.")
     return 0
 
@@ -917,6 +1013,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="versleutelde database-dump (pg_dump) in plaats van de volledige export (zonder Zigbee2MQTT)",
     )
     dd = sub.add_parser("decrypt-dump", help="ontsleutel een database-dump (.shcdump) voor pg_restore")
+    dump = sub.add_parser("restore-dump", help="zet een gecontroleerde dump in een nieuwe database")
+    dump.add_argument("file")
+    dump.add_argument("--new-database", required=True)
+    dump.add_argument("--passphrase-file")
+    dump.add_argument("--passphrase-stdin", action="store_true")
     check = sub.add_parser("verify-migration-dump", help="controleer SHA-256 en inhoud van een pre-migratiedump")
     check.add_argument("file", type=Path)
     check.add_argument("--out", type=Path, help="schrijf de gecontroleerde SQL naar een nieuw bestand")
@@ -1022,6 +1123,7 @@ def main(argv: list[str] | None = None) -> None:
         "reset-password": _reset_password,
         "maintenance": _maintenance,
         "decrypt-dump": _decrypt_dump,
+        "restore-dump": _restore_dump,
     }
     install_last_resort_filter()  # vangnet: deze commando's loggen via logging.lastResort (KLEIN-53)
     try:

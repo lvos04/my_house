@@ -6,12 +6,14 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import column, delete, func, select, table, text, update
 
+from ..commissioning import lock_commissioning_shared
 from ..config import get_settings
 from ..deps import CSRF_COOKIE, DB, SESSION_COOKIE, Auth, revoke_access
 from ..errors import api_error
 from ..events import publish_auth_revoked
+from ..migration_source import PAUSE_KEY, login_event, login_journal
 from ..models import Session as WebSession
 from ..models import User
 from ..security import (
@@ -25,7 +27,7 @@ from ..security import (
     token_hash,
     verify_password_async,
 )
-from ..store import audit
+from ..store import audit, get_setting
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -88,36 +90,46 @@ async def hash_new_password(password: str) -> str:
         raise server_busy() from None
 
 
-async def password_matches(db: DB, user: User, password: str, *, ip: str | None = None) -> bool:
+async def password_matches(db: DB, user: User, password: str, *, ip: str | None = None,
+                           paused: bool = False) -> bool:
     """Lockout-aware password check, used by login, password change and admin-role pairing.
 
     Raises 429 while the account is locked (without checking the password) or when all hashing slots
     are busy. A wrong password counts towards the lockout; the caller must commit."""
     now = datetime.now(UTC)
-    if user.locked_until and user.locked_until > now:
-        raise too_many((user.locked_until - now).total_seconds())
+    attempts = User.__table__
+    failed, until = user.failed_logins, user.locked_until
+    if paused:
+        attempts = table("attempts", column("id"), column("failed_logins"), column("locked_until"), schema="shc_pause")
+        await db.execute(text("""INSERT INTO shc_pause.attempts (id,failed_logins,locked_until)
+            SELECT id,failed_logins,locked_until FROM users WHERE id=:id ON CONFLICT DO NOTHING"""), {"id": user.id})
+        failed, until = (await db.execute(select(attempts.c.failed_logins, attempts.c.locked_until)
+                                         .where(attempts.c.id == user.id).with_for_update())).one()
+    if until and until > now:
+        raise too_many((until - now).total_seconds())
     try:
         ok = await verify_password_async(user.password_hash, password)
     except HashBusy:
         raise server_busy() from None
     if ok:
-        if user.failed_logins or user.locked_until:
-            await db.execute(update(User).where(User.id == user.id).values(failed_logins=0, locked_until=None))
-            user.failed_logins, user.locked_until = 0, None
+        if failed or until:
+            await db.execute(update(attempts).where(attempts.c.id == user.id)
+                             .values(failed_logins=0, locked_until=None))
         return True
     failures = (
         await db.execute(
-            update(User)
-            .where(User.id == user.id)
-            .values(failed_logins=User.failed_logins + 1)
-            .returning(User.failed_logins)
+            update(attempts)
+            .where(attempts.c.id == user.id)
+            .values(failed_logins=attempts.c.failed_logins + 1)
+            .returning(attempts.c.failed_logins)
         )
     ).scalar_one()
     lock = lockout_seconds(failures, get_settings().login_max_attempts)
     if lock:
         until = now + timedelta(seconds=lock)
-        await db.execute(update(User).where(User.id == user.id).values(locked_until=until))
-        await audit(db, user.username, "user_locked", user.username, failures=failures, seconds=lock, ip=ip)
+        await db.execute(update(attempts).where(attempts.c.id == user.id).values(locked_until=until))
+        record = login_event if paused else audit
+        await record(db, user.username, "user_locked", user.username, failures=failures, seconds=lock, ip=ip)
     return False
 
 
@@ -192,12 +204,11 @@ async def setup(body: Credentials, request: Request, response: Response, db: DB)
 
 @router.post("/login")
 async def login(body: Credentials, request: Request, response: Response, db: DB) -> dict:
-    from ..migration_source import PAUSE_KEY
-    from ..store import get_setting
-
+    await lock_commissioning_shared(db)
     pause = await get_setting(db, PAUSE_KEY)
-    if pause and datetime.now(UTC) < datetime.fromisoformat(pause["expires"]):
-        raise api_error(409, "source_paused", "De bron is gepauzeerd. Gebruik de bestaande sessie tot de vervaltijd.")
+    if pause and not await db.scalar(text("SELECT to_regclass('shc_pause.attempts') IS NOT NULL")):
+        await login_journal(db)
+    record = login_event if pause else audit
     ip = client_ip(request)
     if _attempts.blocked(ip):
         raise too_many(_attempts.retry_after(ip))
@@ -209,14 +220,14 @@ async def login(body: Credentials, request: Request, response: Response, db: DB)
         except HashBusy:
             raise server_busy() from None
     else:
-        ok = await password_matches(db, user, body.password, ip=ip)
+        ok = await password_matches(db, user, body.password, ip=ip, paused=bool(pause))
     if not ok:
         _attempts.hit(ip)
-        await audit(db, body.username, "login_failed", ip=ip)
+        await record(db, body.username, "login_failed", ip=ip)
         await db.commit()
         raise api_error(401, "auth_required", "Gebruikersnaam of wachtwoord klopt niet.")
     assert user is not None
-    await audit(db, user.username, "login", ip=ip)
+    await record(db, user.username, "login", ip=ip)
     return await _start_session(db, user, request, response)
 
 

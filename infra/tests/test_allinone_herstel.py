@@ -21,6 +21,15 @@ ASSETS = ROOT / "infra/compose/config"
 
 
 class OpslagHerstel(unittest.TestCase):
+    def test_gepauzeerde_zigbee_opslag_blijft_na_start_dicht(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "zigbee2mqtt"
+            path.mkdir(mode=0o500)
+            with self.assertRaisesRegex(ValueError, "gepauzeerd"):
+                storage.prepare_zigbee(path)
+            self.assertEqual(path.stat().st_mode & 0o777, 0o500)
+            self.assertEqual(list(path.iterdir()), [])
+
     def test_opslaggrens_voor_publicatie(self):
         self.controleer_opslaggrens("voor-link")
 

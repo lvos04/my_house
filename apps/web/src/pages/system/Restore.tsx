@@ -215,7 +215,7 @@ function SourcePauseForm() {
       <p>Stop eerst de doelapp voor terugval. Na de vervaltijd kun je de bron hervatten.</p>
       <div><ActionButton className="btn" disabled={resume.isPending} onClick={() => resume.mutate()}>Bron hervatten</ActionButton></div>
     </> : <>
-      <p>Pauzeer de bron voor de laatste export. De database blokkeert wijzigingen. Het overstapbewijs blijft één uur geldig. Houd deze sessie open. Na dat uur kun je weer inloggen en de bron hervatten.</p>
+      <p>Pauzeer de bron voor de laatste export. De database blokkeert wijzigingen. Het overstapbewijs blijft één uur geldig. Je kunt tijdens de pauze blijven lezen en opnieuw inloggen. Na dat uur kun je de bron hervatten.</p>
       <div><ActionButton className="btn" disabled={pause.isPending} onClick={() => pause.mutate()}>Bron pauzeren voor overstap</ActionButton></div>
     </>}
     {(pause.error || resume.error || exported.error) && <ErrorNote error={pause.error || resume.error || exported.error} />}
@@ -401,6 +401,17 @@ function MigrationApproval({ migration, pending, onConfirm }: {
   );
 }
 
+const inventoryNames: Record<string, string> = {
+  users: 'Gebruikers', api_clients: 'Gekoppelde clients', homes: 'Woningen', rooms: 'Kamers',
+  integrations: 'Integraties', devices: 'Apparaten', logical_roles: 'Functies', device_bindings: 'Apparaatbindingen',
+  button_mappings: 'Knoppen, gebeurtenissen en acties', climate_zones: 'Klimaatzones en regeling',
+  comfort_profiles: 'Comfortprofielen', schedule_blocks: "Tijdschema’s", adaptive_models: 'Adaptieve modellen',
+  experiments: 'Experimenten en automatische toepassing', tariffs: 'Tarieven', settings: 'Instellingen',
+  commissioning_gate: 'Inbedrijfstellingsbeleid', commands: 'Opdrachten', connector_changes: 'Connectorherstel',
+  sensor_readings: 'Metingen', energy_hourly: 'Energie per uur', zone_log: 'Zonelogboek',
+  audit_log: 'Beheerlogboek', alerts: 'Meldingen', backups: 'Back-uphistorie',
+};
+
 export function CompareView({ data, onReleased }: { data: RestoreCompare; onReleased?: () => void }) {
   const qc = useQueryClient();
   const release = useMutation({
@@ -448,6 +459,17 @@ export function CompareView({ data, onReleased }: { data: RestoreCompare; onRele
           {!!data.missing_devices && <p className="note warn">Ontbrekende apparaten: {data.missing_devices}.</p>}
         </div>
       )}
+      {data.inventory && <details open={Object.values(data.inventory).some(item => !item.same)}>
+        <summary>Inhoud van de bronexport en het doel</summary>
+        <div className="table-wrap"><table className="stack-mobile">
+          <thead><tr><th scope="col">Gegevens</th><th scope="col">Bron</th><th scope="col">Doel</th><th scope="col">Inhoud</th></tr></thead>
+          <tbody>{Object.entries(data.inventory).map(([kind, item]) => <tr key={kind}>
+            <td data-label="Gegevens">{inventoryNames[kind] ?? kind}</td>
+            <td data-label="Bron">{item.source ?? 'Onbekend'}</td><td data-label="Doel">{item.target}</td>
+            <td data-label="Inhoud">{item.same ? 'Gelijk' : 'Wijkt af'}</td>
+          </tr>)}</tbody>
+        </table></div>
+      </details>}
       <h4>Functies</h4>
       <div className="table-wrap">
         <table className="stack-mobile">
