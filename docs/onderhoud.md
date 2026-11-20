@@ -151,8 +151,10 @@ database-dump). Bij **Gemaakte back-ups** kun je elke back-up downloaden.
    Deze actie wacht op lopende aanmeldingen, sluit nieuwe aanmeldingen en neemt het volledige logboek mee.
    Download de **Definitieve export**. Bestaande leessessies kunnen blijven lezen totdat je de bronapp stopt.
    Na een geweigerde publicatie zonder archief kun je je direct opnieuw aanmelden en **Bron hervatten** kiezen.
-   Een gepubliceerde eindexport kun je ook na het heropenen van het scherm downloaden. Daarna kun je de bron
-   hervatten zodra het bewijs vervalt, één uur na het begin van de pauze.
+   Als de archiefmap de nieuwe export niet kan bevestigen, kun je de eerdere tussenexport blijven downloaden.
+   Een gepubliceerde eindexport blijft na het heropenen van het scherm beschikbaar. Na afsluiting kun je
+   **Bron hervatten** kiezen zodra het bewijs vervalt, één uur na het begin van de pauze. Dit werkt ook als
+   de archiefmap dan nog een storing heeft.
 4. Installeer het doel als afzonderlijke standaard Custom App met eigen opslag. Maak alleen de tijdelijke
    beheerder aan. Upload de definitieve export en kies **Overstappen naar een afzonderlijke Custom App**.
    Vraagt het doel om een nieuw bronbewijs, werk dan de bronapp bij en maak daar een nieuwe definitieve export.

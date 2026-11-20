@@ -204,7 +204,7 @@ function SourcePauseForm() {
     onSettled: refresh,
   });
   const proof = settings.data?.source_pause;
-  const fileId = exported.data?.file_id ?? proof?.file_id;
+  const fileId = exported.data?.file_id ?? proof?.file_id ?? proof?.interim_file_id;
   const last = settings.data?.last_restore;
   return <>{last && <p>Laatste hersteltaak ({dateTime(last.started_at)}): {last.step}.{' '}
     <a href={api.restoreFileUrl(last.rollback_id)} download>Doelback-up van deze taak downloaden</a>.</p>}
@@ -223,7 +223,7 @@ function SourcePauseForm() {
       </form>
       {exported.isPending && <ProgressBar value={null} label="Bronexport controleren…" />}
       {fileId && <div><a className="btn" href={api.restoreFileUrl(fileId)} download>
-        {(exported.data ? exported.data.source_pause.stopped_at : proof.stopped_at)
+        {(exported.data ? exported.data.source_pause.stopped_at : proof.file_id)
           ? 'Definitieve export downloaden' : 'Tussenexport downloaden'}</a></div>}
       <p>{proof.stopped_at === null ? 'Je kunt de bron nu hervatten.' : 'Stop eerst de doelapp voor terugval. Na de vervaltijd kun je de bron hervatten.'}</p>
       <div><ActionButton className="btn" disabled={resume.isPending} onClick={() => resume.mutate()}>Bron hervatten</ActionButton></div>
@@ -409,7 +409,7 @@ function MigrationApproval({ migration, pending, onConfirm }: {
           </label>
           <div><ActionButton type="submit" className="btn primary" disabled={!sure || pending}>Overstap bevestigen</ActionButton></div>
         </form>
-      ) : <div className="note warn" role="status">Overstap geblokkeerd. {migration.source_complete === false ? 'Het bronbewijs ontbreekt of is verlopen.' : 'Controleer de ontbrekende of onzekere apparaten en functies.'} Vergelijk opnieuw.</div>}
+      ) : <div className="note warn" role="status">Overstap geblokkeerd. {migration.refusal ?? (migration.source_complete === false ? 'Het bronbewijs ontbreekt of is verlopen.' : 'Controleer de ontbrekende of onzekere apparaten en functies. Vergelijk opnieuw.')}</div>}
     </div>
   );
 }

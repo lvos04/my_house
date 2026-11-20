@@ -1257,6 +1257,7 @@ export type RestoreMode = 'same_home' | 'new_home' | 'migration';
 export interface SourcePause {
   stopped_at?: Ts | null;
   file_id?: Uuid;
+  interim_file_id?: Uuid;
   expires: Ts;
   reading_count: number;
   last_reading: number | null;
@@ -1369,7 +1370,7 @@ export interface RestoreCompare {
   missing_devices?: number;
   inventory?: Record<string, InventoryComparison>;
   commissioning_gate?: InventoryComparison;
-  migration?: { source_id: string; target_id: string; confirmation: string | null; source_complete?: boolean };
+  migration?: { source_id: string; target_id: string; confirmation: string | null; source_complete?: boolean; refusal?: string };
 }
 
 /* ------------------------------------------------------------------ websocket */

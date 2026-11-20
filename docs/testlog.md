@@ -129,3 +129,38 @@ API en worker als echte processen tegen PostgreSQL, met een nagebootste HomeWiza
 7. Worker-container stoppen → binnen 3 minuten de melding *Achtergronddienst reageert niet* (en een push-bericht als dat is ingesteld).
 8. Telefoon koppelen via **Account › Telefoons**, thuis en via de tunnel gebruiken, daarna intrekken: de app toont *Deze telefoon is niet meer gekoppeld*.
 9. Herstel oefenen: `shc-api restore-drill` (zie [onderhoud.md](onderhoud.md#herstel-oefenen-aanbevolen-elk-kwartaal)).
+
+## S-P3-730 · Getypeerde vergelijking en beschikbaarheid van de bron
+
+### A. Trouw van archief, herstel en vergelijking
+
+De volledige export legt per kolom het PostgreSQL-type en de nullbaarheid vast. Bij nullable JSONB bevat de rij de PostgreSQL-tekst van het JSON-document. Daardoor zijn de twee archiefwaarden voor SQL `NULL` en JSON `null` respectievelijk `null` en `"null"`. Een ontbrekende kolom in een archiefrij breekt de hersteltransactie af. Het manifest met getypeerde rijen heeft versie 3. De versleutelde bestandsstroom blijft versie 2.
+
+De eigenschapsproef geeft iedere randwaarde tijdelijk dezelfde rijsleutel en controleert dat de vingerafdruk verandert. Na export en herstel vergelijkt de proef de binaire PostgreSQL-weergave van iedere volledige rij op bron en doel. De catalogusproef controleert dat elk overdraagbaar kolomtype in de proef voorkomt.
+
+| Toestand | Verwachte uitkomst | Vaste proef |
+| --- | --- | --- |
+| Eén SQL `NULL` en één JSON `null` in twee metingen | Bewaarde bron-, archief- en doelwaarden onderscheiden zich. Bij 2/2 gelijke rijen verschijnt een akkoord. Verandering van alleen SQL `NULL` in JSON `null` geeft daarna 2/2 ongelijk en HTTP 409 op het eerdere akkoord. | `test_ontbrekende_en_expliciet_lege_meetinhoud` |
+| SQL `NULL`, JSON `null`, lege tekst, tekenreeks `"null"`, getal nul, `false`, leeg object, lege lijst, ontbrekende en expliciet lege objectsleutel | Elke toegestane waarde krijgt een eigen vingerafdruk en komt met dezelfde inhoud terug. PostgreSQL `json` behoudt ook spaties en herhaalde sleutels. | `test_randwaarden_per_kolomtype[json]`, `[jsonb]`, `[jsonb not null]` |
+| Array met SQL `NULL`, JSON `null`, lege tekenreeks, lege array, meerdere dimensies of afwijkende ondergrens | Elementen, dimensies en ondergrens komen exact terug. | `test_randwaarden_per_kolomtype[jsonb[]]` |
+| Booleans en gehele getallen op beide typegrenzen, nul en SQL `NULL` | Type, waarde en vingerafdruk blijven behouden. | `test_randwaarden_per_kolomtype[boolean]`, `[smallint]`, `[integer]`, `[bigint]` |
+| Decimale schaal, subnormale waarden, plus- en min-nul, oneindigheid en NaN | Alle voor het type gekozen representaties komen binair gelijk terug. | `test_randwaarden_per_kolomtype[numeric]`, `[real]`, `[double precision]` |
+| Verschillende NaN-bitpatronen met dezelfde PostgreSQL-tekst, in een kolom en in een array | Voor zowel 32 als 64 bits blijven teken en overige bits herkenbaar in de vergelijking en na herstel. | `test_nan_met_verschillende_bitpatronen` |
+| Lege tekst, witruimte, Unicode, lege bytes, nulbyte en uiterste UUID’s | Alle rijen blijven afzonderlijk herkenbaar. | `test_randwaarden_per_kolomtype[text]`, `[character varying]`, `[bytea]`, `[uuid]` |
+| Schrikkeldag, microseconden, wintertijdsovergang, kalenderjaar 10000 en oneindige datums | De oorspronkelijke datum of het tijdstip blijft behouden. | `test_randwaarden_per_kolomtype[date]`, `[timestamp without time zone]`, `[timestamp with time zone]` |
+| Ontbrekende kolomsleutel in een getypeerde archiefrij met geldige bestandscontroles | Herstel weigert de rij en behoudt de oorspronkelijke doelwaarde. | `test_ontbrekende_kolomsleutel_weigert_herstel` |
+| Gelijk aantal en dezelfde nul in kolommen met verschillend SQL-type | De tabelvergelijking meldt 1/1 ongelijk. | `test_vergelijking_herkent_gewijzigd_kolomtype` |
+| Dezelfde rijen in omgekeerde volgorde in een tabel zonder primaire sleutel | De exportvergelijking en de eindvergelijking blijven gelijk. Vervangen van de SQL `NULL` door een extra JSON `null` wijzigt beide uitkomsten. | `test_rijvolgorde_zonder_primaire_sleutel` |
+| Nieuwe kolom, nieuwe tabel of leeg duurzaam buurveld naast een uitgesloten liveveld | Iedere duurzame waarde telt mee. De catalogus controleert alle uitzonderingen. | `test_catalogus_per_tabel`, `test_iedere_overdraagbare_kolom`, `test_duurzame_buren_van_vluchtige_jsonvelden` |
+| Definitieve export met een geldig bronbewijs uit manifestversie 2, of open overstap van vóór de update | De webapp geeft de reden en vraagt om een nieuwe bronexport. Overstappen wordt geweigerd. Gewoon herstel van een ouder archief behoudt zijn terugvalroute. | `test_oude_eindexport_zonder_getypeerd_bewijs`, `test_ontbrekende_en_expliciet_lege_meetinhoud`, `test_basisarchief_en_terugval` |
+
+### B. Beschikbaarheid bij publicatiefouten
+
+| Toestand | Verwachte uitkomst | Vaste proef |
+| --- | --- | --- |
+| De nieuwe tussenexport kan zijn map niet synchroniseren | De aanvraag krijgt HTTP 409. De vorige download geeft HTTP 200 met dezelfde SHA-256. | `test_eerdere_download_bij_fout_in_mapbevestiging` |
+| De eindexport is hernoemd en de archiefmap blijft synchronisatie weigeren | Export en download van het onbevestigde bestand krijgen HTTP 409. De eerdere tussenexport blijft vindbaar en downloadbaar met dezelfde SHA-256. De bronwoning blijft leesbaar. | `test_eerdere_download_bij_fout_in_mapbevestiging`, webproef ‘biedt de eerdere tussenexport aan’ |
+| Dezelfde fout, met een nog geldig bronbewijs | Vroeg hervatten wordt geweigerd met HTTP 409. | `test_eerdere_download_bij_fout_in_mapbevestiging` |
+| Dezelfde fout na het verlopen van het bewijs | Hervatten en een volgende schrijfopdracht krijgen HTTP 200. De eerdere download blijft bytegelijk. | `test_eerdere_download_bij_fout_in_mapbevestiging` |
+| De hernoeming wordt geweigerd en er is geen definitief bestand | Heraanmelden en hervatten kunnen direct. De aanmeldingen blijven in het logboek. | `test_geweigerde_publicatie_houdt_bron_bereikbaar` |
+| Procesverlies vóór of na hernoemen | Zonder definitief bestand heropent het journaal. Met een bevestigd bestand blijft de bron begrensd en is de download na herstart vindbaar. | `test_publicatie_onderbroken_rond_hernoemen[False]`, `[True]` |

@@ -48,6 +48,17 @@ it('biedt de gepubliceerde eindexport na het heropenen van het scherm aan', asyn
     .toHaveAttribute('href', expect.stringContaining('/bewaarde-export'));
 });
 
+it('biedt de eerdere tussenexport aan als de archiefmap de eindexport nog niet heeft bevestigd', async () => {
+  const pause = { stopped_at: '2026-11-01T11:05:00Z', expires: '2026-11-01T12:00:00Z',
+    last_reading: 2, reading_count: 2, interim_file_id: 'eerste-export' };
+  mockApi((_method, url) => url.endsWith('/system/settings') ? { body: { source_pause: pause } } : undefined);
+  render(<Providers><RestoreSection safeMode={false} /></Providers>);
+  await userEvent.setup().click(screen.getByText('Definitieve export op de bron'));
+  expect(await screen.findByRole('link', { name: 'Tussenexport downloaden' }))
+    .toHaveAttribute('href', expect.stringContaining('/eerste-export'));
+  expect(screen.queryByRole('link', { name: 'Definitieve export downloaden' })).toBeNull();
+});
+
 const verify: RestoreVerify = {
   upload_id: 'a'.repeat(32),
   filename: 'huis-2026-11-01.shcbak',
@@ -254,4 +265,13 @@ it('toont een ontbrekende rij naast overeenkomend inbedrijfstellingsbeleid', () 
   expect(within(row).getByText('0')).toBeVisible();
   expect(within(row).getByText('Wijkt af')).toBeVisible();
   expect(screen.getByText('Het inbedrijfstellingsbeleid komt overeen.')).toBeVisible();
+});
+
+it('toont waarom een overstap met een ouder bronbewijs wordt geweigerd', () => {
+  const refusal = 'Maak een nieuwe definitieve export op de bijgewerkte bron.';
+  const data = { ...compare, migration: { source_id: 'bron', target_id: 'doel', confirmation: null,
+    source_complete: false, refusal } };
+  render(<Providers><CompareView data={data} /></Providers>);
+  expect(screen.getByText(refusal, { exact: false })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Overstap bevestigen' })).toBeNull();
 });
