@@ -23,4 +23,4 @@ Geen nieuw Home Assistant, apparatuur-gates; lees B06.
 ## Testcase en beslissing
 **Acceptatie:** Boiler nooit schakelen; Gree readback.
 
-**Gereed wanneer:** installatiestatus en functionele proef op echte TrueNAS gelogd zijn; bij stoppen kunnen gebruikers in één handeling naar de oude app terug.
+**Acceptatie van de terugweg:** leg de installatiestatus en functionele proef op echte TrueNAS vast. Nadat de oude app op de voorbereide kopie is gestart, kunnen gebruikers in één handeling terug. Bij een mislukte voorbereiding blijft de oude worker uit. Zie [Offline terugvalkopie voorbereiden](../../onderhoud.md#offline-terugvalkopie-voorbereiden).

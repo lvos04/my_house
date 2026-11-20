@@ -5,9 +5,13 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 from pathlib import Path
+from xml.etree import ElementTree
 
 import pytest
+
+from .connector_versies.postgres import eigen_bron
 
 REPO = Path(__file__).resolve().parents[3]
 VERSIES = {
@@ -18,6 +22,7 @@ VERSIES = {
     "voorgaand": "5079599361142df293db06eb16578d3621fd0dc3",
     "basis": "140d39df39b670b064e663a920a650f03bd9c9d0",
     "voor_herstel": "e22286cd3620b5e9d31e8a0acf0841892b9ab04b",
+    "direct_vorig": "c4b6d0a8a6507dee97ceeb760ee191c1883a8336",
 }
 
 
@@ -61,10 +66,42 @@ def versies(tmp_path_factory):
     ("nieuw", "overdracht", "onuitgevoerde_historie or meetidentiteit or hetzelfde_schema or alleen_lezen_terugval"),
 ])
 def test_versiewissel(versies, versie, bestand, selectie):
+    draai_proef(versies, versie, bestand + ".py", ["-k", selectie], os.environ)
+
+
+def draai_proef(versies, versie, bestand, extra, omgeving):
     bron = REPO if versie == "nieuw" else versies / versie
-    env = dict(os.environ, PROEF_VERSIES=str(versies), PROEF_EINDVERSIE=str(REPO),
+    env = dict(omgeving, PROEF_VERSIES=str(versies), PROEF_EINDVERSIE=str(REPO),
                PYTHONPATH=os.pathsep.join(str(bron / deel) for deel in ("apps/api/src", "integrations/src", "apps/api")))
     subprocess.run([
         sys.executable, "-m", "pytest", "-p", "tests.conftest", "-p", "no:cacheprovider", "-c", "pyproject.toml",
-        "-qs", "--tb=short", str(versies / "proeven" / f"{bestand}.py"), "-k", selectie,
+        "-qs", "--tb=short", str(versies / "proeven" / bestand), *extra,
     ], cwd=bron / "apps/api", env=env, check=True)
+
+
+@pytest.mark.parametrize("versie", ["direct_vorig", "nieuw"])
+def test_logische_meting(versies, tmp_path, versie):
+    rapport = tmp_path / "logische_meting.xml"
+    draai_proef(versies, versie, "logische_meting.py", ["--junitxml", str(rapport)], os.environ)
+    # Geef de uitkomst van de historische pytest door aan de bovenliggende CI-run.
+    geval, = ElementTree.parse(rapport).findall(".//testcase")  # noqa: S314 - eigen lokale pytest-uitvoer
+    overgeslagen = geval.find("skipped")
+    if overgeslagen is not None:
+        reden = overgeslagen.get("message", "")
+        assert overgeslagen.get("type") == "pytest.xfail" and "S-P3-730" in reden
+        pytest.xfail(reden)
+
+
+class TestOpslagkopie:
+    @pytest.fixture(scope="class")
+    @classmethod
+    def database(cls):
+        """De vier fysieke proeven beheren hun eigen bronserver en kopie."""
+
+    @pytest.mark.parametrize("route", ["onderhoud", "installatie"])
+    @pytest.mark.parametrize("richting", ["rollback", "apply"])
+    def test_fysieke_terugval(self, versies, tmp_path, route, richting):
+        # pg_basebackup omvat een heel cluster. Gebruik uitsluitend de eigen bronserver.
+        with tempfile.TemporaryDirectory(dir=tmp_path) as werk, eigen_bron(Path(werk)) as env:
+            node = f"opslagkopie.py::test_snapshot_met_bijbehorende_vorige_software[{richting}-{route}]"
+            draai_proef(versies, "direct_vorig", node, [], env)

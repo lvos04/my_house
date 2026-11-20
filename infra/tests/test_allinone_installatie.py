@@ -1,5 +1,6 @@
 """De installatieroute en de herkomst van de runtimepakketten."""
 
+import os
 import unittest
 from pathlib import Path
 
@@ -7,6 +8,40 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class Installatie(unittest.TestCase):
+    def test_terugvalroutes_verwijzen_naar_de_offline_voorbereiding(self):
+        anker = "#offline-terugvalkopie-voorbereiden"
+        routes = {
+            "docs/installatie-truenas.md": ("Updaten en terugdraaien", "Overstap van een bestaande installatie"),
+            "docs/onderhoud.md": ("Updates en terugdraaien", "In de app (aanbevolen)",
+                                  "Overstappen van een bestaande Compose-installatie", "Database-dump terugzetten"),
+            "docs/release-notes.md": ("Installeren en bijwerken",),
+            "docs/api.md": ("Systeem",),
+            "docs/platform-v2/00_START/LEES_MIJ_EERST.md": ("Belangrijke begrenzingen",),
+            "docs/platform-v2/03_INSTALLATIE/I05_MY_HOUSE.md": ("4. Terugdraaien / verwijderen",),
+            "docs/platform-v2/04_BESTAANDE_APPS/A20_MY_HOUSE.md": ("Testcase en beslissing",),
+            "docs/adr/ADR-0002-hub-koppeling-via-bestaande-routes.md": ("Toestandstabel bij versiewissels",),
+            "docs/adr/ADR-0004-alles-in-een-custom-app.md": ("Besluit (ontwerp)",),
+            "docs/adr/ADR-0015-alles-in-een-gebouwd.md": ("Start en opslag",),
+            "docs/adr/ADR-0016-ondertekende-hub-verzoeken.md": ("Besluiten",),
+            "docs/ontwerp/PEIL_MIGRATIE.md": ("Systeem › Herstellen en verhuizen",),
+        }
+        for naam, koppen in routes.items():
+            tekst = (ROOT / naam).read_text()
+            for kop in koppen:
+                with self.subTest(pad=naam, kop=kop):
+                    sectie = tekst.split(" " + kop + "\n", 1)[1].split("\n#", 1)[0]
+                    pad = Path(naam)
+                    doel = Path("docs/onderhoud.md")
+                    verwijzing = "" if pad == doel else os.path.relpath(doel, pad.parent)
+                    self.assertIn(f"({verwijzing}{anker})", sectie)
+        onderhoud = (ROOT / "docs/onderhoud.md").read_text()
+        procedure = onderhoud.split("### Offline terugvalkopie voorbereiden\n", 1)[1].split("\n#", 1)[0]
+        for vereist in ("shc-api prepare-connector-fallback", "exitcode 0", "blijft de oude worker uit"):
+            self.assertIn(vereist, procedure)
+        installatie = (ROOT / "docs/installatie-truenas.md").read_text().split("## Updaten en terugdraaien\n")[1]
+        self.assertLess(installatie.index("shc-api prepare-connector-fallback"), installatie.index("Kies pas na"))
+        self.assertIn("exitcode 0 de vaste tag", installatie.split("Kies pas na", 1)[1])
+
     def test_formulier_is_de_installatieroute(self):
         for name in ("README.md", "docs/installatie-truenas.md"):
             sections = (ROOT / name).read_text().lower().split("\n## ")

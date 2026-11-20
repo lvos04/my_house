@@ -673,6 +673,7 @@ de API gebruikt de database dan niet. `GET /health` geeft 503 `{status: "herstel
 krijgt 503 met `detail.code` gelijk aan `database_newer`, ook op de beheerroutes onder `/commissioning`.
 De websocket (`/ws`) wordt geaccepteerd en meteen gesloten met sluitcode 1013 en reden
 `database_newer`, zonder bericht. `shc-api migrate` stopt dan met exitcode 3.
+Bij terugval blijft de oude worker uit totdat de kopie is voorbereid. [Offline terugvalkopie voorbereiden](onderhoud.md#offline-terugvalkopie-voorbereiden)
 
 ### Hub-koppeling
 

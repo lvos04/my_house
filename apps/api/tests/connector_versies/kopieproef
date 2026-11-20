@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+proeven=$(cd -- "$(dirname -- "$0")" && pwd)
+if [[ $# != 3 || $1 != onafhankelijk || $2 != direct_vorig || $(realpath -- "$3") != "$proeven/opslagkopie.py" ]]; then
+    echo "Gebruik: bash kopieproef onafhankelijk direct_vorig <pad naar opslagkopie.py>" >&2
+    exit 2
+fi
+cd "$proeven/../.."
+exec python -m pytest -p no:cacheprovider -qs tests/test_connector_versiewissels.py::TestOpslagkopie

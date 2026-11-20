@@ -225,7 +225,11 @@ function SourcePauseForm() {
       {fileId && <div><a className="btn" href={api.restoreFileUrl(fileId)} download>
         {(exported.data ? exported.data.source_pause.stopped_at : proof.file_id)
           ? 'Definitieve export downloaden' : 'Tussenexport downloaden'}</a></div>}
-      <p>{proof.stopped_at === null ? 'Je kunt de bron nu hervatten.' : 'Stop eerst de doelapp voor terugval. Na de vervaltijd kun je de bron hervatten.'}</p>
+      <p>{proof.stopped_at === null ? 'Je kunt de bron nu hervatten.' : <>
+        Stop de doelapp voor terugval en laat de oude worker uit. Volg de installatiehandleiding om de offline
+        bronkopie met de huidige <code>shc-api prepare-connector-fallback</code> voor te bereiden.
+        Hervat de bron op die kopie pas na exitcode 0 en na de vervaltijd.
+      </>}</p>
       <div><ActionButton className="btn" disabled={resume.isPending} onClick={() => resume.mutate()}>Bron hervatten</ActionButton></div>
     </> : <>
       <p>Pauzeer de bron voor de overstap. Bestaande sessies kunnen blijven lezen. Nieuwe aanmeldingen blijven mogelijk tot je de bronregistratie afsluit. Het bewijs vervalt één uur na het begin van de pauze.</p>

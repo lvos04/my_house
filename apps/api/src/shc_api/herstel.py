@@ -15,7 +15,8 @@ en geen auditregels, dus hij kan niets schrijven. Het proces stopt ook niet, dus
   handshake, en dan ziet de client code noch reden.
 
 Nooit automatisch downgraden: de gebruiker kiest in het formulier van de Custom App de bijpassende versie of zet de
-snapshot van vóór de update terug.
+snapshot van vóór de update op aparte opslag terug. Bij terugval bereidt de huidige
+``shc-api prepare-connector-fallback`` die offline kopie voor voordat de oude worker start.
 """
 
 from __future__ import annotations

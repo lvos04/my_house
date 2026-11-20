@@ -46,7 +46,8 @@ geheimen die de app zelf maakt, en processen als 568. Voorbeeld: `media-source-o
    UI-route toe om de oude hoofdsleutel eenmalig te uploaden (nu alleen `shc-api rekey`) of meldt *opnieuw koppelen*.
    De oude app blijft tot de controle klaar is (A20: "in één handeling terug naar de oude app").
 9. **Updaten/terugdraaien** via het formulier (andere tag). Een oudere image die een **nieuwer schema** aantreft, start
-   niet blind maar toont een Nederlandse herstelpagina (EX15) met de pre-update-back-up als weg terug.
+   in herstelmodus met een Nederlandse herstelpagina (EX15). Voor starten op de pre-updatekopie geldt
+   [Offline terugvalkopie voorbereiden](../onderhoud.md#offline-terugvalkopie-voorbereiden).
 10. **Manifest** `deploy/manifest/my_house.manifest.yaml` (§9: `install.method: custom_app`, image + digest door
     release-CI, `privileges.privileged:false`, `devices` alleen voor de optionele dongle met `privilege_reason`,
     `backup.db_export` = bestaande dump, `decisions_required: [D01, D02, D03, D12, D13, D14]`,

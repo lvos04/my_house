@@ -20,7 +20,11 @@ PASSWORD = re.compile(r"[A-Za-z0-9_-]{32,128}")
 FIRST_START = ".eerste-start"
 CORE_DIRS = ("postgres", "app", "backups", "secrets", "mosquitto")
 CORE_SECRETS = ("app-key", "mqtt-shc")
-INCOMPLETE = "De bestaande database is onvolledig. Zet de bijbehorende snapshot terug."
+SNAPSHOT_HERSTEL = (
+    "Zet de bijbehorende snapshot terug op aparte opslag. Bereid de offline kopie met de huidige "
+    "shc-api prepare-connector-fallback voor. Tot exitcode 0 blijft de oude worker uit."
+)
+INCOMPLETE = f"De bestaande database is onvolledig. {SNAPSHOT_HERSTEL}"
 PENDING_PREFIX = ".nieuw-"
 
 

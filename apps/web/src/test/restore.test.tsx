@@ -46,6 +46,9 @@ it('biedt de gepubliceerde eindexport na het heropenen van het scherm aan', asyn
   await userEvent.setup().click(screen.getByText('Definitieve export op de bron'));
   expect(await screen.findByRole('link', { name: 'Definitieve export downloaden' }))
     .toHaveAttribute('href', expect.stringContaining('/bewaarde-export'));
+  const terugval = screen.getByText('shc-api prepare-connector-fallback').closest('p');
+  expect(terugval).toHaveTextContent('laat de oude worker uit');
+  expect(terugval).toHaveTextContent('op die kopie pas na exitcode 0');
 });
 
 it('biedt de eerdere tussenexport aan als de archiefmap de eindexport nog niet heeft bevestigd', async () => {

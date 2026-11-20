@@ -10,7 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from deploy.allinone import healthcheck, storage, supervisor
+from deploy.allinone import healthcheck, storage, supervisor, terugval
 
 ASSETS = Path(__file__).resolve().parents[2] / "infra/compose/config"
 
@@ -61,6 +61,46 @@ class ZigbeeTest(unittest.TestCase):
         cluster.mkdir()
         (cluster / "PG_VERSION").write_text("16\n")
         storage.finish_first_start(data)
+
+    def test_offline_start_gebruikt_alleen_postgres_en_de_huidige_voorbereiding(self):
+        for resultaat in (0, 2):
+            with self.subTest(exitcode=resultaat), tempfile.TemporaryDirectory() as directory:
+                data = Path(directory)
+                self.existing_storage(data)
+                with (
+                    patch.object(supervisor, "DATA", data),
+                    patch.object(supervisor, "drop_privileges"),
+                    patch.object(supervisor, "transfer_ownership"),
+                    patch.object(supervisor.signal, "signal"),
+                    patch.object(supervisor.Supervisor, "database") as database,
+                    patch.object(supervisor.Supervisor, "run", return_value=resultaat) as run,
+                    patch.object(supervisor.Supervisor, "shutdown") as shutdown,
+                    patch.object(supervisor.Supervisor, "watch") as watch,
+                    patch.object(supervisor, "Zigbee") as zigbee,
+                    contextlib.redirect_stderr(io.StringIO()) as log,
+                ):
+                    code = terugval.main()
+                database.assert_called_once_with()
+                run.assert_called_once_with("terugval", ["shc-api", "prepare-connector-fallback"])
+                shutdown.assert_called_once_with()
+                watch.assert_not_called()
+                zigbee.assert_not_called()
+                self.assertEqual(code == 0, resultaat == 0)
+                if resultaat:
+                    self.assertIn("oude worker blijft uit", log.getvalue())
+
+    def test_offline_start_weigert_lege_kopie(self):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(supervisor, "DATA", Path(directory)),
+            patch.object(supervisor.signal, "signal"),
+            patch.object(supervisor.Supervisor, "database") as database,
+            contextlib.redirect_stderr(io.StringIO()) as log,
+        ):
+            self.assertNotEqual(terugval.main(), 0)
+            self.assertEqual(list(Path(directory).iterdir()), [])
+        database.assert_not_called()
+        self.assertIn("oude worker blijft uit", log.getvalue())
 
     def start_proef(self, data, device, *, uid=0):
         system = SimpleNamespace(**{**vars(os), "geteuid": lambda: uid, "umask": Mock()})

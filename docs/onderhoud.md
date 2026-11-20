@@ -15,7 +15,7 @@ wachtwoordzin van de back-up, dan kun je die ook meegeven met `--passphrase-file
 1. Maak een volledige back-up en controleer of deze leesbaar is. Stop de app en maak een snapshot van de hele opslag, inclusief de geheimen.
 2. Kies de nieuwe versie in het Custom App-formulier. Zie [Installatie op TrueNAS](installatie-truenas.md#updaten-en-terugdraaien).
 3. Bij een oudere database schrijft de API vóór de upgrade `pre-migrate-*.sql.gz` en de bijbehorende `.sha256` in de back-upmap. De hele reeks revisies draait in één transactie. Na een geweigerde dump of mislukte revisie blijft de database op de oorspronkelijke revisie.
-   Ook bij gelijk schema maakt de API deze export voordat zij een bestaande connectorreservering overdraagt. De export bewaart het oorspronkelijke claimtijdstip, de opdracht-ID en het lokale uitvoerrecht. Gebruik voor een proef met de oorspronkelijke worker de geverifieerde export en de softwareversie die de opdracht inplande.
+   Ook bij gelijk schema vervalt een ongeclaimde connectoropdracht bij de wissel. De export bewaart de opdracht-ID en de oorspronkelijke meting als historie. Bij een wachtende rollback verschijnt **Handmatige controle nodig**. Controleer de apparaatstand voordat je opnieuw opdracht geeft.
 4. De worker start pas als de API gezond is, dus nooit tegen een half bijgewerkte database.
 
 **Database van een nieuwere versie.** Start een oudere versie van my_house op een database die een nieuwere versie al
@@ -28,11 +28,20 @@ update terug.* De status van de API (`/api/v1/health`) meldt `herstelmodus`, zod
 kent. De worker wacht. Kies in het formulier van de Custom App weer de versie die bij de database hoort.
 Gebruik voor terugval naar een oudere versie de onderstaande procedure.
 
-**Terugdraaien.** Bereid eerst de afzonderlijke snapshotkopie voor zoals beschreven onder Back-ups. Kies daarna de vorige versie met die kopie op aparte opslag. Controleer de woning en de versleutelde koppelingen voordat je de nieuwe installatie gebruikt.
+**Terugdraaien.** Volg [Offline terugvalkopie voorbereiden](#offline-terugvalkopie-voorbereiden). Kies pas na exitcode 0 de vorige versie met precies die kopie op aparte opslag. Bij een fout blijft de oude worker uit. Controleer de woning en de versleutelde koppelingen.
 
-**Lokale herstelproef voor een pre-migratiedump.** Bewaar dump en controlesom in dezelfde map. `shc-api verify-migration-dump <dump> --out <nieuw.sql>` valideert de SHA-256, de gzip-integriteit en het einde van de SQL-export. Het uitvoerbestand moet nieuw zijn. Kies een ongebruikte databasenaam. Voer het aanmaken en importeren als één opdracht uit: `createdb --template=template0 herstelproef && psql -X --single-transaction -v ON_ERROR_STOP=1 -d herstelproef -f <nieuw.sql>`. Bij een bestaande naam stopt de opdracht vóór de import. Vergelijk revisie en tabelinhoud met de voorstaat en bewaar de originele geheimen voor het lezen van versleutelde gegevens. Gebruik voor oude dumps zonder opgeslagen controlesom een onafhankelijk geverifieerde snapshot of back-up.
+**Lokale herstelproef voor een pre-migratiedump.** Bewaar dump en controlesom in dezelfde map. `shc-api verify-migration-dump <dump> --out <nieuw.sql>` valideert de SHA-256, de gzip-integriteit en het einde van de SQL-export. Het uitvoerbestand moet nieuw zijn. Kies een ongebruikte databasenaam. Voer het aanmaken en importeren als één opdracht uit: `createdb --template=template0 herstelproef && psql -X --single-transaction -v ON_ERROR_STOP=1 -d herstelproef -f <nieuw.sql>`. Bij een bestaande naam stopt de opdracht vóór de import. Vergelijk revisie en tabelinhoud met de voorstaat en bewaar de originele geheimen voor het lezen van versleutelde gegevens. Gebruik voor oude dumps zonder opgeslagen controlesom een onafhankelijk geverifieerde snapshot of back-up. Bereid vóór een start met de vorige worker ook de geïmporteerde database voor. [Offline terugvalkopie voorbereiden](#offline-terugvalkopie-voorbereiden)
 
 ## Back-ups
+
+### Offline terugvalkopie voorbereiden
+
+1. Stop de app en sluit beide workers uit tot de voorbereiding klaar is. Bewaar de bron, de originele geheimen, de gecontroleerde back-up en de snapshot. Zet de snapshot of het archief terug op een **afzonderlijke, schrijfbare kopie**. Houd die kopie buiten bereik van de Hub en apparaten.
+2. Gebruik de **huidige** software voor de voorbereiding. Kies de werkwijze die bij de opslag hoort.
+   - **Custom App met een kopie van de hele dataset.** Koppel alleen deze kloon aan `/appdata` van een tijdelijke Custom App met de huidige vaste image. Laat apparaten losgekoppeld. Overschrijf het startprogramma (Entrypoint) met `/opt/venv/bin/python` en geef `-IBu`, `-m` en `shc_allinone.terugval` als drie aparte argumenten op. Zet automatisch herstarten uit. Het startprogramma opent alleen de lokale PostgreSQL van de kopie, voert `shc-api prepare-connector-fallback` uit en sluit PostgreSQL af.
+   - **Compose-opslag, afzonderlijke database of geïmporteerde dump.** Start alleen PostgreSQL voor de kopie. Houd API en worker gestopt. Stel in een eenmalig CLI-proces van de huidige versie `SHC_DATABASE_URL` expliciet in op die database. Voer daar `shc-api prepare-connector-fallback` uit. Controleer de melding **De terugvalkopie is gecontroleerd** en sluit het CLI-proces af.
+3. Ga alleen verder bij **exitcode 0**. De Custom App moet afgesloten zijn met de eindmelding **Terugvalkopie voorbereid. PostgreSQL is gestopt.** Ontbreekt de huidige voorbereiding of de bevestiging, of mislukt de controle, dan blijft de oude worker uit. Bewaar de oorzaak uit het logboek. Een nieuwe kopie maken of opnieuw importeren vereist opnieuw voorbereiden.
+4. Koppel uitsluitend de zojuist voorbereide kopie aan de bijpassende oude software. Controleer woningen, koppelingen en meldingen. Bij een ingeplande rollback staat **Handmatige controle nodig** bij de oorspronkelijke opdracht. Vergelijk de fysieke stand met de preview vóór verdere bediening.
 
 ### Automatisch (aanbevolen)
 
@@ -132,6 +141,8 @@ database-dump). Bij **Gemaakte back-ups** kun je elke back-up downloaden.
    Log in met een beheerder uit de teruggezette back-up om apparaten en functies te vergelijken.
    Bij een onderbreking toont de taak of de databasevervanging is vastgelegd. Staat er **Onbekende uitkomst**,
    log dan in op de doelapp en controleer de taak en het herkomstrapport voordat je opnieuw begint.
+   Als deze export dient voor een start met vorige software, gebruik dan eerst
+   [Offline terugvalkopie voorbereiden](#offline-terugvalkopie-voorbereiden).
 
 ### Overstappen van een bestaande Compose-installatie
 
@@ -168,7 +179,7 @@ database-dump). Bij **Gemaakte back-ups** kun je elke back-up downloaden.
    De actuele vergelijking en het bronbewijs moeten geldig zijn wanneer je **Overstap bevestigen** kiest.
 6. Voor terugval zet je het doel in veilige modus. Bewaar bij nieuwe doelgegevens eerst een volledige export
    en de doelopslag. Stop de doelapp. Vergelijk de wijzigingen en bevestig het behoud voordat je op de bron
-   verder werkt. Na de vervaltijd kies je op de bron **Bron hervatten**.
+   verder werkt. Laat voor terugval ook de bronworker gestopt. Volg [Offline terugvalkopie voorbereiden](#offline-terugvalkopie-voorbereiden) op een afzonderlijke kopie van de bron. Na exitcode 0 mag de oude app op die kopie starten. Na de vervaltijd kun je daar **Bron hervatten** kiezen. Bij een fout blijft de oude worker uit.
 
 ### Database-dump terugzetten
 
@@ -191,14 +202,13 @@ Bij een software- of schemawissel blijft een ongeclaimde connectoropdracht met h
 en de reden `versiewissel` in de historie. Bij een ingeplande rollback verschijnt **Handmatige controle
 nodig** in de meldingen van de woning. Controleer de fysieke stand en de oorspronkelijke preview
 voordat je verder bedient. Een eerder geclaimde opdracht met een onzekere uitkomst kan een wissel
-tegenhouden. Handel die op de oorspronkelijke installatie af en controleer de teruglezing.
+tegenhouden. Controleer de oorspronkelijke meting en de teruglezing. Houd de oude worker op de kopie uit zolang de voorbereiding dit herstel weigert.
 
 Gebruik voor een oudere SQL-export de huidige `verify-migration-dump` bij het schrijven van de
-import-SQL. De import sluit de connectorwachtrij af binnen dezelfde transactie. Gebruik bij een
-terugval met een bestaande opslagsnapshot een afzonderlijke offline kopie. Laat API en worker uit,
-richt de huidige `shc-api prepare-connector-fallback` op de database van de kopie en wacht op
-exitcode 0 voordat je de bijpassende oudere applicatie start. Het schema en de oorspronkelijke
-opslagkopie blijven beschikbaar voor vergelijking.
+import-SQL. De import sluit de connectorwachtrij af binnen dezelfde transactie. Voor iedere start
+met oudere software, ook na een SQL-import of een logische export, geldt vervolgens
+[Offline terugvalkopie voorbereiden](#offline-terugvalkopie-voorbereiden). Het schema en de
+oorspronkelijke opslagkopie blijven beschikbaar voor vergelijking.
 
 Kies voor de dump een nieuwe databasenaam en gebruik de versleutelde dump rechtstreeks:
 
@@ -217,7 +227,8 @@ Teruggezette opdrachten kunnen ook na herbevestiging uitsluitend als bewijs word
 vereisen een nieuw lokaal voorstel en een nieuwe goedkeuring.
 Vergelijk de vingerafdruk met die van de Hub en registreer in de Hub de nieuwe bevestiging voor
 deze instantie. Start de worker en open de app pas na de beheercontrole en, bij een bestaande
-Hub-koppeling, na deze herbevestiging. Houd het Hub-schrijfpad afgeschermd zolang de herbevestiging
+Hub-koppeling, na deze herbevestiging. Voor een oudere worker is bovendien exitcode 0 van de huidige
+voorbereiding op deze definitieve kopie vereist. Houd het Hub-schrijfpad afgeschermd zolang de herbevestiging
 ontbreekt. Bij een installatie zonder Hub-koppeling blijft het schrijfpad uit.
 
 ### Hub-sleutelset bevestigen

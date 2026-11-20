@@ -5,6 +5,8 @@
 
 ## Start en opslag
 
+Voor terugzetten van een snapshot op de bijpassende oudere image heeft de huidige image een eenmalig startprogramma. Het opent PostgreSQL op de kloon en voert `shc-api prepare-connector-fallback` uit. Bij weigering blijft de oude worker uit. [Offline terugvalkopie voorbereiden](../onderhoud.md#offline-terugvalkopie-voorbereiden)
+
 De image bevat PostgreSQL 16 met bijpassende client, de API, de worker, nginx met de gebouwde webapp, mosquitto en Zigbee2MQTT 2.14.3 met de Node.js-runtime uit datzelfde gepinde artefact. De PostgreSQL-server, client en extensies komen uit één image met een vaste digest. De Debian-pakketten komen uit de ondertekende snapshots van 15 november 2026. De webproxy biedt poort 8080 aan. PostgreSQL accepteert verbindingen via de unix-socket met peer-authenticatie. De API en de MQTT-broker luisteren alleen op loopback. Nginx bepaalt zelf de doorstuurheaders. De tunnel staat uit. Het bestaande gedrag van `HUB_URL` blijft beschikbaar via `/_shc/config.json` volgens Z-08.
 
 De bewaker is PID 1. Hij vergrendelt de opslag en controleert de indeling vóór een eigendomswijziging. Bij oude Compose-opslag, een onbekende indeling of ontbrekende sleutels stopt de start. Een rootstart kan de herkende opslag daarna overdragen aan gebruiker en groep 568. Hij leegt de bounding set en laat daarna de diensten als 568 met `no_new_privs` draaien. Bij een rechtstreekse start als 568 vereist hij schrijfbare opslag en laat hij de standaard Docker-bounding-set toe volgens §2.2. De exec-healthcheck voert die rechtenwissel zelfstandig uit. Het korte venster vóór de wissel blijft een restrisico.

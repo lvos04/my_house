@@ -39,7 +39,7 @@ DATABASE_NIEUWER_TEKST = (
     "De database is van een nieuwere my_house-versie; kies in het formulier van de Custom App de bijpassende versie "
     "of zet de snapshot van vóór de update terug. Deze versie verandert niets aan de database. "
     "Bereid de snapshotkopie vóór de start van de vorige versie offline voor met "
-    "shc-api prepare-connector-fallback uit de nieuwe versie."
+    "shc-api prepare-connector-fallback uit de nieuwe versie. Tot exitcode 0 blijft de oude worker uit."
 )
 SCHEMA_NIEUWER_EXIT = 3  # exitcode van `shc-api migrate` bij een database van een nieuwere versie
 
@@ -166,7 +166,7 @@ def _check_connector_rows(conn, *, read_only: bool = False) -> None:
     """))  # noqa: S608 - vaste bewijsvoorwaarden
     if blocked:
         raise MigrationError(
-            "Apparaatherstel uit een eerdere versie staat open. Handel dit eerst met de vorige installatie af."
+            "Apparaatherstel uit een eerdere versie staat open. Controleer de teruglezing van de vorige installatie."
         )
     if conn.scalar(text(INCOMPLETE_PROOF)):
         raise MigrationError("De vorige installatie bevat onvolledig connectorherstelbewijs.")
@@ -235,7 +235,7 @@ async def prepare_connector_fallback(url: str) -> None:
         async with engine.begin() as conn:
             await conn.execute(text(LOCK_SQL))
             revision = await conn.run_sync(_database_revision)
-            if revision is None or backup.schema_relation(revision) == "newer":
+            if backup.schema_relation(revision) not in {"same", "older"}:
                 raise MigrationError("De databaserevisie van de terugvalkopie is onbekend.")
             if not backup._is_older(revision, "0007"):
                 await conn.run_sync(cancel_for_version)
@@ -1127,13 +1127,21 @@ def main(argv: list[str] | None = None) -> None:
 
     args = build_parser().parse_args(argv)
     if args.cmd == "prepare-connector-fallback":
+        from sqlalchemy.exc import SQLAlchemyError
+
         from .config import get_settings
 
+        if not os.environ.get("SHC_DATABASE_URL"):
+            print("Stel SHC_DATABASE_URL in voor de offline kopie. De oude worker blijft uit.", file=sys.stderr)
+            raise SystemExit(2)
         try:
             asyncio.run(prepare_connector_fallback(get_settings().database_url))
         except MigrationError as exc:
-            print(str(exc), file=sys.stderr)
+            print(f"Voorbereiding geweigerd. {exc} De oude worker blijft uit.", file=sys.stderr)
             raise SystemExit(2) from exc
+        except (OSError, ValueError, SQLAlchemyError, asyncpg.PostgresError):
+            print("De offline kopie kon niet worden gecontroleerd. De oude worker blijft uit.", file=sys.stderr)
+            raise SystemExit(2) from None
         print("De terugvalkopie is gecontroleerd. Ongeclaimde connectoropdrachten zijn geannuleerd.")
         return
     if args.cmd == "verify-migration-dump":

@@ -5,7 +5,7 @@ Smart Home Control: één lokale app voor Hue, Gree-airco, HomeWizard en Zigbee,
 ## Installeren en bijwerken
 
 - **Server (TrueNAS SCALE 25.10 of Linux):** volg `docs/installatie-truenas.md`. De images en hoe je de handtekening controleert, staan onderaan.
-- **Bijwerken:** maak eerst een back-up. Bij het starten maakt de API zelf een database-dump in `backups/pre-migrate-….sql.gz` voordat hij de database bijwerkt. Terugdraaien: `docs/onderhoud.md`.
+- **Bijwerken:** maak eerst een back-up. Bij het starten maakt de API zelf een database-dump in `backups/pre-migrate-….sql.gz` voordat hij de database bijwerkt. Bereid bij terugdraaien eerst de afzonderlijke kopie voor. [Offline terugvalkopie voorbereiden](onderhoud.md#offline-terugvalkopie-voorbereiden)
 - **Eerst de server, dan de app.** De nieuwe Android-app herkent een oudere server niet op het thuisadres (de tunnel blijft werken).
 - **Android:** download de APK hieronder en installeer (toestaan: *installeren uit onbekende bron*). Koppel via **Account › Telefoons** in de web-app. Had je de testversie 0.1.0 met de tijdelijke sleutel? Verwijder die eerst en koppel opnieuw.
 

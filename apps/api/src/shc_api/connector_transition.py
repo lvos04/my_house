@@ -89,5 +89,7 @@ def cancel_for_version(conn, *, all_rights: bool = True) -> None:
     if not all_rights:
         return
     if conn.scalar(text(OPEN_AFTER_SWITCH)):
-        raise MigrationError("Apparaatherstel staat open of onzeker. Handel dit eerst met de vorige installatie af.")
+        raise MigrationError(
+            "Apparaatherstel staat open of onzeker. Controleer de teruglezing van de vorige installatie."
+        )
     conn.execute(text(REVOKE_RIGHTS))

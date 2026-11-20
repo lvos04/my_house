@@ -16,6 +16,7 @@ from pathlib import Path
 from . import runtime
 from .runtime import ALIVE, API_READY, DATA, GID, PG_SOCKET, RECOVERY, UID, drop_privileges, http_status
 from .storage import (
+    SNAPSHOT_HERSTEL,
     ZIGBEE,
     check_layout,
     finish_first_start,
@@ -258,7 +259,7 @@ class Supervisor:
         pgdata = DATA / "postgres" / "data"
         if not pgdata.exists():
             if not self.new_storage:
-                raise StartFout("De bestaande database ontbreekt. Zet de bijbehorende snapshot terug.")
+                raise StartFout(f"De bestaande database ontbreekt. {SNAPSHOT_HERSTEL}")
             with tempfile.TemporaryDirectory(dir=pgdata.parent, prefix=".init-") as temp:
                 staging = Path(temp) / "data"
                 command = ["initdb", "-D", str(staging), "-U", "apps", "--auth-local=peer", "--auth-host=reject",
@@ -280,7 +281,7 @@ class Supervisor:
         if not self.new_storage:
             found = database_answer("SELECT 1 FROM pg_database WHERE datname = 'shc'")
             if found != b"1":
-                raise StartFout("De bestaande applicatiedatabase ontbreekt of is onleesbaar. Herstel de snapshot.")
+                raise StartFout(f"De bestaande applicatiedatabase ontbreekt of is onleesbaar. {SNAPSHOT_HERSTEL}")
             return
         databases = database_answer(
             "SELECT datname FROM pg_database WHERE NOT datistemplate AND datname <> 'postgres'",
@@ -296,6 +297,10 @@ class Supervisor:
                 raise StartFout("De applicatiedatabase kon niet worden geopend of aangemaakt.")
         finish_first_start(DATA)
         self.new_storage = False
+
+    def prepare_fallback(self) -> None:
+        if self.run("terugval", ["shc-api", "prepare-connector-fallback"]):
+            raise StartFout("De connectorwachtrij van de terugvalkopie kon niet worden afgesloten.")
 
     def start_services(self, directory: Path, config: Path, password: str, zigbee: Zigbee | None) -> None:
         ALIVE.unlink(missing_ok=True)
@@ -370,7 +375,7 @@ def service_env() -> dict[str, str]:
     return env
 
 
-def main() -> int:
+def main(*, offline_fallback: bool = False) -> int:
     os.umask(0o077)
     root = os.geteuid() == 0
     zigbee = None
@@ -385,8 +390,15 @@ def main() -> int:
         except BlockingIOError:
             raise StartFout("Deze opslag is in gebruik door een andere app-instantie.") from None
         supervisor.new_storage = check_layout(DATA)
+        if offline_fallback and supervisor.new_storage:
+            raise StartFout("De voorbereiding vereist een kopie van een bestaande installatie.")
         if root:
             transfer_ownership(DATA)
+        if offline_fallback:
+            drop_privileges()
+            supervisor.database()
+            supervisor.prepare_fallback()
+            return 0
         groups = zigbee_groups(ZIGBEE, root=root)
         if groups is not None:
             zigbee = Zigbee(groups, storage_fd)
@@ -416,7 +428,7 @@ def main() -> int:
     except StartFout as error:
         if not supervisor.stopping:
             log(f"Opstarten geweigerd: {error}")
-        return 0 if supervisor.stopping else 1
+        return 0 if supervisor.stopping and not offline_fallback else 1
     except (OSError, KeyError, ValueError, subprocess.SubprocessError) as error:
         if isinstance(error, ValueError):
             log(f"Opstarten geweigerd: {error}")

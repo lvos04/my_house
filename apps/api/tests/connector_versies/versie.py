@@ -80,6 +80,11 @@ async def meet(invoer):
         from tests.test_ws_backup_format import PW
         rapport = await backup.restore_file(Path(invoer["pad"]), PW, url=url)
         return {"schema": rapport.schema_to}
+    if invoer["actie"] == "meet_logische_export":
+        from logische_meting import import_en_herstart
+
+        assert delen.path.startswith("/shc_tmp_")
+        return await import_en_herstart(Path(invoer["pad"]), url, invoer["voorstel"])
     if invoer["actie"] == "dump":
         from tests.test_inbedrijfstelling_migratie import sql
         from tests.test_ws_backup_format import PW, temp_db

@@ -781,7 +781,8 @@ De status toont het sluitingstijdstip. Alleen de bijbehorende download heet **De
    alle wijzigingen uit dat interval. Controleer opnieuw met de definitieve back-up. Als die volledigheid
    niet kan worden vastgesteld, blijft de nieuwe app in veilige modus en gaat de beheerder verder met de
    oude app. Bewaar de oude app en de versleutelde back-up voor terugval. Het terugvalpad schakelt bediening
-   in de nieuwe app eerst uit.
+   in de nieuwe app eerst uit. Als de oude software opnieuw moet starten, gebruikt ze alleen de
+   [voorbereide offline kopie](../onderhoud.md#offline-terugvalkopie-voorbereiden).
 
 De wizard gebruikt `restore/apply` met `mode: migration`. De server controleert vlak vóór het schrijven dat het
 doel een afzonderlijke, lege installatie is. `restore/compare` toont de vergelijking na de proef in het doel.

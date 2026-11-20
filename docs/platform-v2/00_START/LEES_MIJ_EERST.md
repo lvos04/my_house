@@ -24,6 +24,7 @@
 - TrueNAS-versie, poolnaam, NAS-IP, routermodel, schijf-/VDEV-opzet, totale opslag, ZFS-datasets en huidige image-tags zijn niet bekend: **geen voorbeeldwaarden als echte waarden inzetten**.
 - Bestaande installs en repositorytoestand zijn niet noodzakelijk gelijk: versie/release op GitHub ≠ bewezen draaiende versie op je NAS.
 - Een oudere image-tag terugzetten na een database-migratie is **niet** vanzelf een veilige rollback; herstel ook de passende configuratie en database uit een getest herstelpunt.
+  Voor my_house vereist iedere start van een oudere worker eerst [de voorbereiding van de offline kopie](../../onderhoud.md#offline-terugvalkopie-voorbereiden).
 - Geen `latest`-tags, geen publiek toegankelijk TrueNAS-beheer, geen Docker-socket in webcontainers, geen standaard rootrechten. Privilege scheiding via een kleine executor met strikt gecontroleerde acties.
 - Een lokale snapshot op dezelfde pool is niet voldoende tegen poolverlies of ransomware; behoud OneDrive en zet belangrijke configs ook extern.
 

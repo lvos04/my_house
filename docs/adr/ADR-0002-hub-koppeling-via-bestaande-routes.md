@@ -115,8 +115,9 @@ de rollback-ID. Een start op dezelfde versie sluit eveneens wachtend werk af. Ee
 start van oudere software in de uitsluitend-lezen herstelmodus laat immers geen versiespoor achter.
 
 De import van een gecontroleerde SQL-terugvalkopie sluit de wachtrij binnen de importtransactie.
-Bij een oude opslagsnapshot gebeurt dit op de offline kopie met `shc-api prepare-connector-fallback`
-uit de huidige versie, vóór de oude worker toegang krijgt. Geclaimd werk met een onzekere uitkomst
+Bij iedere terugval voert de huidige versie `shc-api prepare-connector-fallback` uit op de
+[offline kopie](../onderhoud.md#offline-terugvalkopie-voorbereiden), vóór de oude worker toegang krijgt.
+Geclaimd werk met een onzekere uitkomst
 houdt de terugval tegen. Een mislukte controle draait de wijzigingen in de kopie terug.
 
 De meetidentiteit bindt unit, zone, buitengroep en configuratie aan de preview. Een verandering
@@ -149,6 +150,8 @@ en `140d39d` beproefd. Huidig verwijst naar schema 0009.
 | Automatische SQL-terugvalkopie | 0008 → huidig → aparte kopie op 0008 | De import bewaart de rollback als historie en maakt de melding zichtbaar voor de oude applicatie. | `test_versiewissel_annuleert_ook_op_terugvalkopie` (automatisch) |
 | Handmatige export uit voorgaande software | 0008 → huidig → aparte kopie op 0008 | De gecontroleerde SQL sluit de opdracht af voordat de oude worker start. | `test_versiewissel_annuleert_ook_op_terugvalkopie` (handmatig) |
 | Offline kopie met oorspronkelijke wachtrij | 0008 → voorbereide kopie op 0008 → huidig | Voorbereiding annuleert op het oude schema. ID, preview en melding blijven bewaard. | `test_versiewissel_annuleert_ook_op_terugvalkopie` (opslagkopie) |
+| Installatieformulier en onderhoud met fysieke snapshot | 0008 → 0009 op bron, daarna voorbereide kopie op 0008 | De eigenlijke vorige worker houdt nul claims en verzendingen bij apply en rollback. Opdracht-ID, preview en meetvelden blijven gelijk. Alleen de rollback geeft een beheermelding. | `test_snapshot_met_bijbehorende_vorige_software` |
+| Volledige logische export met een wachtende rollback | 0008 → 0009 en 0009 → 0009 | Bij import en herstart moet het ontbrekende meetveld SQL NULL blijven. De rollback vereist de reden `versiewissel` en één beheermelding. De ongetypeerde 0008-export wordt bij import geweigerd. Op gelijk schema werkt de getypeerde import en herstart, maar ontbreken de versiewisselreden en melding. | `test_versiewissel_met_logische_export` (R-HARDE-EIS-16, S-P3-730) |
 | Rollback binnen dezelfde lopende installatie | Vorige/0008 | De eigen worker herstelt na goedkeuring de gemeten 20 °C. | `test_zelfde_schema_rollback_in_voorgaande_software` |
 | Beschadigde terugvalexport | Softwarewissel op 0009 | De mislukte SHA-256-controle draait de annulering terug. | `test_softwarewissel_op_hetzelfde_schema_en_opnieuw_vooruit` |
 | Bestaande reservering een uur vooruit | 0008 → huidig, daarna eerdere en huidige workers | De opdracht houdt nul claims. De meldingenlijst bevat de oorspronkelijke rollback-ID. | `test_toekomstige_reservering_na_softwarewissel` |
@@ -168,3 +171,23 @@ en `140d39d` beproefd. Huidig verwijst naar schema 0009.
 | Meetidentiteit uit de preview ontbreekt | Huidig/0009 → herstart/0009 | De verwijzing in de bewijsrij wijst de ontbrekende identiteit aan. Dump en herstart worden geweigerd. | `test_meetidentiteit_bij_nieuwe_groep` |
 | Verweesde historie | Huidig/0009 en historische export uit 7a/0007 | Een connectoropdracht zonder bijbehorende bewijsrij blokkeert de dump. | `test_geannuleerde_opdracht_zonder_bewijs_blijft_verweesd`, `test_basis_eerder_teruggezette_opdracht_in_nieuwe_dump` |
 | Gevulde installatie | 0006 → huidig/0009 → aparte kopie op 0006 | Inhoud van tabellen en sequenties wordt met de voorstaat vergeleken. | `test_gevulde_upgrade_en_sha_terugweg` |
+
+### Gepubliceerde terugvalroutes
+
+De historische kopieproef draait met PostgreSQL 16 en de testomgeving van de API. Neem
+`P=apps/api/tests/connector_versies` vanaf de repowortel en draai
+`bash "$P/kopieproef" onafhankelijk direct_vorig "$P/opslagkopie.py"`. De proef vergelijkt
+de actieve database met een afzonderlijk, fysiek gekopieerd en met SHA-256 gecontroleerd cluster
+voor elk van de vier combinaties.
+
+| Ingang | Voorwaarde vóór de oude worker start | Regressietest of documentcontrole |
+|---|---|---|
+| [Installatiehandleiding, Updaten en terugdraaien](../installatie-truenas.md#updaten-en-terugdraaien). [README](../../README.md) en [release-notities](../release-notes.md) verwijzen naar deze route. | Eenmalig startprogramma van de huidige Custom App op de schrijfbare snapshotkloon. Alleen na exitcode 0 mag de vorige tag op diezelfde kloon starten. | `test_snapshot_met_bijbehorende_vorige_software` (installatie, apply en rollback), `test_offline_start_gebruikt_alleen_postgres_en_de_huidige_voorbereiding`, `infra/tests/allinone_container.py` (de gebouwde image, bestaand en onbekend schema) |
+| Onderhoud, [Updates en terugdraaien](../onderhoud.md#updates-en-terugdraaien) en [Back-ups → Offline terugvalkopie voorbereiden](../onderhoud.md#offline-terugvalkopie-voorbereiden). | De huidige CLI opent alleen de database van de kopie. Bij een ontbrekend doel, onbekende revisie of fout blijft de worker uit. | `test_snapshot_met_bijbehorende_vorige_software` (onderhoud, apply en rollback), `test_terugvalvoorbereiding_weigert_onbekende_revisie` |
+| Onderhoud, [Lokale herstelproef voor een pre-migratiedump](../onderhoud.md#updates-en-terugdraaien) en [Database-dump terugzetten](../onderhoud.md#database-dump-terugzetten). | Verifieer de controlesom of de versleutelde dump en importeer in een afzonderlijke database. Bereid de definitieve kopie vóór een oudere start opnieuw voor. | `test_versiewissel_annuleert_ook_op_terugvalkopie` (automatisch en handmatig), documentcontrole op de verwijzing in beide secties |
+| Onderhoud, [Herstellen](../onderhoud.md#herstellen) en [Overstappen van een bestaande Compose-installatie](../onderhoud.md#overstappen-van-een-bestaande-compose-installatie). De [herstelwizard](../../apps/web/src/pages/system/Restore.tsx), installatiehandleiding, [A20](../platform-v2/04_BESTAANDE_APPS/A20_MY_HOUSE.md), [ADR-0004](ADR-0004-alles-in-een-custom-app.md) en het [wizardontwerp](../ontwerp/PEIL_MIGRATIE.md) beschrijven dezelfde terugweg. | Bij terugval na de overstap blijft ook de bronworker uit. Hervat na de gegevensvergelijking op de voorbereide kopie zodra het bronbewijs is verlopen. | `test_terugvalroutes_verwijzen_naar_de_offline_voorbereiding`, `test_versiewissel_met_logische_export`, tekstcontrole van **Bron hervatten** |
+| [I05, Terugdraaien / verwijderen](../platform-v2/03_INSTALLATIE/I05_MY_HOUSE.md), en de algemene uitleg over image-tags onder [Belangrijke begrenzingen](../platform-v2/00_START/LEES_MIJ_EERST.md#belangrijke-begrenzingen). | De beheerder zet de snapshot terug op aparte opslag en laat de huidige voorbereiding afronden vóór de vaste oude image start. | `test_terugvalroutes_verwijzen_naar_de_offline_voorbereiding` |
+| Herstelmodus van API en worker, [Systeem](../api.md#systeem) in de API-documentatie, en de opslagfouten van de bewaker ([ADR-0015](ADR-0015-alles-in-een-gebouwd.md)). | De herstelmodus houdt de worker tegen op een nieuwer schema. Bij terugzetten van de snapshot geldt de voorbereiding op de kloon. | `test_schema_nieuwer.py`, `test_allinone_herstel.py`, documentcontrole |
+| [Platformcontract](../platform-v2/PLATFORM_CONTRACTEN.md), [integrale testmatrix EX14/EX15](../platform-v2/05_TESTS/INTEGRALE_E2E_TESTMATRIX.md) en de [my_house-deltamatrix](../platform-v2/DELTA_MATRIX.md). | EX14 zet configuratie op een proefkopie terug. EX15 probeert een oude image op een nieuwer schema en verwacht een wachtende worker. Voor ingebruikname van een teruggezette database geldt de my_house-procedure in I05. | Documentcontrole van EX14/EX15 en `test_worker_start_niet_bij_nieuwer_schema_en_wacht` |
+| [ADR-0016, Besluiten](ADR-0016-ondertekende-hub-verzoeken.md#besluiten), herstel van een gekoppelde instantie. | Bereid de snapshotkopie voor en controleer daarnaast de bevestigde Hub-koppeling vóór vrijgave van het schrijfpad. | `test_terugvalroutes_verwijzen_naar_de_offline_voorbereiding` |
+| Startprogramma’s in `deploy/allinone` en hulpscripts onder `infra/scripts`, `infra/e2e` en `tools`. | De eenmalige bewaker opent alleen PostgreSQL en de voorbereidingsopdracht. De ontwikkel-, CI- en mutatiescripts starten geen vorige release op een herstelde snapshot. | `test_offline_start_gebruikt_alleen_postgres_en_de_huidige_voorbereiding`, `test_offline_start_weigert_lege_kopie`, broncontrole van de scripts |

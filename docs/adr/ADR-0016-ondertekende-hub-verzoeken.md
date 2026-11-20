@@ -32,7 +32,9 @@ sleutelrotatie per app bevestigt.
    wist de pin, het nonce-register en de idempotentieantwoorden. De beheerder bevestigt
    daarna de actuele Hub-set opnieuw. Nieuwe verzoeken moeten vanaf de eerste volledige
    seconde na die bevestiging zijn uitgegeven. Bij terugzetten van een volledige
-   databasesnapshot of datamap geldt de gekoppelde-instantieprocedure uit ADR-0035 §B:
+   databasesnapshot of datamap moet vóór de start van een oudere worker eerst de wachtrij op
+   [de offline kopie worden voorbereid](../onderhoud.md#offline-terugvalkopie-voorbereiden).
+   Voor de koppeling geldt bovendien de gekoppelde-instantieprocedure uit ADR-0035 §B:
    verifieer dat de laatst bevestigde pin behouden is of trek de oude koppeling in en
    bevestig opnieuw voordat het schrijfpad beschikbaar komt.
 

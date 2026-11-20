@@ -1,9 +1,12 @@
 """Bewijs van apparaatstanden bij onderbreking, herstel van een dump en versiewissels."""
 
 import asyncio
+import os
 import subprocess
+import sys
 import uuid
 from datetime import timedelta
+from urllib.parse import urlencode
 
 import pytest
 from alembic import command
@@ -20,6 +23,29 @@ from .test_connector_herstel import _apply, _queue_rollback
 from .test_connector_routes import proef as proef
 from .test_inbedrijfstelling_migratie import sql
 from .test_ws_backup_format import PW, temp_db
+
+
+def test_terugvalvoorbereiding_zonder_expliciete_kopie(monkeypatch, capsys):
+    monkeypatch.delenv("SHC_DATABASE_URL", raising=False)
+    with pytest.raises(SystemExit) as fout:
+        cli.main(["prepare-connector-fallback"])
+    assert fout.value.code == 2 and "oude worker blijft uit" in capsys.readouterr().err
+
+
+def test_terugvalvoorbereiding_weigert_onbereikbare_kopie(tmp_path):
+    query = urlencode({"host": str(tmp_path / "ontbrekende-socket")})
+    env = dict(os.environ, SHC_DATABASE_URL=f"postgresql+asyncpg://postgres@/proef?{query}")
+    uit = subprocess.run([sys.executable, "-m", "shc_api.cli", "prepare-connector-fallback"],
+                         env=env, capture_output=True, text=True)
+    assert uit.returncode == 2 and not uit.stdout
+    assert uit.stderr.strip() == "De offline kopie kon niet worden gecontroleerd. De oude worker blijft uit."
+
+
+async def test_terugvalvoorbereiding_weigert_onbekende_revisie():
+    async with temp_db(None) as kopie:
+        with pytest.raises(cli.MigrationError, match="databaserevisie"):
+            await cli.prepare_connector_fallback(kopie)
+        assert cli.current_revision(kopie) is None
 
 
 @pytest.fixture

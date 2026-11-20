@@ -14,11 +14,13 @@ Gebruik **Apps › Discover Apps › Custom App** voor de standaard Custom App. 
 
 Maak vóór de update een volledige, gecontroleerde back-up. Stop de app en maak een snapshot van de gehele dataset, inclusief `secrets` en de Zigbee-map. Kies daarna de nieuwe vaste tag in het formulier. De bewaker controleert de pre-migratiedump voordat hij de transactie met de schemawijzigingen start.
 
-Bij een ontbrekende sleutel of onherkende indeling stopt de app. Bewaar de dataset. Zet de bijbehorende snapshot terug op aparte opslag en kies in het formulier de versie die bij die snapshot hoort. Controleer daar aanmelding, woning, koppelingen en back-up. Houd de oorspronkelijke installatie beschikbaar.
+Bij een ontbrekende sleutel of onherkende indeling stopt de app. Bewaar de dataset en de snapshot. Maak op aparte opslag een schrijfbare kloon van de snapshot. Laat de oude app gestopt. Voer op die kloon met de **huidige** image `shc-api prepare-connector-fallback` uit via het eenmalige startprogramma. De stappen voor het formulier staan onder [Offline terugvalkopie voorbereiden](onderhoud.md#offline-terugvalkopie-voorbereiden).
+
+Kies pas na de eindmelding **Terugvalkopie voorbereid. PostgreSQL is gestopt.** en exitcode 0 de vaste tag die bij de snapshot hoort. Verwijder het eenmalige startprogramma en koppel precies de voorbereide kloon aan de app. Bij een fout of ontbrekende bevestiging blijft de oude worker uit. Controleer aanmelding, woning, koppelingen, beheermeldingen en back-up.
 
 ## Overstap van een bestaande installatie
 
-Gebruik een aparte dataset voor de Custom App. De vorige Compose-installatie heeft een andere database-indeling, andere eigenaars en een andere naam voor de hoofdsleutel. Bewaar de vorige installatie met haar geheimen en snapshot totdat de terugweg en de versleutelde koppelingen op de aparte installatie zijn gecontroleerd. De begeleide overstap en herstelproef volgen in S-P3-730 en S-P3-735.
+Gebruik een aparte dataset voor de Custom App. De vorige Compose-installatie heeft een andere database-indeling, andere eigenaars en een andere naam voor de hoofdsleutel. Bewaar die installatie met haar geheimen en snapshot. Wil je de vorige software opnieuw starten, volg dan eerst [Offline terugvalkopie voorbereiden](onderhoud.md#offline-terugvalkopie-voorbereiden) voor de Compose-database. De stappen voor de bronpauze en de gegevensvergelijking staan onder [Overstappen van een bestaande Compose-installatie](onderhoud.md#overstappen-van-een-bestaande-compose-installatie).
 
 Installatie op een echte NAS en toegang tot een fysieke dongle zijn nog te toetsen (D01 en D13).
 

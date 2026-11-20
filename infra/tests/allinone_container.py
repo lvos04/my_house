@@ -629,6 +629,12 @@ for name in names:
         assert len(statements) > 10
         return self.sql(name, "\n".join(statements), database)
 
+    def prepare_fallback(self, label, volume, expected_code, message):
+        name = self.container(label, volume, user="568", options=("--no-healthcheck",),
+                              entrypoint=(*PYTHON, "-m", "shc_allinone.terugval"))
+        assert docker("wait", name, timeout=90).stdout.strip() == str(expected_code).encode()
+        assert message.encode() in self.logs(name)
+
     def migration(self, volume):
         db = self.db_fixture("voor", volume)
         downgrade = """
@@ -646,6 +652,7 @@ command.downgrade(alembic_config(service_env()["SHC_DATABASE_URL"]), "0003")
         assert not self.sql(db, "SHOW listen_addresses").strip()
         assert self.sql(db, "SHOW server_version_num").strip().startswith(b"16")
         docker("stop", db)
+        self.prepare_fallback("terugval-0003", volume, 0, "Terugvalkopie voorbereid. PostgreSQL is gestopt.")
 
         bad = self.container("dumpfout", volume, user="568", entrypoint=(*PYTHON, "-c", MISLUKTE_DUMP))
         within(lambda: self.state(bad).startswith("exited"), "Mislukte dump hield de start niet tegen")
@@ -675,6 +682,7 @@ command.downgrade(alembic_config(service_env()["SHC_DATABASE_URL"]), "0003")
         self.sql(db, "UPDATE alembic_version SET version_num = 'proef_toekomst'")
         before_recovery = self.snapshot(db, "shc")
         docker("stop", db)
+        self.prepare_fallback("terugval-onbekend", volume, 1, "De oude worker blijft uit.")
         recovery = self.container("herstel", volume)
         code = """
 from shc_allinone.runtime import NGINX_HEALTH, http_status
