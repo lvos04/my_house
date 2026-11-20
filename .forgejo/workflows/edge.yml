@@ -18,19 +18,27 @@ jobs:
     uses: ./.forgejo/workflows/ci.yml
     secrets:
       BRON_LEESTOKEN: ${{ secrets.BRON_LEESTOKEN }}
-  images:
-    needs: ci
+  proefbeelden:
+    name: Images in het lokale proefregister
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.publiceren != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with: {persist-credentials: false}
       - name: Beide architecturen, SBOM en herkomst beproeven
-        if: github.event_name != 'workflow_dispatch' || github.event.inputs.publiceren != 'true'
         uses: ./.forgejo/actions/images
         with: {tag: edge, publiceren: "false"}
+  images:
+    name: Ondertekende edge-images publiceren
+    needs: ci
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.publiceren == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with: {persist-credentials: false}
       - name: Ondertekende edge-images publiceren
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.publiceren == 'true'
         uses: ./.forgejo/actions/images
         with:
           tag: edge

@@ -23,10 +23,12 @@ if [[ $PUBLICEREN == true ]]; then
   printf '%s\n' "$COSIGN_PUBLIC_KEY" > "$RUNNER_TEMP/cosign.pub"
   cosign public-key --key env://COSIGN_PRIVATE_KEY | diff -B "$RUNNER_TEMP/cosign.pub" -
 else
-  # Dit register luistert uitsluitend binnen deze jobcontainer. De echte images gaan er per digest doorheen.
+  # Per job een eigen register op loopback. De antwoordheader identificeert ons proces op de gedeelde runner.
   bash .forgejo/ci/pakketlijst.sh
   DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends docker-registry skopeo
   proefmap=$(mktemp -d "$RUNNER_TEMP/register.XXXXXXXX")
+  poort=$(python3 -c 'import socket; s=socket.socket(); s.bind(("localhost", 0)); print(s.getsockname()[1]); s.close()')
+  kenmerk=$(openssl rand -hex 16)
   # Skopeo mag uitsluitend de zojuist gebouwde lokale OCI-layout als bron gebruiken.
   printf '%s\n' '{"default":[{"type":"reject"}],"transports":{"oci":{"":[{"type":"insecureAcceptAnything"}]}}}' > "$proefmap/beleid.json"
   cat > "$proefmap/config.yml" <<EOF
@@ -35,11 +37,14 @@ storage:
   filesystem:
     rootdirectory: $proefmap/data
 http:
-  addr: localhost:5017
+  addr: localhost:$poort
+  headers:
+    X-Shc-Proef: ["$kenmerk"]
 EOF
   docker-registry serve "$proefmap/config.yml" > "$proefmap/register.log" 2>&1 &
   proefpid=$!
-  curl -fsS --retry 10 --retry-connrefused --retry-delay 1 http://localhost:5017/v2/ >/dev/null
+  curl -fsS --retry 10 --retry-connrefused --retry-delay 1 -D "$proefmap/antwoord" "http://localhost:$poort/v2/" >/dev/null
+  tr -d '\r' < "$proefmap/antwoord" | grep -Fxiq "X-Shc-Proef: $kenmerk"
   COSIGN_PASSWORD=$(openssl rand -hex 24)
   export COSIGN_PASSWORD
   cosign generate-key-pair --output-key-prefix "$proefmap/cosign"
@@ -79,7 +84,7 @@ for soort in api web; do
       ([$beelden[].platform.architecture] | sort == ["amd64","arm64"]) and
       ([$beelden[].digest] | sort) == ([.manifests[] | select(.annotations["vnd.docker.reference.type"] == "attestation-manifest") |
         .annotations["vnd.docker.reference.digest"]] | sort)' "$layout/blobs/sha256/${digest#sha256:}"
-    lokaal="localhost:5017/proef/my_house-$soort"
+    lokaal="localhost:$poort/proef/my_house-$soort"
     skopeo --tmpdir "$proefmap" --policy "$proefmap/beleid.json" copy --all --preserve-digests --dest-tls-verify=false \
       "oci:$layout" "docker://$lokaal:$TAG"
     cosign sign --yes --allow-http-registry --use-signing-config=false --tlog-upload=false --key "$proefmap/cosign.key" "$lokaal@$digest"
