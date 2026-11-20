@@ -114,6 +114,7 @@ class SocketInfo:
     via: str  # "cookie" | "token"
     session_id: str | None = None  # Session.id (sha256 of the cookie) for cookie auth
     client_id: str | None = None  # ApiClient.id for token auth
+    unknown_lights: bool = False
 
     def matches(self, d: dict[str, Any]) -> bool:
         if self.session_id and self.session_id in (d.get("session_ids") or ()):
@@ -190,11 +191,15 @@ class Hub:
             return
         home = msg.get("home_id")
         out = dumps({"type": msg["type"], "data": msg["data"]})
+        legacy = out
+        if msg["type"] == "lights.updated" and msg["data"].get("on") is None:
+            # De oude client haalt de lijsten opnieuw op en wist zo ook de eerder bekende stand.
+            legacy = dumps({"type": "refresh", "data": {"reason": "lights.updated"}})
         for ws, info in list(self.clients.items()):
             if home and info.home_id and info.home_id != home:
                 continue
             try:
-                await ws.send_text(out)
+                await ws.send_text(out if info.unknown_lights else legacy)
             except Exception:
                 self.clients.pop(ws, None)
 

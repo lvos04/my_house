@@ -75,10 +75,10 @@ class RealtimeTest {
         val creds = Credentials("shc_x", "id.access", "secret")
         val rc = RealtimeClient(OkHttpClient(), CoroutineScope(Dispatchers.Unconfined), { null }, { "h1" }, { creds })
         val remote = rc.request(Route(RouteKind.REMOTE, "https://huis.voorbeeld.nl", sid))
-        assertEquals("https://huis.voorbeeld.nl/api/v1/ws?home_id=h1", remote.url.toString())
+        assertEquals("https://huis.voorbeeld.nl/api/v1/ws?home_id=h1&light_state_version=2", remote.url.toString())
         assertEquals("secret", remote.header("CF-Access-Client-Secret"))
-        val lan = rc.request(Route(RouteKind.LAN, "http://192.168.1.20:8088", sid))
-        assertEquals("http://192.168.1.20:8088/api/v1/ws?home_id=h1", lan.url.toString())
+        val lan = rc.request(Route(RouteKind.LAN, "http://huis.test:8088", sid))
+        assertEquals("http://huis.test:8088/api/v1/ws?home_id=h1&light_state_version=2", lan.url.toString())
         assertNull(lan.header("CF-Access-Client-Id"))
         assertNull(lan.header("CF-Access-Client-Secret"))
     }

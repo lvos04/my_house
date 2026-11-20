@@ -277,6 +277,28 @@ async def test_password_change_closes_other_sockets_only(app, admin, home, liste
         await ws_a.close()
 
 
+async def test_onbekende_lichtstand_per_socketversie(app, admin, home):
+    await _user(admin, "lichtkijker", role="viewer")
+    async with _client(app) as c:
+        _s, cookie = await _login(c, "lichtkijker")
+    verbindingen = []
+    try:
+        for versie in ("", "&light_state_version=2"):
+            ws = await _cookie_ws(app, cookie, None, "test", query=f"home_id={home['id']}{versie}").connect()
+            verbindingen.append(ws)
+            assert (await ws.json())["type"] == "hello"
+        for stand in (True, None, False):
+            bericht = {"type": "lights.updated", "data": {"id": "proefgroep", "on": stand}}
+            await hub.broadcast_raw(dumps({**bericht, "home_id": home["id"]}))
+            assert await verbindingen[0].json() == (
+                {"type": "refresh", "data": {"reason": "lights.updated"}} if stand is None else bericht
+            )
+            assert await verbindingen[1].json() == bericht
+    finally:
+        for ws in verbindingen:
+            await ws.close()
+
+
 async def test_revoked_event_is_internal_and_home_filter_still_works(app, admin, home):
     await _user(admin, "sec_ws_filter", role="viewer")
     async with _client(app) as c:

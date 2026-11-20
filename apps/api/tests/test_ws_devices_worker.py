@@ -196,15 +196,23 @@ async def test_ontbrekende_groepsmeting_na_aan_blijft_onbekend_op_alle_leesroute
     worker = make_worker()
     attach(worker, integ, SimpleNamespace(device_info=lambda _: None))
     rid = str(uuid.uuid4())
+    referentie = await add_device(home_id, "light_group", "Referentie", state={"on": True})
     for veld, verwacht in (({"on": True}, True), ({}, None), ({"on": "false"}, None), ({"on": False}, False)):
         await worker.handle_events(integ, [StateUpdate(rid, {"type": "grouped_light", **veld}, datetime.now(UTC))])
-        groepen = (await admin.get(f"/homes/{home_id}/lights")).json()["groups"]
-        overzicht = (await admin.get(f"/homes/{home_id}/overview")).json()
         apparaat = (await _devices(home_id))[rid]
+        for versie in (None, "1", "2", "toekomstig"):
+            params = {"light_state_version": versie} if versie else {}
+            lijst = await admin.get(f"/homes/{home_id}/lights", params=params)
+            overzicht = await admin.get(f"/homes/{home_id}/overview", params=params)
+            assert lijst.status_code == overzicht.status_code == 200
+            assert overzicht.json()["zones"]
+            standen = {str(referentie.id): True}
+            if verwacht is not None or versie == "2":
+                standen[str(apparaat.id)] = verwacht
+            for groepen in (lijst.json()["groups"], overzicht.json()["lights"]):
+                assert {g["id"]: g["on"] for g in groepen} == standen
         async with sessionmaker()() as db:
             realtime = await group_view_for(db, apparaat)
-        assert groepen[0]["on"] is verwacht
-        assert overzicht["lights"][0]["on"] is verwacht
         assert realtime["on"] is verwacht
 
 

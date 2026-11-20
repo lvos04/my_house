@@ -431,6 +431,13 @@ commando verandert nooit de regelstand van de zone.
 
 ## Verlichting en knoppen (Hue)
 
+De optionele queryparameter `light_state_version=2` op `GET /homes/{home_id}/lights` en
+`GET /homes/{home_id}/overview` geeft lichtgroepen met een onbekende stand door als `on: null`.
+Zonder die versie laat de API uitsluitend die groepen weg. Beide leesroutes geven HTTP 200 bij een
+ontbrekende meting en behouden de overige gegevens. Alleen een gemeten uitstand krijgt `on: false`.
+Web en Android vragen dezelfde versie bij `/ws`. Een oudere verbinding krijgt bij een onbekende
+stand een `refresh` voor `lights.updated` en haalt de gefilterde lijst opnieuw op.
+
 ```
 LightGroup = {id, name, on: bool|null, on_at: ts|null, brightness: 0–100|null, scene: string|null, scene_id: uuid|null,
               reachable: bool, lights_on: int, lights_total: int, lights_reachable: int|null,

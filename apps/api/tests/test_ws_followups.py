@@ -155,7 +155,7 @@ async def test_bridge_error_result_is_stored_as_failed(admin, flagged):
     async with sessionmaker()() as db:
         row = await db.get(CommandRecord, cmd.id)
         assert row.status == "failed" and row.detail == detail
-    lights = (await admin.get(f"/homes/{home_id}/lights")).json()
+    lights = (await admin.get(f"/homes/{home_id}/lights", params={"light_state_version": "2"})).json()
     g = next(x for x in lights["groups"] if x["id"] == str(group.id))
     assert g["last_command"]["status"] == "failed"  # the same answer as command.updated
 

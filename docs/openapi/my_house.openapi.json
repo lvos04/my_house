@@ -5852,6 +5852,22 @@
               "title": "Home Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "light_state_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Light State Version"
+            }
           }
         ],
         "responses": {
@@ -5896,6 +5912,22 @@
               "format": "uuid",
               "title": "Home Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "light_state_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Light State Version"
             }
           }
         ],

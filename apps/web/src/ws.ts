@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { api, API_BASE } from './api/client';
+import { api, API_BASE, LIGHT_STATE_QUERY } from './api/client';
 import { qk } from './api/keys';
 import type { Alert, AuthStatus, HelloData, LightGroup, Lights, LivePower, Overview, StatusCheck, WsErrorData, WsMessage, Zone } from './api/types';
 import { applyCommandSnapshot, applyCommandUpdate } from './commands';
@@ -8,7 +8,7 @@ import { useConnection, usePending } from './state';
 
 export function wsUrl(homeId: string, loc: Pick<Location, 'protocol' | 'host'> = window.location): string {
   const proto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${proto}//${loc.host}${API_BASE}/ws?home_id=${encodeURIComponent(homeId)}`;
+  return `${proto}//${loc.host}${API_BASE}/ws?home_id=${encodeURIComponent(homeId)}&${LIGHT_STATE_QUERY}`;
 }
 
 /** Exponential backoff with jitter, capped at 30 s. */

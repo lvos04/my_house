@@ -173,7 +173,7 @@ class ApiClient(
 
     suspend fun homes(route: Route): List<Home> = get(route, "homes", ListSerializer(Home.serializer()))
 
-    suspend fun overview(route: Route, homeId: String): Overview = get(route, "homes/$homeId/overview", Overview.serializer())
+    suspend fun overview(route: Route, homeId: String): Overview = get(route, "homes/$homeId/overview?${UrlTools.LIGHT_STATE_QUERY}", Overview.serializer())
 
     suspend fun zones(route: Route, homeId: String): List<Zone> = get(route, "homes/$homeId/zones", ListSerializer(Zone.serializer()))
 
@@ -187,7 +187,7 @@ class ApiClient(
     /** The zone's week schedule (read-only in the app; edited in the web app). */
     suspend fun schedule(route: Route, zoneId: String): ZoneSchedule = get(route, "zones/$zoneId/schedule", ZoneSchedule.serializer())
 
-    suspend fun lights(route: Route, homeId: String): LightsResponse = get(route, "homes/$homeId/lights", LightsResponse.serializer())
+    suspend fun lights(route: Route, homeId: String): LightsResponse = get(route, "homes/$homeId/lights?${UrlTools.LIGHT_STATE_QUERY}", LightsResponse.serializer())
 
     suspend fun setGroup(route: Route, groupId: String, command: GroupCommand): CommandAccepted =
         post(route, "lights/groups/$groupId", ShcJson.encodeToString(GroupCommand.serializer(), command), CommandAccepted.serializer())

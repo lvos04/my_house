@@ -26,7 +26,7 @@ describe('no home yet (item 1)', () => {
         return { body: homes[0] };
       }
       if (url.endsWith('/homes')) return { body: homes };
-      if (url.endsWith('/overview')) return { body: overview };
+      if (url.endsWith('/overview?light_state_version=2')) return { body: overview };
       return undefined;
     });
     render(<Providers homeId={null}><AppRoutes user={admin} /></Providers>);
@@ -63,7 +63,7 @@ describe('shell (item 40)', () => {
   it('mobile bottom bar has 4 main pages and a "Meer" sheet with logout and the version', async () => {
     const calls = mockApi((_m, url) => {
       if (url.endsWith('/homes')) return { body: [home] };
-      if (url.endsWith('/overview')) return { body: overview };
+      if (url.endsWith('/overview?light_state_version=2')) return { body: overview };
       if (url.endsWith('/auth/logout')) return { status: 204 };
       return undefined;
     });
@@ -86,7 +86,7 @@ describe('shell (item 40)', () => {
   it('Peil 1.1.1 (E16): precies één actief item in de ondernavigatie met aria-current, ook "Meer" op een Meer-pagina', async () => {
     mockApi((_m, url) => {
       if (url.endsWith('/homes')) return { body: [home] };
-      if (url.endsWith('/overview')) return { body: overview };
+      if (url.endsWith('/overview?light_state_version=2')) return { body: overview };
       return undefined;
     });
     const { unmount } = render(<Providers><AppRoutes user={admin} /></Providers>);
@@ -109,7 +109,7 @@ describe('shell (item 40)', () => {
     mockApi((_m, url) => {
       if (url === '/_shc/config.json') return { body: { hub_url: 'https://hub.thuis:8443' } };
       if (url.endsWith('/homes')) return { body: [home] };
-      if (url.endsWith('/overview')) return { body: overview };
+      if (url.endsWith('/overview?light_state_version=2')) return { body: overview };
       return undefined;
     });
     render(<Providers><AppRoutes user={viewer} /></Providers>);
@@ -126,9 +126,9 @@ describe('shell (item 40)', () => {
   });
 
   it('opens the live connection for the selected home', async () => {
-    mockApi((_m, url) => (url.endsWith('/homes') ? { body: [home] } : url.endsWith('/overview') ? { body: overview } : undefined));
+    mockApi((_m, url) => (url.endsWith('/homes') ? { body: [home] } : url.endsWith('/overview?light_state_version=2') ? { body: overview } : undefined));
     render(<Providers><AppRoutes user={admin} /></Providers>);
     await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
-    expect(FakeWebSocket.last().url).toMatch(/\/api\/v1\/ws\?home_id=h1$/);
+    expect(FakeWebSocket.last().url).toMatch(/\/api\/v1\/ws\?home_id=h1&light_state_version=2$/);
   });
 });

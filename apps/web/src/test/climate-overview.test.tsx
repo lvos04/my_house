@@ -50,7 +50,7 @@ describe('Overzicht (items 22, 31, 36)', () => {
   });
 
   it('follows energy.live and alert.resolved from the live connection', async () => {
-    mockApi((_m, url) => (url.endsWith('/homes/h1/overview') ? { body: overview } : { body: [] }));
+    mockApi((_m, url) => (url.endsWith('/homes/h1/overview?light_state_version=2') ? { body: overview } : { body: [] }));
     const client = newClient();
     render(<Providers client={client}><OverviewPage /></Providers>);
     expect(await screen.findByText('Sensor verouderd')).toBeInTheDocument();

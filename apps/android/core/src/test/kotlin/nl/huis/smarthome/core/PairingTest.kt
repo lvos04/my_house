@@ -50,8 +50,8 @@ class PairingTest {
     @Test
     fun buildsApiAndWebSocketUrls() {
         assertEquals("http://h:8080/api/v1/zones/1", UrlTools.api("http://h:8080", "/zones/1"))
-        assertEquals("wss://huis.nl/api/v1/ws?home_id=abc", UrlTools.webSocketUrl("https://huis.nl", "abc"))
-        assertEquals("ws://h:8080/api/v1/ws", UrlTools.webSocketUrl("http://h:8080/", null))
+        assertEquals("wss://huis.nl/api/v1/ws?home_id=abc&light_state_version=2", UrlTools.webSocketUrl("https://huis.nl", "abc"))
+        assertEquals("ws://h:8080/api/v1/ws?light_state_version=2", UrlTools.webSocketUrl("http://h:8080/", null))
     }
 
     @Test

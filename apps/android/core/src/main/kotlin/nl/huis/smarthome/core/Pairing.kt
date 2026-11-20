@@ -120,6 +120,8 @@ object PairingCodec {
 }
 
 object UrlTools {
+    const val LIGHT_STATE_QUERY = "light_state_version=2"
+
     /**
      * Turns user input like "192.168.1.20:8080", "https://huis.example.nl/" or
      * "https://huis.example.nl/api/v1" into a clean base URL without trailing slash
@@ -154,7 +156,7 @@ object UrlTools {
             base.startsWith("http://") -> "ws://" + base.removePrefix("http://")
             else -> base
         }.trimEnd('/')
-        val q = homeId?.let { "?home_id=$it" } ?: ""
-        return "$wsBase/api/v1/ws$q"
+        val home = homeId?.let { "home_id=$it&" }.orEmpty()
+        return "$wsBase/api/v1/ws?$home$LIGHT_STATE_QUERY"
     }
 }

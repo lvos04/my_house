@@ -73,7 +73,7 @@ const hueButton = (over: Partial<HueButton> = {}): HueButton => ({
 
 function route(buttons: HueButton[] = [hueButton()]) {
   return (m: string, url: string): ReturnType<Parameters<typeof mockApi>[0]> => {
-    if (url.endsWith('/homes/h1/lights')) return { body: lights };
+    if (url.endsWith('/homes/h1/lights?light_state_version=2')) return { body: lights };
     if (url.endsWith('/homes/h1/buttons')) return { body: buttons };
     if (url.endsWith('/homes/h1/zones')) return { body: [zone()] };
     if (url.startsWith('/api/v1/lights/groups/') && m === 'POST') return { status: 202, body: { command_id: 'c1', status: 'queued' } };
@@ -90,7 +90,7 @@ afterEach(() => {
 
 describe('lights page (item 27)', () => {
   it('een groep zonder schakelmeting toont Onbekend zonder schakelknop', async () => {
-    mockApi((m, url) => url.endsWith('/homes/h1/lights')
+    mockApi((m, url) => url.endsWith('/homes/h1/lights?light_state_version=2')
       ? { body: { ...lights, groups: [group({ id: 'g1', on: null })] } }
       : route()(m, url));
     render(<Providers><LightsPage /></Providers>);

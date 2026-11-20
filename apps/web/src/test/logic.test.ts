@@ -7,7 +7,7 @@ import type { Overview } from '../api/types';
 
 describe('websocket helpers', () => {
   it('builds ws urls and caps backoff', () => {
-    expect(wsUrl('h1', { protocol: 'https:', host: 'huis.nl' } as Location)).toBe('wss://huis.nl/api/v1/ws?home_id=h1');
+    expect(wsUrl('h1', { protocol: 'https:', host: 'huis.nl' } as Location)).toBe('wss://huis.nl/api/v1/ws?home_id=h1&light_state_version=2');
     expect(backoffMs(0, () => 1)).toBe(1000);
     expect(backoffMs(20, () => 1)).toBe(30000);
     expect(backoffMs(20, () => 0)).toBe(15000);

@@ -18,7 +18,7 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
 from ..db import sessionmaker
-from ..deps import SESSION_COOKIE, resolve_principal
+from ..deps import SESSION_COOKIE, UnknownLights, resolve_principal
 from ..events import CLOSE_AUTH_REQUIRED, CLOSE_REVOKED, SocketInfo, dumps, hub
 from .auth import user_view
 
@@ -87,7 +87,7 @@ async def _deny(websocket: WebSocket, close_code: int, code: str, reason: str | 
 
 
 @router.websocket("/ws")
-async def ws(websocket: WebSocket, home_id: str | None = None) -> None:
+async def ws(websocket: WebSocket, include_unknown: UnknownLights, home_id: str | None = None) -> None:
     cookie = websocket.cookies.get(SESSION_COOKIE)
     reason = None
     if cookie and not origin_allowed(websocket):
@@ -124,6 +124,7 @@ async def ws(websocket: WebSocket, home_id: str | None = None) -> None:
         home_id=home_id,
         user_id=str(principal.user.id),
         via=principal.via,
+        unknown_lights=include_unknown,
         session_id=principal.session_id,
         client_id=str(principal.client_id) if principal.client_id else None,
     )

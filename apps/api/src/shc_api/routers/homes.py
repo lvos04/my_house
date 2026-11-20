@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from .. import views
 from ..config import get_settings
-from ..deps import DB, Admin, Auth, Control, get_home
+from ..deps import DB, Admin, Auth, Control, UnknownLights, get_home
 from ..errors import not_found
 from ..models import Alert, ClimateZone, Home, Integration, LogicalRole, Room
 from ..store import audit, get_setting
@@ -73,7 +73,7 @@ async def create_home(body: HomeIn, db: DB, p: Admin) -> dict:
 
 
 @router.get("/homes/{home_id}/overview")
-async def overview(home_id: uuid.UUID, db: DB, p: Auth) -> dict:
+async def overview(home_id: uuid.UUID, db: DB, p: Auth, include_unknown: UnknownLights) -> dict:
     home = await get_home(db, home_id)
     zones = (
         (await db.execute(select(ClimateZone).where(ClimateZone.home_id == home_id).order_by(ClimateZone.name.desc())))
@@ -86,7 +86,7 @@ async def overview(home_id: uuid.UUID, db: DB, p: Auth) -> dict:
         "home": views.home_view(home),
         "status": await views.status_checks(db, home_id),
         "zones": [await views.zone_view(db, z, home) for z in zones],
-        "lights": (await views.lights_view(db, home_id))["groups"],
+        "lights": (await views.lights_view(db, home_id, include_unknown=include_unknown))["groups"],
         "energy_today": await views.energy_summary(db, home, "day", today),
         "power_now": await views.live_power(db, home_id),
         "alerts": await views.open_alerts(db, home_id),

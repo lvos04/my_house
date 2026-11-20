@@ -199,6 +199,10 @@ class ApiClientTest {
     fun parsesOverviewWithUnknownFields() = runTest {
         server.enqueue(MockResponse().setBody(OVERVIEW))
         val o = api.overview(lan, "h1")
+        assertEquals("/api/v1/homes/h1/overview?light_state_version=2", server.takeRequest().path)
+        server.enqueue(MockResponse().setBody("""{"groups":[],"scenes":[],"lights":[]}"""))
+        api.lights(lan, "h1")
+        assertEquals("/api/v1/homes/h1/lights?light_state_version=2", server.takeRequest().path)
         assertEquals("Thuis", o.home.name)
         assertEquals(2, o.zones.size)
         val w = o.zones[0]

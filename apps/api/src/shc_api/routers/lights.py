@@ -28,7 +28,7 @@ from ..commanding import (
     request_zone_command,
 )
 from ..commissioning import command_facts, lock_commissioning
-from ..deps import DB, Admin, Auth, Control, get_home
+from ..deps import DB, Admin, Auth, Control, UnknownLights, get_home
 from ..errors import api_error, not_found
 from ..models import ButtonMapping, ClimateZone, Device, Home
 from ..policy import PolicyDenied, check_command
@@ -52,9 +52,9 @@ async def _check_target(db: DB, target: Device, action: str, *, protection_only:
 
 
 @router.get("/homes/{home_id}/lights")
-async def lights(home_id: uuid.UUID, db: DB, p: Auth) -> dict:
+async def lights(home_id: uuid.UUID, db: DB, p: Auth, include_unknown: UnknownLights) -> dict:
     await get_home(db, home_id)
-    return await views.lights_view(db, home_id)
+    return await views.lights_view(db, home_id, include_unknown=include_unknown)
 
 
 class GroupCommand(BaseModel):

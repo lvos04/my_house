@@ -1,6 +1,7 @@
 import type * as T from './types';
 
 export const API_BASE = '/api/v1';
+export const LIGHT_STATE_QUERY = 'light_state_version=2';
 
 /** Any answer with an error body. `message` is the server's Dutch text. */
 export class ApiError extends Error {
@@ -471,7 +472,7 @@ export const api = {
   homes: () => get<T.Home[]>('/homes'),
   createHome: (h: T.NewHome) => post<T.Home>('/homes', h),
   archiveHome: (id: string) => post<T.Home>(`/homes/${id}/archive`),
-  overview: (homeId: string) => get<T.Overview>(`/homes/${homeId}/overview`),
+  overview: (homeId: string) => get<T.Overview>(`/homes/${homeId}/overview?${LIGHT_STATE_QUERY}`),
   rooms: (homeId: string) => get<T.Room[]>(`/homes/${homeId}/rooms`),
   alerts: (homeId: string) => get<T.Alert[]>(`/homes/${homeId}/alerts`),
   ackAlert: (id: string) => post<T.Alert>(`/alerts/${id}/ack`),
@@ -535,7 +536,7 @@ export const api = {
   deleteExperiment: (id: string, opts: { restore?: boolean } = {}) => del<void>(`/experiments/${id}${opts.restore === false ? '?restore=false' : ''}`),
 
   /* lights & buttons */
-  lights: (homeId: string) => get<T.Lights>(`/homes/${homeId}/lights`),
+  lights: (homeId: string) => get<T.Lights>(`/homes/${homeId}/lights?${LIGHT_STATE_QUERY}`),
   /** 202 {command_id}. Track it with trackCommand()/useCommand(). */
   setGroup: (id: string, body: T.GroupCommand) => post<T.CommandAccepted>(`/lights/groups/${id}`, body),
   buttons: (homeId: string) => get<T.HueButton[]>(`/homes/${homeId}/buttons`),

@@ -126,7 +126,7 @@ async def group_view_for(db: AsyncSession, d: Device) -> dict:
     return group_view(d, scenes, newest)
 
 
-async def lights_view(db: AsyncSession, home_id: uuid.UUID) -> dict:
+async def lights_view(db: AsyncSession, home_id: uuid.UUID, *, include_unknown: bool) -> dict:
     devs = list(
         (
             await db.execute(
@@ -153,7 +153,9 @@ async def lights_view(db: AsyncSession, home_id: uuid.UUID) -> dict:
     for d in devs:
         s = d.state or {}
         if d.kind == "light_group":
-            groups.append(group_view(d, scene_ids, group_cmd.get(str(d.id))))
+            group = group_view(d, scene_ids, group_cmd.get(str(d.id)))
+            if include_unknown or group["on"] is not None:
+                groups.append(group)
         elif d.kind == "scene":
             gid = s.get("group_device_id")
             group = groups_by_id.get(gid) if gid else None

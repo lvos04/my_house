@@ -28,6 +28,14 @@ HUB_WRITES = {("POST", "/api/v1/clients/self/refresh"), ("DELETE", "/api/v1/clie
 DB = Annotated[AsyncSession, Depends(get_session)]
 
 
+def supports_unknown_lights(light_state_version: str | None = None) -> bool:
+    """Alleen versie 2 kan een lichtgroep zonder gemeten schakelstand weergeven."""
+    return light_state_version == "2"
+
+
+UnknownLights = Annotated[bool, Depends(supports_unknown_lights)]
+
+
 @dataclass(slots=True)
 class Principal:
     user: User
