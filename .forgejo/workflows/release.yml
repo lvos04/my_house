@@ -1,0 +1,131 @@
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      publiceren:
+        description: Images ondertekenen en de Forgejo-release met bijlagen publiceren
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: release
+  cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      exists: ${{ steps.v.outputs.exists }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with: {persist-credentials: false}
+      - id: v
+        name: Versie en bestaande Forgejo-release controleren
+        env:
+          JOB_TOKEN: ${{ github.token }}
+        run: bash .forgejo/ci/release-api.sh opzoeken
+  ci:
+    needs: prepare
+    if: needs.prepare.outputs.exists == 'false' || github.event.inputs.publiceren != 'true'
+    uses: ./.forgejo/workflows/ci.yml
+    secrets:
+      BRON_LEESTOKEN: ${{ secrets.BRON_LEESTOKEN }}
+  apk:
+    needs: prepare
+    if: needs.prepare.outputs.exists == 'false' || github.event.inputs.publiceren != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    container:
+      image: ghcr.io/cirruslabs/android-sdk:35@sha256:c724009e305b4607157287624033ab97f319af44c244bfc9f73b6293f3bb01b9
+    outputs:
+      signed: ${{ steps.apk.outputs.signed }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/android
+    steps:
+      - name: Node voor de acties in de SDK-container
+        working-directory: /
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fsSLO --retry 3 https://nodejs.org/dist/v24.14.0/node-v24.14.0-linux-x64.tar.xz
+          echo '41cd79bb7877c81605a9e68ec4c91547774f46a40c67a17e34d7179ef11729df  node-v24.14.0-linux-x64.tar.xz' | sha256sum -c -
+          tar -xJf node-v24.14.0-linux-x64.tar.xz --strip-components=2 -C /usr/local/bin node-v24.14.0-linux-x64/bin/node
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with: {persist-credentials: false}
+      - uses: ./.forgejo/actions/android
+      - name: Android-unittests
+        run: ./gradlew --no-daemon --max-workers=2 :core:test :app:testDebugUnitTest
+      - if: failure()
+        uses: https://code.forgejo.org/forgejo/upload-artifact@16871d9e8cfcf27ff31822cac382bbb5450f1e1e
+        with:
+          name: android-test-reports
+          path: |
+            apps/android/core/build/reports/tests/
+            apps/android/app/build/reports/tests/
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: Release-APK bouwen en ondertekenaar verifiëren
+        id: apk
+        env:
+          V: ${{ needs.prepare.outputs.version }}
+          PUBLICEREN: ${{ github.event.inputs.publiceren }}
+          ANDROID_KEYSTORE_B64: ${{ github.event.inputs.publiceren == 'true' && secrets.ANDROID_KEYSTORE_B64 || '' }}
+          SHC_SIGNING_STORE_PASSWORD: ${{ github.event.inputs.publiceren == 'true' && secrets.ANDROID_KEYSTORE_PASSWORD || '' }}
+          SHC_SIGNING_KEY_ALIAS: ${{ github.event.inputs.publiceren == 'true' && secrets.ANDROID_KEY_ALIAS || '' }}
+          SHC_SIGNING_KEY_PASSWORD: ${{ github.event.inputs.publiceren == 'true' && secrets.ANDROID_KEY_PASSWORD || '' }}
+        run: bash ../../.forgejo/ci/apk.sh
+      - if: steps.apk.outputs.signed == 'true'
+        uses: https://code.forgejo.org/forgejo/upload-artifact@16871d9e8cfcf27ff31822cac382bbb5450f1e1e
+        with:
+          name: apk
+          path: apps/android/huis-v*.apk*
+          if-no-files-found: error
+  images:
+    needs: [prepare, ci, apk]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with: {persist-credentials: false}
+      - uses: ./.forgejo/actions/images
+        with:
+          tag: ${{ needs.prepare.outputs.version }}
+          publiceren: ${{ github.event.inputs.publiceren }}
+          registry-user: ${{ vars.REGISTRY_USER }}
+          registry-token: ${{ github.event.inputs.publiceren == 'true' && secrets.REGISTRY_TOKEN || '' }}
+          signing-key: ${{ github.event.inputs.publiceren == 'true' && secrets.COSIGN_PRIVATE_KEY || '' }}
+          signing-password: ${{ github.event.inputs.publiceren == 'true' && secrets.COSIGN_PASSWORD || '' }}
+          public-key: ${{ vars.COSIGN_PUBLIC_KEY }}
+  publish:
+    needs: [prepare, images, apk]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with: {persist-credentials: false}
+      - uses: https://code.forgejo.org/forgejo/download-artifact@d8d0a99033603453ad2255e58720b460a0555e1e # v4
+        with: {name: release-digests, path: release/bijlagen}
+      - if: needs.apk.outputs.signed == 'true'
+        uses: https://code.forgejo.org/forgejo/download-artifact@d8d0a99033603453ad2255e58720b460a0555e1e
+        with: {name: apk, path: release/bijlagen}
+      - uses: https://github.com/sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532
+      - name: Hashes, Cosign-handtekeningen en releasenotities controleren
+        env:
+          SIGNED: ${{ needs.apk.outputs.signed }}
+          PUBLICEREN: ${{ github.event.inputs.publiceren }}
+          COSIGN_PRIVATE_KEY: ${{ github.event.inputs.publiceren == 'true' && secrets.COSIGN_PRIVATE_KEY || '' }}
+          COSIGN_PASSWORD: ${{ github.event.inputs.publiceren == 'true' && secrets.COSIGN_PASSWORD || '' }}
+          COSIGN_PUBLIC_KEY: ${{ vars.COSIGN_PUBLIC_KEY }}
+        run: bash .forgejo/ci/bijlagen.sh
+      - name: Forgejo-release en gecontroleerde bijlagen publiceren
+        if: github.event.inputs.publiceren == 'true'
+        env:
+          PUBLICEREN: ${{ github.event.inputs.publiceren }}
+          JOB_TOKEN: ${{ github.token }}
+        run: bash .forgejo/ci/release-api.sh publiceren

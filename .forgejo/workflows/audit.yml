@@ -1,0 +1,71 @@
+name: Wekelijkse audit
+on:
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  python:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with: {persist-credentials: false}
+      - run: bash .forgejo/ci/python.sh audit
+      - name: Python-hashlock controleren
+        run: |
+          grep -vE '^[./]' apps/api/requirements.txt > "$RUNNER_TEMP/lock.txt"
+          pipx run pip-audit==2.10.1 --disable-pip --progress-spinner off -r "$RUNNER_TEMP/lock.txt"
+  web:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: "22"}
+      - working-directory: apps/web
+        run: npm audit --omit=dev --audit-level=high
+  images:
+    name: Imagescan (${{ matrix.image }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {image: api, context: ., dockerfile: apps/api/Dockerfile}
+          - {image: web, context: apps/web, dockerfile: apps/web/Dockerfile}
+    env:
+      IMAGE: ${{ matrix.image }}
+      LOKAAL: shc-${{ matrix.image }}:audit-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with: {persist-credentials: false}
+      - name: Huidige bron bouwen en scannen
+        run: |
+          docker buildx build --load --provenance=false -f "${{ matrix.dockerfile }}" -t "$LOKAAL" "${{ matrix.context }}"
+          bash .forgejo/ci/scan.sh "$LOKAAL"
+      - name: Uitgeleverde GHCR-image op de installatiedigest scannen
+        if: ${{ !cancelled() }}
+        run: |
+          ref=$(docker compose -f infra/compose/compose.yaml config --format json | jq -er --arg i "$IMAGE" '.services[$i].image')
+          docker pull "$ref"
+          bash .forgejo/ci/scan.sh "$ref"
+      - name: Bestaande GHCR-tag latest scannen
+        if: ${{ !cancelled() }}
+        run: bash .forgejo/ci/audittag.sh "ghcr.io/lvos04/my_house-$IMAGE:latest"
+      - name: Uitgebrachte Forgejo-versie en edge scannen
+        if: ${{ !cancelled() }}
+        env:
+          REGISTRY_USER: ${{ vars.REGISTRY_USER }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          source .forgejo/ci/registry.sh
+          for tag in "$(tr -d '[:space:]' < VERSION)" edge; do
+            bash .forgejo/ci/audittag.sh "git.medialeon.nl/leon/my_house-$IMAGE:$tag"
+          done
+      - if: always()
+        run: docker image rm "$LOKAAL" || true

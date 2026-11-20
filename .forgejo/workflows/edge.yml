@@ -1,0 +1,42 @@
+name: Edge-images
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publiceren:
+        description: De gecontroleerde digests ondertekenen en als edge publiceren
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: edge
+  cancel-in-progress: false
+jobs:
+  ci:
+    uses: ./.forgejo/workflows/ci.yml
+    secrets:
+      BRON_LEESTOKEN: ${{ secrets.BRON_LEESTOKEN }}
+  images:
+    needs: ci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with: {persist-credentials: false}
+      - name: Beide architecturen, SBOM en herkomst beproeven
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.publiceren != 'true'
+        uses: ./.forgejo/actions/images
+        with: {tag: edge, publiceren: "false"}
+      - name: Ondertekende edge-images publiceren
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.publiceren == 'true'
+        uses: ./.forgejo/actions/images
+        with:
+          tag: edge
+          publiceren: "true"
+          registry-user: ${{ vars.REGISTRY_USER }}
+          registry-token: ${{ secrets.REGISTRY_TOKEN }}
+          signing-key: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          signing-password: ${{ secrets.COSIGN_PASSWORD }}
+          public-key: ${{ vars.COSIGN_PUBLIC_KEY }}

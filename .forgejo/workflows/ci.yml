@@ -1,0 +1,159 @@
+name: CI
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    secrets:
+      BRON_LEESTOKEN:
+        required: true
+
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          # De historische versiewissels pakken de oorspronkelijke commits uit met git archive.
+          fetch-depth: 0
+      - run: bash .forgejo/ci/python.sh backend
+      - name: Lint op API, integraties en hulpmiddelen
+        run: |
+          ruff check apps/api/src apps/api/tests
+          ruff check --config apps/api/pyproject.toml infra/scripts infra/e2e infra/tests tools
+          pipx run ruff==0.17.4 check integrations
+      - name: Platformcontract en Peil vergelijken met de pin en de bronbranch
+        env:
+          BRON_LEESTOKEN: ${{ secrets.BRON_LEESTOKEN }}
+        run: bash .forgejo/ci/broncontrole.sh
+      - name: Adaptercontracten
+        run: python -m pytest -q integrations/tests
+      - name: API, engine, migraties en historische versiewissels
+        run: bash .forgejo/ci/postgresproef.sh backend
+      - name: Python-afhankelijkheden controleren
+        run: |
+          pip freeze --exclude-editable > "$RUNNER_TEMP/requirements.txt"
+          pipx run pip-audit==2.10.1 --no-deps --disable-pip --progress-spinner off -r "$RUNNER_TEMP/requirements.txt"
+
+  web:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: {node-version: "22"}
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm audit --omit=dev --audit-level=high
+
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: "22"}
+      - run: bash .forgejo/ci/python.sh e2e
+      - name: Typecontrole en Chromium voor de browsertests
+        working-directory: apps/web
+        run: |
+          npm ci
+          node node_modules/typescript/bin/tsc -p e2e/tsconfig.json
+          node node_modules/@playwright/test/cli.js install --with-deps chromium
+      - name: Browsertests tegen de lokale webapp, API en PostgreSQL
+        run: bash .forgejo/ci/postgresproef.sh e2e
+      - name: Testrapport en traces
+        if: failure()
+        uses: https://code.forgejo.org/forgejo/upload-artifact@16871d9e8cfcf27ff31822cac382bbb5450f1e1e # v4
+        with:
+          name: e2e-report
+          path: apps/web/e2e/.output/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  compose:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with: {persist-credentials: false}
+      - name: ShellCheck en vaste basisimages
+        run: |
+          if ! command -v shellcheck >/dev/null; then apt-get update -qq && apt-get install -y shellcheck; fi
+          shellcheck infra/scripts/*.sh apps/web/docker/*.sh apps/web/e2e/*.sh .forgejo/ci/*.sh
+          python3 infra/scripts/check_dockerfile_digests.py
+      - run: python3 -m unittest discover -s infra/tests -v
+      - name: Compose-profielen en TrueNAS-renderingen met testwaarden
+        run: bash infra/scripts/validate_compose.sh
+
+  allinone:
+    name: Custom App-rechten en migratiebewijs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      SHC_VERSION: ci-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with: {persist-credentials: false}
+      - name: Alles-in-één-image bouwen
+        run: docker buildx build --load --provenance=false -f deploy/allinone/Dockerfile -t "my_house-aio:$SHC_VERSION" .
+      - name: Rechten, Zigbee, HTTP, PostgreSQL-dump en versleuteld herstel van A in B
+        run: bash .forgejo/ci/containerproef.sh allinone
+      - name: Bewaar het gemeten herstelbewijs
+        if: ${{ !cancelled() && env.HERSTELLOG == 'true' }}
+        uses: https://code.forgejo.org/forgejo/upload-artifact@16871d9e8cfcf27ff31822cac382bbb5450f1e1e
+        with:
+          name: herstelproef-a-naar-b
+          path: ${{ runner.temp }}/herstelproef.md
+          if-no-files-found: error
+      - if: always()
+        run: docker image rm "my_house-aio:$SHC_VERSION" || true
+
+  stack:
+    name: Images, scan, rooktest en browsertests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      SHC_VERSION: ci-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with: {persist-credentials: false}
+      - name: API en web bouwen en de inhoud van de API-image toetsen
+        run: |
+          versie=$(tr -d '[:space:]' < VERSION)
+          docker buildx build --load --provenance=false --build-arg "APP_VERSION=$versie" -f apps/api/Dockerfile -t "shc-api:$SHC_VERSION" .
+          docker buildx build --load --provenance=false --build-arg "APP_VERSION=$versie" -t "shc-web:$SHC_VERSION" apps/web
+          docker run --rm --entrypoint sh "shc-api:$SHC_VERSION" -c 'pg_dump --version && cat /app/VERSION' | tee "$RUNNER_TEMP/api.txt"
+          grep -q 'PostgreSQL) 16\.' "$RUNNER_TEMP/api.txt"
+          grep -Fx "$versie" <(tail -n1 "$RUNNER_TEMP/api.txt")
+      - name: Beide images met Trivy controleren
+        run: |
+          bash .forgejo/ci/scan.sh "shc-api:$SHC_VERSION"
+          bash .forgejo/ci/scan.sh "shc-web:$SHC_VERSION"
+      - name: Rooktest via nginx, back-up verifiëren, API-herstart en browsertests met de worker
+        run: bash .forgejo/ci/containerproef.sh stack
+      - if: failure()
+        uses: https://code.forgejo.org/forgejo/upload-artifact@16871d9e8cfcf27ff31822cac382bbb5450f1e1e
+        with:
+          name: e2e-compose-report
+          path: infra/e2e/.output/
+          retention-days: 14
+          if-no-files-found: ignore
+      - if: always()
+        run: docker image rm "shc-api:$SHC_VERSION" "shc-web:$SHC_VERSION" || true

@@ -1,0 +1,50 @@
+name: Android
+on:
+  push:
+    paths: ["apps/android/**", "design/ontwerptaal/tokens.json", ".forgejo/workflows/android.yml", ".forgejo/actions/android/**"]
+  pull_request:
+    paths: ["apps/android/**", "design/ontwerptaal/tokens.json", ".forgejo/workflows/android.yml", ".forgejo/actions/android/**"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    container:
+      image: ghcr.io/cirruslabs/android-sdk:35@sha256:c724009e305b4607157287624033ab97f319af44c244bfc9f73b6293f3bb01b9
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/android
+    steps:
+      - name: Node voor de acties in de SDK-container
+        working-directory: /
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fsSLO --retry 3 https://nodejs.org/dist/v24.14.0/node-v24.14.0-linux-x64.tar.xz
+          echo '41cd79bb7877c81605a9e68ec4c91547774f46a40c67a17e34d7179ef11729df  node-v24.14.0-linux-x64.tar.xz' | sha256sum -c -
+          tar -xJf node-v24.14.0-linux-x64.tar.xz --strip-components=2 -C /usr/local/bin node-v24.14.0-linux-x64/bin/node
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with: {persist-credentials: false}
+      - uses: ./.forgejo/actions/android
+      - name: Gegenereerde Peil-kleuren controleren
+        run: python3 tools/peil_tokens.py --check
+      - name: Unittests en Paparazzi-schermafbeeldingen
+        run: ./gradlew --no-daemon --max-workers=2 :core:test :app:verifyPaparazziDebug
+      - name: Debug-APK en verkleinde release-APK bouwen
+        run: ./gradlew --no-daemon --max-workers=2 :app:assembleDebug :app:assembleRelease
+      - uses: https://code.forgejo.org/forgejo/upload-artifact@16871d9e8cfcf27ff31822cac382bbb5450f1e1e
+        with:
+          name: huis-debug-apk
+          path: apps/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+      - if: always()
+        uses: https://code.forgejo.org/forgejo/upload-artifact@16871d9e8cfcf27ff31822cac382bbb5450f1e1e
+        with:
+          name: test-reports
+          path: |
+            apps/android/core/build/reports/tests/
+            apps/android/app/build/reports/tests/
+            apps/android/app/build/paparazzi/failures/
+          if-no-files-found: ignore

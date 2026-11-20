@@ -66,7 +66,7 @@ SUDO=()
 WEB="$REPO/apps/web"
 [[ -x "$WEB/node_modules/.bin/playwright" ]] || { log "Eerst: (cd apps/web && npm ci && npx playwright install chromium)"; exit 2; }
 
-export COMPOSE_PROJECT_NAME=shc-e2e
+export COMPOSE_PROJECT_NAME="${SHC_E2E_PROJECT_NAME:-shc-e2e}"
 export COMPOSE_FILE="$REPO/infra/compose/compose.yaml:$REPO/infra/e2e/compose.e2e.yaml"
 export COMPOSE_PATH_SEPARATOR=:
 export SHC_NET_PREFIX="${SHC_E2E_NET_PREFIX:-172.29}"

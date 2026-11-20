@@ -1,0 +1,44 @@
+name: Images bouwen en ondertekenen
+description: API en web voor amd64 en arm64, met SBOM, herkomst en controle van de ondertekende digest
+inputs:
+  tag:
+    description: edge of de versie van de release
+    required: true
+  publiceren:
+    description: Alleen true publiceert na ondertekening
+    required: true
+  registry-user:
+    description: Gebruiker van het pakketregister
+    required: false
+  registry-token:
+    description: Pakketschrijfrecht
+    required: false
+  signing-key:
+    description: Versleutelde Cosign-sleutel
+    required: false
+  signing-password:
+    description: Wachtwoord voor de Cosign-sleutel
+    required: false
+  public-key:
+    description: Publieke verificatiesleutel
+    required: false
+runs:
+  using: composite
+  steps:
+    - if: inputs.publiceren == 'true'
+      uses: https://github.com/sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+    - shell: bash
+      env:
+        TAG: ${{ inputs.tag }}
+        PUBLICEREN: ${{ inputs.publiceren }}
+        REGISTRY_USER: ${{ inputs.registry-user }}
+        REGISTRY_TOKEN: ${{ inputs.registry-token }}
+        COSIGN_PRIVATE_KEY: ${{ inputs.signing-key }}
+        COSIGN_PASSWORD: ${{ inputs.signing-password }}
+        COSIGN_PUBLIC_KEY: ${{ inputs.public-key }}
+      run: bash .forgejo/ci/images.sh
+    - uses: https://code.forgejo.org/forgejo/upload-artifact@16871d9e8cfcf27ff31822cac382bbb5450f1e1e
+      with:
+        name: release-digests
+        path: release/digests.json
+        if-no-files-found: error
