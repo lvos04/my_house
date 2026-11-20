@@ -3,6 +3,11 @@ on:
   schedule:
     - cron: "23 4 * * 1"
   workflow_dispatch:
+    inputs:
+      nas_images:
+        description: Ook de GHCR-installatiedigest en de bestaande tag latest controleren
+        type: boolean
+        default: false
 permissions:
   contents: read
 defaults:
@@ -48,24 +53,49 @@ jobs:
         run: |
           docker buildx build --load --provenance=false -f "${{ matrix.dockerfile }}" -t "$LOKAAL" "${{ matrix.context }}"
           bash .forgejo/ci/scan.sh "$LOKAAL"
-      - name: Uitgeleverde GHCR-image op de installatiedigest scannen
-        if: ${{ !cancelled() }}
-        run: |
-          ref=$(docker compose -f infra/compose/compose.yaml config --format json | jq -er --arg i "$IMAGE" '.services[$i].image')
-          docker pull "$ref"
-          bash .forgejo/ci/scan.sh "$ref"
-      - name: Bestaande GHCR-tag latest scannen
-        if: ${{ !cancelled() }}
-        run: bash .forgejo/ci/audittag.sh "ghcr.io/lvos04/my_house-$IMAGE:latest"
       - name: Uitgebrachte Forgejo-versie en edge scannen
         if: ${{ !cancelled() }}
         env:
           REGISTRY_USER: ${{ vars.REGISTRY_USER }}
           REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+          JOB_TOKEN: ${{ github.token }}
         run: |
           source .forgejo/ci/registry.sh
-          for tag in "$(tr -d '[:space:]' < VERSION)" edge; do
+          release="$RUNNER_TEMP/laatste-release.json"
+          status=$(printf 'Authorization: token %s\n' "$JOB_TOKEN" | curl -sS --header @- -o "$release" -w '%{http_code}' \
+            https://git.medialeon.nl/api/v1/repos/leon/my_house/releases/latest)
+          case $status in
+            200) versie=$(jq -er '.tag_name | capture("^v(?<v>[0-9]+[.][0-9]+[.][0-9]+)$").v' "$release") ;;
+            404) versie=$(tr -d '[:space:]' < VERSION) ;;
+            *) echo "Laatste Forgejo-release opzoeken gaf HTTP $status" >&2; exit 1 ;;
+          esac
+          for tag in "$versie" edge; do
             bash .forgejo/ci/audittag.sh "git.medialeon.nl/leon/my_house-$IMAGE:$tag"
           done
       - if: always()
         run: docker image rm "$LOKAAL" || true
+
+  nas-images:
+    name: Uitgeleverde GHCR-image (${{ matrix.image }})
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.nas_images == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [api, web]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with: {persist-credentials: false}
+      - name: De vastgelegde installatiedigest en de bestaande latest-tag scannen
+        env:
+          IMAGE: ${{ matrix.image }}
+          REGISTRY_USER: ${{ vars.GHCR_USER }}
+          REGISTRY_TOKEN: ${{ secrets.GHCR_LEESTOKEN }}
+        run: |
+          : "${REGISTRY_USER:?GHCR_USER ontbreekt}" "${REGISTRY_TOKEN:?GHCR_LEESTOKEN ontbreekt}"
+          source .forgejo/ci/registry.sh ghcr.io
+          ref=$(docker compose -f infra/compose/compose.yaml config --format json | jq -er --arg i "$IMAGE" '.services[$i].image')
+          docker pull "$ref"
+          bash .forgejo/ci/scan.sh "$ref"
+          bash .forgejo/ci/audittag.sh "ghcr.io/lvos04/my_house-$IMAGE:latest"
