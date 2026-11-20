@@ -65,7 +65,7 @@ async def terugval_geblokkeerd(url):
             try:
                 await conn.run_sync(lambda sync: command.downgrade(bk.alembic_config(connection=sync), "0006"))
                 return False
-            except DBAPIError as fout:
+            except (DBAPIError, cli.MigrationError) as fout:
                 if "open of onzeker" not in str(fout):
                     raise
                 return True
@@ -83,8 +83,9 @@ async def test_teruglezing_na_geweigerde_downgrade(proef, monkeypatch, neveneffe
     await proef.work()
     bewijs = await proef.evidence(voorstel["proposal_id"])
     assert bewijs["status"] == "confirmed"
+    assert await terugval_geblokkeerd(get_settings().database_url)
     terug = await proef.post("rollback", proef.request(preview=voorstel, rollback=bewijs["rollback_preview"]))
-    assert terug.status_code == 202 and await terugval_geblokkeerd(get_settings().database_url)
+    assert terug.status_code == 202
     ident = terug.json()["command_id"]
     assert (await proef.evidence(ident))["rollback_status"] == "queued" and proef.unit.state["SetTem"] == 22
     antwoord = proef.unit._reply
@@ -280,7 +281,7 @@ async def test_voorstel_en_wachtende_apply_na_twee_schemawissels(proef, tmp_path
             await andere_versie({"actie": "werk", "woning": str(proef.home_id)}, versie=software)
             assert not proef.unit.commands
         opnieuw = await andere_versie(open_database)
-        assert opnieuw["schema"] == "0008" and not opnieuw["geweigerd"]
+        assert opnieuw["schema"] == "0009" and not opnieuw["geweigerd"]
         assert await sql(url, selecteer, ids) == voor
     proef.key_id = sleutel
     antwoord = await proef.post("apply", proef.request(preview=eerste))
@@ -367,7 +368,7 @@ async def test_apply_bevestigd_zonder_geplande_rollback(proef, tmp_path):
     await proef.work()
     assert proef.unit.state == vorige_stand and len(proef.unit.commands) == 2
     nieuw = await eindversie("upgrade", url, voorstel["proposal_id"], proef.home_id, tmp_path)
-    assert not nieuw["geweigerd"] and nieuw["schema"] == "0008" and nieuw["archief"]
+    assert not nieuw["geweigerd"] and nieuw["schema"] == "0009" and nieuw["archief"]
     print("APPLY_BEVESTIGD geen_rollback_gepland=True upgrade_geweigerd=True daarna_hersteld=True")
 
 
@@ -379,25 +380,21 @@ async def test_basis_open_herstel_bij_versiewissel(proef, tmp_path):
           f"migratie_geweigerd={resultaat['geweigerd']} automatisch_archief={resultaat['archief']} "
           f"rollback={resultaat['rollback']} reden={resultaat['reden']} "
           f"herstelpreview={resultaat['preview']} stand={proef.unit.state['SetTem']}")
-    assert resultaat["geweigerd"] or resultaat["preview"] or (
-        resultaat["rollback"] == "confirmed" and proef.unit.state["SetTem"] == 20
-    )
+    assert not resultaat["geweigerd"] and resultaat["schema"] == "0009"
+    assert resultaat["reden"] == "versiewissel" and not resultaat["preview"]
+    assert proef.unit.state["SetTem"] == 22 and len(proef.unit.commands) == 1
 
 
-async def test_vorige_installatie_voltooit_herstel_na_versieweigering(proef, tmp_path):
-    vorig = dict(proef.unit.state)
-    voorstel, _ = await oud_open_herstel(proef)
+async def test_vorige_installatie_ziet_geannuleerde_rollback(proef, tmp_path):
+    voorstel, herstel = await oud_open_herstel(proef)
     url = get_settings().database_url
-    geweigerd = await eindversie("upgrade", url, voorstel["proposal_id"], proef.home_id, tmp_path)
-    assert geweigerd["geweigerd"] and geweigerd["rollback"] == "queued" and geweigerd["schema"] == "0007"
-    assert not list(tmp_path.iterdir())
-    await proef.work()
-    na = await proef.evidence(voorstel["proposal_id"])
-    assert na["rollback_status"] == "confirmed" and na["rollback_after"] == na["before"]
-    assert proef.unit.state == vorig and len(proef.unit.commands) == 2
     gewisseld = await eindversie("upgrade", url, voorstel["proposal_id"], proef.home_id, tmp_path)
-    assert not gewisseld["geweigerd"] and gewisseld["archief"]
-    assert (proef.unit.state, len(proef.unit.commands)) == (vorig, 2)
+    assert not gewisseld["geweigerd"] and gewisseld["archief"] and gewisseld["reden"] == "versiewissel"
+    assert (await sql(url, "SELECT status, attempts FROM commands WHERE id=:id", {"id": uuid.UUID(herstel)})) == [
+        ("cancelled", 0),
+    ]
+    await proef.work()
+    assert proef.unit.state["SetTem"] == 22 and len(proef.unit.commands) == 1
     archiefproef = await eindversie("schrijf-en-lees", url, tmp_path)
     assert not archiefproef["geweigerd"], "Het afgehandelde oude opdrachtpaar moet als historie teruggezet kunnen worden."
     async with temp_db(None) as kopie:
@@ -407,8 +404,6 @@ async def test_vorige_installatie_voltooit_herstel_na_versieweigering(proef, tmp
         selecteer = "SELECT to_jsonb(c)::text FROM connector_changes c WHERE id=:id"
         assert await sql(kopie, selecteer, key) == await sql(url, selecteer, key)
         assert await sql(kopie, "SELECT count(*) FROM connector_hub_pins") == [(0,)]
-    print(f"OUDE_INSTALLATIE historische_dump_teruggezet=True hersteld={na['rollback_status']} volledige_simulatorstand_gelijk=True "
-          f"opdrachten=2 daarna_schema={gewisseld['schema']} migratiearchief={gewisseld['archief']}")
 
 
 async def test_basis_oud_archief_zonder_connectoropdracht(proef, tmp_path):

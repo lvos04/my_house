@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from shc_integrations.gree import GreeAdapter
+from shc_integrations.gree.adapter import STATUS_COLS
 from sqlalchemy import Text, cast, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
@@ -17,6 +18,7 @@ from .commanding import queue_zone_setpoint
 from .connector import RESTORED_COMMAND_DETAIL, VerifiedRequest, bounded_reservation
 from .connector_actions import ACTIONS, Target, check_target_policy, not_found, resolve_target
 from .connector_proof import MEASUREMENT_PREFIX, apply_preview, digest
+from .connector_transition import LOCAL_PROPOSAL
 from .contract_http import contract_error
 from .errors import require_secret_box
 from .hub_keys import utc_seconds
@@ -43,10 +45,6 @@ TTL = timedelta(seconds=MAX_AGE_S)
 SETPOINT = "zone.command"
 CONCEPT = "zone.schedule.propose"
 SOURCE = "connector"
-LOCAL_PROPOSAL = "connector:voorstel:2"
-# Voor queued is updated_at het eerst toegestane claimtijdstip (ook voor gewone retries).
-# De oude worker laat deze reservering staan. De bevoegde worker zet bij claim het echte tijdstip.
-WAIT_FOR_CONNECTOR_WORKER = datetime(9999, 1, 1, tzinfo=UTC)
 UNCERTAIN = {
     "readback_unavailable", "readback_unknown_after_restart", "readback_unknown_after_restore",
     "readback_mismatch", "readback_side_effect", "readback_incomplete",
@@ -101,20 +99,26 @@ def _measurement(target: Target, binding: str, etag: str) -> dict:
     return {**identity, "hash": digest({"identity": identity, "resource_etag": etag})}
 
 
-async def _unattributed_proposal(db: AsyncSession, target: Target, binding: str) -> bool:
-    # Een oud voorstel zonder opdracht bevat soms alleen een ETag. Na een wissel van unit of
-    # configuratie kunnen we zijn bedienvelden dan niet betrouwbaar aan deze zone toewijzen.
-    rows = await db.execute(select(ConnectorChange.before, ConnectorChange.resource_etag,
-                                   ConnectorChange.rollback_from["measurement_hash"].astext).outerjoin(
+async def _unattributed_fields(db: AsyncSession, target: Target) -> set[str]:
+    """Een oude preview zonder unit-ID kan ook bij een inmiddels verplaatste unit horen.
+
+    Gebruik daaruit uitsluitend veldnamen als ondergrens voor een nieuwe fysieke meting.
+    Een verdwenen zone geeft geen betrouwbare woning meer. Het oudste formaat kende
+    geen veldinventaris en verlangt in dit geval een volledige protocolmeting.
+    """
+    rows = await db.scalars(select(ConnectorChange.before).outerjoin(
         Setting, Setting.key == MEASUREMENT_PREFIX + cast(ConnectorChange.id, Text),
+    ).outerjoin(
+        ClimateZone, cast(ClimateZone.id, Text) == ConnectorChange.target["zone_id"].astext,
     ).where(
-        ConnectorChange.action_id == SETPOINT, ConnectorChange.target == {"zone_id": str(target.zone.id)},
-        ConnectorChange.command_id.is_(None), ConnectorChange.before.has_key("target_c"),
-        Setting.value["v"][ConnectorChange.preview_hash].is_(None),
+        ConnectorChange.action_id == SETPOINT, ConnectorChange.command_id.is_(None),
+        ConnectorChange.before.has_key("target_c"), Setting.value["v"][ConnectorChange.preview_hash].is_(None),
+        or_(ClimateZone.id.is_(None), ClimateZone.home_id == target.device.home_id),
     ))
-    known_fields = target.device.gree_control_fields()
-    return any(seal is not None or digest({"binding": binding, "before": before}) != etag
-               or not before.get("controls", {}).keys() <= known_fields for before, etag, seal in rows)
+    required = set()
+    for before in rows:
+        required.update(before.get("controls", set(STATUS_COLS) - {"TemSen"}))
+    return required
 
 
 async def remember_proposal_fields(conn: AsyncConnection) -> None:
@@ -161,12 +165,13 @@ async def remember_proposal_fields(conn: AsyncConnection) -> None:
         await db.flush()
 
 
-async def read_setpoint(adapter, device: Device, *, remember_fields: bool = False) -> dict | None:
+async def read_setpoint(adapter, device: Device, *, remember_fields: bool = False, required_fields=()) -> dict | None:
     if not isinstance(adapter, GreeAdapter):
         return None
     try:
         async with asyncio.timeout(8):
-            state = await adapter.read_recoverable_setpoint(device.stable_identity, device.gree_control_fields())
+            required = device.gree_control_fields().union(required_fields)
+            state = await adapter.read_recoverable_setpoint(device.stable_identity, required)
             fields = sorted(adapter.control_fields())
             if remember_fields and (device.state or {}).get("gree_control_fields") != fields:
                 device.state = {**(device.state or {}), "gree_control_fields": fields}
@@ -180,7 +185,9 @@ def _credentials(integration: Integration) -> dict:
     return require_secret_box().decrypt(integration.credentials_enc) if integration.credentials_enc else {}
 
 
-async def _read_current(db: AsyncSession, device: Device, *, remember_fields: bool = False) -> dict | None:
+async def _read_current(
+    db: AsyncSession, device: Device, *, remember_fields: bool = False, required_fields=(),
+) -> dict | None:
     integration = await _integration(db, device)
     if integration is None or integration.provider != "gree":
         return None
@@ -190,7 +197,7 @@ async def _read_current(db: AsyncSession, device: Device, *, remember_fields: bo
         # Geef geen configuratie terug als de opgeslagen koppeling onleesbaar is.
         return None
     try:
-        return await read_setpoint(adapter, device, remember_fields=remember_fields)
+        return await read_setpoint(adapter, device, remember_fields=remember_fields, required_fields=required_fields)
     finally:
         await _close(adapter)
 
@@ -225,8 +232,8 @@ async def propose(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[
         before = {"schedule": await _schedule(db, target.zone)}
         observed_at = utcnow()
     elif action == SETPOINT and await _recoverable(db, target):
-        if not await _unattributed_proposal(db, target, binding):
-            before = await _read_current(db, target.device, remember_fields=True)
+        required = await _unattributed_fields(db, target)
+        before = await _read_current(db, target.device, remember_fields=True, required_fields=required)
         observed_at = utcnow() if before is not None else None
         if before is None or not _compatible(target, before):
             reason = "readback_unavailable"
@@ -299,9 +306,7 @@ async def _approval(
 
 async def _queue(db: AsyncSession, target: Target, temperature: float) -> CommandRecord:
     try:
-        cmd = await queue_zone_setpoint(db, target.zone, target.device, temperature, source=SOURCE, actor="Hub")
-        cmd.updated_at = WAIT_FOR_CONNECTOR_WORKER
-        return cmd
+        return await queue_zone_setpoint(db, target.zone, target.device, temperature, source=SOURCE, actor="Hub")
     except PolicyDenied as exc:
         raise contract_error(409, exc.code, exc.message) from None
 
@@ -334,6 +339,11 @@ async def _change_for_request(db, req: VerifiedRequest, client: str) -> tuple[Ta
     if change.action_id == SETPOINT and (change.status == "proposed" or change.command_id is not None):
         if not await _active_binding(db, change):
             raise contract_error(409, "proposal_unavailable", "Dit voorstel hoort bij een eerdere Hub-koppeling.")
+        if change.before is not None and (
+            target.device is None or digest({"binding": await _binding(db, target), "before": change.before})
+            != change.resource_etag
+        ):
+            raise _stale()
     return target, change
 
 
@@ -464,7 +474,7 @@ async def _same_context(db, target, change, measured, expected) -> bool:
     if not _same_controls(measured, change.before):
         return False
     binding = await _binding(db, target)
-    if await _unattributed_proposal(db, target, binding):
+    if not (await _unattributed_fields(db, target)) <= target.device.gree_control_fields():
         return False
     record = await db.get(Setting, MEASUREMENT_PREFIX + str(change.id))
     measurement = record.value["v"].get(change.preview_hash) if record is not None else None
@@ -648,6 +658,8 @@ async def _evidence_status(db, status, reason, cmd_id):
     if status == "queued":
         cmd = await db.get(CommandRecord, cmd_id)
         if cmd is None or cmd.status == "cancelled":
+            if cmd and cmd.detail == "versiewissel":
+                return "failed", "versiewissel"
             if cmd and cmd.detail == RESTORED_COMMAND_DETAIL:
                 return "failed", "restored_without_execution"
             return "failed", "command_cancelled"

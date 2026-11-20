@@ -13,7 +13,7 @@ from shc_api import cli
 from shc_api.config import get_settings
 from shc_api.connector_changes import digest
 from shc_api.db import sessionmaker
-from shc_api.models import CommandRecord, Device, utcnow
+from shc_api.models import CommandRecord, Device, Room, utcnow
 from shc_api.worker import Worker, core
 
 from .test_connector_herstel import _apply, _queue_rollback
@@ -182,6 +182,15 @@ async def test_oude_wachtende_rollback_blokkeert_ook_bij_gelijke_schemaversie(
         """, key)
     else:
         await sql(url, "UPDATE idempotency_keys SET scope='connector:voorstel' WHERE key=:id", key)
+    if vorige_versie == "volledige_teruglezing":
+        await cli.check_connector_transition(bk.head_revision(), url)
+        assert await sql(url, "SELECT status, attempts FROM commands WHERE id=:id", {"id": uuid.UUID(rollback_id)}) == [
+            ("cancelled", 0),
+        ]
+        assert (await proef.evidence(rollback_id))["rollback_reason_code"] == "versiewissel"
+        await proef.work()
+        assert len(proef.unit.commands) == 1 and proef.unit.state["SetTem"] == 22
+        return
     with pytest.raises(cli.MigrationError, match="vorige installatie"):
         await asyncio.to_thread(cli.migrate, url, backup_dir=tmp_path)
     assert not list(tmp_path.iterdir())
@@ -298,3 +307,35 @@ async def test_geannuleerde_opdracht_zonder_bewijs_blijft_verweesd(proef, manual
     with pytest.raises(bk.BackupError, match="connectorherstelbewijs"):
         await manual_dump()
     assert not proef.unit.commands
+
+
+@pytest.mark.parametrize("wijziging", ["buitengroep", "unit_opnieuw_geplaatst", "kamer"])
+async def test_plaatswissel_vergt_nieuwe_meting(proef, wijziging):
+    oud = await proef.propose()
+    pad = f"/api/v1/zones/{proef.zone_id}"
+    if wijziging == "kamer":
+        async with sessionmaker()() as db:
+            kamer = Room(id=uuid.uuid4(), name="Proefkamer", home_id=proef.home_id)
+            db.add(kamer)
+            await db.commit()
+        pad = f"/api/v1/devices/{proef.device_id}"
+        velden = [{"room_id": str(kamer.id)}, {"room_id": None}]
+    elif wijziging == "buitengroep":
+        velden = [{"outdoor_group": "Proefgroep"}, {"outdoor_group": None}]
+    else:
+        velden = [{"unit_device_id": None}, {"unit_device_id": str(proef.device_id)}]
+    for inhoud in velden:
+        antwoord = await proef.admin.c.patch(pad, headers=proef.admin.h(), json=inhoud)
+        assert antwoord.status_code == 200
+        weigering = await proef.post("apply", proef.request(preview=oud))
+        assert weigering.status_code == 409 and await proef.count() == 0 and not proef.unit.commands
+    if wijziging == "unit_opnieuw_geplaatst":
+        handmatig = await proef.admin.post(f"/zones/{proef.zone_id}/command", {"target_c": 20, "override_minutes": 60})
+        assert handmatig.status_code == 202
+        await proef.work()
+    aantal = await proef.count()
+    proef.key_id = str(uuid.uuid4())
+    nieuw = await proef.propose()
+    assert nieuw["resource_etag"] != oud["resource_etag"] and nieuw["before"]["controls"]["Quiet"] == 0
+    assert (await proef.post("apply", proef.request(preview=nieuw))).status_code == 202
+    assert await proef.count() == aantal + 1

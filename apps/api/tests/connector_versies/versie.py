@@ -49,6 +49,8 @@ async def meet(invoer):
         pad = None
         try:
             pad = await asyncio.to_thread(cli.migrate, url, backup_dir=Path(invoer["map"]))
+        except cli.SchemaNewerError:
+            geweigerd = True
         except cli.MigrationError as fout:
             if "vorige installatie" not in str(fout):
                 raise
@@ -56,6 +58,19 @@ async def meet(invoer):
         if pad:
             await asyncio.to_thread(cli.verify_migration_dump, pad)
         return {"geweigerd": geweigerd, "schema": cli.current_revision(url), "archief": bool(pad)}
+    if invoer["actie"] == "sluit_kopie":
+        # Dit proces gebruikt zijn stdout voor het gestructureerde proefresultaat.
+        from contextlib import redirect_stdout
+        with redirect_stdout(sys.stderr):
+            await asyncio.to_thread(cli.main, ["prepare-connector-fallback"])
+        return {"schema": cli.current_revision(url)}
+    if invoer["actie"] == "controleer_sql":
+        await asyncio.to_thread(cli.verify_migration_dump, Path(invoer["archief"]), Path(invoer["uitvoer"]))
+        return {"gecontroleerd": True}
+    if invoer["actie"] == "terugval":
+        from alembic import command
+        await asyncio.to_thread(command.downgrade, backup.alembic_config(url), invoer["schema"])
+        return {"schema": cli.current_revision(url)}
     if invoer["actie"] == "herstel_export":
         from tests.test_ws_backup_format import PW
         rapport = await backup.restore_file(Path(invoer["pad"]), PW, url=url)
@@ -96,7 +111,13 @@ async def meet(invoer):
             worker.adapters[koppeling.id] = GreeAdapter(
                 koppeling.config, require_secret_box().decrypt(koppeling.credentials_enc),
             )
-        await worker.process_commands({woning})
+        from sqlalchemy.exc import DBAPIError
+        try:
+            await worker.process_commands({woning})
+        except DBAPIError as fout:
+            if "De connectoropdracht hoort bij een andere softwareversie." not in str(fout):
+                raise
+            return {"geblokkeerd": True}
         return {"geblokkeerd": False}
     assert invoer["actie"] == "route"
     async with httpx.AsyncClient(

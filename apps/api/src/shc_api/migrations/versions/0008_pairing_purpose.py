@@ -3,6 +3,8 @@
 import sqlalchemy as sa
 from alembic import op
 
+from shc_api.connector_transition import cancel_for_version
+
 revision = "0008"
 down_revision = "0007"
 branch_labels = None
@@ -10,6 +12,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    cancel_for_version(op.get_bind())
     for table in ("pairing_codes", "api_clients"):
         op.add_column(table, sa.Column("purpose", sa.String(16), nullable=False, server_default="phone"))
         op.create_check_constraint(
@@ -23,6 +26,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    cancel_for_version(op.get_bind())
     # Een versie zonder doel kan het Hub-recht niet handhaven. Trek het in vóór het doel verdwijnt.
     # Houd intussen nieuwe inwisselingen tegen, in dezelfde tabelvolgorde als de koppelroute.
     op.execute("LOCK TABLE pairing_codes, api_clients IN ACCESS EXCLUSIVE MODE")

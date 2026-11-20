@@ -118,6 +118,7 @@ async def test_oude_afgehandelde_opdracht_houdt_upgrade_vrij(proef, tmp_path):
     ))
     assert antwoord.status_code == 409 and antwoord.json()["code"] == "precondition_failed"
     migratie = await andere_versie({"actie": "migreer", "map": str(tmp_path)})
+    await andere_versie({"actie": "terugval", "schema": "0008"})
     voorloper = await andere_versie({"actie": "migreer", "map": str(tmp_path)}, versie="schema0008")
     assert not voorloper["geweigerd"] and voorloper["schema"] == "0008"
     zelfde_schema = await andere_versie({"actie": "migreer", "map": str(tmp_path)})
@@ -170,21 +171,20 @@ async def test_terug_naar_vorige_worker_met_open_rollback(proef, tmp_path):
     oorspronkelijk = await sql(url, claim, ident)
     assert oorspronkelijk[0][:2] == ("queued", 0)
     for _ in range(2):
+        await andere_versie({"actie": "terugval", "schema": "0008"})
         oud = await andere_versie({"actie": "migreer", "map": str(tmp_path)}, versie="schema0008")
-        assert oud["schema"] == cli.current_revision() == "0008"
-        if not oud["geweigerd"]:
-            await andere_versie({"actie": "werk", "woning": str(proef.home_id), "controleer_start": True},
-                                versie="schema0008")
-        assert await sql(url, claim, ident) == oorspronkelijk
+        assert not oud["geweigerd"] and oud["schema"] == "0008"
+        await andere_versie({"actie": "werk", "woning": str(proef.home_id), "controleer_start": True},
+                            versie="schema0008")
+        assert (await sql(url, claim, ident))[0][:2] == ("cancelled", 0)
         assert proef.unit.state["SetTem"] == 22 and len(proef.unit.commands) == 1
         nieuw = await andere_versie({"actie": "migreer", "map": str(tmp_path)})
-        assert not nieuw["geweigerd"]
+        assert not nieuw["geweigerd"] and nieuw["schema"] == "0009"
     await proef.work()
     na = await proef.evidence(herstel_id)
-    assert na["rollback_command_id"] == herstel_id and na["rollback_status"] == "confirmed"
-    assert na["rollback_after"] == na["before"] and not na["recovery_required"]
-    assert proef.unit.state["SetTem"] == 20 and len(proef.unit.commands) == 2
-    print("VORIGE_WORKER schema=0008 wissels=2 oude_claims=0 oorspronkelijke_rollback=confirmed stand=20")
+    assert na["rollback_command_id"] == herstel_id and na["rollback_reason_code"] == "versiewissel"
+    assert na["before"] == voor["before"] and na["rollback_after"] is None and na["recovery_required"]
+    assert proef.unit.state["SetTem"] == 22 and len(proef.unit.commands) == 1
 
 
 async def test_oude_vervallen_opdracht_laat_nieuwe_backups_beschikbaar(proef, tmp_path):
@@ -264,7 +264,7 @@ async def test_oude_0007_leest_bewaard_bewijs_na_schemawissel(proef, tmp_path):
                                  {"key": "connector_history:" + voorstel["proposal_id"]}) == bewaard
                 await sql(kopie, "UPDATE commands SET status='confirmed' WHERE id=:id", herstel_id)
             nieuw = await andere_versie(opdracht, url=kopie)
-            assert not nieuw["geweigerd"] and nieuw["schema"] == "0008"
+            assert not nieuw["geweigerd"] and nieuw["schema"] == "0009"
             assert await sql(kopie, rij, ident) == voor
             assert await sql(kopie, "SELECT count(*) FROM commands WHERE source='connector' AND status='confirmed'") == [(2,)]
             assert await sql(kopie, "SELECT count(*) FROM idempotency_keys WHERE key=:id", ident) == [(0,)]

@@ -367,9 +367,12 @@ async def test_onderbroken_worker_meldt_onbekend_en_kan_herstellen(proef):
     preview = await proef.propose()
     r = await proef.post("apply", proef.request(preview=preview))
     assert r.status_code == 202
+    ident = uuid.UUID(r.json()["command_id"])
+    assert (await proef.worker._claim_next({proef.home_id}))[0] == ident
     async with sessionmaker()() as db:
-        cmd = await db.get(CommandRecord, uuid.UUID(r.json()["command_id"]))
-        cmd.status, cmd.updated_at = "sending", utcnow() - timedelta(minutes=3)
+        cmd = await db.get(CommandRecord, ident)
+        assert cmd.status == "sending" and cmd.attempts == 1
+        cmd.updated_at = utcnow() - timedelta(minutes=3)
         await db.commit()
     proef.unit.state["SetTem"] = 22
     await proef.work()
@@ -446,9 +449,12 @@ async def test_migratie_0007_bewaart_bestaande_database_en_stopt_open_connectorc
                                   attempts,created_at,updated_at)
             VALUES (:id,:home,:device,'set_hvac','{"target_c": 22}','connector','Hub','queued','',0,now(),now())
         """, {"id": queued, "home": house, "device": device})
-        await asyncio.to_thread(command.downgrade, config, "0006")
-        assert await sql(url, "SELECT status FROM commands WHERE id=:id", {"id": queued}) == [("cancelled",)]
+        from shc_api.cli import MigrationError
+        with pytest.raises(MigrationError, match="connectorherstelbewijs"):
+            await asyncio.to_thread(command.downgrade, config, "0006")
+        assert await sql(url, "SELECT status FROM commands WHERE id=:id", {"id": queued}) == [("queued",)]
         await sql(url, "DELETE FROM commands WHERE id=:id", {"id": queued})
+        await asyncio.to_thread(command.downgrade, config, "0006")
         assert await snapshot() == original
         await asyncio.to_thread(command.upgrade, config, "0007")
         assert await snapshot() == original

@@ -25,11 +25,10 @@ starten, start de API in een **herstelmodus**. Elke vraag aan de API krijgt dan 
 nieuwere my_house-versie; kies in het formulier van de Custom App de bijpassende versie of zet de snapshot van vóór de
 update terug.* De status van de API (`/api/v1/health`) meldt `herstelmodus`, zodat de app niet als gezond geldt;
 `/api/v1/system/recovery` geeft dezelfde uitleg met de revisie van de database en de nieuwste revisie die deze versie
-kent. De worker start geen rondes en wacht. my_house zet een database nooit zelf terug naar een oudere versie: kies in
-het formulier van de Custom App weer de versie die bij de database hoort, of zet de snapshot van vóór de update terug
-en start dan deze versie opnieuw.
+kent. De worker wacht. Kies in het formulier van de Custom App weer de versie die bij de database hoort.
+Gebruik voor terugval naar een oudere versie de onderstaande procedure.
 
-**Terugdraaien.** Gebruik in het formulier de vorige versie met de bijbehorende snapshot op aparte opslag. Controleer de woning en de versleutelde koppelingen voordat je de nieuwe installatie gebruikt.
+**Terugdraaien.** Bereid eerst de afzonderlijke snapshotkopie voor zoals beschreven onder Back-ups. Kies daarna de vorige versie met die kopie op aparte opslag. Controleer de woning en de versleutelde koppelingen voordat je de nieuwe installatie gebruikt.
 
 **Lokale herstelproef voor een pre-migratiedump.** Bewaar dump en controlesom in dezelfde map. `shc-api verify-migration-dump <dump> --out <nieuw.sql>` valideert de SHA-256, de gzip-integriteit en het einde van de SQL-export. Het uitvoerbestand moet nieuw zijn. Kies een ongebruikte databasenaam. Voer het aanmaken en importeren als één opdracht uit: `createdb --template=template0 herstelproef && psql -X --single-transaction -v ON_ERROR_STOP=1 -d herstelproef -f <nieuw.sql>`. Bij een bestaande naam stopt de opdracht vóór de import. Vergelijk revisie en tabelinhoud met de voorstaat en bewaar de originele geheimen voor het lezen van versleutelde gegevens. Gebruik voor oude dumps zonder opgeslagen controlesom een onafhankelijk geverifieerde snapshot of back-up.
 
@@ -184,9 +183,18 @@ De app ruimt de controledatabase na afloop op. Een eerder gecontroleerd uitvoerb
 Van een afgehandeld opdrachtpaar uit de oudste connectorversie blijven de toen gemeten voeding, modus en
 doeltemperatuur als historie beschikbaar. Evidence vermeldt `readback_incomplete` voor de ontbrekende bedienvelden.
 
-Meldt de nieuwe versie bij het opstarten dat apparaatherstel uit een eerdere versie openstaat,
-gebruik dan de vorige installatie om de stand te herstellen en terug te lezen. Probeer de upgrade
-opnieuw zodra die installatie de rollback heeft bevestigd.
+Bij een software- of schemawissel blijft een ongeclaimde connectoropdracht met haar ID, meetvelden
+en de reden `versiewissel` in de historie. Bij een ingeplande rollback verschijnt **Handmatige controle
+nodig** in de meldingen van de woning. Controleer de fysieke stand en de oorspronkelijke preview
+voordat je verder bedient. Een eerder geclaimde opdracht met een onzekere uitkomst kan een wissel
+tegenhouden. Handel die op de oorspronkelijke installatie af en controleer de teruglezing.
+
+Gebruik voor een oudere SQL-export de huidige `verify-migration-dump` bij het schrijven van de
+import-SQL. De import sluit de connectorwachtrij af binnen dezelfde transactie. Gebruik bij een
+terugval met een bestaande opslagsnapshot een afzonderlijke offline kopie. Laat API en worker uit,
+richt de huidige `shc-api prepare-connector-fallback` op de database van de kopie en wacht op
+exitcode 0 voordat je de bijpassende oudere applicatie start. Het schema en de oorspronkelijke
+opslagkopie blijven beschikbaar voor vergelijking.
 
 Kies voor de dump een nieuwe databasenaam en gebruik de versleutelde dump rechtstreeks:
 

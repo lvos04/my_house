@@ -4,7 +4,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
-from shc_api.connector_proof import OPEN_RECOVERY, REMEMBER_FIELDS, RESTORE_HISTORY
+from shc_api.connector_proof import REMEMBER_FIELDS, RESTORE_HISTORY
+from shc_api.connector_transition import cancel_for_version
 
 revision = "0007"
 down_revision = "0006"
@@ -84,42 +85,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Hou nieuwe opdrachten en een worker tussen claim en verzending buiten de terugval.
-    op.execute("SELECT pg_advisory_xact_lock(hashtextextended('shc-commissioning', 0))")
-    op.execute(RESTORE_HISTORY)
-    op.execute(f"""
-        DO $$
-        BEGIN
-            IF EXISTS (
-                SELECT 1 FROM commands cmd WHERE cmd.source = 'connector'
-                  AND (cmd.status IN ('sending', 'sent')
-                       OR cmd.status IN ('confirmed', 'failed') AND NOT EXISTS (
-                           SELECT 1 FROM connector_changes c
-                           WHERE cmd.id IN (c.command_id, c.rollback_command_id)
-                              OR c.rollback_from->'previous_attempts' ? CAST(cmd.id AS text)
-                       ))
-            ) OR EXISTS (
-                SELECT 1 FROM connector_changes c WHERE {OPEN_RECOVERY}
-            ) THEN
-                RAISE EXCEPTION 'Apparaatherstel staat open of onzeker; schema 0007 blijft behouden.';
-            END IF;
-        END;
-        $$
-    """)  # noqa: S608 - OPEN_RECOVERY is vaste broncode
-    # Een oudere worker kent de voorwaarden voor nog niet verzonden connectorcommando's niet.
-    op.execute("""
-        UPDATE commands SET status = 'cancelled', updated_at = now(),
-                            detail = 'Connectorbediening vervallen bij schemaherstel'
-        WHERE source = 'connector' AND status IN ('queued', 'sending', 'sent')
-    """)
+    cancel_for_version(op.get_bind())
     op.execute("""
         INSERT INTO settings (key, value)
         SELECT 'connector_history:' || c.id, jsonb_build_object('format', 'connector-0007', 'v', to_jsonb(c))
         FROM connector_changes c
-    """)
-    op.execute("""
-        DELETE FROM idempotency_keys
-        WHERE scope IN ('connector:voorstel', 'connector:voorstel:2') AND key IN (SELECT id FROM connector_changes)
     """)
     op.drop_table("connector_changes")
     for table in ("climate_zones", "devices"):

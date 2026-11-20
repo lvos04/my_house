@@ -3,7 +3,6 @@
 import asyncio
 import subprocess
 import uuid
-from datetime import timedelta
 
 import pytest
 from alembic import command
@@ -12,7 +11,6 @@ from versie import andere_versie
 
 from shc_api import backup, cli
 from shc_api.config import get_settings
-from shc_api.models import utcnow
 from tests.test_connector_routes import proef as proef
 from tests.test_inbedrijfstelling_migratie import sql
 from tests.test_ws_backup_format import PW, temp_db
@@ -49,9 +47,13 @@ async def controleer_groepswissel(proef, tmp_path, oud):
     na = (await sql(url, unit, ident))[0]
     assert voor[0] == na[0] == proef.device_id and na[1] > voor[1]
     start = await andere_versie({"actie": "migreer", "map": str(tmp_path)})
-    assert start["schema"] == "0008" and not start["geweigerd"]
+    assert start["schema"] == "0009" and not start["geweigerd"]
     assert await sql(url, "SELECT before FROM connector_changes WHERE id=:id",
                      {"id": uuid.UUID(oud["proposal_id"])}) == [(oud["before"],)]
+    oud_verzoek = proef.request(preview=oud)
+    oud_verzoek["approval"]["request_id"] = proef.key_id
+    assert (await route(proef, "apply", proef.sign(oud_verzoek)))["http"] == 409
+    assert await proef.count() == 0 and not proef.unit.commands
     proef.key_id = str(uuid.uuid4())
     voorstel = await route(proef, "propose", proef.request())
     plan = voorstel["inhoud"]
@@ -71,10 +73,19 @@ async def test_oude_meting_na_wijziging_buitengroep(proef, tmp_path, monkeypatch
     await controleer_groepswissel(proef, tmp_path, oud)
 
 
-async def test_oude_drieveldmeting_na_groepswissel(proef, tmp_path):
+async def test_oude_drieveldmeting_na_groepswissel(proef, tmp_path, monkeypatch):
     oud = await proef.propose()
     assert oud["status"] == "proposed" and set(oud["before"]) == {"power", "mode", "target_c"}
-    await controleer_groepswissel(proef, tmp_path, oud)
+    with monkeypatch.context() as patch:
+        patch.setattr(proef.unit, "_reply", zonder_quiet(proef.unit))
+        await controleer_groepswissel(proef, tmp_path, oud)
+    proef.key_id = str(uuid.uuid4())
+    nieuw = (await route(proef, "propose", proef.request()))["inhoud"]
+    assert nieuw["status"] == "proposed" and nieuw["before"]["controls"]["Quiet"] == 0
+    verzoek = proef.request(preview=nieuw)
+    verzoek["approval"]["request_id"] = proef.key_id
+    assert (await route(proef, "apply", proef.sign(verzoek)))["http"] == 202
+    assert await proef.count() == 1 and not proef.unit.commands
 
 
 async def test_meetidentiteit_bij_nieuwe_groep(proef, tmp_path, monkeypatch):
@@ -130,39 +141,45 @@ async def oude_rollback(proef):
     return voorstel, herstel
 
 
-@pytest.mark.parametrize("terugval", [False, True], ids=["overdracht", "terugval"])
-async def test_zelfde_schema_vooraf_archief(proef, tmp_path, terugval):
+@pytest.mark.parametrize("archiefsoort", ["automatisch", "handmatig", "opslagkopie"])
+async def test_versiewissel_annuleert_ook_op_terugvalkopie(proef, tmp_path, archiefsoort):
     url = get_settings().database_url
     voorstel, herstel = await oude_rollback(proef)
     ident = {"id": uuid.UUID(herstel)}
-    rij = "SELECT updated_at, status, attempts FROM commands WHERE id=:id"
-    voor = (await sql(url, rij, ident))[0]
-    assert voor[1:] == ("queued", 0) and voor[0].year < 9999
-    werk = {"actie": "werk", "woning": str(proef.home_id), "controleer_start": True}
-    assert (await andere_versie(werk))["geblokkeerd"]
-    assert await sql(url, rij, ident) == [voor]
+    rij = "SELECT status, attempts, detail FROM commands WHERE id=:id"
+    assert (await sql(url, rij, ident))[0][:2] == ("queued", 0)
+    if archiefsoort != "automatisch":
+        archief = await asyncio.to_thread(cli.pre_migration_dump, url, "0008", tmp_path / "handmatig")
     start = {"actie": "migreer", "map": str(tmp_path)}
-    assert await andere_versie(start) == {"schema": "0008", "geweigerd": False, "archief": True}
+    assert (await andere_versie(start)) == {"schema": "0009", "geweigerd": False, "archief": True}
     assert not (await andere_versie(start))["archief"]
-    archief, = tmp_path.glob("*.sql.gz")
-    verwachting = [(voor[0], "connector:voorstel:2")]
-    bewaard = await sql(url, """
-        SELECT (r->>'claim_after')::timestamptz, r->>'worker' FROM idempotency_keys k,
-               LATERAL (SELECT k.response_body->'reservations'->:opdracht AS r) s
-        WHERE k.scope='connector:voorstel:2' AND k.key=:id
-    """, {"id": uuid.UUID(voorstel["proposal_id"]), "opdracht": herstel})
-    assert bewaard == verwachting
-    na = await sql(url, rij, ident)
-    assert na[0][1:] == voor[1:]
-    await andere_versie(werk, versie="voorgaand")
-    assert await sql(url, rij, ident) == na and len(proef.unit.commands) == 1
+    if archiefsoort == "automatisch":
+        archief, = tmp_path.glob("*.sql.gz")
+    verwacht = [("cancelled", 0, "versiewissel")]
+    assert await sql(url, rij, ident) == verwacht
     async with temp_db(None) as kopie:
-        await herstel_archief(archief, kopie)
-        assert await sql(kopie, rij, ident) == [voor]
-        if terugval:
-            await voltooide_rollback(proef, kopie, herstel, "voorgaand")
+        pad = tmp_path / "gecontroleerd.sql"
+        if archiefsoort == "opslagkopie":
+            # De oude software schrijft de oorspronkelijke rijen zonder annulering.
+            await asyncio.to_thread(cli.verify_migration_dump, archief, pad)
         else:
-            await voltooide_rollback(proef, url, herstel)
+            assert (await andere_versie({"actie": "controleer_sql", "archief": str(archief),
+                                         "uitvoer": str(pad)}))["gecontroleerd"]
+        await asyncio.to_thread(subprocess.run, ["psql", "-Xq", "--single-transaction", "-v", "ON_ERROR_STOP=1",
+                                "-d", cli._libpq(kopie)[0], "-f", str(pad)], capture_output=True, check=True)
+        if archiefsoort == "opslagkopie":
+            assert (await sql(kopie, rij, ident))[0][:2] == ("queued", 0)
+            assert (await andere_versie({"actie": "sluit_kopie"}, url=kopie)) == {"schema": "0008"}
+        werk = {"actie": "werk", "woning": str(proef.home_id), "controleer_start": True}
+        await andere_versie(werk, versie="voorgaand", url=kopie)
+        assert await sql(kopie, rij, ident) == verwacht
+        assert await sql(kopie, "SELECT before, preview_hash FROM connector_changes WHERE id=:id",
+                         {"id": uuid.UUID(voorstel["proposal_id"])}) == [(voorstel["before"], voorstel["preview_hash"])]
+        assert await sql(kopie, "SELECT count(*) FROM alerts WHERE key=:key",
+                         {"key": "connector:rollback:" + herstel}) == [(1,)]
+        assert not (await andere_versie(start, url=kopie))["geweigerd"]
+        assert await sql(kopie, rij, ident) == verwacht
+    assert len(proef.unit.commands) == 1 and proef.unit.state["SetTem"] == 22
 
 
 async def test_zelfde_schema_rollback_in_voorgaande_software(proef):
@@ -170,74 +187,60 @@ async def test_zelfde_schema_rollback_in_voorgaande_software(proef):
     await voltooide_rollback(proef, get_settings().database_url, herstel, "voorgaand")
 
 
-async def test_gedocumenteerde_export_voor_softwareterugval(proef, tmp_path):
-    url = get_settings().database_url
-    _, herstel = await oude_rollback(proef)
-    rij = "SELECT status, attempts, updated_at FROM commands WHERE id=:id"
-    ident = {"id": uuid.UUID(herstel)}
-    voor = await sql(url, rij, ident)
-    archief = await asyncio.to_thread(cli.pre_migration_dump, url, "0008", tmp_path / "vooraf")
-    assert not (await andere_versie({"actie": "migreer", "map": str(tmp_path / "nieuw")}))["geweigerd"]
-    async with temp_db(None) as kopie:
-        await herstel_archief(archief, kopie)
-        assert await sql(kopie, rij, ident) == voor
-        await voltooide_rollback(proef, kopie, herstel, "voorgaand")
+async def test_alleen_lezen_terugval_en_opnieuw_vooruit(proef, tmp_path):
+    from tests.test_connector_herstel import _apply, _queue_rollback
 
-
-async def test_compatibele_worker_behoudt_oorspronkelijke_rollback(proef, tmp_path):
-    from tests.test_connector_herstel import _apply
-
-    url = get_settings().database_url
     plan, _ = await _apply(proef)
-    sleutel = {"key": "connector_measurement:" + plan["proposal_id"]}
-    context = "SELECT value FROM settings WHERE key=:key"
-    voor = await sql(url, context, sleutel)
-    assert len(voor) == 1
-    assert not (await andere_versie({"actie": "migreer", "map": str(tmp_path)}, versie="voor_herstel"))["geweigerd"]
-    bewijs = await proef.evidence(plan["proposal_id"])
-    verzoek = proef.request(preview=plan, rollback=bewijs["rollback_preview"])
-    antwoord = await andere_versie({
-        "actie": "route", "methode": "POST", "route": "rollback", "verzoek": verzoek,
-        "koppen": {**proef.admin.h(), "Idempotency-Key": str(uuid.uuid4())},
-        "sessie": dict(proef.admin.c.cookies),
-    }, versie="voor_herstel")
-    assert antwoord["http"] == 202
-    herstel = antwoord["inhoud"]["command_id"]
-    await voltooide_rollback(proef, url, herstel, "voor_herstel")
-    assert (await proef.evidence(herstel))["rollback_command_id"] == herstel
-    await asyncio.to_thread(cli.migrate, url, backup_dir=tmp_path)
-    assert await sql(url, context, sleutel) == voor
+    herstel = await _queue_rollback(proef, plan)
+    opties = {"actie": "migreer", "map": str(tmp_path)}
+    assert (await andere_versie(opties, versie="basis"))["geweigerd"]
+    werk = {"actie": "werk", "woning": str(proef.home_id), "controleer_start": True}
+    assert (await andere_versie(werk, versie="basis"))["geblokkeerd"]
+    assert not (await andere_versie(opties))["geweigerd"]
+    assert not (await andere_versie(werk))["geblokkeerd"]
+    assert (await proef.evidence(herstel))["rollback_reason_code"] == "versiewissel"
+    assert await sql(get_settings().database_url, "SELECT status, attempts FROM commands WHERE id=:id",
+                     {"id": uuid.UUID(herstel)}) == [("cancelled", 0)]
+    assert len(proef.unit.commands) == 1 and proef.unit.state["SetTem"] == 22
 
 
-async def test_reservering_bij_geweigerde_export_en_later_claimtijdstip(proef, tmp_path, monkeypatch):
+async def test_softwarewissel_op_hetzelfde_schema_en_opnieuw_vooruit(proef, tmp_path, monkeypatch):
+    from shc_api import connector_changes, connector_transition
+    from tests.test_connector_herstel import _apply, _queue_rollback
+
     url = get_settings().database_url
-    voorstel, herstel = await oude_rollback(proef)
-    later = utcnow() + timedelta(hours=1)
-    opdracht = {"id": uuid.UUID(herstel)}
-    await sql(url, "UPDATE commands SET updated_at=:later WHERE id=:id", {**opdracht, "later": later})
-    rij = "SELECT updated_at, status, attempts FROM commands WHERE id=:id"
-    sleutel = {"id": uuid.UUID(voorstel["proposal_id"])}
-    recht = "SELECT to_jsonb(k) FROM idempotency_keys k WHERE key=:id"
-    voor = await sql(url, recht, sleutel)
     verify = cli.verify_migration_dump
+    versie_a = connector_changes.LOCAL_PROPOSAL
+    for huidige, volgende in ((versie_a, versie_a + "-volgend"), (versie_a + "-volgend", versie_a)):
+        monkeypatch.setattr(connector_changes, "LOCAL_PROPOSAL", huidige)
+        monkeypatch.setattr(connector_transition, "LOCAL_PROPOSAL", huidige)
+        proef.key_id = str(uuid.uuid4())
+        plan, _ = await _apply(proef)
+        herstel = await _queue_rollback(proef, plan)
+        ident = {"id": uuid.UUID(herstel)}
+        rij = "SELECT status, attempts FROM commands WHERE id=:id"
+        assert await sql(url, rij, ident) == [("queued", 0)]
+        monkeypatch.setattr(connector_changes, "LOCAL_PROPOSAL", volgende)
+        monkeypatch.setattr(connector_transition, "LOCAL_PROPOSAL", volgende)
 
-    def beschadig(dump):
-        dump.with_name(dump.name + ".sha256").write_text("ongeldige controlesom")
-        verify(dump)
+        def beschadig(dump):
+            dump.with_name(dump.name + ".sha256").write_text("ongeldige controlesom")
+            verify(dump)
 
-    with monkeypatch.context() as m:
-        m.setattr(cli, "verify_migration_dump", beschadig)
-        with pytest.raises(cli.MigrationError, match="SHA-256"):
-            await asyncio.to_thread(cli.migrate, url, backup_dir=tmp_path)
-    assert not list(tmp_path.glob("*.sql.gz*"))
-    assert await sql(url, recht, sleutel) == voor
-    assert await sql(url, rij, opdracht) == [(later, "queued", 0)]
-    terug = await asyncio.to_thread(cli.migrate, url, backup_dir=tmp_path)
-    await asyncio.to_thread(verify, terug)
-    await proef.work()
-    await andere_versie({"actie": "werk", "woning": str(proef.home_id), "controleer_start": True}, versie="voorgaand")
-    assert await sql(url, rij, opdracht) == [(later, "queued", 0)]
-    assert proef.unit.state["SetTem"] == 22 and len(proef.unit.commands) == 1
+        with monkeypatch.context() as m:
+            m.setattr(cli, "verify_migration_dump", beschadig)
+            with pytest.raises(cli.MigrationError, match="SHA-256"):
+                await asyncio.to_thread(cli.migrate, url, backup_dir=tmp_path)
+        assert await sql(url, rij, ident) == [("queued", 0)]
+        archief = await asyncio.to_thread(cli.migrate, url, backup_dir=tmp_path)
+        await asyncio.to_thread(verify, archief)
+        aantal = len(proef.unit.commands)
+        await proef.work()
+        assert await sql(url, rij, ident) == [("cancelled", 0)]
+        assert (await proef.evidence(herstel))["rollback_reason_code"] == "versiewissel"
+        assert len(proef.unit.commands) == aantal
+        # De beheerder controleert en herstelt de proefunit vóór het volgende zelfstandige geval.
+        proef.unit.state["SetTem"] = 20
 
 
 async def test_onuitgevoerde_historie_na_nieuw_bedienveld(proef, tmp_path, monkeypatch):
@@ -265,7 +268,8 @@ async def test_onuitgevoerde_historie_na_nieuw_bedienveld(proef, tmp_path, monke
         assert not dump["geweigerd"]
         rij, = dump["rijen"]
         assert rij[0] == "cancelled" and rij[3:] == [str(ident["id"]), toen["before"], 0]
-        assert not (await andere_versie({"actie": "migreer", "map": str(mapnaam)}, versie=versie))["geweigerd"]
+        opnieuw = await andere_versie({"actie": "migreer", "map": str(mapnaam)}, versie=versie)
+        assert opnieuw["geweigerd"] == (versie is not None)
     await proef.work()
     assert not proef.unit.commands and proef.unit.state["SetTem"] == 20
 

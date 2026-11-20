@@ -37,7 +37,9 @@ class MigrationError(Exception):
 DATABASE_NIEUWER_CODE = "database_newer"
 DATABASE_NIEUWER_TEKST = (
     "De database is van een nieuwere my_house-versie; kies in het formulier van de Custom App de bijpassende versie "
-    "of zet de snapshot van vóór de update terug. Deze versie verandert niets aan de database."
+    "of zet de snapshot van vóór de update terug. Deze versie verandert niets aan de database. "
+    "Bereid de snapshotkopie vóór de start van de vorige versie offline voor met "
+    "shc-api prepare-connector-fallback uit de nieuwe versie."
 )
 SCHEMA_NIEUWER_EXIT = 3  # exitcode van `shc-api migrate` bij een database van een nieuwere versie
 
@@ -134,6 +136,7 @@ def _check_connector_rows(conn, *, read_only: bool = False) -> None:
 
     from .backup import BackupError
     from .connector_proof import (
+        CANCELLED_UNDO,
         INCOMPLETE_PROOF,
         PREVIEWS,
         REFUSED,
@@ -157,7 +160,7 @@ def _check_connector_rows(conn, *, read_only: bool = False) -> None:
               AND (c.id IS NULL OR (
                   (jsonb_typeof(c.before->'controls') IS DISTINCT FROM 'object'
                    OR EXISTS (SELECT 1 FROM idempotency_keys k WHERE k.key = c.id AND k.scope = 'connector:voorstel'))
-                  AND (({RESTORED}) OR ({UNCHANGED}) OR ({REFUSED})) IS NOT TRUE
+                  AND (({RESTORED}) OR ({UNCHANGED}) OR ({REFUSED}) OR ({CANCELLED_UNDO})) IS NOT TRUE
               ))
         )
     """))  # noqa: S608 - vaste bewijsvoorwaarden
@@ -172,6 +175,22 @@ def _check_connector_rows(conn, *, read_only: bool = False) -> None:
             check_preview(preview)
     except BackupError as exc:
         raise MigrationError("De vorige installatie bevat onvolledig connectorherstelbewijs.") from exc
+
+
+def _prepare_start(conn, url, revision, backup_dir, *, schema_change=False, pre_dump=True):
+    from sqlalchemy import text
+
+    from .connector_transition import cancel_for_version, foreign_work
+
+    foreign = schema_change or foreign_work(conn)
+    queued = conn.scalar(text("SELECT EXISTS (SELECT FROM commands WHERE source='connector' AND status='queued')"))
+    if not foreign and not queued:
+        _check_connector_rows(conn)
+        return None
+    # Een oudere installatie kan tussendoor een uitsluitend-lezen herstelstart hebben gemaakt.
+    # Bij een nieuwe processtart kunnen we de continuïteit van een ongeclaimde opdracht dan niet bewijzen.
+    cancel_for_version(conn, all_rights=foreign)
+    return pre_migration_dump(url, revision, backup_dir) if pre_dump else None
 
 
 async def check_connector_transition(revision: str | None, url: str | None = None) -> None:
@@ -191,47 +210,40 @@ async def check_connector_transition(revision: str | None, url: str | None = Non
             await conn.execute(text(LOCK_SQL))
             if await conn.scalar(text("SELECT version_num FROM alembic_version")) != revision:
                 raise MigrationError("De databaserevisie is tijdens de start gewijzigd.")
-            await conn.run_sync(_check_connector_rows)
-            if await conn.run_sync(_connector_reservations):
-                raise MigrationError("De worker wacht op de migratie die de oorspronkelijke reservering archiveert.")
+            if await conn.scalar(text("SELECT value->'v' FROM settings WHERE key='migration_source_pause'")):
+                await conn.run_sync(_check_connector_rows, read_only=True)
+                return
+            settings = get_settings()
+            await conn.run_sync(_prepare_start, url or settings.database_url, revision, settings.backup_dir)
             await _prepare_connector_worker(conn)
     finally:
         await engine.dispose()
 
 
-def _connector_reservations(conn):
-    """Wachtend werk uit de versie die het claimtijdstip rechtstreeks in updated_at bewaarde."""
+async def prepare_connector_fallback(url: str) -> None:
+    """Sluit de wachtrij in een offline terugvalkopie zonder haar schema te wijzigen."""
     from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
 
-    from .connector_changes import LOCAL_PROPOSAL, WAIT_FOR_CONNECTOR_WORKER
+    from . import backup
+    from .commissioning import LOCK_SQL
+    from .connector_transition import cancel_for_version
 
-    return conn.execute(text("""
-        SELECT cmd.id, cmd.updated_at, k.key, k.scope
-        FROM connector_changes c JOIN idempotency_keys k ON k.key = c.id AND k.scope = :scope
-        JOIN commands cmd ON cmd.id IN (c.command_id, c.rollback_command_id)
-        WHERE cmd.source = 'connector' AND cmd.status = 'queued' AND cmd.updated_at <> :wait
-          AND NOT coalesce(k.response_body->'reservations' ? cmd.id::text, false)
-        FOR UPDATE OF cmd, k
-    """), {"scope": LOCAL_PROPOSAL, "wait": WAIT_FOR_CONNECTOR_WORKER}).all()
-
-
-def _transfer_reservations(conn, reservations) -> None:
-    from sqlalchemy import text
-
-    from .connector_changes import WAIT_FOR_CONNECTOR_WORKER
-
-    for command_id, claim_after, proposal, scope in reservations:
-        conn.execute(text("""
-            UPDATE idempotency_keys SET response_body = jsonb_set(coalesce(response_body, '{}'), '{reservations}',
-                coalesce(response_body->'reservations', '{}') || jsonb_build_object(CAST(:command AS text),
-                    jsonb_build_object('worker', scope, 'claim_after', CAST(:claim_after AS timestamptz))))
-            WHERE key = :proposal AND scope = :scope
-        """), {"command": str(command_id), "claim_after": claim_after, "proposal": proposal, "scope": scope})
-        # Een toekomstige reservering blijft ook voor de oorspronkelijke worker exact op tijd.
-        # Reeds opeisbaar werk krijgt de afscherming die eerdere workers bij een softwarewissel respecteren.
-        conn.execute(text("""
-            UPDATE commands SET updated_at = :wait WHERE id = :command AND updated_at <= CURRENT_TIMESTAMP
-        """), {"wait": WAIT_FOR_CONNECTOR_WORKER, "command": command_id})
+    engine = create_async_engine(url, poolclass=NullPool, hide_parameters=True)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(LOCK_SQL))
+            revision = await conn.run_sync(_database_revision)
+            if revision is None or backup.schema_relation(revision) == "newer":
+                raise MigrationError("De databaserevisie van de terugvalkopie is onbekend.")
+            if not backup._is_older(revision, "0007"):
+                await conn.run_sync(cancel_for_version)
+            elif await conn.scalar(text("""SELECT EXISTS (SELECT FROM commands WHERE source='connector'
+                                          AND status IN ('queued','sending','sent'))""")):
+                raise MigrationError("De terugvalkopie mist het connectorherstelbewijs.")
+    finally:
+        await engine.dispose()
 
 
 async def _prepare_connector_worker(conn) -> None:
@@ -242,8 +254,28 @@ async def _prepare_connector_worker(conn) -> None:
 
     await conn.execute(text(REMEMBER_FIELDS))
     await remember_proposal_fields(conn)
-    # De startcontrole heeft open oud herstel uitgesloten. Laat ook een ongebruikt oud voorstel vervallen.
-    await conn.execute(text("DELETE FROM idempotency_keys WHERE scope = 'connector:voorstel'"))
+
+
+def _copy_migration_sql(source, destination) -> None:
+    """Bewaar de oorspronkelijke rijen. Maak de terugvalkopie veilig vóór de importtransactie sluit."""
+    from .connector_transition import FALLBACK_SQL
+
+    end = b"\n-- PostgreSQL database dump complete\n"
+    tail = b""
+    keep = len(FALLBACK_SQL) + 512
+    while block := source.read(1 << 20):
+        data = tail + block
+        if destination:
+            destination.write(data[:-keep])
+        tail = data[-keep:]
+    pos = tail.rfind(end)
+    if pos < len(tail) - 512 or pos < 0:
+        raise MigrationError("De migratiedump bevat geen volledig SQL-archief.")
+    if destination:
+        destination.write(tail[:pos])
+        if not tail[:pos].endswith(FALLBACK_SQL):
+            destination.write(FALLBACK_SQL)
+        destination.write(tail[pos:])
 
 
 def verify_migration_dump(path: Path, output: Path | None = None) -> None:
@@ -257,13 +289,7 @@ def verify_migration_dump(path: Path, output: Path | None = None) -> None:
             source.seek(0)
             staging = tempfile.NamedTemporaryFile(dir=output.parent) if output else contextlib.nullcontext()
             with staging as dest, gzip.GzipFile(fileobj=source) as sql:
-                tail = b""
-                while block := sql.read(1 << 20):
-                    tail = (tail + block[-512:])[-512:]
-                    if dest:
-                        dest.write(block)
-                if b"\n-- PostgreSQL database dump complete\n" not in tail:
-                    raise MigrationError("De migratiedump bevat geen volledig SQL-archief.")
+                _copy_migration_sql(sql, dest)
                 if dest:
                     dest.flush()
                     os.fsync(dest.fileno())
@@ -293,13 +319,19 @@ def pre_migration_dump(url: str, revision: str, backup_dir: Path) -> Path:
                     stdout=subprocess.PIPE, stderr=errors, env=env,
                 ) as proc:
                     assert proc.stdout is not None
+                    copy_error = None
                     with proc.stdout:
-                        shutil.copyfileobj(proc.stdout, out, 1 << 20)
+                        try:
+                            _copy_migration_sql(proc.stdout, out)
+                        except MigrationError as exc:
+                            copy_error = exc
                     code = proc.wait()
                 if code:
                     errors.seek(0)
                     reason = errors.read(300).decode(errors="replace").strip()
                     raise MigrationError(f"De database is NIET bijgewerkt. Melding van pg_dump: {reason or code}.")
+                    if copy_error:
+                        raise copy_error
                 raw.flush()
                 os.fsync(raw.fileno())
             sidecar = tmp.with_name(tmp.name + ".sha256")
@@ -346,15 +378,12 @@ def migrate(url: str | None = None, *, backup_dir: Path | None = None, pre_dump:
         head = bk.head_revision()
         if current is not None and bk.schema_relation(current) == "newer":
             raise SchemaNewerError(current, head)
-        reservations = []
-        if current is not None and not bk._is_older(current, "0007"):
-            _check_connector_rows(conn)
-            reservations = _connector_reservations(conn)
-        # pg_dump opent een eigen verbinding en ziet de oorspronkelijke, gecommitteerde database.
         dump = None
-        if reservations or (pre_dump and current is not None and current != head):
+        if current is not None and not bk._is_older(current, "0007"):
+            dump = _prepare_start(conn, target_url, current, backup_dir or s.backup_dir,
+                                  schema_change=current != head, pre_dump=pre_dump)
+        elif pre_dump and current is not None and current != head:
             dump = pre_migration_dump(target_url, current, backup_dir or s.backup_dir)
-        _transfer_reservations(conn, reservations)
         command.upgrade(bk.alembic_config(connection=conn), "head")
         if current is not None and bk._is_older(current, "0007"):
             _check_connector_rows(conn)
@@ -485,13 +514,16 @@ async def _restore_dump(args) -> int:
                                 await db.execute(f'TRUNCATE TABLE public."{table}"')
                 finally:
                     await db.close()
+                staged_url = urlunsplit(urlsplit(cfg.database_url)._replace(path="/" + staging))
+                await prepare_connector_fallback(staged_url)
                 # PostgreSQL weigert ook een doelnaam die tijdens de import is ingenomen.
                 await admin.execute(f'ALTER DATABASE "{staging}" RENAME TO "{name}"')
             except BaseException:
                 await admin.execute(f'DROP DATABASE "{staging}"')
                 raise
-    except (bk.BackupError, asyncpg.DuplicateDatabaseError) as exc:
-        print(str(exc) if isinstance(exc, bk.BackupError) else "De doelnaam bestaat al.", file=sys.stderr)
+    except (bk.BackupError, MigrationError, asyncpg.DuplicateDatabaseError) as exc:
+        message = "De doelnaam bestaat al." if isinstance(exc, asyncpg.DuplicateDatabaseError) else str(exc)
+        print(message, file=sys.stderr)
         return 2
     finally:
         await admin.close()
@@ -1034,6 +1066,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--port", type=int, default=8000)
     sub.add_parser("worker")
     sub.add_parser("migrate")
+    sub.add_parser("prepare-connector-fallback", help="sluit de connectorwachtrij in een offline terugvalkopie")
     b = sub.add_parser("backup")
     b.add_argument("--passphrase-file")
     b.add_argument("--passphrase-stdin", action="store_true")
@@ -1093,6 +1126,16 @@ def main(argv: list[str] | None = None) -> None:
     from .logfilter import fouttekst, install_last_resort_filter, install_log_filter, uvicorn_log_config
 
     args = build_parser().parse_args(argv)
+    if args.cmd == "prepare-connector-fallback":
+        from .config import get_settings
+
+        try:
+            asyncio.run(prepare_connector_fallback(get_settings().database_url))
+        except MigrationError as exc:
+            print(str(exc), file=sys.stderr)
+            raise SystemExit(2) from exc
+        print("De terugvalkopie is gecontroleerd. Ongeclaimde connectoropdrachten zijn geannuleerd.")
+        return
     if args.cmd == "verify-migration-dump":
         try:
             verify_migration_dump(args.file, args.out)

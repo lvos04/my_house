@@ -68,9 +68,9 @@ from .connector_proof import (
     MEASUREMENTS,
     OPEN_RECOVERY,
     PREVIEWS,
+    PROPOSAL_SCOPE,
     REMEMBER_FIELDS,
     RESTORE_HISTORY,
-    SCHEMA_CANCELLATION,
     check_archive,
     check_preview,
 )
@@ -1211,16 +1211,16 @@ async def _connector_dump_snapshot(source) -> str:
     if await source.scalar(text("SELECT to_regclass('idempotency_keys') IS NOT NULL")):
         live = ""
         if await source.scalar(text("SELECT to_regclass('connector_changes') IS NOT NULL")):
-            live = "UNION ALL SELECT id::text, command_id::text FROM connector_changes"
+            live = "UNION ALL SELECT id::text, command_id::text, rollback_command_id::text FROM connector_changes"
         if await source.scalar(text(f"""
-            WITH proof(id, command_id) AS (
-                SELECT value->'v'->>'id', value->'v'->>'command_id' FROM settings
+            WITH proof(id, command_id, undo_id) AS (
+                SELECT value->'v'->>'id', value->'v'->>'command_id', value->'v'->>'rollback_command_id' FROM settings
                 WHERE value->>'format' = 'connector-0007' AND key = 'connector_history:' || (value->'v'->>'id')
                 {live}
             )
-            SELECT EXISTS (SELECT 1 FROM proof p JOIN commands cmd ON cmd.id::text = p.command_id
+            SELECT EXISTS (SELECT 1 FROM proof p JOIN commands cmd ON cmd.id::text IN (p.command_id, p.undo_id)
                            JOIN idempotency_keys k ON k.key::text = p.id
-                           WHERE {SCHEMA_CANCELLATION} AND k.scope IN ('connector:voorstel', 'connector:voorstel:2'))
+                           WHERE cmd.status='cancelled' AND {PROPOSAL_SCOPE})
         """)):  # noqa: S608 - vaste tabellen en bewijsvoorwaarden
             raise BackupError("Het connectorherstelbewijs van de schema-annulering bevat nog uitvoerrecht.")
     return await source.scalar(text("SELECT pg_export_snapshot()"))
@@ -1582,6 +1582,8 @@ def _restore_sync(
     batch: list[dict] = []
     table = None
     skipped_cols: set[str] = set()
+    # Een import legt bestaande plaatsingen en hun oorspronkelijke versies terug.
+    conn.execute(text("SET LOCAL shc.restoring_placements = 'on'"))
     for name, f in iter_members(path, passphrase):
         tname = _table_of(name)
         if tname is None:
@@ -1616,6 +1618,7 @@ def _restore_sync(
                 _flush(conn, table, batch, report)
                 batch = []
     _flush(conn, table, batch, report)
+    conn.execute(text("SET LOCAL shc.restoring_placements = 'off'"))
     final = target
     if rev != head:
         command.upgrade(cfg, "head")

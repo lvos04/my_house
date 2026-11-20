@@ -89,17 +89,38 @@ REFUSED = """
     AND c.after IS NULL AND c.after_at IS NULL AND c.rollback_command_id IS NULL AND c.rollback_status IS NULL
     AND EXISTS (SELECT 1 FROM commands a WHERE a.id = c.command_id AND a.status IN ('failed', 'denied', 'cancelled'))
 """
-SCHEMA_CANCELLATION = "cmd.status = 'cancelled' AND cmd.detail = 'Connectorbediening vervallen bij schemaherstel'"
-LOCAL_RIGHT = """EXISTS (SELECT 1 FROM idempotency_keys k WHERE k.key = c.id
-                         AND k.scope IN ('connector:voorstel', 'connector:voorstel:2'))"""
-SCHEMA_CANCELLED = f"""
-    {SCHEMA_CANCELLATION} AND cmd.attempts = 0
-    AND c.status = 'queued' AND c.reason_code IS NULL AND c.after IS NULL AND c.after_at IS NULL
+PROPOSAL_SCOPE = "(k.scope = 'connector:voorstel' OR k.scope LIKE 'connector:voorstel:%')"
+LOCAL_RIGHT = f"EXISTS (SELECT 1 FROM idempotency_keys k WHERE k.key = c.id AND {PROPOSAL_SCOPE})"  # noqa: S608 - constante scope
+# Oud schemaherstel liet de oorspronkelijke bewijsrij op queued staan. Alleen de
+# wachtrij, de claimteller en het ingetrokken recht bewijzen de annulering.
+CANCELLED_APPLY = f"""
+    cmd.status = 'cancelled' AND cmd.attempts = 0
+    AND (c.status = 'queued' AND c.reason_code IS NULL OR c.status = 'failed'
+         AND c.reason_code IN ('refused_before_send','precondition_failed','readback_before_send_unavailable',
+                               'restored_without_execution','versiewissel'))
+    AND c.after IS NULL AND c.after_at IS NULL
     AND c.rollback_command_id IS NULL AND c.rollback_status IS NULL AND c.rollback_at IS NULL
     AND c.rollback_after IS NULL AND c.rollback_reason_code IS NULL AND c.rollback_expires_at IS NULL
     AND (c.rollback_from IS NULL OR c.rollback_from - 'measurement_hash' = jsonb_build_object())
     AND NOT {LOCAL_RIGHT}
 """
+CANCELLED_UNDO = f"""
+    EXISTS (SELECT 1 FROM commands u WHERE u.id = c.rollback_command_id AND u.source = 'connector'
+            AND u.status = 'cancelled' AND u.attempts = 0)
+    AND c.rollback_status = 'queued' AND c.rollback_at IS NULL AND c.rollback_after IS NULL
+    AND c.rollback_reason_code IS NULL AND NOT {LOCAL_RIGHT}
+"""  # noqa: S608 - vaste bewijsvoorwaarde
+CANCELLED = f"(({CANCELLED_APPLY}) OR ({CANCELLED_UNDO}))"
+# Een geclaimde, onderbroken verzending houdt haar eigen bewijs van onzekere uitkomst.
+# Een wachtrijannulering met een claim is daarmee in strijd, ook als de detailtekst is veranderd.
+CANCELLATION_RECORD = """cmd.status = 'cancelled' AND (cmd.attempts = 0 OR
+    cmd.detail IN ('Connectorbediening vervallen bij schemaherstel', 'versiewissel') OR {phase} = 'queued')"""
+INVALID_CANCELLATION = f"""
+    (({CANCELLATION_RECORD.format(phase="c.status")}) AND ({CANCELLED_APPLY}) IS NOT TRUE)
+    OR (EXISTS (SELECT FROM commands cmd WHERE cmd.id=c.rollback_command_id
+                AND ({CANCELLATION_RECORD.format(phase="c.rollback_status")}))
+        AND ({CANCELLED_UNDO}) IS NOT TRUE)
+"""  # noqa: S608 - vaste bewijsvoorwaarden
 OLD_STATE = """
     c.before = jsonb_build_object('power', c.before->'power', 'mode', c.before->'mode',
                                   'target_c', c.before->'target_c')
@@ -124,9 +145,10 @@ OPEN_RECOVERY = f"""
 INCOMPLETE_PROOF = f"""
     WITH proof AS (
         SELECT c.*, (
-            ({OLD_PAIR}) OR (({REFUSED}) AND ({OLD_STATE}))
+            ({OLD_PAIR}) OR (({OLD_STATE}) AND (({REFUSED}) OR ({CANCELLED_APPLY})
+               OR (({CANCELLED_UNDO}) AND c.rollback_from = c.after)))
         ) IS TRUE AS historical
-        FROM connector_changes c
+        FROM connector_changes c LEFT JOIN commands cmd ON cmd.id = c.command_id
     ), links AS (
         SELECT c.*, link.cmd_id, link.phase, link.undo
         FROM proof c
@@ -170,6 +192,9 @@ INCOMPLETE_PROOF = f"""
         WHERE cmd.id IS NULL
         UNION ALL
         SELECT 1 FROM links GROUP BY cmd_id HAVING count(*) <> 1
+        UNION ALL
+        SELECT 1 FROM connector_changes c LEFT JOIN commands cmd ON cmd.id=c.command_id
+        WHERE {INVALID_CANCELLATION}
     )
 """  # noqa: S608 - RESTORED is vaste broncode
 
@@ -180,8 +205,7 @@ PREVIEWS = f"""
     SELECT jsonb_build_object(
         'action', c.action_id, 'target', c.target, 'parameters', c.parameters, 'etag', c.resource_etag,
         'before', c.before, 'hash', c.preview_hash, 'linked', c.command_id IS NOT NULL,
-        'settled', ({RESTORED}) OR ({UNCHANGED}) OR ({REFUSED}) OR ({SCHEMA_CANCELLED}),
-        'invalid_cancellation', ({SCHEMA_CANCELLATION}) AND ({SCHEMA_CANCELLED}) IS NOT TRUE,
+        'settled', ({RESTORED}) OR ({UNCHANGED}) OR ({REFUSED}) OR ({CANCELLED}),
         'measurement', {MEASURED_IDENTITY}, 'device_id', cmd.device_id,
         'invalid_identity', (m.key IS NOT NULL AND c.before ? 'controls'
                              AND jsonb_typeof({MEASURED_IDENTITY}) IS DISTINCT FROM 'object')
@@ -205,8 +229,7 @@ def check_preview(raw: str) -> None:
     saved = json.loads(raw)
     before = saved["before"]
     invalid = BackupError("Terugzetten geweigerd: het connectorherstelbewijs wijkt af van de oorspronkelijke preview.")
-    if (not isinstance(before, dict) or "target_c" not in before or saved["invalid_cancellation"]
-        or saved["invalid_identity"]):
+    if (not isinstance(before, dict) or "target_c" not in before or saved["invalid_identity"]):
         raise invalid
     diff = {"before": before, "proposed": saved["parameters"]}
     recipes = [{"target_c": before["target_c"]}]

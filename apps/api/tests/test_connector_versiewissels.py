@@ -16,6 +16,7 @@ VERSIES = {
     "schema0007b": "44486bf8d66be0c2f2e42d8150304f03f83d764b",
     "schema0008": "000a036f6fb1cbb00c63c377b1d5e76fb5e5f44d",
     "voorgaand": "5079599361142df293db06eb16578d3621fd0dc3",
+    "basis": "140d39df39b670b064e663a920a650f03bd9c9d0",
     "voor_herstel": "e22286cd3620b5e9d31e8a0acf0841892b9ab04b",
 }
 
@@ -35,8 +36,13 @@ def versies(tmp_path_factory):
 
 
 @pytest.mark.parametrize(("versie", "bestand", "selectie"), [
+    ("schema0007a", "annulering", "schema_annulering"),
+    ("schema0007b", "annulering", "schema_annulering or dezelfde_unit"),
+    ("voorgaand", "annulering", "toekomstige_reservering"),
+    ("nieuw", "annulering", "reeds_actieve_worker"),
     ("nieuw", "overgangen", "not basis and not vorige_installatie and not apply_bevestigd"),
-    ("schema0007a", "overgangen", "basis"),
+    ("schema0007a", "overgangen", "basis_open_herstel"),
+    ("schema0007a", "overgangen", "basis_oud_archief or basis_eerder_teruggezette"),
     ("schema0007a", "overgangen", "apply_bevestigd"),
     ("schema0007b", "overgangen", "apply_bevestigd"),
     ("schema0007a", "overgangen", "vorige_installatie"),
@@ -48,8 +54,11 @@ def versies(tmp_path_factory):
     ("nieuw", "herstelbewijs", "dump_weigert or vorige_worker or oude_0007"),
     ("schema0007b", "overdracht", "oude_meting_na_wijziging_buitengroep"),
     ("schema0007a", "overdracht", "oude_drieveldmeting_na_groepswissel"),
-    ("voorgaand", "overdracht", "zelfde_schema or gedocumenteerde_export"),
-    ("nieuw", "overdracht", "onuitgevoerde_historie or meetidentiteit or reservering or compatibele_worker"),
+    ("voorgaand", "overdracht", "terugvalkopie and automatisch"),
+    ("voorgaand", "overdracht", "terugvalkopie and handmatig"),
+    ("voorgaand", "overdracht", "terugvalkopie and opslagkopie"),
+    ("voorgaand", "overdracht", "zelfde_schema_rollback_in_voorgaande_software"),
+    ("nieuw", "overdracht", "onuitgevoerde_historie or meetidentiteit or hetzelfde_schema or alleen_lezen_terugval"),
 ])
 def test_versiewissel(versies, versie, bestand, selectie):
     bron = REPO if versie == "nieuw" else versies / versie

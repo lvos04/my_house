@@ -6,11 +6,11 @@ import uuid
 
 import pytest
 from alembic import command
-from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from shc_api import backup as bk
+from shc_api import cli
 from shc_api.cli import _libpq
 from shc_api.config import get_settings
 from shc_api.connector_changes import digest
@@ -123,21 +123,22 @@ async def test_herstel_opnieuw_na_weigering_voor_verzending(proef, monkeypatch, 
     assert proef.unit.state["SetTem"] == 20
 
 
-async def test_downgrade_weigert_open_herstel_zonder_bewijs_te_verliezen(proef):
+async def test_downgrade_bewaart_open_rollback_voor_handmatige_controle(proef):
     preview, _ = await _apply(proef)
     rollback_id = await _queue_rollback(proef, preview)
     url = get_settings().database_url
-    engine = create_async_engine(url, poolclass=NullPool)
+    await asyncio.to_thread(command.downgrade, bk.alembic_config(url), "0006")
     try:
-        with pytest.raises(DBAPIError, match="open of onzeker"):
-            async with engine.begin() as conn:
-                await conn.run_sync(lambda sync: command.downgrade(bk.alembic_config(connection=sync), "0006"))
-                pytest.fail("Downgrade toegestaan terwijl herstel naar 20 °C nog openstaat.")
+        assert await sql(url, "SELECT status, attempts, detail FROM commands WHERE id=:id",
+                         {"id": uuid.UUID(rollback_id)}) == [("cancelled", 0, "versiewissel")]
+        assert await sql(url, "SELECT title FROM alerts WHERE key=:key",
+                         {"key": "connector:rollback:" + rollback_id}) == [("Handmatige controle nodig",)]
+        assert await sql(url, "SELECT value->'v'->>'preview_hash' FROM settings WHERE key=:k",
+                         {"k": "connector_history:" + preview["proposal_id"]}) == [(preview["preview_hash"],)]
     finally:
-        await engine.dispose()
-    assert await sql(url, "SELECT version_num FROM alembic_version") == [(bk.head_revision(),)]
-    assert (await proef.evidence(rollback_id))["rollback_status"] == "queued"
-    assert proef.unit.state["SetTem"] == 22
+        await asyncio.to_thread(command.upgrade, bk.alembic_config(url), "head")
+    assert (await proef.evidence(rollback_id))["recovery_required"]
+    assert proef.unit.state["SetTem"] == 22 and len(proef.unit.commands) == 1
 
 
 @pytest.mark.parametrize("archief", ["export", "export_zonder_bewijs", "dump", "dump_zonder_bewijs"])
@@ -182,7 +183,7 @@ async def test_back_up_bewaart_open_herstel_zonder_uitvoerrechten(proef, tmp_pat
                 assert await sql(dest, "SELECT count(*) FROM connector_changes") == [(0,)]
                 return
             await bk.restore_file(path, PW, url=dest, verified=verified)
-            await sql(url, "UPDATE commands SET status = 'sending' WHERE id = :id", {"id": uuid.UUID(rollback_id)})
+            assert (await proef.worker._claim_next({proef.home_id}))[0] == uuid.UUID(rollback_id)
             with pytest.raises(bk.BackupError, match="bestaande open apparaatherstel"):
                 await bk.restore_file(path, PW, url=url, verified=verified)
             assert await sql(url, "SELECT status FROM commands WHERE id = :id", {"id": uuid.UUID(rollback_id)}) == [
@@ -212,11 +213,12 @@ async def test_back_up_bewaart_open_herstel_zonder_uitvoerrechten(proef, tmp_pat
                         rotation_sequence=pin.rotation_sequence, accept_from=pin.accept_from,
                     ))
                 monkeypatch.setattr(commands, "sessionmaker", lambda: restored_sessions)
+                await cli.check_connector_transition(bk.head_revision(), dest)
                 await proef.work()
             finally:
                 await engine.dispose()
-            assert await sql(dest, "SELECT status FROM commands WHERE id = :id", {"id": uuid.UUID(rollback_id)}) == [
-                ("failed",),
+            assert await sql(dest, "SELECT status, attempts FROM commands WHERE id = :id", {"id": uuid.UUID(rollback_id)}) == [
+                ("cancelled", 0),
             ]
     assert proef.unit.state["SetTem"] == 22 and len(proef.unit.commands) == 1
 
