@@ -1,12 +1,8 @@
 """Dezelfde schema-annulering op echte previews van beide historische 0007-versies."""
 
 import asyncio
-import os
-import subprocess
-import sys
 import uuid
 from datetime import timedelta
-from pathlib import Path
 
 from herstelbewijs import route
 from overdracht import herstel_archief, zonder_quiet
@@ -49,29 +45,9 @@ async def test_schema_annulering_met_oorspronkelijke_preview(proef, tmp_path, mo
         assert await sql(kopie, record, voorstel) == [(oud["before"], oud["preview_hash"], opdracht["id"])]
         assert await sql(kopie, rij, opdracht) == [("queued", 0)]
         # De gedocumenteerde migratie uit de basiscommit annuleert en archiveert het lopende werk.
-        basis = Path(os.environ["PROEF_VERSIES"]) / "basis"
-        env = dict(os.environ, SHC_DATABASE_URL=kopie,
-                   PYTHONPATH=os.pathsep.join(str(basis / d) for d in ("apps/api/src", "integrations/src", "apps/api")))
-        daling = """
-from pathlib import Path
-import sys
-from datetime import timedelta
-from urllib.parse import urlsplit
-from alembic import command
-from shc_api import backup, cli
-from shc_api.config import get_settings
-from shc_api.db import sessionmaker
-from shc_api.models import ClimateZone, utcnow
-url = get_settings().database_url
-assert Path(cli.__file__).resolve().is_relative_to(Path(sys.argv[1]))
-assert urlsplit(url).hostname == 'localhost' and urlsplit(url).path.startswith('/shc_tmp_')
-archief = cli.pre_migration_dump(url, '0008', Path(sys.argv[2]))
-cli.verify_migration_dump(archief)
-command.downgrade(backup.alembic_config(url), '0006')
-assert cli.current_revision(url) == '0006'
-"""
-        await asyncio.to_thread(subprocess.run, [sys.executable, "-B", "-c", daling, str(basis), str(tmp_path / "basis")],
-                                cwd=basis / "apps/api", env=env, check=True, capture_output=True)
+        daling = await andere_versie({"actie": "terugval", "schema": "0006", "archiefmap": str(tmp_path / "basis")},
+                                     versie="basis", url=kopie)
+        assert daling == {"schema": "0006"}
         assert await sql(kopie, rij, opdracht) == [("cancelled", 0)]
         feiten = await sql(kopie, """
             SELECT value->'v'->'before', value->'v'->>'preview_hash', value->'v'->>'command_id'

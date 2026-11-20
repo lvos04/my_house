@@ -69,6 +69,11 @@ async def meet(invoer):
         return {"gecontroleerd": True}
     if invoer["actie"] == "terugval":
         from alembic import command
+        if "archiefmap" in invoer:
+            assert delen.path.startswith("/shc_tmp_")
+            archief = await asyncio.to_thread(cli.pre_migration_dump, url, cli.current_revision(url),
+                                              Path(invoer["archiefmap"]))
+            await asyncio.to_thread(cli.verify_migration_dump, archief)
         await asyncio.to_thread(command.downgrade, backup.alembic_config(url), invoer["schema"])
         return {"schema": cli.current_revision(url)}
     if invoer["actie"] == "herstel_export":
