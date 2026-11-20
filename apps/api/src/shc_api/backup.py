@@ -50,12 +50,14 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import asyncpg
 import simplejson
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
-from sqlalchemy import func, select, text
+from sqlalchemy import Column, MetaData, Table, bindparam, case, func, literal, select, text
 from sqlalchemy import types as sqltypes
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -85,7 +87,8 @@ MAGIC_V1 = b"SHCBAK1\n"
 MAGIC = b"SHCBAK2\n"
 MAGIC_LEN = len(MAGIC)
 FORMAT = "shc-backup"
-FORMAT_VERSION = 2
+FORMAT_VERSION = 2  # Versie van de versleutelde stroom.
+TYPED_ROWS_VERSION = 3  # Manifestversie. Oudere lezers weigeren de nieuwe rijcodering.
 SCRYPT_N = 2**15
 CHUNK_SIZE = 1 << 20
 TAG = 16
@@ -166,18 +169,65 @@ class _ExactJSONText(sqltypes.TypeDecorator):
         return _load_json(value) if value is not None else None
 
 
+def _pg_text(col):
+    # Niet-nullbare JSONB kan ieder JSON-document direct dragen. Bij een nullable JSONB
+    # bewaart PostgreSQL-tekst het extra onderscheid: SQL NULL -> null, JSON null -> "null".
+    if isinstance(col.type, JSONB):
+        return col.nullable
+    return not isinstance(col.type, (sqltypes.Integer, sqltypes.Boolean, sqltypes.String,
+                                     sqltypes.Uuid, sqltypes.LargeBinary))
+
+
+def _float_sender(col):
+    if isinstance(col.type, sqltypes.Float):
+        return func.float4send if isinstance(col.type, sqltypes.REAL) else func.float8send
+    if isinstance(col.type, sqltypes.ARRAY) and isinstance(col.type.item_type, sqltypes.Float):
+        return func.array_send
+    return None
+
+
+def archive_text(col):
+    plain = col.cast(sqltypes.Text)
+    sender = _float_sender(col)
+    if sender is None:
+        return plain
+    # Alle NaN-bitpatronen krijgen dezelfde PostgreSQL-tekst. De overige floatwaarden
+    # (en arrays met omkeerbare tekst) behouden de normale archiefnotatie.
+    wire = sender(col)
+    needs_binary = plain == "NaN" if isinstance(col.type, sqltypes.Float) else wire != sender(plain.cast(col.type))
+    return case((needs_binary, literal("#") + func.encode(wire, "hex")), else_=plain)
+
+
+def archive_types(columns, dialect):
+    types = {}
+    for c in columns:
+        if isinstance(c.type, sqltypes.NullType):
+            raise BackupError(f"Het gegevenstype van {c.table.name}.{c.name} kan niet worden vastgesteld.")
+        types[c.name] = [c.type.compile(dialect=dialect), c.nullable]
+    return types
+
+
+# PostgreSQL leest zijn eigen tekstnotatie terug, ook voor oneindige datums, exacte numerics,
+# json met herhaalde sleutels en arrays met eigen ondergrenzen of SQL NULL als element.
+ARCHIVE_TEXT_SETTINGS = text("""SELECT set_config('TimeZone', 'UTC', true),
+    set_config('DateStyle', 'ISO, YMD', true), set_config('IntervalStyle', 'iso_8601', true),
+    set_config('extra_float_digits', '3', true), set_config('bytea_output', 'hex', true)""")
+
+
 def archive_columns(columns):
     for col in columns:
-        if isinstance(col.type, sqltypes.JSON):
-            # De tekst komt rechtstreeks uit PostgreSQL, vóór de JSON-decoder van asyncpg.
+        if _pg_text(col):
+            yield archive_text(col).label(col.name)
+        elif isinstance(col.type, JSONB):
             yield col.cast(_ExactJSONText).label(col.name)
-        elif isinstance(col.type, sqltypes.ARRAY) and isinstance(col.type.item_type, sqltypes.JSON):
-            yield func.array_to_json(col).cast(_ExactJSONText).label(col.name)
-        elif isinstance(col.type, sqltypes.Numeric) and not isinstance(col.type, sqltypes.Float):
-            # Losse SQL-numerics staan sinds de eerste archiefversie als tekst in de rij.
-            yield col.cast(sqltypes.Text).label(col.name)
         else:
             yield col
+
+
+def archive_order(table, columns):
+    return list(table.primary_key) or [
+        func.row(*archive_columns(sorted(columns, key=lambda c: c.name))).cast(sqltypes.Text).collate("C")
+    ]
 
 
 _ENCODER = simplejson.JSONEncoder(separators=(",", ":"), default=_json_default, ensure_ascii=False,
@@ -476,6 +526,8 @@ def _normalize_manifest(m: dict) -> dict:
     for t, info in (m.get("tables") or {}).items():
         files = info.get("files") or ([info["file"]] if info.get("file") else [])
         tables[t] = {"rows": int(info.get("rows", 0)), "files": files}
+        if "column_types" in info:
+            tables[t]["column_types"] = info["column_types"]
     m["tables"] = tables
     if "files" not in m:
         m["files"] = {k: {"sha256": v} for k, v in (m.get("checksums") or {}).items()}
@@ -555,9 +607,12 @@ def verify_file(path: Path, passphrase: str, collect: bool = True) -> Verified:
     if manifest is None:
         raise BackupError("manifest.json ontbreekt.")
     manifest = _normalize_manifest(manifest)
-    if manifest.get("format") != FORMAT or int(manifest.get("format_version", 0)) > FORMAT_VERSION:
+    version = manifest.get("format_version")
+    if (manifest.get("format") != FORMAT or type(version) is not int
+            or version not in (1, FORMAT_VERSION, TYPED_ROWS_VERSION)):
         raise BackupError("Back-up is van een nieuwere of onbekende bestandsversie.")
-    if meta and meta.get("schema_revision") != manifest.get("schema_revision"):
+    if meta and (meta.get("schema_revision") != manifest.get("schema_revision")
+                 or ("format_version" in meta and meta["format_version"] != version)):
         raise BackupError("Back-up beschadigd: versie-informatie klopt niet.")
     expected = manifest["files"]
     if set(expected) != set(seen):
@@ -982,7 +1037,7 @@ async def write_backup(
     rev = await schema_revision(conn)
     meta = {
         "format": FORMAT,
-        "format_version": FORMAT_VERSION,
+        "format_version": TYPED_ROWS_VERSION,
         "app_version": VERSION,
         "schema_revision": rev,
         "created_at": created_at,
@@ -999,9 +1054,12 @@ async def write_backup(
             _add_bytes(tar, "meta.json", meta_raw)
             files["meta.json"] = {"sha256": hashlib.sha256(meta_raw).hexdigest(), "size": len(meta_raw)}
             async with _backup_snapshot(conn, source_transaction=source_proof is not None) as snap:
+                await snap.execute(ARCHIVE_TEXT_SETTINGS)
                 # Een geredigeerde export gebruikt de bekende kolommen met hun bijbehorende
                 # geheimenbeleid. Een volledige export leest alle werkelijke gegevenskolommen.
-                export_tables = await snap.run_sync(inventory_tables) if include_secrets else inventory_tables()
+                export_tables = await snap.run_sync(inventory_tables)
+                if not include_secrets:
+                    export_tables = [t for t in export_tables if table_key(t) in Base.metadata.tables]
                 restore_report = await snap.scalar(select(Setting.value["v"]).where(Setting.key == "restore_report"))
                 interrupted = _interrupted_backup_ids(restore_report)
                 if source_proof is not None:
@@ -1023,9 +1081,9 @@ async def write_backup(
                     z2m_dir = empty_zigbee_store()
                     fence_store(pause or {})
                     source_proof.update({k: v for k, v in (pause or {}).items()
-                                         if k not in {"storage", "publishing", "file_id"}})
+                                         if k not in {"storage", "publishing", "file_id", "interim_file_id"}})
                     source_proof["zigbee_store"] = "write_fenced_empty"
-                    source_proof["inventory_version"] = 2
+                    source_proof["inventory_version"] = TYPED_ROWS_VERSION
                     source_proof["inventory"] = await snap.run_sync(capture, export_tables)
                     if not all(item["readable"] for item in source_proof["inventory"].values()):
                         raise BackupError("Controleer de oude hoofdsleutel op de bron vóór de definitieve export.")
@@ -1038,10 +1096,13 @@ async def write_backup(
                     target_stamp["value"] = await snap.run_sync(state_stamp)
                 for table in export_tables:
                     table_name = table_key(table)
+                    columns = sorted((c for c in table.columns
+                                      if include_secrets or c.name in Base.metadata.tables[table_name].columns),
+                                     key=lambda c: c.name)
                     if progress:
                         progress(table_name)
                     pw = _PartWriter(tar, table_name, tmpdir)
-                    stmt = select(*archive_columns(table.columns)).order_by(*table.primary_key)
+                    stmt = select(*archive_columns(columns)).order_by(*archive_order(table, columns))
                     result = await snap.stream(stmt.execution_options(yield_per=FETCH_ROWS))
                     keys = list(result.keys())
                     redact = not include_secrets
@@ -1060,7 +1121,8 @@ async def write_backup(
                     pw.flush(force=True)
                     for p in pw.parts:
                         files[p.name] = {"sha256": p.sha256, "size": p.size, "rows": p.rows}
-                    tables[table_name] = {"rows": pw.rows, "files": [p.name for p in pw.parts]}
+                    tables[table_name] = {"rows": pw.rows, "files": [p.name for p in pw.parts],
+                                          "column_types": archive_types(columns, snap.dialect)}
             z2m = _add_z2m(tar, z2m_dir, files, redact=not include_secrets)
             manifest = {
                 **meta,
@@ -1573,6 +1635,9 @@ def _restore_sync(
 
     conn.execute(text("SET LOCAL lock_timeout = '60s'"))
     conn.execute(text(LOCK_SQL))
+    typed = manifest["format_version"] == TYPED_ROWS_VERSION
+    if typed:
+        conn.execute(ARCHIVE_TEXT_SETTINGS)
     rev = manifest["schema_revision"]
     head = head_revision()
     report.schema_from, report.schema_to = rev, head
@@ -1585,7 +1650,9 @@ def _restore_sync(
         conn.execute(text(f"LOCK TABLE {names} IN ACCESS EXCLUSIVE MODE"))
         if migration:
             check_migration_target(conn, current, migration)
-            from .migration_source import complete
+            from .migration_source import TYPED_PROOF_REQUIRED, complete
+            if not typed or (manifest.get("source_pause") or {}).get("inventory_version") != TYPED_ROWS_VERSION:
+                raise BackupError(TYPED_PROOF_REQUIRED)
             if not complete(manifest.get("source_pause"), migration.source_id):
                 raise BackupError("De afgesloten bronregistratie is niet aangetoond of is verlopen.")
         if guard:
@@ -1642,15 +1709,24 @@ def _restore_sync(
             report.dropped["tables"][tname] = report.dropped["tables"].get(tname, 0) + n
             continue
         if table is None or table_key(table) != tname:
-            _flush(conn, table, batch, report)
+            _flush(conn, table, batch, report, typed=typed)
             batch = []
             table = target[tname]
             skipped_cols = set()
+            if typed:
+                source_types = manifest["tables"].get(tname, {}).get("column_types")
+                target_types = archive_types(table.columns, conn.dialect)
+                if not isinstance(source_types, dict) or not source_types or any(
+                    source_types[k] != target_types[k] for k in source_types.keys() & target_types.keys()
+                ):
+                    raise BackupError(f"De kolomtypen voor {tname} ontbreken of wijken af van het doel.")
         cols = table.columns
         for line in _lines(f):
             if not line:
                 continue
             obj = _load_json(line)
+            if typed and (not isinstance(obj, dict) or obj.keys() != source_types.keys()):
+                raise BackupError(f"Een rij van {tname} bevat niet precies de vastgelegde kolommen.")
             if tname == "settings" and obj.get("key") == "migration_source_pause":
                 continue  # Een bronpauze en de bijbehorende triggers zijn lokaal.
             row = {}
@@ -1661,12 +1737,17 @@ def _restore_sync(
                         skipped_cols.add(k)
                         report.dropped["columns"].setdefault(tname, []).append(k)
                     continue
-                row[k] = _dec(c, v)
+                if typed and _pg_text(c):
+                    if v is not None and not isinstance(v, str):
+                        raise BackupError(f"Een waarde in {tname}.{k} mist de vastgelegde tekstnotatie.")
+                    row[k] = v
+                else:
+                    row[k] = _dec(c, v)
             batch.append(row)
             if len(batch) >= INSERT_BATCH:
-                _flush(conn, table, batch, report)
+                _flush(conn, table, batch, report, typed=typed)
                 batch = []
-    _flush(conn, table, batch, report)
+    _flush(conn, table, batch, report, typed=typed)
     conn.execute(text("SET LOCAL shc.restoring_placements = 'off'"))
     final = target
     if rev != head:
@@ -1737,7 +1818,38 @@ def _is_older(rev: str, than: str | None) -> bool:
     return than is not None and than in revs and revs.index(rev) < revs.index(than)
 
 
-def _flush(conn, table, batch: list[dict], report: RestoreReport) -> None:
+def _typed_bind(conn, col, batch, temporary):
+    param = bindparam(col.name, type_=sqltypes.Text)
+    plain = param.cast(col.type)
+    if _float_sender(col) is None:
+        return plain
+    codes = {r[col.name] for r in batch if r[col.name] is not None and r[col.name].startswith("#")}
+    if not codes:
+        return plain
+    lookup = Table(f"shc_float_{uuid.uuid4().hex}", MetaData(),
+                   Column("code", sqltypes.Text, primary_key=True), Column("waarde", col.type),
+                   prefixes=["TEMPORARY"], postgresql_on_commit="DROP")
+    lookup.create(conn)
+    temporary.append(lookup)
+
+    async def load(driver):
+        # COPY van bytea levert de oorspronkelijke veldbytes. COPY naar het werkelijke
+        # kolomtype laat PostgreSQL diezelfde bytes in deze hersteltransactie inlezen.
+        stream = io.BytesIO()
+        await driver.copy_from_query("SELECT v, decode(substr(v, 2), 'hex') FROM unnest($1::text[]) AS v",
+                                     list(codes), output=stream, format="binary")
+        stream.seek(0)
+        await driver.copy_to_table(lookup.name, schema_name="pg_temp", source=stream, format="binary")
+
+    try:
+        conn.connection.dbapi_connection.run_async(load)
+    except asyncpg.PostgresError as exc:
+        raise BackupError(f"Ongeldige binaire waarde in {col.table.name}.{col.name}.") from exc
+    exact = select(lookup.c.waarde).where(lookup.c.code == param).scalar_subquery()
+    return case((param.startswith("#"), exact), else_=plain)
+
+
+def _flush(conn, table, batch: list[dict], report: RestoreReport, *, typed=False) -> None:
     if table is None:
         return
     from .migration_inventory import table_key
@@ -1745,7 +1857,14 @@ def _flush(conn, table, batch: list[dict], report: RestoreReport) -> None:
     report.counts.setdefault(key, 0)
     if not batch:
         return
-    conn.execute(table.insert(), batch)
+    insert = table.insert()
+    temporary = []
+    if typed:
+        insert = insert.values({c: _typed_bind(conn, c, batch, temporary) for c in table.columns
+                                if c.name in batch[0] and _pg_text(c)})
+    conn.execute(insert, batch)
+    for lookup in temporary:
+        lookup.drop(conn)
     report.counts[key] += len(batch)
 
 

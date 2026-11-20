@@ -76,7 +76,7 @@ def state_stamp(conn) -> str:
 
 def _table_signature(manifest: dict, name: str):
     table = manifest["tables"].get(name, {})
-    return [manifest["files"][f]["sha256"] for f in table.get("files", [])]
+    return table.get("column_types"), [manifest["files"][f]["sha256"] for f in table.get("files", [])]
 
 
 async def prepare(path: Path, passphrase: str, mode: str, owner: str, upload: str, source: bk.Verified) -> dict:
@@ -99,7 +99,8 @@ async def prepare(path: Path, passphrase: str, mode: str, owner: str, upload: st
             tables[name] = {
                 "before": target.manifest["tables"].get(name, {}).get("rows", 0),
                 "after": source.manifest["tables"].get(name, {}).get("rows", 0),
-                "same": _table_signature(target.manifest, name) == _table_signature(source.manifest, name),
+                "same": source.manifest["format_version"] == bk.TYPED_ROWS_VERSION
+                        and _table_signature(target.manifest, name) == _table_signature(source.manifest, name),
             }
         comparison = {"mode": mode, "rollback_id": str(key), "rollback_sha256": await asyncio.to_thread(_sha, dest),
                       "archive_sha256": await asyncio.to_thread(_sha, path), "homes_before": target.summary["homes"],

@@ -20,6 +20,8 @@ from .store import audit, ensure_server_identity, get_setting, set_setting
 
 PAUSE_KEY = "migration_source_pause"
 LEASE = timedelta(hours=1)
+TYPED_PROOF_REQUIRED = ("Bronvolledigheid onbekend. Dit archief bewijst het onderscheid tussen SQL NULL en "
+                        "JSON null niet. Maak een nieuwe definitieve export op de bijgewerkte bron.")
 
 
 def compose_zigbee_mount(mountinfo: str) -> bool:
@@ -229,45 +231,56 @@ async def _update_publication(db, **change):
         {"change": json.dumps(change)})
 
 
-async def _finish_publication(db, proof):
-    """De intentie staat pas na verificatie en afsluiting in de database. De installatielock is exclusief."""
-    from .restore_control import rollback_dir, sync_directory
+def _publish_verified(pending, path):
+    from .restore_control import sync_directory
 
-    path = rollback_dir() / f"{uuid.UUID(proof['publishing'])}.shcbak"
-    pending = path.with_suffix(".partial")
     try:
         pending.replace(path)
-        published = True
     except OSError:
         # Na procesverlies kan de vorige transactie de rename al hebben uitgevoerd.
         try:
             path.stat()
-            published = True
         except FileNotFoundError:
-            published = False
-    if published:
-        sync_directory(path.parent)
-    else:
+            return False
+    sync_directory(path.parent)
+    return True
+
+
+async def _finish_publication(db, proof):
+    """Geef alleen een bevestigde bestandsuitkomst vrij onder de exclusieve installatielock."""
+    from .restore_control import rollback_dir
+
+    try:
+        path = rollback_dir() / f"{uuid.UUID(proof['publishing'])}.shcbak"
+        pending = path.with_suffix(".partial")
+        published = _publish_verified(pending, path)
+    except OSError:
+        # Een hernoemd bestand kan al zichtbaar zijn. Houd de intentie en de schrijfgrens
+        # tot de map duurzaam is bevestigd of het bronbewijs is verlopen.
+        return False
+    if not published:
         await _open_journal(db)
         await login_event(db, "system", "migration_source_export_aborted")
-    await db.execute(text("ALTER TABLE settings DISABLE TRIGGER shc_source_pause"))
     change = {"file_id": proof["publishing"]} if published else {"stopped_at": None}
+    await db.execute(text("ALTER TABLE settings DISABLE TRIGGER shc_source_pause"))
     await _update_publication(db, **change)
     await db.execute(text("ALTER TABLE settings ENABLE TRIGGER shc_source_pause"))
     await db.commit()
     if not published:
         with suppress(OSError):  # De bron is heropend, ook als de tijdelijke map alleen-lezen werd.
             pending.unlink(missing_ok=True)
+    return True
 
 
-async def locked_pause(db, *, shared=False):
+async def locked_pause(db, *, shared=False, download_id=None):
     """Lever de actuele pauze onder de lock, ook na procesverlies tussen afsluiten en publiceren."""
     lock = lock_commissioning_shared if shared else lock_commissioning
     current = text("SELECT value->'v' FROM settings WHERE key='migration_source_pause'")
     while True:
         await lock(db)
         proof = await db.scalar(current)
-        if not proof or not proof.get("publishing"):
+        if (not proof or not proof.get("publishing")
+                or (download_id is not None and proof["publishing"] != str(download_id))):
             return proof
         if shared:
             # Twee aanmeldingen mogen nooit tegelijk een gedeelde lock proberen op te waarderen.
@@ -275,7 +288,8 @@ async def locked_pause(db, *, shared=False):
             await lock_commissioning(db)
             proof = await db.scalar(current)
         if proof and proof.get("publishing"):
-            await _finish_publication(db, proof)
+            if not await _finish_publication(db, proof):
+                return proof
         else:
             await db.commit()
 
@@ -286,6 +300,8 @@ async def prepare_export(db, actor: str, *, stop: bool, file_id: uuid.UUID) -> b
     proof = await locked_pause(db)
     if not proof or "stopped_at" not in proof or datetime.now(UTC) >= datetime.fromisoformat(proof["expires"]):
         raise bk.BackupError("Begin een nieuwe bronpauze voor de export. Hervat een eerdere pauze na de vervaltijd.")
+    if proof.get("publishing"):
+        raise bk.BackupError("De archiefmap heeft de nieuwe eindexport nog niet bevestigd.")
     if proof["stopped_at"]:
         return False
     await db.execute(text("LOCK TABLE shc_pause.attempts, shc_pause.events IN ACCESS EXCLUSIVE MODE"))
@@ -308,6 +324,9 @@ async def prepare_export(db, actor: str, *, stop: bool, file_id: uuid.UUID) -> b
             await db.execute(text(f"""CREATE TRIGGER shc_registrations_closed
                 BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE
                 ON shc_pause.{name} FOR EACH STATEMENT EXECUTE FUNCTION shc_pause.registrations_closed()"""))
+    else:
+        # De tussenexport commit dit veld pas na verificatie, hernoemen en mapsynchronisatie.
+        await _update_publication(db, interim_file_id=str(file_id))
     for name in ("users", "audit_log", "settings"):
         await db.execute(text(f'ALTER TABLE "{name}" ENABLE TRIGGER shc_source_pause'))
     return stop
@@ -351,7 +370,7 @@ def complete(proof, source_id) -> bool:
         start = datetime.fromisoformat(proof["started"])
         end = datetime.fromisoformat(proof["expires"])
         stopped = datetime.fromisoformat(proof["stopped_at"])
-        return bool(source_id and proof.get("inventory_version") == 2
+        return bool(source_id and proof.get("inventory_version") == bk.TYPED_ROWS_VERSION
                     and proof["source_id"] == source_id and proof["zigbee_store"] == "write_fenced_empty"
                     and start <= stopped <= datetime.now(UTC) < end <= start + LEASE and uuid.UUID(proof["id"]))
     except (ValueError, TypeError, KeyError):

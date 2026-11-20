@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import secrets
 import shutil
@@ -808,13 +809,20 @@ class ApplyIn(PreviewIn):
 
 @router.get("/system/restore/files/{backup_id}")
 async def restore_download(backup_id: uuid.UUID, db: DB, p: WebAdmin):
-    # Ook een gelijktijdige download wacht op de duurzame uitkomst van de publicatie.
-    await migration_source.locked_pause(db, shared=True)
-    path = restore_control.rollback_dir() / f"{backup_id}.shcbak"
-    if not path.is_file():
-        raise not_found("Back-up")
+    pause = await migration_source.locked_pause(db, shared=True, download_id=backup_id)
+    if pause and pause.get("publishing") == str(backup_id):
+        raise api_error(409, "source_unverified", "De archiefmap heeft deze eindexport nog niet bevestigd.")
+    try:
+        path = restore_control.rollback_dir() / f"{backup_id}.shcbak"
+        with path.open("rb") as stream:
+            info = os.fstat(stream.fileno())
+    except FileNotFoundError as exc:
+        raise not_found("Back-up") from exc
+    except OSError as exc:
+        raise api_error(409, "backup_unreadable", "Het gevraagde archief is niet leesbaar.") from exc
     await db.commit()
-    return FileResponse(path, media_type="application/octet-stream", filename=f"woning-{backup_id}.shcbak")
+    return FileResponse(path, stat_result=info, media_type="application/octet-stream",
+                        filename=f"woning-{backup_id}.shcbak")
 
 
 @router.post("/system/restore/source/pause")
@@ -830,8 +838,9 @@ async def source_pause(db: DB, p: WebAdmin) -> dict:
 async def source_resume(db: DB, p: WebAdmin) -> dict:
     try:
         await migration_source.resume(db, p.actor)
-    except bk.BackupError as exc:
-        raise api_error(409, "source_paused", str(exc)) from exc
+    except (bk.BackupError, OSError) as exc:
+        raise api_error(409, "source_paused", str(exc) if isinstance(exc, bk.BackupError)
+                        else "De bronopslag kon niet worden vrijgegeven.") from exc
     return {"paused": False}
 
 
@@ -842,28 +851,37 @@ class SourceExportIn(BackupIn):
 @router.post("/system/restore/source/export")
 async def source_export(body: SourceExportIn, db: DB, p: WebAdmin) -> dict:
     key = uuid.uuid4()
-    path = restore_control.rollback_dir() / f"{key}.shcbak"
-    pending = path.with_suffix(".partial")
+    pending = None
     proof = {}
     try:
+        path = restore_control.rollback_dir() / f"{key}.shcbak"
+        pending = path.with_suffix(".partial")
         closing = await migration_source.prepare_export(db, p.actor, stop=body.stop_source, file_id=key)
         pending.touch(mode=0o600, exist_ok=False)
         await bk.write_backup(await db.connection(), pending, body.passphrase, True, source_proof=proof)
         await asyncio.to_thread(bk.verify_file, pending, body.passphrase)
-        await db.commit()
         if closing:
-            await migration_source.locked_pause(db)
-            if not path.is_file():
+            await db.commit()
+            current = await migration_source.locked_pause(db)
+            if current and current.get("publishing"):
+                raise bk.BackupError("De archiefmap heeft de nieuwe eindexport nog niet bevestigd.")
+            if not current or current.get("file_id") != str(key) or not path.is_file():
                 raise bk.BackupError("De eindexport is niet gepubliceerd. Je kunt opnieuw aanmelden en hervatten.")
         else:
             pending.replace(path)
-            restore_control.sync_directory(path.parent)
+            try:
+                restore_control.sync_directory(path.parent)
+            except OSError:
+                path.unlink(missing_ok=True)
+                raise
+            await db.commit()
     except (bk.BackupError, OSError) as exc:
         raise api_error(409, "source_unverified", str(exc) if isinstance(exc, bk.BackupError)
                         else "De bronexport kon niet worden geverifieerd.") from exc
     finally:
-        with contextlib.suppress(OSError):
-            pending.unlink(missing_ok=True)
+        if pending is not None:
+            with contextlib.suppress(OSError):
+                pending.unlink(missing_ok=True)
     return {"file_id": key, "source_pause": {k: v for k, v in proof.items() if k != "inventory"}}
 
 
@@ -943,12 +961,18 @@ async def web_restore_drill(body: RestoreUploadIn, db: DB, p: WebAdmin) -> dict:
             await _check_migration_target(db, target)
         except bk.BackupError as exc:
             refusal = str(exc)
-    if refusal is None and not migration_source.complete(verified.manifest.get("source_pause"), source_id):
-        refusal = "Bronvolledigheid onbekend. Sluit de bronregistratie af en gebruik de definitieve export."
+    proof = verified.manifest.get("source_pause")
+    if refusal is None:
+        if (verified.manifest["format_version"] != bk.TYPED_ROWS_VERSION
+                or (proof and proof.get("inventory_version") != bk.TYPED_ROWS_VERSION)):
+            refusal = migration_source.TYPED_PROOF_REQUIRED
+        elif not migration_source.complete(proof, source_id):
+            refusal = "Bronvolledigheid onbekend. Sluit de bronregistratie af en gebruik de definitieve export."
     if refusal is None:
         meta["drill"] = {
             "id": str(uuid.uuid4()), "fingerprint": _backup_fingerprint(verified), "target_id": target_id,
             "source_id": source_id, "admin_id": str(p.user.id), "expires_at": time.time() + 3600,
+            "inventory_version": proof["inventory_version"],
         }
     path.with_suffix(".json").write_text(json.dumps(meta))
     await audit(db, p.actor, "restore_drill", body.upload_id, ok=result["ok"])
@@ -973,6 +997,8 @@ async def _migration(body: PreviewIn, db: DB, p: WebAdmin, meta: dict):
     if body.mode != "migration":
         return None
     drill = meta.get("drill") or {}
+    if drill and drill.get("inventory_version") != bk.TYPED_ROWS_VERSION:
+        raise api_error(409, "migration_drill_required", migration_source.TYPED_PROOF_REQUIRED)
     if (not body.drill_id or drill.get("id") != str(body.drill_id) or drill.get("admin_id") != str(p.user.id)
             or drill.get("expires_at", 0) <= time.time()):
         raise api_error(409, "migration_drill_required", "Voer de herstelproef uit en bevestig het getoonde doel.")
@@ -1149,6 +1175,8 @@ async def restore_compare(db: DB, p: WebAdmin, home_id: uuid.UUID | None = None)
             await _compare_inventory(db, comparison, migration)
             complete = migration_source.complete(migration.get("source_pause"), migration["source_id"])
             summary["source_complete"] = complete
+            if (migration.get("source_pause") or {}).get("inventory_version") != bk.TYPED_ROWS_VERSION:
+                summary["refusal"] = migration_source.TYPED_PROOF_REQUIRED
             if _comparison_complete(comparison) and complete:
                 expires = int(time.time()) + 900
                 signature = _comparison_signature(comparison, migration, p.session_id, expires)
@@ -1160,6 +1188,9 @@ async def restore_compare(db: DB, p: WebAdmin, home_id: uuid.UUID | None = None)
 async def _compare_inventory(db, data, migration):
     conn = await db.connection()
     data["inventory"] = await conn.run_sync(migration_inventory.comparison, migration.get("inventory"))
+    if (migration.get("source_pause") or {}).get("inventory_version") != bk.TYPED_ROWS_VERSION:
+        for row in data["inventory"].values():
+            row["same"] = False
     # Vergelijk het samengevoegde beleid in PostgreSQL, inclusief typen en exacte JSON-getallen.
     gate = await db.scalar(text("""SELECT (jsonb_typeof(value->'v') = 'object' AND value->'v' <> '{}'::jsonb
         AND value->'v' = (SELECT value #> '{v,gate}' FROM settings WHERE key='migration_pending')) IS TRUE
@@ -1206,6 +1237,8 @@ async def confirm_migration(body: MigrationConfirm, db: DB, p: WebAdmin) -> dict
     migration = await _pending_migration(db)
     if not migration or migration.get("target_id") != await get_setting(db, "server_id"):
         raise api_error(409, "migration_refused", "Er is geen overstap voor deze installatie bevestigd.")
+    if (migration.get("source_pause") or {}).get("inventory_version") != bk.TYPED_ROWS_VERSION:
+        raise api_error(409, "migration_refused", migration_source.TYPED_PROOF_REQUIRED)
     expiry, _, signature = body.confirmation.partition(".")
     expires = int(expiry)
     await (await db.connection()).run_sync(migration_inventory.lock_tables)

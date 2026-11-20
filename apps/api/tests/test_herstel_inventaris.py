@@ -128,10 +128,17 @@ async def test_extra_schema_in_back_up_en_herstel(monkeypatch, tmp_path):
         async with engine().begin() as conn:
             await conn.execute(text("CREATE SCHEMA uitbreiding"))
             await conn.execute(text("CREATE TABLE uitbreiding.proef (id serial PRIMARY KEY, inhoud jsonb)"))
+            await conn.execute(text("ALTER TABLE homes ADD COLUMN interne_notitie text"))
             await conn.execute(text("""INSERT INTO uitbreiding.proef VALUES (7, '{"bewaren": [true]}')"""))
         async with engine().connect() as conn:
             manifest = await backup.write_backup(conn, archief, PW, True)
         assert manifest["tables"]["uitbreiding.proef"]["rows"] == 1
+        async with engine().connect() as conn:
+            beperkt = await backup.write_backup(conn, tmp_path / "geredigeerd.shcbak", PW, False)
+        assert "uitbreiding.proef" not in beperkt["tables"]
+        assert "interne_notitie" in manifest["tables"]["homes"]["column_types"]
+        assert "interne_notitie" not in beperkt["tables"]["homes"]["column_types"]
+        assert beperkt["tables"]["rooms"]["column_types"] == manifest["tables"]["rooms"]["column_types"]
         async with engine().begin() as conn:
             await conn.execute(text("DELETE FROM uitbreiding.proef"))
         await backup.restore_file(archief, PW)
@@ -150,6 +157,10 @@ def test_duurzame_buren_van_vluchtige_jsonvelden():
     for path in inventory.RUNTIME_PATHS["devices"]:
         inventory._omit_live_leaf(stand, path)
     assert stand == {"state": {"last_event": {"extra": []}}, "diagnostics": {"inventory": {"nieuw": {"genest": {}}}}}
+    leeg = {"diagnostics": {"inventory": {}}}
+    for path in inventory.RUNTIME_PATHS["devices"]:
+        inventory._omit_live_leaf(leeg, path)
+    assert leeg == {"diagnostics": {"inventory": {}}}
 
 
 def andere_waarde(kolom, oud):

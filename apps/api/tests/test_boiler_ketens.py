@@ -21,6 +21,7 @@ from .boiler_support import boiler_rig as boiler_rig
 from .boiler_support import commands, mapping, protect
 from .conftest import ADMIN_PW, Session
 from .restore_approval import cli_reviewed, reviewed
+from .test_herstel_oude_export import historische_rijen
 from .test_ws_climate_worker import make_rig, sensor_value
 from .test_ws_security_ws import FakeWS
 from .ws_devices_support import add_integration, fetch
@@ -302,9 +303,7 @@ async def test_websocket_heeft_geen_commandodispatch(admin, boiler_rig, app):
 @pytest.mark.parametrize("ingang", ["web-v2", "web-v1", "cli-v2", "cli-v1"])
 async def test_import_vrijgave_en_oude_knop_tot_adapter(admin, boiler_rig, tmp_path, monkeypatch, ingang):
     import argparse
-    import json
 
-    from shc_api import backup as bk
     from shc_api import cli
     from shc_api.config import get_settings
     from shc_api.routers import system
@@ -324,12 +323,9 @@ async def test_import_vrijgave_en_oude_knop_tot_adapter(admin, boiler_rig, tmp_p
     assert made.status_code == 200, made.text
     path = get_settings().backup_dir / made.json()["filename"]
     if ingang.endswith("v1"):
-        manifest, files = bk.open_archive(path.read_bytes(), password)
-        tables = {name.removeprefix("tables/").removesuffix(".jsonl"):
-                  [json.loads(line) for line in blob.splitlines() if line]
-                  for name, blob in files.items() if name.startswith("tables/")}
+        revision, tables = await historische_rijen(tmp_path, password)
         path = tmp_path / "oud.shcbak"
-        path.write_bytes(make_v1(tables, manifest["schema_revision"], password))
+        path.write_bytes(make_v1(tables, revision, password))
     if ingang.startswith("web"):
         verified = await _upload(admin, path.read_bytes(), password)
         assert verified.status_code == 200 and verified.json()["restorable"], verified.text

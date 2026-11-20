@@ -12,6 +12,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from shc_api import backup
 from shc_api.config import get_settings
 from shc_api.db import dispose
 from shc_api.main import create_app
@@ -27,18 +28,23 @@ from .test_ws_backup_restore import _scalar
 
 REPO = Path(__file__).resolve().parents[3]
 BRONVERSIE = "e22286cd3620b5e9d31e8a0acf0841892b9ab04b"
+VORIGE_RIJVERSIE = "c296859a5a99d550b97367f93ac56d0db9cf9c89"
 
 
-@pytest.fixture
-def oude_app(tmp_path, request):
+def pak_bronversie_uit(tmp_path, versie):
     app = tmp_path / "vorige-versie"
     app.mkdir()
-    args = ["git", "archive", getattr(request, "param", BRONVERSIE), "VERSION", "apps/api/src", "integrations/src"]
+    args = ["git", "archive", versie, "VERSION", "apps/api/src", "integrations/src"]
     with subprocess.Popen(args, cwd=REPO, stdout=subprocess.PIPE) as proc:
         with tarfile.open(fileobj=proc.stdout, mode="r|") as files:
             files.extractall(app, filter="data")
         assert proc.wait() == 0
     return app
+
+
+@pytest.fixture
+def oude_app(tmp_path, request):
+    return pak_bronversie_uit(tmp_path, getattr(request, "param", BRONVERSIE))
 
 
 @pytest.mark.parametrize(("oude_app", "opslagbewijs"), [
@@ -127,6 +133,18 @@ async def vorige_versie(basis, actie, **velden):
     return uit.decode().strip()
 
 
+async def historische_rijen(tmp_path, password):
+    # De v1-fixtures gebruiken dezelfde rijcodering als de schrijver van vóór het getypeerde manifest.
+    basis = pak_bronversie_uit(tmp_path, VORIGE_RIJVERSIE)
+    naam = await vorige_versie(basis, "export", url=get_settings().database_url, zin=password,
+                               map=str(tmp_path), zigbee=str(tmp_path / "zigbee"))
+    manifest, files = backup.open_archive((tmp_path / naam).read_bytes(), password)
+    assert manifest["format_version"] == 2
+    tables = {t: [json.loads(line) for f in info["files"] for line in files[f].splitlines() if line]
+              for t, info in manifest["tables"].items()}
+    return manifest["schema_revision"], tables
+
+
 STEEKPROEF = """SELECT jsonb_build_object(
     'gebruikers', (SELECT jsonb_agg(to_jsonb(u) ORDER BY id) FROM users u),
     'woningen', (SELECT jsonb_agg(to_jsonb(h) ORDER BY id) FROM homes h),
@@ -179,3 +197,51 @@ async def test_basisarchief_en_terugval(tmp_path, monkeypatch, oude_app):
             print("Basis naar eindversie: SHA-256 gelijk; 2 gebruikers, 1 woning, 1 binding, 1 telefoon, 2 metingen inhoudelijk gelijk. Kijker en telefoon lezen op doel en bron.")
         finally:
             await dispose()
+
+
+@pytest.mark.parametrize("oude_app", [VORIGE_RIJVERSIE], indirect=True)
+async def test_oude_eindexport_zonder_getypeerd_bewijs(tmp_path, monkeypatch, oude_app):
+    cfg = get_settings()
+    monkeypatch.setattr(cfg, "backup_dir", tmp_path / "doel")
+    zigbee = tmp_path / "zigbee2mqtt"
+    zigbee.mkdir()
+    archief = tmp_path / "ouder.shcbak"
+    async with proefinstallatie(monkeypatch) as bron:
+        assert (await bron.post("/homes", {"name": "Oude bron"})).is_success
+        bron_url = cfg.database_url
+        omgeving = dict(os.environ, SHC_DATABASE_URL=bron_url, SHC_DATA_DIR=str(tmp_path / "app"),
+                        SHC_ZIGBEE2MQTT_DIR=str(zigbee),
+                        PYTHONPATH=os.pathsep.join(str(oude_app / d) for d in ("apps/api/src", "integrations/src")))
+        script = """
+import asyncio, sys, uuid
+from pathlib import Path
+from shc_api import backup, migration_source
+from shc_api.db import sessionmaker
+
+async def export():
+    assert Path(backup.__file__).is_relative_to(Path.cwd())
+    async with sessionmaker()() as db:
+        await migration_source.pause(db, 'testbeheer')
+        await migration_source.prepare_export(db, 'testbeheer', stop=True, file_id=uuid.uuid4())
+        result = await backup.write_backup(await db.connection(), Path(sys.argv[1]), sys.stdin.read(), True, source_proof={})
+        assert result['format_version'] == result['source_pause']['inventory_version'] == 2
+        assert migration_source.complete(result['source_pause'], result['source_pause']['source_id'])
+        await db.commit()
+asyncio.run(export())
+"""
+        proces = await asyncio.create_subprocess_exec(sys.executable, "-c", script, str(archief), cwd=oude_app,
+                                                       env=omgeving, stdin=asyncio.subprocess.PIPE)
+        await proces.communicate(PW.encode())
+        assert proces.returncode == 0
+        async with proefinstallatie(monkeypatch) as doel:
+            upload = await _upload(doel, archief.read_bytes(), PW)
+            assert upload.is_success
+            body = {"upload_id": upload.json()["upload_id"], "passphrase": PW}
+            proef = (await doel.post("/system/restore/drill", body)).json()
+            assert proef["data_ok"] and not proef["drill_id"]
+            assert "SQL NULL" in proef["migration_refusal"] and "JSON null" in proef["migration_refusal"]
+            assert (await doel.post("/system/restore/apply", {**body, "mode": "migration"})).status_code == 409
+            overzicht = await doel.post("/system/restore/preview", {**body, "mode": "same_home"})
+            assert overzicht.is_success and not any(t["same"] for t in overzicht.json()["comparison"]["tables"].values())
+            assert await _scalar(cfg.database_url, "SELECT count(*) FROM homes") == 0
+            assert await _scalar(bron_url, "SELECT name FROM homes") == "Oude bron"

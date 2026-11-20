@@ -2,7 +2,6 @@
 
 import argparse
 import asyncio
-import json
 import uuid
 from datetime import UTC, datetime
 
@@ -10,7 +9,7 @@ import pytest
 from shc_integrations.base import ButtonEvent
 from sqlalchemy import select
 
-from shc_api import backup, cli
+from shc_api import cli
 from shc_api import db as db_module
 from shc_api.commissioning import lock_commissioning, read_gate
 from shc_api.config import get_settings
@@ -22,6 +21,7 @@ from shc_api.store import get_setting, set_setting
 from .boiler_support import commands, protect
 from .conftest import ADMIN_PW, Session
 from .restore_approval import cli_reviewed, reviewed
+from .test_herstel_oude_export import historische_rijen
 from .test_inbedrijfstelling_beheer import wait_for_lock_queue
 from .test_inbedrijfstelling_groepen import change, mapping
 from .test_inbedrijfstelling_groepen import group_rig as group_rig
@@ -59,13 +59,7 @@ async def save_backup(admin, tmp_path, password, format_number):
     assert made.status_code == 200, made.text
     path = get_settings().backup_dir / made.json()["filename"]
     if format_number != "v2":
-        manifest, files = backup.open_archive(path.read_bytes(), password)
-        tables: dict[str, list[dict]] = {}
-        for name, blob in files.items():
-            if name.startswith("tables/"):
-                table = name.split("/")[1]
-                tables.setdefault(table, []).extend(json.loads(line) for line in blob.splitlines() if line)
-        revision = manifest["schema_revision"]
+        revision, tables = await historische_rijen(tmp_path, password)
         if format_number == "v1-0004":
             revision = "0004"
             tables["settings"] = [row for row in tables["settings"] if row["key"] != "commissioning_gate"]

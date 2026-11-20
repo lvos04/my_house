@@ -4,7 +4,7 @@ from __future__ import annotations
 import base64
 import hashlib
 
-from sqlalchemy import MetaData, String, func, inspect, select
+from sqlalchemy import MetaData, func, inspect, select
 
 from . import backup as bk
 from .config import get_settings
@@ -53,7 +53,7 @@ LOCAL_PROOF_FIELDS = {
     "migration_pending": {"source_id", "target_id", "source_pause", "inventory", "gate", "archive_sha256",
                           "rollback_sha256", "comparison_id"},
     "migration_source_pause": {"id", "source_id", "started", "stopped_at", "expires", "maintenance_before",
-                               "storage", "last_reading", "reading_count", "publishing", "file_id"},
+                               "storage", "last_reading", "reading_count", "publishing", "file_id", "interim_file_id"},
 }
 RUNTIME_SETTINGS = {
     "worker_heartbeat": {("v",): "Het draaiende proces ververst zijn levensteken."},
@@ -119,21 +119,26 @@ def lock_tables(conn):
 def _omit_live_leaf(obj, path):
     key, *rest = path
     if not isinstance(obj, dict) or key not in obj:
-        return
+        return False
     child = obj[key]
     if rest:
-        _omit_live_leaf(child, rest)
-        if child == {}:
+        removed = _omit_live_leaf(child, rest)
+        if removed and child == {}:
             del obj[key]
-    elif not isinstance(child, (list, dict)):
+        return removed
+    if not isinstance(child, (list, dict)):
         del obj[key]
+        return True
+    return False
 
 
 def _repeated_rows(conn, table, boundary):
     # Eigen nieuwe doelhistorie mag naast de bronhistorie staan. Een gekopieerde brongebeurtenis
     # met een nieuw volgnummer telt wel als extra rij, ook wanneer het oorspronkelijke ID nog bestaat.
     extra = table.alias()
-    same = [(col.is_not_distinct_from(extra.c[col.name]) if col.nullable else col == extra.c[col.name])
+    # Dezelfde PostgreSQL-notatie voor beide rijen onderscheidt ook SQL NULL, JSON null,
+    # getalschaal en de oorspronkelijke tekst van een json-kolom zonder gelijkheidsoperator.
+    same = [bk.archive_text(col).collate("C").is_not_distinct_from(bk.archive_text(extra.c[col.name]).collate("C"))
             for col in table.columns if col.name != "id"]
     original = select(1).select_from(table).where(table.c.id <= boundary, *same).exists()
     return conn.scalar(select(func.count()).select_from(extra).where(extra.c.id > boundary, original))
@@ -173,8 +178,8 @@ def compared_columns(table):
 def fingerprint(conn, table, *, boundary=None):
     name = table_key(table)
     cols = compared_columns(table)
-    order = list(table.primary_key) or [func.to_jsonb(table.table_valued()).cast(String)]
-    stmt = select(*bk.archive_columns(cols)).order_by(*order)
+    conn.execute(bk.ARCHIVE_TEXT_SETTINGS)
+    stmt = select(*bk.archive_columns(cols)).order_by(*bk.archive_order(table, cols))
     count = 0
     if name in APPEND_ONLY:
         if boundary is None:
@@ -208,7 +213,8 @@ def fingerprint(conn, table, *, boundary=None):
                 readable = False
         digest.update(bk.comparison_bytes(value) + b"\n")
         count += 1
-    return {"columns": sorted(c.name for c in cols), "rows": count, "sha256": digest.hexdigest(),
+    return {"columns": sorted(c.name for c in cols), "types": bk.archive_types(cols, conn.dialect),
+            "rows": count, "sha256": digest.hexdigest(),
             "boundary": boundary, "readable": readable}
 
 
