@@ -164,3 +164,19 @@ De eigenschapsproef geeft iedere randwaarde tijdelijk dezelfde rijsleutel en con
 | Dezelfde fout na het verlopen van het bewijs | Hervatten en een volgende schrijfopdracht krijgen HTTP 200. De eerdere download blijft bytegelijk. | `test_eerdere_download_bij_fout_in_mapbevestiging` |
 | De hernoeming wordt geweigerd en er is geen definitief bestand | Heraanmelden en hervatten kunnen direct. De aanmeldingen blijven in het logboek. | `test_geweigerde_publicatie_houdt_bron_bereikbaar` |
 | Procesverlies vóór of na hernoemen | Zonder definitief bestand heropent het journaal. Met een bevestigd bestand blijft de bron begrensd en is de download na herstart vindbaar. | `test_publicatie_onderbroken_rond_hernoemen[False]`, `[True]` |
+
+<!-- S-P3-735 begin -->
+## S-P3-735 — back-up A naar herstel B
+
+Sim-getest op twee lokale Custom Apps met een proefmeter en lege Zigbee-bronopslag.
+
+| Controle | Meting |
+| --- | --- |
+| Start | A en B gezond op afzonderlijke volumes en verschillende interne adressen. |
+| Bronexport | 2 gebruikers, 1 woning, 2 zones, 1 meter, 1 rolbinding en 4 metingen in A. |
+| Verkeerde wachtwoordzin | HTTP 422 met backup_invalid. Alleen de tijdelijke beheerder staat op B. |
+| Verkeerde wachtwoordzin bij toepassen | De bevestigde vergelijking leidde tot HTTP 422. B bleef leeg. |
+| Herstel | Archief en doelback-up op SHA-256 gecontroleerd. De bevestigde webtaak bereikte done. |
+| Herstart B | Beide bronaccounts ingelogd. restore/compare bevestigde de broninhoud in alle 24 overdraagbare tabellen, ook na een nieuwe doelmeting. De vier bronmetingen zijn binair gelijk. |
+| Bron na herstel | Alle 33 brontabellen hebben hetzelfde aantal en dezelfde binaire rijinhoud. |
+<!-- S-P3-735 einde -->

@@ -619,6 +619,39 @@ async def test_migration_0003_upgrade_and_downgrade():
         assert dict(await sql(url, "SELECT id, role FROM pairing_codes"))[open_admin] == "admin"
 
 
+async def test_migration_head_base_head():
+    from alembic import command
+
+    from shc_api import backup as bk
+
+    from .test_ws_backup_format import temp_db
+
+    columns = """SELECT table_schema, table_name, column_name, udt_name, is_nullable, column_default
+                 FROM information_schema.columns
+                 WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+                 ORDER BY table_schema, table_name, ordinal_position"""
+    revision = "SELECT version_num FROM alembic_version"
+    async with temp_db("head") as url:
+        cfg = bk.alembic_config(url)
+        db = await asyncpg.connect(url.replace("+asyncpg", ""))
+        try:
+            before = await db.fetch(columns)
+            assert {"users", "homes", "climate_zones", "devices"} <= {r["table_name"] for r in before}
+            assert await db.fetchval(revision) == bk.head_revision()
+
+            await asyncio.to_thread(command.downgrade, cfg, "base")
+            assert not await db.fetch(revision)
+            assert {(r["table_schema"], r["table_name"]) for r in await db.fetch(columns)} == {
+                ("public", "alembic_version")
+            }
+
+            await asyncio.to_thread(command.upgrade, cfg, "head")
+            assert await db.fetchval(revision) == bk.head_revision()
+            assert await db.fetch(columns) == before
+        finally:
+            await db.close()
+
+
 # --- 10. restore as a new home keeps comfort profiles and schedules as drafts (plan §8.5) ----------
 
 

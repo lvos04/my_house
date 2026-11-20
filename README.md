@@ -63,6 +63,18 @@ docs              plan, API-contract, architectuur, beslissingen, handleidingen
 - Android: `apps/android` (`./gradlew :core:test :app:testDebugUnitTest`).
 - CI (`.github/workflows/ci.yml`) draait de backend- en webtests bij elke push en pull request, plus een rooktest en browsertests tegen de gebouwde images. De Android-tests en de debug-APK komen uit `.github/workflows/android.yml` (bij wijzigingen in `apps/android`) en draaien bij elke release opnieuw.
 
+### Herstelproef met twee lokale Custom Apps
+
+De CI-job **Custom App-rechten en migratiebewijs** start twee exemplaren van hetzelfde image met afzonderlijke datavolumes op een intern Docker-netwerk. A bevat twee proefaccounts, een woning met twee zones en een gesimuleerde meter met een rolbinding en meetgeschiedenis. B begint met alleen de tijdelijke beheerder.
+
+Gebruik op een Linux-ontwikkelmachine het lokaal gebouwde image uit `deploy/allinone/Dockerfile`. Zet `SHC_AIO_IMAGE` op de eigen imagetag. Gebruik voor `SHC_STACK_LOCK` het gedeelde bestand `.lokaal/stack.lock` in de map waarin de repositories staan. Voer vanuit de repomap hetzelfde commando uit als in CI.
+
+```bash
+flock "$SHC_STACK_LOCK" nice -n 10 python3 infra/tests/allinone_herstelproef.py "$SHC_AIO_IMAGE"
+```
+
+De proef schrijft de gemeten controles naar [het testlog](docs/testlog.md). CI bewaart dit bestand als artifact `herstelproef-a-naar-b`.
+
 ## Platform (TrueNAS Home Platform V2)
 
 my_house is een bestaande app van het platform: hij houdt zijn eigen routes, database en UI en krijgt alleen de hiaten

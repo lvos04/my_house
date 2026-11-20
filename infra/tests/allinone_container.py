@@ -225,10 +225,10 @@ def within(test, label, seconds=85):
 
 
 class Trial:
-    def __init__(self, image, cleanup):
+    def __init__(self, image, cleanup, step="725"):
         self.image = image
         self.cleanup = cleanup
-        self.prefix = "my-house-s-p3-725-" + uuid4().hex[:10]
+        self.prefix = f"my-house-s-p3-{step}-" + uuid4().hex[:10]
 
     def storage(self, label):
         volume = f"{self.prefix}-{label}"
@@ -236,12 +236,12 @@ class Trial:
         self.cleanup.callback(docker, "volume", "rm", volume)
         return volume
 
-    def container(self, label, volume=None, user="0", options=(), entrypoint=()):
+    def container(self, label, volume=None, user="0", options=(), entrypoint=(), network="none"):
         name = f"{self.prefix}-{label}"
         volume_options = ["--mount", f"type=volume,source={volume},target=/appdata"] if volume else []
         overrides = ["--entrypoint", entrypoint[0]] if entrypoint else []
         docker(
-            "run", "-d", "--name", name, "--network", "none", "--user", user, *volume_options,
+            "run", "-d", "--name", name, "--network", network, "--user", user, *volume_options,
             *options, *overrides, self.image, *entrypoint[1:],
         )
         self.cleanup.callback(docker, "rm", "-fv", name)

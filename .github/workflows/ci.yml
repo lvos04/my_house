@@ -205,6 +205,19 @@ jobs:
       # PostgreSQL-fixtures en start/stophelpers van apps/web/e2e/run-stack.sh.
       - name: Toets rechten, Zigbee, HTTP-rooktest en herstel van een gevulde PostgreSQL-dump
         run: python3 infra/tests/allinone_container.py my_house-aio:ci
+      - name: Herstel een versleutelde back-up van A in B met twee Custom Apps
+        id: herstelproef
+        env:
+          SHC_STACK_LOCK: ${{ runner.temp }}/stack.lock
+          SHC_AIO_IMAGE: my_house-aio:ci
+        run: flock "$SHC_STACK_LOCK" nice -n 10 python3 infra/tests/allinone_herstelproef.py "$SHC_AIO_IMAGE"
+      - name: Bewaar het testlog van de herstelproef
+        if: ${{ !cancelled() && steps.herstelproef.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: herstelproef-a-naar-b
+          path: docs/testlog.md
+          if-no-files-found: error
 
   stack:
     name: images, scan and smoke test
