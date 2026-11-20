@@ -15,7 +15,7 @@ from shc_api.db import sessionmaker
 from shc_api.models import AuditLog, ClimateZone
 from shc_api.store import raise_alert, set_setting
 
-from .conftest import ADMIN_PW
+from .conftest import ADMIN_PW, VIEWER_PW
 from .ws_devices_support import add_device, new_home
 
 LAN = "http://192.168.1.20:8088"
@@ -96,10 +96,10 @@ async def test_admin_phone_is_refused_for_users_pairing_and_backups(admin, home,
     uid = (await admin.get("/users")).json()[0]["id"]
     refused = [
         ("GET", "/users", None),
-        ("POST", "/users", {"username": "dief", "password": "een-lang-wachtwoord-1", "role": "admin"}),
-        ("POST", "/auth/users", {"username": "dief2", "password": "een-lang-wachtwoord-1", "role": "admin"}),
+        ("POST", "/users", {"username": "dief", "password": VIEWER_PW, "role": "admin"}),
+        ("POST", "/auth/users", {"username": "dief2", "password": VIEWER_PW, "role": "admin"}),
         ("PATCH", f"/users/{uid}", {"disabled": True}),
-        ("POST", f"/users/{uid}/password", {"password": "een-lang-wachtwoord-2"}),
+        ("POST", f"/users/{uid}/password", {"password": VIEWER_PW}),
         ("DELETE", f"/users/{uid}", None),
         ("POST", "/pairing/codes", {"role": "control"}),
         ("GET", "/clients", None),

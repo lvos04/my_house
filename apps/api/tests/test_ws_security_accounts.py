@@ -236,7 +236,8 @@ async def test_change_own_password_revokes_other_sessions_and_phones(app, admin)
         sb = await _login(b, "sec_pw")
         token, _ = await _pair(sa, app, "sec-pw-phone")
         h = {"Authorization": f"Bearer {token}"}
-        r = await sa.post("/auth/password", json={"old_password": "fout", "new_password": "nieuw-wachtwoord-789"})
+        new = "nieuw-wachtwoord-789"
+        r = await sa.post("/auth/password", json={"old_password": "fout", "new_password": new})
         assert r.status_code == 403 and r.json()["detail"]["code"] == "wrong_password"
         async with sessionmaker()() as db:
             u = (await db.execute(select(User).where(User.username == "sec_pw"))).scalar_one()
@@ -245,7 +246,6 @@ async def test_change_own_password_revokes_other_sessions_and_phones(app, admin)
         assert r.status_code == 422
         r = await sa.post("/auth/password", json={"old_password": PW, "new_password": "kort"})
         assert r.status_code == 422
-        new = "nieuw-wachtwoord-789"
         r = await sa.post("/auth/password", json={"old_password": PW, "new_password": new})
         assert r.status_code == 200, r.text
         assert r.json() == {"sessions_ended": 1, "phones_revoked": 1}

@@ -17,7 +17,7 @@ from shc_api.routers.ws import origin_allowed
 from shc_api.security import token_hash
 from shc_api.store import set_setting
 
-from .conftest import Session
+from .conftest import ADMIN_PW, Session
 
 PW = "een-lang-wachtwoord-ws1"
 
@@ -268,7 +268,7 @@ async def test_password_change_closes_other_sockets_only(app, admin, home, liste
         ws_a = await _cookie_ws(app, cookie_a, None, "test").connect()
         ws_b = await _cookie_ws(app, cookie_b, None, "test").connect()
         assert (await ws_a.json())["type"] == (await ws_b.json())["type"] == "hello"
-        r = await sa.post("/auth/password", json={"old_password": PW, "new_password": "nieuw-wachtwoord-ws2"})
+        r = await sa.post("/auth/password", json={"old_password": PW, "new_password": ADMIN_PW})
         assert r.status_code == 200
         err = await ws_b.json()
         assert err["data"] == {"code": "auth_required", "reason": "password_changed"}

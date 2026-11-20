@@ -4,8 +4,8 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { expect, test as base, type APIResponse, type BrowserContext, type Page } from '@playwright/test';
 
-export const ADMIN = { username: 'beheerder', password: 'lang-genoeg-wachtwoord-2026' };
-export const VIEWER = { username: 'meekijker', password: 'kijken-mag-altijd-2026' };
+export const ADMIN = { username: 'beheerder', password: 'lang-genoeg-wachtwoord-2026' }; // gitleaks:allow - gedeelde aanmeldfixture voor de lokale browserproef
+export const VIEWER = { username: 'meekijker', password: 'kijken-mag-altijd-2026' }; // gitleaks:allow - gedeelde aanmeldfixture voor de lokale browserproef
 export const HOME_NAME = 'Thuis';
 export const LAN_URL = 'http://192.168.1.20:8088';
 

@@ -16,7 +16,7 @@ from shc_api.models import (
 )
 from shc_api.store import ingest_reading, set_setting
 
-from .conftest import ADMIN_PW, Session
+from .conftest import ADMIN_PW, VIEWER_PW, Session
 
 
 async def add_device(home_id, kind, name, role=None, provider="test", state=None, online=True):
@@ -87,11 +87,11 @@ async def test_viewer_is_read_only(admin, home, app):
     import httpx
 
     r = await admin.post(
-        "/auth/users", json={"username": "kijker", "password": "kijker-wachtwoord-123", "role": "viewer"}
+        "/auth/users", json={"username": "kijker", "password": VIEWER_PW, "role": "viewer"}
     )
     assert r.status_code == 200
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
-        r = await c.post("/api/v1/auth/login", json={"username": "kijker", "password": "kijker-wachtwoord-123"})
+        r = await c.post("/api/v1/auth/login", json={"username": "kijker", "password": VIEWER_PW})
         v = Session(c, r.json()["csrf_token"])
         assert (await v.get(f"/homes/{home['id']}/overview")).status_code == 200
         assert (await v.post("/homes", json={"name": "Y"})).status_code == 403

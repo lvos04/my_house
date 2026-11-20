@@ -11,7 +11,7 @@ from shc_api.config import Settings
 from shc_api.db import sessionmaker
 from shc_api.models import ApiClient
 
-from .conftest import Session
+from .conftest import VIEWER_PW, Session
 
 
 async def _pair_phone(admin, app, name: str) -> tuple[str, uuid.UUID]:
@@ -53,10 +53,10 @@ async def test_phone_roles_control_vs_admin(admin, home, app):
 
 
 async def test_viewer_cannot_resume_or_control(admin, home, app):
-    await admin.post("/auth/users", json={"username": "kijker2", "password": "kijker-wachtwoord-456", "role": "viewer"})
+    await admin.post("/auth/users", json={"username": "kijker2", "password": VIEWER_PW, "role": "viewer"})
     zid = (await admin.get(f"/homes/{home['id']}/zones")).json()[0]["id"]
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
-        r = await c.post("/api/v1/auth/login", json={"username": "kijker2", "password": "kijker-wachtwoord-456"})
+        r = await c.post("/api/v1/auth/login", json={"username": "kijker2", "password": VIEWER_PW})
         v = Session(c, r.json()["csrf_token"])
         assert (await v.post(f"/zones/{zid}/resume")).status_code == 403
         assert (await v.post(f"/zones/{zid}/command", json={"target_c": 21})).status_code == 403

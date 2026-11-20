@@ -12,7 +12,7 @@ from shc_api.models import Alert, ClimateZone, CommandRecord, Device, SensorRead
 from shc_api.store import ingest_reading
 from shc_api.worker import Worker
 
-from .conftest import Session
+from .conftest import VIEWER_PW, Session
 from .ws_devices_support import add_integration, fetch
 
 
@@ -621,10 +621,10 @@ async def test_viewer_cannot_resume_and_resume_works_from_off(admin, app):
     zid = rig.zones["Woonkamer"]
     assert (await admin.post(f"/zones/{zid}/command", json={"mode": "off"})).status_code == 202
     name = f"kijk{uuid.uuid4().hex[:6]}"
-    r = await admin.post("/auth/users", json={"username": name, "password": "kijker-wachtwoord-789", "role": "viewer"})
+    r = await admin.post("/auth/users", json={"username": name, "password": VIEWER_PW, "role": "viewer"})
     assert r.status_code == 200, r.text
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
-        r = await c.post("/api/v1/auth/login", json={"username": name, "password": "kijker-wachtwoord-789"})
+        r = await c.post("/api/v1/auth/login", json={"username": name, "password": VIEWER_PW})
         v = Session(c, r.json()["csrf_token"])
         assert (await v.get(f"/zones/{zid}")).json()["can_resume"] is True
         r = await v.post(f"/zones/{zid}/resume")

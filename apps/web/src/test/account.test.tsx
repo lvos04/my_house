@@ -103,13 +103,15 @@ describe('own password', () => {
     const calls = mockApi((m) => (m === 'POST' ? { body: { sessions_ended: 2, phones_revoked: 1 } } : undefined));
     render(<Providers><PasswordForm /></Providers>);
     const user = userEvent.setup();
-    await user.type(screen.getByLabelText('Huidig wachtwoord'), 'oud-wachtwoord-1');
-    await user.type(screen.getByLabelText('Nieuw wachtwoord (min. 12 tekens)'), 'nieuw-wachtwoord-2');
-    await user.type(screen.getByLabelText('Herhaal nieuw wachtwoord'), 'nieuw-wachtwoord-2');
+    const oldPassword = 'oud-wachtwoord-1';
+    const newPassword = 'nieuw-wachtwoord-2'; // gitleaks:allow - invoer en verwachte uitvoer van het lokale wachtwoordformulier
+    await user.type(screen.getByLabelText('Huidig wachtwoord'), oldPassword);
+    await user.type(screen.getByLabelText('Nieuw wachtwoord (min. 12 tekens)'), newPassword);
+    await user.type(screen.getByLabelText('Herhaal nieuw wachtwoord'), newPassword);
     expect(screen.getByLabelText(/Ook mijn gekoppelde telefoons afmelden/)).toBeChecked();
     await user.click(screen.getByRole('button', { name: 'Wachtwoord wijzigen' }));
     expect(await screen.findByRole('status')).toHaveTextContent('2 andere sessie(s) afgemeld, 1 telefoon(s) afgemeld');
-    expect(calls[0]).toMatchObject({ url: '/api/v1/auth/password', body: { old_password: 'oud-wachtwoord-1', new_password: 'nieuw-wachtwoord-2', keep_phones: false } });
+    expect(calls[0]).toMatchObject({ url: '/api/v1/auth/password', body: { old_password: oldPassword, new_password: newPassword, keep_phones: false } });
   });
 });
 

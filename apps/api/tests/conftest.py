@@ -76,6 +76,8 @@ class Session:
 
 
 ADMIN_PW = "correct horse battery staple"
+VIEWER_PW = "kijker-wachtwoord-123"
+OTHER_KEY = "de-hoofdsleutel-van-de-oude-nas-0123456789-abcdef"  # gitleaks:allow - tweede sleutel voor de lokale rotatie- en herstelproeven
 
 
 @pytest.fixture

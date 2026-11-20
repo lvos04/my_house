@@ -27,11 +27,11 @@ from shc_api.security import SecretBox
 from shc_api.store import SecretSettingError, get_secret_setting, get_setting, ingest_reading, set_setting
 from shc_api.worker import backup_job as bj
 
+from .conftest import OTHER_KEY
 from .test_gapfix_operations import _zone_state, spy_publish
 from .ws_devices_support import fetch
 
 PW = "sleutel-wachtwoordzin-123"
-OTHER_KEY = "de-hoofdsleutel-van-de-oude-nas-0123456789-abcdef"
 SECRET_KEYS = ("backup_passphrase_enc", "notify_url_enc")
 
 

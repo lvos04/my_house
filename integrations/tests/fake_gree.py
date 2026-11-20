@@ -13,7 +13,7 @@ import json
 
 from shc_integrations.gree import protocol as p
 
-DEVICE_KEY = "St8Vw1Yz4Bc7Ef0H"
+DEVICE_KEY = "St8Vw1Yz4Bc7Ef0H"  # gitleaks:allow - vaste AES-testvector van de lokale Gree-simulator
 MAC = "f4911e000001"
 
 

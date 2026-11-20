@@ -23,6 +23,7 @@ from shc_api.models import ApiClient, Integration, PairingCode, User
 from shc_api.security import SecretBox
 from shc_api.store import get_setting, set_secret_setting, set_setting
 
+from .conftest import ADMIN_PW, OTHER_KEY, VIEWER_PW
 from .restore_approval import verify_three_gates
 from .test_ws_backup_format import PW, make_v1, temp_db
 
@@ -220,14 +221,14 @@ async def test_restore_drill_compares_counts_and_checks_the_current_key(admin, t
         get_settings().database_url, "SELECT count(*) FROM pg_database WHERE datname = :n", n=r["database"]
     )
     assert n == 0
-    monkeypatch.setattr(get_settings(), "secret_key", "een-heel-andere-hoofdsleutel-0123456789-abcdef")
+    monkeypatch.setattr(get_settings(), "secret_key", OTHER_KEY)
     r = await cli.restore_drill(path, PW)
     assert r["ok"] is False and r["credentials"]["failed"] == ["Bridge (hue)"]
 
 
 async def test_rekey_reencrypts_credentials_and_secret_settings(monkeypatch):
     old_key = get_settings().resolved_secret_key()
-    new_key = "nieuwe-hoofdsleutel-voor-de-test-0123456789-xyz"
+    new_key = OTHER_KEY
     async with temp_db() as url:
         await _integration_with_creds(url, old_key, {"token": "abc"})
         engine = create_async_engine(url, poolclass=NullPool)
@@ -257,7 +258,7 @@ async def test_rekey_reencrypts_credentials_and_secret_settings(monkeypatch):
 
 async def test_reset_password_revokes_phone_tokens(admin, app):
     name = f"reset{uuid.uuid4().hex[:6]}"
-    r = await admin.post("/auth/users", json={"username": name, "password": "oud-wachtwoord-123", "role": "admin"})
+    r = await admin.post("/auth/users", json={"username": name, "password": VIEWER_PW, "role": "admin"})
     assert r.status_code in (200, 201), r.text
     async with sessionmaker()() as db:
         from shc_api.models import User
@@ -265,13 +266,13 @@ async def test_reset_password_revokes_phone_tokens(admin, app):
         uid = (await db.execute(select(User.id).where(User.username == name))).scalar_one()
         db.add(ApiClient(user_id=uid, name="Telefoon", token_hash=uuid.uuid4().hex * 2, role="control"))
         await db.commit()
-    out = await cli.reset_password(name, "nieuw-wachtwoord-456")
+    out = await cli.reset_password(name, ADMIN_PW)
     assert out["phones_revoked"] == 1
     async with sessionmaker()() as db:
         c = (await db.execute(select(ApiClient).where(ApiClient.user_id == uid))).scalar_one()
         assert c.revoked_at is not None
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as cl:
-        ok = await cl.post("/api/v1/auth/login", json={"username": name, "password": "nieuw-wachtwoord-456"})
+        ok = await cl.post("/api/v1/auth/login", json={"username": name, "password": ADMIN_PW})
         assert ok.status_code == 200
 
 

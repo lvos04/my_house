@@ -85,7 +85,7 @@ def genereer() -> str:
     radius = rem_naar_sp(d["maat"]["radius"]["$value"])
 
     r: list[str] = []
-    r.append(f"// Peil {versie} · design/ontwerptaal/tokens.json sha256:{sha}")
+    r.append(f"// Peil {versie} · design/ontwerptaal/tokens.json sha256:{sha}  // gitleaks:allow - publieke SHA-256 van tokens.json")
     r.append("// Gegenereerd door apps/android/tools/peil_tokens.py — niet met de hand wijzigen;")
     r.append("// PeilTokensTest vergelijkt elke waarde met tokens.json (docs/ontwerp/PEIL_MIGRATIE.md §11.1).")
     r.append("package nl.huis.smarthome.ui.theme")
@@ -108,7 +108,7 @@ def genereer() -> str:
     r.append(f'    const val VERSIE = "{versie}"')
     r.append("")
     r.append("    /** sha256 van design/ontwerptaal/tokens.json waaruit dit bestand is gemaakt. */")
-    r.append(f'    const val TOKENS_SHA256 = "{sha}"')
+    r.append(f'    const val TOKENS_SHA256 = "{sha}"  // gitleaks:allow - publieke SHA-256 van tokens.json')
     r.append("")
     r.append(f"    /** `maat.radius` in dp (kaart, knop, veld). */")
     r.append(f"    const val RADIUS_DP = {float(radius):g}f")
