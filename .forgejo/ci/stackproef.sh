@@ -4,8 +4,10 @@ case $1 in
   allinone)
     image="my_house-aio:$SHC_VERSION"
     python3 infra/tests/allinone_container.py "$image"
+    begintijd=$(stat -c %y docs/testlog.md)
     status=0
     python3 infra/tests/allinone_herstelproef.py "$image" || status=$?
+    [[ $(stat -c %y docs/testlog.md) != "$begintijd" ]] || exit 1
     cp docs/testlog.md herstelproef.md
     exit "$status"
     ;;

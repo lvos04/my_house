@@ -112,9 +112,10 @@ jobs:
       - name: Alles-in-één-image bouwen
         run: docker buildx build --load --provenance=false -f deploy/allinone/Dockerfile -t "my_house-aio:$SHC_VERSION" .
       - name: Rechten, Zigbee, HTTP, PostgreSQL-dump en versleuteld herstel van A in B
+        id: proef
         run: bash .forgejo/ci/containerproef.sh allinone
       - name: Bewaar het gemeten herstelbewijs
-        if: ${{ !cancelled() && env.HERSTELLOG == 'true' }}
+        if: ${{ !cancelled() && steps.proef.outputs.herstelbewijs == 'true' }}
         uses: https://code.forgejo.org/forgejo/upload-artifact@16871d9e8cfcf27ff31822cac382bbb5450f1e1e
         with:
           name: herstelproef-a-naar-b

@@ -23,14 +23,17 @@ container=$(docker create --network host --cpus 2 \
 git archive HEAD | docker cp - "$container:$werk"
 status=0
 docker start -a "$container" || status=$?
+if (( status == 0 )); then status=$(docker wait "$container"); fi
 if [[ $soort == allinone ]]; then
   # Alleen een in deze proef geschreven logboek mag als bewijs worden opgeslagen.
   if docker cp "$container:$werk/herstelproef.md" "$RUNNER_TEMP/herstelproef.md" 2>/dev/null; then
-    echo "HERSTELLOG=true" >> "$GITHUB_ENV"
+    echo "herstelbewijs=true" >> "$GITHUB_OUTPUT"
+  elif (( status == 0 )); then
+    echo "Het gemeten herstelbewijs ontbreekt." >&2
+    exit 1
   fi
-elif (( status != 0 )) || [[ $(docker wait "$container") != 0 ]]; then
+elif (( status != 0 )); then
   mkdir -p infra/e2e/.output
   docker cp "$container:$werk/infra/e2e/.output/." infra/e2e/.output/ || true
 fi
-if (( status != 0 )); then exit "$status"; fi
-exit "$(docker wait "$container")"
+exit "$status"

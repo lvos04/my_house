@@ -2,7 +2,8 @@
 set -euo pipefail
 versie=$(tr -d '[:space:]' < VERSION)
 cd release/bijlagen
-jq -e 'all(.api,.web; test("^git\\.medialeon\\.nl/leon/my_house-(api|web)@sha256:[0-9a-f]{64}$"))' digests.json >/dev/null
+jq -e 'def beeld($naam): test("^git[.]medialeon[.]nl/leon/my_house-" + $naam + "@sha256:[0-9a-f]{64}$");
+  (.api | beeld("api")) and (.web | beeld("web"))' digests.json >/dev/null
 if [[ $SIGNED == true ]]; then
   sha256sum --check "huis-v$versie.apk.sha256"
   grep -Eq '^[0-9a-f]{64}$' "huis-v$versie.apk.certificate-sha256"
