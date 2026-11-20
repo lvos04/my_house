@@ -36,6 +36,14 @@ def rollback_dir() -> Path:
     return path
 
 
+def sync_directory(path: Path) -> None:
+    directory = os.open(path, os.O_DIRECTORY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
 def state_stamp(conn) -> str:
     """Bind ook wijzigingen met gelijke aantallen. xmin verandert bij iedere nieuwe rijversie."""
     known = set(Base.metadata.tables) | {"alembic_version"}
@@ -102,11 +110,7 @@ async def prepare(path: Path, passphrase: str, mode: str, owner: str, upload: st
             json.dump(proof, f)
             f.flush()
             os.fsync(f.fileno())
-        directory = os.open(dest.parent, os.O_DIRECTORY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        sync_directory(dest.parent)
         return {"comparison": comparison, "confirmation": _sign(proof)}
     except BaseException:
         dest.unlink(missing_ok=True)

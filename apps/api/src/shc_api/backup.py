@@ -50,6 +50,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import simplejson
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
@@ -138,8 +139,54 @@ def _json_default(v: Any) -> Any:
     raise TypeError(f"niet te exporteren waarde: {type(v).__name__}")
 
 
-# Only called for values JSON can not encode itself (uuid, datetime, Decimal, bytes): fast C encoder.
-_ENCODER = json.JSONEncoder(separators=(",", ":"), default=_json_default, ensure_ascii=False)
+def _json_integer(token: str):
+    # PostgreSQL numeric kan meer cijfers bevatten dan de tekenlimiet van Python-int.
+    return Decimal(token) if len(token) > 640 else int(token)
+
+
+def _json_object(pairs):
+    obj = dict(pairs)
+    if len(obj) == len(pairs):
+        return obj
+    # PostgreSQL json (anders dan jsonb) bewaart ook eerdere waarden van een herhaalde veldnaam.
+    members = (simplejson.dumps(k) + ":" + simplejson.dumps(v) for k, v in pairs)
+    return simplejson.RawJSON("{" + ",".join(members) + "}")
+
+
+def _load_json(raw):
+    return simplejson.loads(raw, use_decimal=True, parse_int=_json_integer, object_pairs_hook=_json_object,
+                            allow_nan=True)
+
+
+class _ExactJSONText(sqltypes.TypeDecorator):
+    impl = sqltypes.Text
+    cache_ok = True
+
+    def process_result_value(self, value, dialect):
+        return _load_json(value) if value is not None else None
+
+
+def archive_columns(columns):
+    for col in columns:
+        if isinstance(col.type, sqltypes.JSON):
+            # De tekst komt rechtstreeks uit PostgreSQL, vóór de JSON-decoder van asyncpg.
+            yield col.cast(_ExactJSONText).label(col.name)
+        elif isinstance(col.type, sqltypes.ARRAY) and isinstance(col.type.item_type, sqltypes.JSON):
+            yield func.array_to_json(col).cast(_ExactJSONText).label(col.name)
+        elif isinstance(col.type, sqltypes.Numeric) and not isinstance(col.type, sqltypes.Float):
+            # Losse SQL-numerics staan sinds de eerste archiefversie als tekst in de rij.
+            yield col.cast(sqltypes.Text).label(col.name)
+        else:
+            yield col
+
+
+_ENCODER = simplejson.JSONEncoder(separators=(",", ":"), default=_json_default, ensure_ascii=False,
+                                 encoding=None, allow_nan=True)
+
+
+def comparison_bytes(value) -> bytes:
+    return simplejson.dumps(value, default=_json_default, sort_keys=True, separators=(",", ":"),
+                            encoding=None, allow_nan=True).encode()
 
 
 def _key(passphrase: str, salt: bytes, n: int = SCRYPT_N) -> bytes:
@@ -450,7 +497,7 @@ def _secret_setting_row(line: bytes) -> dict | None:
     if b"_enc" not in line:  # cheap pre-filter: every settings row is read, only these few are parsed
         return None
     try:
-        row = json.loads(line)
+        row = _load_json(line)
     except ValueError:
         return None
     return row if isinstance(row, dict) and row.get("key") in SECRET_SETTING_KEYS else None
@@ -489,19 +536,19 @@ def verify_file(path: Path, passphrase: str, collect: bool = True) -> Verified:
                 lines += 1
                 if collect and table == "sensor_readings":
                     try:
-                        reading_id = int(json.loads(line)["id"])
+                        reading_id = int(_load_json(line)["id"])
                     except (ValueError, KeyError, TypeError):
                         reading_ids_known = False
                     else:
                         last_reading = max(last_reading, reading_id) if last_reading is not None else reading_id
                 if keep:
                     with contextlib.suppress(ValueError):
-                        rows_by_table[table].append(json.loads(line))
+                        rows_by_table[table].append(_load_json(line))
                 elif keep_secrets and (row := _secret_setting_row(line)) is not None:
                     secret_settings.append(row)
                 elif keep_secrets and b'"server_id"' in line:
                     with contextlib.suppress(ValueError, TypeError, AttributeError, KeyError):
-                        row = json.loads(line)
+                        row = _load_json(line)
                         if row.get("key") == "server_id":
                             source_id = str(uuid.UUID(row["value"]["v"]))
         seen[name] = {"sha256": h.sha.hexdigest(), "size": h.size, "lines": lines}
@@ -975,8 +1022,10 @@ async def write_backup(
                         raise BackupError(str(exc)) from exc
                     z2m_dir = empty_zigbee_store()
                     fence_store(pause or {})
-                    source_proof.update({k: v for k, v in (pause or {}).items() if k != "storage"})
+                    source_proof.update({k: v for k, v in (pause or {}).items()
+                                         if k not in {"storage", "publishing", "file_id"}})
                     source_proof["zigbee_store"] = "write_fenced_empty"
+                    source_proof["inventory_version"] = 2
                     source_proof["inventory"] = await snap.run_sync(capture, export_tables)
                     if not all(item["readable"] for item in source_proof["inventory"].values()):
                         raise BackupError("Controleer de oude hoofdsleutel op de bron vóór de definitieve export.")
@@ -992,7 +1041,7 @@ async def write_backup(
                     if progress:
                         progress(table_name)
                     pw = _PartWriter(tar, table_name, tmpdir)
-                    stmt = table.select().order_by(*table.primary_key)
+                    stmt = select(*archive_columns(table.columns)).order_by(*table.primary_key)
                     result = await snap.stream(stmt.execution_options(yield_per=FETCH_ROWS))
                     keys = list(result.keys())
                     redact = not include_secrets
@@ -1601,7 +1650,7 @@ def _restore_sync(
         for line in _lines(f):
             if not line:
                 continue
-            obj = json.loads(line)
+            obj = _load_json(line)
             if tname == "settings" and obj.get("key") == "migration_source_pause":
                 continue  # Een bronpauze en de bijbehorende triggers zijn lokaal.
             row = {}
@@ -1706,7 +1755,7 @@ def _set(conn, key: str, value: Any) -> None:
             "INSERT INTO settings (key, value) VALUES (:k, CAST(:v AS jsonb)) "
             "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
         ),
-        {"k": key, "v": json.dumps({"v": value}, default=str)},
+        {"k": key, "v": simplejson.dumps({"v": value}, default=str)},
     )
 
 
@@ -1752,7 +1801,7 @@ def _copy_comfort_drafts(conn, old_home_ids: list, new_home_id: uuid.UUID, new_z
                 "b": p.band_c,
                 "m": p.mode,
                 "e": p.energy_priority,
-                "s": json.dumps(p.schedule or []),
+                "s": simplejson.dumps(p.schedule or []),
             },
         )
         profile_map[p.id] = new_pid
@@ -1788,7 +1837,7 @@ def _copy_comfort_drafts(conn, old_home_ids: list, new_home_id: uuid.UUID, new_z
                 {
                     "id": uuid.uuid4(),
                     "z": target,
-                    "d": json.dumps(b.days),
+                    "d": simplejson.dumps(b.days),
                     "s": b.start,
                     "t": b.target_c,
                     "m": b.mode,
@@ -1801,7 +1850,7 @@ def _copy_comfort_drafts(conn, old_home_ids: list, new_home_id: uuid.UUID, new_z
                 "UPDATE climate_zones SET control = 'off', profile = :p, profile_id = :pid, "
                 "policy = CAST(:pol AS jsonb) WHERE id = :id"
             ),
-            {"p": z.profile, "pid": profile_map.get(z.profile_id), "pol": json.dumps(policy), "id": target},
+            {"p": z.profile, "pid": profile_map.get(z.profile_id), "pol": simplejson.dumps(policy), "id": target},
         )
         conn.execute(
             text("INSERT INTO zone_log (zone_id, at, kind, message) VALUES (:z, now(), 'config', :m)"),
@@ -1966,7 +2015,8 @@ async def restore_file(
     if migration and (v.summary.get("_server_id") != migration.source_id or not v.manifest.get("secrets_included")
                       or v.manifest.get("redacted")):
         raise BackupError("De herkomst of volledigheid van de back-up wijkt af van de herstelproef.")
-    engine = create_async_engine(url or get_settings().database_url, poolclass=NullPool, hide_parameters=True)
+    engine = create_async_engine(url or get_settings().database_url, poolclass=NullPool, hide_parameters=True,
+                                 json_serializer=simplejson.dumps, json_deserializer=_load_json)
     report = RestoreReport()
     try:
         async with engine.connect() as conn:

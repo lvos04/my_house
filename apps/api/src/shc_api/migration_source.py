@@ -6,6 +6,7 @@ import json
 import os
 import stat
 import uuid
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from sqlalchemy import inspect, text
 
 from . import backup as bk
 from . import migration_inventory
-from .commissioning import lock_commissioning
+from .commissioning import lock_commissioning, lock_commissioning_shared
 from .config import get_settings
 from .store import audit, ensure_server_identity, get_setting, set_setting
 
@@ -215,22 +216,85 @@ def logins_closed(proof):
     return bool(proof and proof.get("stopped_at") and datetime.now(UTC) < datetime.fromisoformat(proof["expires"]))
 
 
-async def prepare_export(db, actor: str, *, stop: bool):
+async def _open_journal(db):
+    for name in ("attempts", "events"):
+        await db.execute(text(f"DROP TRIGGER shc_registrations_closed ON shc_pause.{name}"))
+    await db.execute(text("DROP FUNCTION shc_pause.registrations_closed()"))
+
+
+async def _update_publication(db, **change):
+    # Werk alleen de publicatievelden bij. Behoud de overige JSON-waarden in PostgreSQL.
+    await db.execute(text("""UPDATE settings SET value = jsonb_set(value, '{v}',
+        ((value->'v') - 'publishing') || CAST(:change AS jsonb)) WHERE key='migration_source_pause'"""),
+        {"change": json.dumps(change)})
+
+
+async def _finish_publication(db, proof):
+    """De intentie staat pas na verificatie en afsluiting in de database. De installatielock is exclusief."""
+    from .restore_control import rollback_dir, sync_directory
+
+    path = rollback_dir() / f"{uuid.UUID(proof['publishing'])}.shcbak"
+    pending = path.with_suffix(".partial")
+    try:
+        pending.replace(path)
+        published = True
+    except OSError:
+        # Na procesverlies kan de vorige transactie de rename al hebben uitgevoerd.
+        try:
+            path.stat()
+            published = True
+        except FileNotFoundError:
+            published = False
+    if published:
+        sync_directory(path.parent)
+    else:
+        await _open_journal(db)
+        await login_event(db, "system", "migration_source_export_aborted")
+    await db.execute(text("ALTER TABLE settings DISABLE TRIGGER shc_source_pause"))
+    change = {"file_id": proof["publishing"]} if published else {"stopped_at": None}
+    await _update_publication(db, **change)
+    await db.execute(text("ALTER TABLE settings ENABLE TRIGGER shc_source_pause"))
+    await db.commit()
+    if not published:
+        with suppress(OSError):  # De bron is heropend, ook als de tijdelijke map alleen-lezen werd.
+            pending.unlink(missing_ok=True)
+
+
+async def locked_pause(db, *, shared=False):
+    """Lever de actuele pauze onder de lock, ook na procesverlies tussen afsluiten en publiceren."""
+    lock = lock_commissioning_shared if shared else lock_commissioning
+    current = text("SELECT value->'v' FROM settings WHERE key='migration_source_pause'")
+    while True:
+        await lock(db)
+        proof = await db.scalar(current)
+        if not proof or not proof.get("publishing"):
+            return proof
+        if shared:
+            # Twee aanmeldingen mogen nooit tegelijk een gedeelde lock proberen op te waarderen.
+            await db.rollback()
+            await lock_commissioning(db)
+            proof = await db.scalar(current)
+        if proof and proof.get("publishing"):
+            await _finish_publication(db, proof)
+        else:
+            await db.commit()
+
+
+async def prepare_export(db, actor: str, *, stop: bool, file_id: uuid.UUID) -> bool:
     # Aanmeldingen houden de gedeelde installatielock tot en met hun commit. De export
     # wacht ook op een aanmelding waarvan de wachtwoordcontrole nog loopt.
-    await lock_commissioning(db)
-    proof = await get_setting(db, PAUSE_KEY)
+    proof = await locked_pause(db)
     if not proof or "stopped_at" not in proof or datetime.now(UTC) >= datetime.fromisoformat(proof["expires"]):
         raise bk.BackupError("Begin een nieuwe bronpauze voor de export. Hervat een eerdere pauze na de vervaltijd.")
     if proof["stopped_at"]:
-        return
+        return False
     await db.execute(text("LOCK TABLE shc_pause.attempts, shc_pause.events IN ACCESS EXCLUSIVE MODE"))
     # PostgreSQL houdt de tabelsloten tot commit. Andere verbindingen zien de triggers steeds ingeschakeld.
     for name in ("users", "audit_log", "settings"):
         await db.execute(text(f'ALTER TABLE "{name}" DISABLE TRIGGER shc_source_pause'))
     await _merge_logins(db)
     if stop:
-        await set_setting(db, PAUSE_KEY, {**proof, "stopped_at": datetime.now(UTC).isoformat()})
+        await _update_publication(db, stopped_at=datetime.now(UTC).isoformat(), publishing=str(file_id))
         await audit(db, actor, "migration_source_stopped")
         await db.flush()
         # Ook reeds geopende verbindingen en oudere bronprocessen moeten de grens respecteren.
@@ -246,11 +310,11 @@ async def prepare_export(db, actor: str, *, stop: bool):
                 ON shc_pause.{name} FOR EACH STATEMENT EXECUTE FUNCTION shc_pause.registrations_closed()"""))
     for name in ("users", "audit_log", "settings"):
         await db.execute(text(f'ALTER TABLE "{name}" ENABLE TRIGGER shc_source_pause'))
+    return stop
 
 
 async def resume(db, actor: str, *, rejected_id: str | None = None) -> None:
-    await lock_commissioning(db)
-    proof = await get_setting(db, PAUSE_KEY)
+    proof = await locked_pause(db)
     if rejected_id and (not proof or proof["id"] != rejected_id):
         return
     if not proof:
@@ -273,9 +337,7 @@ async def resume(db, actor: str, *, rejected_id: str | None = None) -> None:
             fence_store(proof, release=True)
     if await db.scalar(text("SELECT to_regclass('shc_pause.attempts') IS NOT NULL")):
         if proof.get("stopped_at"):
-            for name in ("attempts", "events"):
-                await db.execute(text(f"DROP TRIGGER shc_registrations_closed ON shc_pause.{name}"))
-            await db.execute(text("DROP FUNCTION shc_pause.registrations_closed()"))
+            await _open_journal(db)
         await _merge_logins(db)
         await db.execute(text("DROP TABLE shc_pause.attempts, shc_pause.events"))
     await db.execute(text("DELETE FROM settings WHERE key='migration_source_pause'"))
@@ -289,7 +351,8 @@ def complete(proof, source_id) -> bool:
         start = datetime.fromisoformat(proof["started"])
         end = datetime.fromisoformat(proof["expires"])
         stopped = datetime.fromisoformat(proof["stopped_at"])
-        return bool(source_id and proof["source_id"] == source_id and proof["zigbee_store"] == "write_fenced_empty"
+        return bool(source_id and proof.get("inventory_version") == 2
+                    and proof["source_id"] == source_id and proof["zigbee_store"] == "write_fenced_empty"
                     and start <= stopped <= datetime.now(UTC) < end <= start + LEASE and uuid.UUID(proof["id"]))
     except (ValueError, TypeError, KeyError):
         return False

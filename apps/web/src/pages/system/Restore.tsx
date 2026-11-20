@@ -200,9 +200,11 @@ function SourcePauseForm() {
   const resume = useMutation({ mutationFn: api.resumeSource, onSuccess: () => { exported.reset(); return refresh(); } });
   const exported = useMutation({
     mutationFn: (stop: boolean) => api.sourceExport(phrase, stop),
-    onSuccess: () => { setPhrase(''); return refresh(); },
+    onSuccess: () => setPhrase(''),
+    onSettled: refresh,
   });
   const proof = settings.data?.source_pause;
+  const fileId = exported.data?.file_id ?? proof?.file_id;
   const last = settings.data?.last_restore;
   return <>{last && <p>Laatste hersteltaak ({dateTime(last.started_at)}): {last.step}.{' '}
     <a href={api.restoreFileUrl(last.rollback_id)} download>Doelback-up van deze taak downloaden</a>.</p>}
@@ -220,8 +222,9 @@ function SourcePauseForm() {
         </div>
       </form>
       {exported.isPending && <ProgressBar value={null} label="Bronexport controleren…" />}
-      {exported.data && <div><a className="btn" href={api.restoreFileUrl(exported.data.file_id)} download>
-        {exported.data.source_pause.stopped_at ? 'Definitieve export downloaden' : 'Tussenexport downloaden'}</a></div>}
+      {fileId && <div><a className="btn" href={api.restoreFileUrl(fileId)} download>
+        {(exported.data ? exported.data.source_pause.stopped_at : proof.stopped_at)
+          ? 'Definitieve export downloaden' : 'Tussenexport downloaden'}</a></div>}
       <p>{proof.stopped_at === null ? 'Je kunt de bron nu hervatten.' : 'Stop eerst de doelapp voor terugval. Na de vervaltijd kun je de bron hervatten.'}</p>
       <div><ActionButton className="btn" disabled={resume.isPending} onClick={() => resume.mutate()}>Bron hervatten</ActionButton></div>
     </> : <>
@@ -417,7 +420,7 @@ const inventoryNames: Record<string, string> = {
   button_mappings: 'Knoppen, gebeurtenissen en acties', climate_zones: 'Klimaatzones en regeling',
   comfort_profiles: 'Comfortprofielen', schedule_blocks: "Tijdschema’s", adaptive_models: 'Adaptieve modellen',
   experiments: 'Experimenten en automatische toepassing', tariffs: 'Tarieven', settings: 'Instellingen',
-  commissioning_gate: 'Inbedrijfstellingsbeleid', commands: 'Opdrachten', connector_changes: 'Connectorherstel',
+  commands: 'Opdrachten', connector_changes: 'Connectorherstel',
   sensor_readings: 'Metingen', energy_hourly: 'Energie per uur', zone_log: 'Zonelogboek',
   audit_log: 'Beheerlogboek', alerts: 'Meldingen', backups: 'Back-uphistorie',
 };
@@ -469,16 +472,18 @@ export function CompareView({ data, onReleased }: { data: RestoreCompare; onRele
           {!!data.missing_devices && <p className="note warn">Ontbrekende apparaten: {data.missing_devices}.</p>}
         </div>
       )}
-      {data.inventory && <details open={Object.values(data.inventory).some(item => !item.same)}>
+      {data.inventory && <details open={data.commissioning_gate?.same === false || Object.values(data.inventory).some(item => !item.same)}>
         <summary>Inhoud van de bronexport en het doel</summary>
         <div className="table-wrap"><table className="stack-mobile">
           <thead><tr><th scope="col">Gegevens</th><th scope="col">Bron</th><th scope="col">Doel</th><th scope="col">Inhoud</th></tr></thead>
           <tbody>{Object.entries(data.inventory).map(([kind, item]) => <tr key={kind}>
-            <td data-label="Gegevens">{inventoryNames[kind] ?? kind}</td>
+            <td data-label="Gegevens">{Object.hasOwn(inventoryNames, kind) ? inventoryNames[kind] : kind}</td>
             <td data-label="Bron">{item.source ?? 'Onbekend'}</td><td data-label="Doel">{item.target ?? 'Ontbreekt'}</td>
             <td data-label="Inhoud">{item.same ? 'Gelijk' : 'Wijkt af'}</td>
           </tr>)}</tbody>
         </table></div>
+        {data.commissioning_gate && <p>{data.commissioning_gate.same
+          ? 'Het inbedrijfstellingsbeleid komt overeen.' : 'Het inbedrijfstellingsbeleid wijkt af.'}</p>}
       </details>}
       <h4>Functies</h4>
       <div className="table-wrap">

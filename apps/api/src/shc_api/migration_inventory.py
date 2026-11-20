@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import json
 
 from sqlalchemy import MetaData, String, func, inspect, select
 
@@ -54,7 +53,7 @@ LOCAL_PROOF_FIELDS = {
     "migration_pending": {"source_id", "target_id", "source_pause", "inventory", "gate", "archive_sha256",
                           "rollback_sha256", "comparison_id"},
     "migration_source_pause": {"id", "source_id", "started", "stopped_at", "expires", "maintenance_before",
-                               "storage", "last_reading", "reading_count"},
+                               "storage", "last_reading", "reading_count", "publishing", "file_id"},
 }
 RUNTIME_SETTINGS = {
     "worker_heartbeat": {("v",): "Het draaiende proces ververst zijn levensteken."},
@@ -175,7 +174,7 @@ def fingerprint(conn, table, *, boundary=None):
     name = table_key(table)
     cols = compared_columns(table)
     order = list(table.primary_key) or [func.to_jsonb(table.table_valued()).cast(String)]
-    stmt = select(*cols).order_by(*order)
+    stmt = select(*bk.archive_columns(cols)).order_by(*order)
     count = 0
     if name in APPEND_ONLY:
         if boundary is None:
@@ -207,8 +206,7 @@ def fingerprint(conn, table, *, boundary=None):
                     value["credentials_enc"] = box.decrypt(bytes(encrypted))
             except Exception:
                 readable = False
-        encoded = json.dumps(value, default=bk._json_default, sort_keys=True, separators=(",", ":")).encode()
-        digest.update(encoded + b"\n")
+        digest.update(bk.comparison_bytes(value) + b"\n")
         count += 1
     return {"columns": sorted(c.name for c in cols), "rows": count, "sha256": digest.hexdigest(),
             "boundary": boundary, "readable": readable}

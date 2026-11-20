@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import asyncpg
+import simplejson
 from sqlalchemy import Column, MetaData, Table
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable
@@ -21,7 +22,7 @@ MEASUREMENTS = f"LEFT JOIN settings m ON m.key = '{MEASUREMENT_PREFIX}' || c.id"
 MEASURED_IDENTITY = "m.value->'v'->c.preview_hash"
 
 def digest(value) -> str:
-    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    encoded = simplejson.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
     return "sha256:" + hashlib.sha256(encoded.encode()).hexdigest()
 
 

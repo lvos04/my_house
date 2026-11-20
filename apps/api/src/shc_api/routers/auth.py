@@ -8,12 +8,11 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import column, delete, func, select, table, text, update
 
-from ..commissioning import lock_commissioning_shared
 from ..config import get_settings
 from ..deps import CSRF_COOKIE, DB, SESSION_COOKIE, Auth, revoke_access
 from ..errors import api_error
 from ..events import publish_auth_revoked
-from ..migration_source import PAUSE_KEY, login_event, login_journal, logins_closed
+from ..migration_source import locked_pause, login_event, login_journal, logins_closed
 from ..models import Session as WebSession
 from ..models import User
 from ..security import (
@@ -27,7 +26,7 @@ from ..security import (
     token_hash,
     verify_password_async,
 )
-from ..store import audit, get_setting
+from ..store import audit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -204,8 +203,7 @@ async def setup(body: Credentials, request: Request, response: Response, db: DB)
 
 @router.post("/login")
 async def login(body: Credentials, request: Request, response: Response, db: DB) -> dict:
-    await lock_commissioning_shared(db)
-    pause = await get_setting(db, PAUSE_KEY)
+    pause = await locked_pause(db, shared=True)
     if logins_closed(pause):
         raise api_error(409, "source_stopped", "De bronregistratie is afgesloten voor de overstap.")
     if pause and not await db.scalar(text("SELECT to_regclass('shc_pause.attempts') IS NOT NULL")):

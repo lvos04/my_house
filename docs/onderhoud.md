@@ -150,10 +150,12 @@ database-dump). Bij **Gemaakte back-ups** kun je elke back-up downloaden.
    Kies voor de overstap **Bronregistratie afsluiten en exporteren**, terwijl je als beheerder aangemeld blijft.
    Deze actie wacht op lopende aanmeldingen, sluit nieuwe aanmeldingen en neemt het volledige logboek mee.
    Download de **Definitieve export**. Bestaande leessessies kunnen blijven lezen totdat je de bronapp stopt.
-   Zonder definitieve export kun je de pauze meteen opheffen. Na een definitieve export kun je de bron
+   Na een geweigerde publicatie zonder archief kun je je direct opnieuw aanmelden en **Bron hervatten** kiezen.
+   Een gepubliceerde eindexport kun je ook na het heropenen van het scherm downloaden. Daarna kun je de bron
    hervatten zodra het bewijs vervalt, één uur na het begin van de pauze.
 4. Installeer het doel als afzonderlijke standaard Custom App met eigen opslag. Maak alleen de tijdelijke
    beheerder aan. Upload de definitieve export en kies **Overstappen naar een afzonderlijke Custom App**.
+   Vraagt het doel om een nieuw bronbewijs, werk dan de bronapp bij en maak daar een nieuwe definitieve export.
    Voer de herstelproef uit. Een doel met gebruikershistorie, waaronder gelezen meldingen of beheerhandelingen,
    wordt geweigerd. Vergelijk de bron en het doel, bewaar de doelback-up en bevestig de vervanging.
 5. Log opnieuw in op het doel. Lees zo nodig de oude hoofdsleutel in via **Oude hoofdsleutel uploaden**.

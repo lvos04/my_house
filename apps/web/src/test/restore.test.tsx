@@ -38,6 +38,16 @@ it('houdt de tussenexport en de afgesloten bronregistratie herkenbaar bij het do
   expect(keuzes).toEqual([false, true]);
 });
 
+it('biedt de gepubliceerde eindexport na het heropenen van het scherm aan', async () => {
+  const pause = { stopped_at: '2026-11-01T11:05:00Z', expires: '2026-11-01T12:00:00Z',
+    last_reading: 2, reading_count: 2, file_id: 'bewaarde-export' };
+  mockApi((_method, url) => url.endsWith('/system/settings') ? { body: { source_pause: pause } } : undefined);
+  render(<Providers><RestoreSection safeMode={false} /></Providers>);
+  await userEvent.setup().click(screen.getByText('Definitieve export op de bron'));
+  expect(await screen.findByRole('link', { name: 'Definitieve export downloaden' }))
+    .toHaveAttribute('href', expect.stringContaining('/bewaarde-export'));
+});
+
 const verify: RestoreVerify = {
   upload_id: 'a'.repeat(32),
   filename: 'huis-2026-11-01.shcbak',
@@ -232,4 +242,16 @@ it('toont een gewijzigde knopactie bij gelijke aantallen en houdt de vrijgave di
   expect(within(row).getByText('Wijkt af')).toBeVisible();
   expect(screen.getByText('Overstap geblokkeerd.', { exact: false })).toBeVisible();
   expect(screen.queryByRole('button', { name: 'Overstap bevestigen' })).toBeNull();
+});
+
+it('toont een ontbrekende rij naast overeenkomend inbedrijfstellingsbeleid', () => {
+  const data: RestoreCompare = {
+    ...compare, inventory: { commissioning_gate: { source: 1, target: 0, same: false } },
+    commissioning_gate: { source: 1, target: 1, same: true },
+  };
+  render(<Providers><CompareView data={data} /></Providers>);
+  const row = screen.getByRole('row', { name: /commissioning_gate/ });
+  expect(within(row).getByText('0')).toBeVisible();
+  expect(within(row).getByText('Wijkt af')).toBeVisible();
+  expect(screen.getByText('Het inbedrijfstellingsbeleid komt overeen.')).toBeVisible();
 });

@@ -401,9 +401,11 @@ async def test_eindvergelijking(geval, tmp_path, monkeypatch):
                     assert aangeboden and vrijgave == 200
                     assert not list(zigbee.iterdir()) and bron_n == doel_n == 2
                     return
-                soort = {"doelretentie": "sensor_readings", "knopfunctie": "button_mappings",
-                         "inbedrijfstelling": "commissioning_gate"}[geval]
-                assert not vergelijking["inventory"][soort]["same"]
+                if geval == "inbedrijfstelling":
+                    assert not vergelijking["commissioning_gate"]["same"]
+                else:
+                    soort = {"doelretentie": "sensor_readings", "knopfunctie": "button_mappings"}[geval]
+                    assert not vergelijking["inventory"][soort]["same"]
                 assert (aangeboden, vrijgave == 200) == (False, False), "De actuele afwijking moet de overstap tegenhouden."
                 stale = {"source_stopped": True, "confirmation": offered}
                 assert (await admin.post("/system/restore/confirm", stale)).status_code == 409

@@ -1256,6 +1256,7 @@ export interface RestoreVerify {
 export type RestoreMode = 'same_home' | 'new_home' | 'migration';
 export interface SourcePause {
   stopped_at?: Ts | null;
+  file_id?: Uuid;
   expires: Ts;
   reading_count: number;
   last_reading: number | null;
@@ -1353,6 +1354,7 @@ export interface CompareFunction {
   reason: string;
   suggestion: string | null;
 }
+export interface InventoryComparison { source: number | null; target: number | null; same: boolean }
 /** GET /system/restore/compare (admin). */
 export interface RestoreCompare {
   restored_at: Ts | null;
@@ -1365,7 +1367,8 @@ export interface RestoreCompare {
   source_homes?: Record<Uuid, string>;
   homes?: Record<Uuid, string>;
   missing_devices?: number;
-  inventory?: Record<string, { source: number | null; target: number | null; same: boolean }>;
+  inventory?: Record<string, InventoryComparison>;
+  commissioning_gate?: InventoryComparison;
   migration?: { source_id: string; target_id: string; confirmation: string | null; source_complete?: boolean };
 }
 

@@ -128,13 +128,15 @@ class Addresses(BaseModel):
 async def get_settings_(db: DB, p: Auth) -> dict:
     s = get_settings()
     pause = await get_setting(db, migration_source.PAUSE_KEY) if p.is_admin else None
+    if pause and pause.get("publishing") and p.via == "cookie":
+        pause = await migration_source.locked_pause(db)
     return {
         "lan_url": await get_setting(db, "lan_url", s.lan_url),
         "remote_url": await get_setting(db, "remote_url", s.remote_url),
         "safe_mode": bool(await get_setting(db, "safe_mode", False)),
         "maintenance": bool(await get_setting(db, "maintenance", False)),
         "migration_pending": bool(await get_setting(db, "migration_pending", False)),
-        "source_pause": {k: v for k, v in pause.items() if k != "storage"} if pause else None,
+        "source_pause": {k: v for k, v in pause.items() if k not in {"storage", "publishing"}} if pause else None,
         "last_restore": await restore_control.latest_job(db) if p.via == "cookie" and p.is_admin else None,
     }
 
@@ -805,10 +807,13 @@ class ApplyIn(PreviewIn):
 
 
 @router.get("/system/restore/files/{backup_id}")
-async def restore_download(backup_id: uuid.UUID, p: WebAdmin):
+async def restore_download(backup_id: uuid.UUID, db: DB, p: WebAdmin):
+    # Ook een gelijktijdige download wacht op de duurzame uitkomst van de publicatie.
+    await migration_source.locked_pause(db, shared=True)
     path = restore_control.rollback_dir() / f"{backup_id}.shcbak"
     if not path.is_file():
         raise not_found("Back-up")
+    await db.commit()
     return FileResponse(path, media_type="application/octet-stream", filename=f"woning-{backup_id}.shcbak")
 
 
@@ -841,17 +846,24 @@ async def source_export(body: SourceExportIn, db: DB, p: WebAdmin) -> dict:
     pending = path.with_suffix(".partial")
     proof = {}
     try:
-        await migration_source.prepare_export(db, p.actor, stop=body.stop_source)
+        closing = await migration_source.prepare_export(db, p.actor, stop=body.stop_source, file_id=key)
         pending.touch(mode=0o600, exist_ok=False)
         await bk.write_backup(await db.connection(), pending, body.passphrase, True, source_proof=proof)
         await asyncio.to_thread(bk.verify_file, pending, body.passphrase)
         await db.commit()
-        pending.replace(path)
+        if closing:
+            await migration_source.locked_pause(db)
+            if not path.is_file():
+                raise bk.BackupError("De eindexport is niet gepubliceerd. Je kunt opnieuw aanmelden en hervatten.")
+        else:
+            pending.replace(path)
+            restore_control.sync_directory(path.parent)
     except (bk.BackupError, OSError) as exc:
         raise api_error(409, "source_unverified", str(exc) if isinstance(exc, bk.BackupError)
                         else "De bronexport kon niet worden geverifieerd.") from exc
     finally:
-        pending.unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            pending.unlink(missing_ok=True)
     return {"file_id": key, "source_pause": {k: v for k, v in proof.items() if k != "inventory"}}
 
 
@@ -1113,21 +1125,27 @@ def _duplicate_devices(before: dict, devices: list[Device], names: dict) -> list
     ]
 
 
+async def _pending_migration(db):
+    raw = await db.scalar(text("SELECT (value->'v')::text FROM settings WHERE key='migration_pending'"))
+    return bk._load_json(raw) if raw else None
+
+
 @router.get("/system/restore/compare")
 async def restore_compare(db: DB, p: WebAdmin, home_id: uuid.UUID | None = None) -> dict:
     """Per device and per function: compatible / partial / unavailable, comparing the restored devices
     (snapshot taken at restore) with what the worker has seen since (identity, online, capabilities)."""
-    migration = await get_setting(db, "migration_pending")
+    migration = await _pending_migration(db)
     if migration and home_id is None:
         await lock_commissioning(db)
-        migration = await get_setting(db, "migration_pending")
+        migration = await _pending_migration(db)
     comparison = await _restore_comparison(db, home_id)
     if migration:
         summary = {"source_id": migration["source_id"], "target_id": migration["target_id"], "confirmation": None}
         comparison["migration"] = summary
         if home_id is None:
             migration = {**migration, "comparison_id": uuid.uuid4().hex}
-            await set_setting(db, "migration_pending", migration)
+            await db.execute(text("""UPDATE settings SET value=jsonb_set(value, '{v,comparison_id}',
+                to_jsonb(CAST(:id AS text))) WHERE key='migration_pending'"""), {"id": migration["comparison_id"]})
             await _compare_inventory(db, comparison, migration)
             complete = migration_source.complete(migration.get("source_pause"), migration["source_id"])
             summary["source_complete"] = complete
@@ -1142,14 +1160,17 @@ async def restore_compare(db: DB, p: WebAdmin, home_id: uuid.UUID | None = None)
 async def _compare_inventory(db, data, migration):
     conn = await db.connection()
     data["inventory"] = await conn.run_sync(migration_inventory.comparison, migration.get("inventory"))
-    gate = await get_setting(db, "commissioning_gate")
-    data["inventory"]["commissioning_gate"] = {"source": 1, "target": int(gate is not None),
-                                               "same": bool(gate) and gate == migration.get("gate")}
+    # Vergelijk het samengevoegde beleid in PostgreSQL, inclusief typen en exacte JSON-getallen.
+    gate = await db.scalar(text("""SELECT (jsonb_typeof(value->'v') = 'object' AND value->'v' <> '{}'::jsonb
+        AND value->'v' = (SELECT value #> '{v,gate}' FROM settings WHERE key='migration_pending')) IS TRUE
+        FROM settings WHERE key='commissioning_gate' AND value->'v' <> 'null'::jsonb"""))
+    data["commissioning_gate"] = {"source": 1, "target": int(gate is not None), "same": gate is True}
 
 
 def _comparison_complete(data: dict) -> bool:
     return bool(data["restored_at"]) and not (
         not data.get("inventory") or not all(item["same"] for item in data["inventory"].values())
+        or not data["commissioning_gate"]["same"]
         or not data["functions_verified"] or set(data["source_active_home_ids"]) - set(data["active_home_ids"])
         or data["source_homes"].keys() - data["homes"].keys()
         or data["missing_devices"] or data["summary"]["unavailable"] or data["summary"]["partial"] or any(
@@ -1163,12 +1184,13 @@ def _comparison_complete(data: dict) -> bool:
 def _comparison_signature(data: dict, migration: dict, session_id: str | None, expires: int) -> str:
     # Tijden van metingen kunnen veranderen zonder dat de beoordeelde apparaatstand wijzigt.
     devices = [{k: v for k, v in d.items() if k != "last_seen"} for d in data["devices"]]
-    keys = ("restored_from", "source_homes", "homes", "functions", "duplicates", "missing_devices", "inventory")
+    keys = ("restored_from", "source_homes", "homes", "functions", "duplicates", "missing_devices", "inventory",
+            "commissioning_gate")
     signed = {**{k: data[k] for k in keys}, "devices": devices, "migration": migration,
               "session": session_id, "expires": expires}
     return hmac.new(
         get_settings().resolved_secret_key().encode(),
-        b"shc-migration-compare-v2\0" + json.dumps(json.loads(_dumps(signed)), sort_keys=True).encode(), hashlib.sha256,
+        b"shc-migration-compare-v3\0" + bk.comparison_bytes(signed), hashlib.sha256,
     ).hexdigest()
 
 
@@ -1181,7 +1203,7 @@ class MigrationConfirm(BaseModel):
 async def confirm_migration(body: MigrationConfirm, db: DB, p: WebAdmin) -> dict:
     """Geef de doelinstallatie vrij na een bevestigde vergelijking."""
     await lock_commissioning(db)
-    migration = await get_setting(db, "migration_pending")
+    migration = await _pending_migration(db)
     if not migration or migration.get("target_id") != await get_setting(db, "server_id"):
         raise api_error(409, "migration_refused", "Er is geen overstap voor deze installatie bevestigd.")
     expiry, _, signature = body.confirmation.partition(".")
