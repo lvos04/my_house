@@ -4,10 +4,8 @@ on:
     branches-ignore: [main]
   pull_request:
   workflow_dispatch:
+  # Forgejo leest het bronsecret bij de backendstap van deze lokale workflow.
   workflow_call:
-    secrets:
-      BRON_LEESTOKEN:
-        required: true
 
 permissions:
   contents: read
