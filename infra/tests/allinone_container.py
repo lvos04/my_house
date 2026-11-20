@@ -257,6 +257,12 @@ class Trial:
         docker("start", container_id, timeout=120)
         return name
 
+    def volume_python(self, label, volume, script, *args):
+        name = self.container(label, volume, user="568:568", options=("--no-healthcheck",),
+                              entrypoint=(*PYTHON, "-c", script, *args))
+        assert docker("wait", name).stdout.strip() == b"0", f"Opslagproef {label} afgebroken"
+        return docker("logs", name).stdout
+
     @staticmethod
     def exec(name, *cmd, content=None, check=True, user="568", timeout=45):
         return docker("exec", "-i", "--user", user, name, *cmd, content=content, check=check, timeout=timeout)
@@ -279,6 +285,8 @@ class Trial:
                 # Alleen vaste foutcategorieën mogen het CI-log in.
                 logs = self.logs(name)
                 markers = (
+                    b"Unable to open config file", b"Unable to open pwfile", b"Unable to open acl_file",
+                    b"Address already in use",
                     b"PostgreSQL is niet beschikbaar", b"API is niet beschikbaar", b"MQTT-broker is niet beschikbaar",
                     b"Database-update geweigerd", b"De eerste database-initialisatie kan niet veilig doorgaan",
                     b"Opstarten geweigerd", b"Opstarten mislukt",
@@ -500,9 +508,7 @@ assert not key.exists()
 key.hardlink_to(key.with_suffix(".proef"))
 key.with_suffix(".proef").unlink()
 """
-        docker("run", "--rm", "--network", "none", "--user", "568:568", "--mount",
-               f"type=volume,source={volume},target=/appdata", "--entrypoint", PYTHON[0],
-               self.image, *PYTHON[1:], "-c", restore)
+        self.volume_python("herstel-sleutel", volume, restore)
         docker("start", name)
         self.healthy(name)
         self.exec(name, *PYTHON, "-c", check, "lees", content=value)
@@ -599,11 +605,7 @@ for name in names:
     path = secret_dir / name
     print(path.stat().st_ino, sha256(path.read_bytes()).hexdigest())
 """
-            contents = docker(
-                "run", "--rm", "--network", "none", "--user", "568:568", "--mount",
-                f"type=volume,source={volume},target=/appdata", "--entrypoint", PYTHON[0],
-                self.image, *PYTHON[1:], "-c", keys, phase,
-            ).stdout
+            contents = self.volume_python(f"controle-{phase}", volume, keys, phase)
             if before is not None:
                 assert contents.startswith(before)
             before = contents

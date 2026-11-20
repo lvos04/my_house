@@ -22,6 +22,23 @@ ASSETS = ROOT / "infra/compose/config"
 
 
 class ProefcontainerOpruimen(unittest.TestCase):
+    def test_time_out_bij_opslagcontrole_ruimt_container_voor_volume_op(self):
+        verwijderd = []
+
+        def daemon(*args, **kwargs):
+            if args[0] == "wait":
+                raise subprocess.TimeoutExpired(args[0], 45)
+            if args[0] == "rm" or args[:2] == ("volume", "rm"):
+                verwijderd.append(args[-1])
+            return subprocess.CompletedProcess(args, 0, stdout=b"eigen-container\n")
+
+        with patch.object(allinone_container, "docker", side_effect=daemon):
+            with self.assertRaises(subprocess.TimeoutExpired), contextlib.ExitStack() as cleanup:
+                trial = allinone_container.Trial("lokale-proef", cleanup)
+                volume = trial.storage("opslag")
+                trial.volume_python("lees", volume, "pass")
+        self.assertEqual(verwijderd, ["eigen-container", volume])
+
     def test_de_daemon_maakt_eigen_container_tijdens_verlopen_aanroep(self):
         for onderbreking in ("create", "start"):
             with self.subTest(onderbreking=onderbreking):
