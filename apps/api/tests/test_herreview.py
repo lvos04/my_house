@@ -300,7 +300,7 @@ async def test_eindvergelijking(geval, tmp_path, monkeypatch):
                         await db.commit()
                 pauze = await admin.post("/system/restore/source/pause")
                 assert pauze.status_code == 200 and pauze.json()["reading_count"] == 2
-                antwoord = await admin.post("/system/restore/source/export", {"passphrase": PW})
+                antwoord = await admin.post("/system/restore/source/export", {"passphrase": PW, "stop_source": True})
                 assert antwoord.status_code == 200
                 inhoud = (await admin.get("/system/restore/files/" + antwoord.json()["file_id"])).content
                 if geval == "zigbee_na_export":
@@ -557,7 +557,7 @@ async def test_eerste_geldige_vergelijking(tmp_path, monkeypatch):
         assert (await bron.post("/homes", {"name": "Overeenkomende woning"})).is_success
         assert (await bron.post("/auth/users", {"username": "bronbeheer", "role": "admin", "password": pw})).is_success
         assert (await bron.post("/system/restore/source/pause")).is_success
-        bestand = (await bron.post("/system/restore/source/export", {"passphrase": PW})).json()
+        bestand = (await bron.post("/system/restore/source/export", {"passphrase": PW, "stop_source": True})).json()
         inhoud = (await bron.get("/system/restore/files/" + bestand["file_id"])).content
         async with proefinstallatie(monkeypatch) as doel:
             doelmap = tmp_path / "doel"

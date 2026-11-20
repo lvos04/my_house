@@ -762,7 +762,7 @@ async def restore_drill(path: Path, passphrase: str, *, keep: bool = False, veri
 
     from . import backup as bk
     from .config import get_settings
-    from .models import Base
+    from .migration_inventory import catalog
     from .security import SecretBox
     from .store import SECRET_SETTINGS
 
@@ -786,10 +786,11 @@ async def restore_drill(path: Path, passphrase: str, *, keep: bool = False, veri
         engine = create_async_engine(drill_url, poolclass=NullPool, hide_parameters=True)
         try:
             async with AsyncSession(engine) as db:
+                actual = await (await db.connection()).run_sync(catalog)
                 mismatches = []
                 for t, info in v.manifest["tables"].items():
                     restored = report.counts.get(t)
-                    table = Base.metadata.tables.get(t)
+                    table = actual.get(t)
                     final = (
                         (await db.execute(select(func.count()).select_from(table))).scalar_one()
                         if table is not None

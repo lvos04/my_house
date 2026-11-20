@@ -9,12 +9,12 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 
 from . import backup as bk
+from . import migration_inventory
 from .commissioning import lock_commissioning
 from .config import get_settings
-from .models import Base
 from .store import audit, ensure_server_identity, get_setting, set_setting
 
 PAUSE_KEY = "migration_source_pause"
@@ -51,7 +51,7 @@ def _store_state(path: Path) -> dict:
     return {"device": info.st_dev, "inode": info.st_ino, "mode": stat.S_IMODE(info.st_mode)}
 
 
-def fence_store(proof: dict, *, release: bool = False) -> None:
+def fence_store(proof: dict, *, release: bool = False, restore_on_error: bool = False) -> None:
     """Zet de echte lege opslag dicht voordat er een overdraagbaar bronbewijs bestaat."""
     cfg = get_settings()
     path = cfg.zigbee2mqtt_dir or cfg.data_dir / "zigbee2mqtt"
@@ -74,11 +74,19 @@ def fence_store(proof: dict, *, release: bool = False) -> None:
                 # Alleen een lege map zonder schrijfrecht voor de dienst mag een bronbewijs dragen.
                 if mode & 0o022 or info.st_uid == 1000:
                     raise bk.BackupError("De Zigbee2MQTT-dienst kan de bronopslag nog beschrijven.")
-            elif mode & 0o222:
-                os.fchmod(fd, mode & ~0o222)
-                os.fsync(fd)
-            if os.listdir(fd):
-                raise bk.BackupError("De Zigbee2MQTT-opslag bevat gegevens. Bewaar de bron voor terugval.")
+            try:
+                if cfg.data_dir != Path("/data") and mode & 0o222:
+                    os.fchmod(fd, mode & ~0o222)
+                    os.fsync(fd)
+                if os.listdir(fd):
+                    raise bk.BackupError("De Zigbee2MQTT-opslag bevat gegevens. Bewaar de bron voor terugval.")
+            except (OSError, bk.BackupError):
+                # Gebruik hetzelfde geopende object, ook als de koppeling ondertussen is verplaatst.
+                if (restore_on_error and cfg.data_dir != Path("/data")
+                        and expected["mode"] != stat.S_IMODE(os.fstat(fd).st_mode)):
+                    os.fchmod(fd, expected["mode"])
+                    os.fsync(fd)
+                raise
         finally:
             os.close(fd)
     except (OSError, KeyError) as exc:
@@ -86,7 +94,7 @@ def fence_store(proof: dict, *, release: bool = False) -> None:
 
 
 async def login_journal(db) -> None:
-    # Buiten de export: aanmelden blijft mogelijk, ook na herstart van de gepauzeerde bron.
+    # Dit journaal blijft beschikbaar tot de beheerder de bronregistratie sluit.
     await db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended('shc-pause-login', 0))"))
     await db.execute(text("CREATE SCHEMA IF NOT EXISTS shc_pause"))
     await db.execute(text("""CREATE TABLE IF NOT EXISTS shc_pause.attempts (
@@ -102,14 +110,28 @@ async def login_event(db, actor, action, target=None, **detail):
         {"actor": actor, "action": action, "target": target, "detail": json.dumps(detail)})
 
 
+def _database_tables(conn):
+    quote = conn.dialect.identifier_preparer.format_table
+    return {key: quote(t) for key, t in migration_inventory.catalog(conn).items() if key != "alembic_version"}
+
+
 def check_database_fence(conn):
     from .cli import MigrationError
 
-    guarded = set(conn.scalars(text("""SELECT c.relname FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
-        JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND t.tgname='shc_source_pause'
+    guarded = set(conn.scalars(text("""SELECT CASE WHEN n.nspname='public' THEN c.relname::text
+        ELSE n.nspname || '.' || c.relname END FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
+        JOIN pg_namespace n ON n.oid=c.relnamespace WHERE t.tgname='shc_source_pause'
         AND t.tgenabled IN ('O','A') AND t.tgfoid=to_regprocedure('public.shc_source_paused()')""")))
-    if guarded != set(Base.metadata.tables) - {"sessions"}:
+    if guarded != set(_database_tables(conn)) - {"sessions"}:
         raise MigrationError("De schrijfpauze is onvolledig. Bewaar de oorspronkelijke installatie.")
+    stopped = conn.scalar(text("SELECT value->'v'->>'stopped_at' FROM settings WHERE key='migration_source_pause'"))
+    if stopped:
+        closed = set(conn.scalars(text("""SELECT c.relname FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
+            JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='shc_pause'
+            AND t.tgname='shc_registrations_closed' AND t.tgenabled IN ('O','A')
+            AND t.tgfoid=to_regprocedure('shc_pause.registrations_closed()')""")))
+        if closed != {"attempts", "events"}:
+            raise MigrationError("De afsluiting van het aanmeldjournaal is onvolledig.")
 
 
 async def pause(db, actor: str) -> dict:
@@ -125,11 +147,11 @@ async def pause(db, actor: str) -> dict:
     started = datetime.now(UTC)
     until = started + LEASE
     proof = {"id": str(uuid.uuid4()), "source_id": server, "started": started.isoformat(), "expires": until.isoformat(),
-             "maintenance_before": bool(await get_setting(db, "maintenance", False))}
+             "maintenance_before": bool(await get_setting(db, "maintenance", False)), "stopped_at": None}
     # De triggers wachten op eerdere transacties. Houd de volgorde voor alle schrijfpauzes gelijk.
     await db.execute(text("SET LOCAL lock_timeout = '10s'"))
-    names = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
-    await db.execute(text(f"LOCK TABLE {names} IN SHARE ROW EXCLUSIVE MODE"))
+    tables = await (await db.connection()).run_sync(_database_tables)
+    await db.execute(text(f"LOCK TABLE {', '.join(tables.values())} IN SHARE ROW EXCLUSIVE MODE"))
     proof["storage"] = _store_state(empty_zigbee_store())
     if get_settings().data_dir == Path("/data"):
         # De Compose-API kan de gekoppelde map alleen controleren. Weiger vóór de databasepauze.
@@ -149,41 +171,112 @@ async def pause(db, actor: str) -> dict:
         BEGIN
             RAISE EXCEPTION USING ERRCODE='25006', MESSAGE='De bron is gepauzeerd voor de overstap.';
         END $$"""))
-    for table in Base.metadata.sorted_tables:
-        if table.name != "sessions":
+    for name, table in tables.items():
+        if name != "sessions":
             await db.execute(text(f'''CREATE TRIGGER shc_source_pause BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE
-                ON "{table.name}" FOR EACH STATEMENT EXECUTE FUNCTION shc_source_paused()'''))
+                ON {table} FOR EACH STATEMENT EXECUTE FUNCTION shc_source_paused()'''))
     await db.commit()
     # Leg de oude rechten eerst duurzaam vast, zodat hervatten ze ook na procesverlies kan herstellen.
-    # Elke definitieve export neemt dezelfde schrijfgrens opnieuw onder de loep.
-    fence_store(proof)
-    return {k: v for k, v in proof.items() if k != "storage"}
+    # Hervatten en exporteren kunnen tussen de transacties de lock al hebben verkregen.
+    await lock_commissioning(db)
+    current = await get_setting(db, PAUSE_KEY)
+    if not current or current["id"] != proof["id"]:
+        raise bk.BackupError("De bronpauze is inmiddels hervat.")
+    try:
+        fence_store(proof, restore_on_error=not current.get("stopped_at"))
+    except bk.BackupError:
+        # De oude rechten zijn al duurzaam vastgelegd. Maak uitsluitend onze eigen
+        # geweigerde pauze ongedaan zolang die geen definitief bewijs heeft uitgegeven.
+        await resume(db, actor, rejected_id=proof["id"])
+        raise
+    await db.commit()
+    return {k: v for k, v in current.items() if k != "storage"}
 
 
-async def resume(db, actor: str) -> None:
+async def _merge_logins(db):
+    # Verplaatsen en verwijderen vormen één transactie, ook bij een herhaalde export of terugval.
+    # Laat een later, uitgebreid journaal intact als deze versie zijn velden niet kan overdragen.
+    conn = await db.connection()
+    journal = await conn.run_sync(lambda c: inspect(c).get_multi_columns(
+        schema="shc_pause", filter_names=["attempts", "events"]))
+    for name, columns in (("attempts", {"id", "failed_logins", "locked_until"}),
+                          ("events", {"id", "at", "actor", "action", "target", "detail"})):
+        if {c["name"] for c in journal.get(("shc_pause", name), ())} != columns:
+            raise bk.BackupError("Het aanmeldjournaal bevat onbekende kolommen. Bewaar de bron voor terugval.")
+    await db.execute(text("""WITH moved AS (DELETE FROM shc_pause.attempts RETURNING *)
+        UPDATE users u SET failed_logins=m.failed_logins, locked_until=m.locked_until
+        FROM moved m WHERE u.id=m.id"""))
+    await db.execute(text("""WITH moved AS (DELETE FROM shc_pause.events RETURNING *)
+        INSERT INTO audit_log (at,actor,action,target,detail)
+        SELECT at,actor,action,target,detail FROM moved ORDER BY id"""))
+
+
+def logins_closed(proof):
+    return bool(proof and proof.get("stopped_at") and datetime.now(UTC) < datetime.fromisoformat(proof["expires"]))
+
+
+async def prepare_export(db, actor: str, *, stop: bool):
+    # Aanmeldingen houden de gedeelde installatielock tot en met hun commit. De export
+    # wacht ook op een aanmelding waarvan de wachtwoordcontrole nog loopt.
     await lock_commissioning(db)
     proof = await get_setting(db, PAUSE_KEY)
+    if not proof or "stopped_at" not in proof or datetime.now(UTC) >= datetime.fromisoformat(proof["expires"]):
+        raise bk.BackupError("Begin een nieuwe bronpauze voor de export. Hervat een eerdere pauze na de vervaltijd.")
+    if proof["stopped_at"]:
+        return
+    await db.execute(text("LOCK TABLE shc_pause.attempts, shc_pause.events IN ACCESS EXCLUSIVE MODE"))
+    # PostgreSQL houdt de tabelsloten tot commit. Andere verbindingen zien de triggers steeds ingeschakeld.
+    for name in ("users", "audit_log", "settings"):
+        await db.execute(text(f'ALTER TABLE "{name}" DISABLE TRIGGER shc_source_pause'))
+    await _merge_logins(db)
+    if stop:
+        await set_setting(db, PAUSE_KEY, {**proof, "stopped_at": datetime.now(UTC).isoformat()})
+        await audit(db, actor, "migration_source_stopped")
+        await db.flush()
+        # Ook reeds geopende verbindingen en oudere bronprocessen moeten de grens respecteren.
+        await db.execute(text("""CREATE FUNCTION shc_pause.registrations_closed() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN
+                IF clock_timestamp() >= (SELECT (value->'v'->>'expires')::timestamptz
+                        FROM public.settings WHERE key='migration_source_pause') THEN RETURN NULL; END IF;
+                RAISE EXCEPTION USING ERRCODE='25006', MESSAGE='De bronregistratie is afgesloten.';
+            END $$"""))
+        for name in ("attempts", "events"):
+            await db.execute(text(f"""CREATE TRIGGER shc_registrations_closed
+                BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE
+                ON shc_pause.{name} FOR EACH STATEMENT EXECUTE FUNCTION shc_pause.registrations_closed()"""))
+    for name in ("users", "audit_log", "settings"):
+        await db.execute(text(f'ALTER TABLE "{name}" ENABLE TRIGGER shc_source_pause'))
+
+
+async def resume(db, actor: str, *, rejected_id: str | None = None) -> None:
+    await lock_commissioning(db)
+    proof = await get_setting(db, PAUSE_KEY)
+    if rejected_id and (not proof or proof["id"] != rejected_id):
+        return
     if not proof:
         raise bk.BackupError("Er is geen bronpauze.")
-    if datetime.now(UTC) < datetime.fromisoformat(proof["expires"]):
+    # Een pauze uit een oude versie kan al een bewijs hebben uitgegeven.
+    if proof.get("stopped_at", True) and datetime.now(UTC) < datetime.fromisoformat(proof["expires"]):
         raise bk.BackupError("De bron blijft gepauzeerd tot het getoonde tijdstip waarop het overstapbewijs vervalt.")
     await db.execute(text("SET LOCAL lock_timeout = '10s'"))
-    for table in Base.metadata.sorted_tables:
-        if table.name != "sessions":
-            await db.execute(text(f'DROP TRIGGER shc_source_pause ON "{table.name}"'))
+    for name, table in (await (await db.connection()).run_sync(_database_tables)).items():
+        if name != "sessions":
+            await db.execute(text(f"DROP TRIGGER IF EXISTS shc_source_pause ON {table}"))
     await db.execute(text("DROP FUNCTION shc_source_paused()"))
-    # Na een alleen-lezen herstart vindt de gewone connectorvoorbereiding in deze transactie plaats.
-    from .cli import _check_connector_rows, _prepare_connector_worker
-    conn = await db.connection()
-    await conn.run_sync(_check_connector_rows)
-    await _prepare_connector_worker(conn)
-    if "storage" in proof:
-        fence_store(proof, release=True)
+    if not rejected_id:
+        # Na een alleen-lezen herstart vindt de gewone connectorvoorbereiding in deze transactie plaats.
+        from .cli import _check_connector_rows, _prepare_connector_worker
+        conn = await db.connection()
+        await conn.run_sync(_check_connector_rows)
+        await _prepare_connector_worker(conn)
+        if "storage" in proof:
+            fence_store(proof, release=True)
     if await db.scalar(text("SELECT to_regclass('shc_pause.attempts') IS NOT NULL")):
-        await db.execute(text("""UPDATE users u SET failed_logins=a.failed_logins, locked_until=a.locked_until
-            FROM shc_pause.attempts a WHERE u.id=a.id"""))
-        await db.execute(text("""INSERT INTO audit_log (at,actor,action,target,detail)
-            SELECT at,actor,action,target,detail FROM shc_pause.events ORDER BY id"""))
+        if proof.get("stopped_at"):
+            for name in ("attempts", "events"):
+                await db.execute(text(f"DROP TRIGGER shc_registrations_closed ON shc_pause.{name}"))
+            await db.execute(text("DROP FUNCTION shc_pause.registrations_closed()"))
+        await _merge_logins(db)
         await db.execute(text("DROP TABLE shc_pause.attempts, shc_pause.events"))
     await db.execute(text("DELETE FROM settings WHERE key='migration_source_pause'"))
     await set_setting(db, "maintenance", proof["maintenance_before"])
@@ -195,7 +288,8 @@ def complete(proof, source_id) -> bool:
     try:
         start = datetime.fromisoformat(proof["started"])
         end = datetime.fromisoformat(proof["expires"])
+        stopped = datetime.fromisoformat(proof["stopped_at"])
         return bool(source_id and proof["source_id"] == source_id and proof["zigbee_store"] == "write_fenced_empty"
-                    and start <= datetime.now(UTC) < end <= start + LEASE and uuid.UUID(proof["id"]))
+                    and start <= stopped <= datetime.now(UTC) < end <= start + LEASE and uuid.UUID(proof["id"]))
     except (ValueError, TypeError, KeyError):
         return False

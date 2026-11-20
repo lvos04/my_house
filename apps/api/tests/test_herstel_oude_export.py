@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import os
+import secrets
 import subprocess
 import sys
 import tarfile
@@ -40,7 +41,11 @@ def oude_app(tmp_path, request):
     return app
 
 
-async def test_oude_export_met_zigbee_na_export(tmp_path, monkeypatch, oude_app):
+@pytest.mark.parametrize(("oude_app", "opslagbewijs"), [
+    (BRONVERSIE, "verified_empty"),
+    ("140d39df39b670b064e663a920a650f03bd9c9d0", "write_fenced_empty"),
+], indirect=["oude_app"])
+async def test_oude_export_met_zigbee_na_export(tmp_path, monkeypatch, oude_app, opslagbewijs):
     cfg = get_settings()
     monkeypatch.setattr(cfg, "backup_dir", tmp_path / "doel")
     monkeypatch.setattr(system, "MAINTENANCE_SETTLE_S", 0)
@@ -49,6 +54,8 @@ async def test_oude_export_met_zigbee_na_export(tmp_path, monkeypatch, oude_app)
     archive = tmp_path / "oud.shcbak"
     async with proefinstallatie(monkeypatch) as source:
         assert (await source.post("/homes", {"name": "Bron met oude export"})).is_success
+        zin = secrets.token_urlsafe(24)
+        assert (await source.post("/auth/users", {"username": "lezer", "role": "viewer", "password": zin})).is_success
         bron_url = cfg.database_url
         env = dict(os.environ, SHC_DATABASE_URL=bron_url, SHC_DATA_DIR=str(tmp_path / "app"),
                    SHC_ZIGBEE2MQTT_DIR=str(zigbee),
@@ -65,14 +72,19 @@ async def export():
         await migration_source.pause(db, 'testbeheer')
     async with engine().connect() as conn:
         result = await backup.write_backup(conn, Path(sys.argv[1]), sys.stdin.read(), True, source_proof={})
-        assert result['source_pause']['zigbee_store'] == 'verified_empty'
+        assert result['source_pause']['zigbee_store'] == sys.argv[2]
+        assert 'stopped_at' not in result['source_pause']
 asyncio.run(export())
 """
-        proc = await asyncio.create_subprocess_exec(sys.executable, "-c", script, str(archive), cwd=oude_app,
+        proc = await asyncio.create_subprocess_exec(sys.executable, "-c", script, str(archive), opslagbewijs, cwd=oude_app,
                                                     env=env, stdin=asyncio.subprocess.PIPE)
         await proc.communicate(PW.encode())
         assert proc.returncode == 0
-        (zigbee / "database.db").write_text("synthetische late apparaatstand")
+        if opslagbewijs == "verified_empty":
+            (zigbee / "database.db").write_text("synthetische late apparaatstand")
+        else:
+            login = await source.c.post("/api/v1/auth/login", json={"username": "lezer", "password": zin})
+            assert login.is_success
         async with proefinstallatie(monkeypatch) as target:
             verify = await _upload(target, archive.read_bytes(), PW)
             assert verify.is_success

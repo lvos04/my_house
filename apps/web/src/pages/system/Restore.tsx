@@ -198,7 +198,10 @@ function SourcePauseForm() {
   const refresh = () => qc.invalidateQueries({ queryKey: qk.settings });
   const pause = useMutation({ mutationFn: api.pauseSource, onSuccess: refresh });
   const resume = useMutation({ mutationFn: api.resumeSource, onSuccess: () => { exported.reset(); return refresh(); } });
-  const exported = useMutation({ mutationFn: () => api.sourceExport(phrase), onSuccess: () => setPhrase('') });
+  const exported = useMutation({
+    mutationFn: (stop: boolean) => api.sourceExport(phrase, stop),
+    onSuccess: () => { setPhrase(''); return refresh(); },
+  });
   const proof = settings.data?.source_pause;
   const last = settings.data?.last_restore;
   return <>{last && <p>Laatste hersteltaak ({dateTime(last.started_at)}): {last.step}.{' '}
@@ -206,16 +209,23 @@ function SourcePauseForm() {
     <details className="stack"><summary>Definitieve export op de bron</summary>
     {settings.isLoading ? <Loading label="Bronstatus laden…" /> : settings.error ? <ErrorNote error={settings.error} /> : proof ? <>
       <p role="status">Bron gepauzeerd. Laatste meetrecord: {proof.last_reading ?? 'Geen'}. Aantal metingen: {proof.reading_count}. Het overstapbewijs vervalt {dateTime(proof.expires)}.</p>
-      <form className="stack" onSubmit={e => { e.preventDefault(); exported.mutate(); }}>
-        <label className="field">Wachtwoordzin voor de definitieve export<input type="password" minLength={12} required value={phrase} onChange={e => setPhrase(e.target.value)} /></label>
-        <div><ActionButton type="submit" className="btn" disabled={phrase.length < 12 || exported.isPending}>Definitieve export maken</ActionButton></div>
+      <p>{proof.stopped_at ? `Bronregistratie afgesloten op ${dateTime(proof.stopped_at)}.`
+        : 'Aanmelden blijft mogelijk tot je de bronregistratie afsluit. De definitieve export bevat ook de laatste aanmeldingen.'}</p>
+      <form className="stack" onSubmit={e => { e.preventDefault(); exported.mutate(true); }}>
+        <label className="field">Wachtwoordzin voor de export<input type="password" minLength={12} required value={phrase} onChange={e => setPhrase(e.target.value)} /></label>
+        <div className="row"><ActionButton type="submit" className="btn" disabled={phrase.length < 12 || exported.isPending}>
+          {proof.stopped_at ? 'Definitieve export opnieuw maken' : 'Bronregistratie afsluiten en exporteren'}</ActionButton>
+          {!proof.stopped_at && <ActionButton type="button" className="btn" disabled={phrase.length < 12 || exported.isPending}
+            onClick={() => exported.mutate(false)}>Tussenexport maken</ActionButton>}
+        </div>
       </form>
       {exported.isPending && <ProgressBar value={null} label="Bronexport controleren…" />}
-      {exported.data && <div><a className="btn" href={api.restoreFileUrl(exported.data.file_id)} download>Definitieve export downloaden</a></div>}
-      <p>Stop eerst de doelapp voor terugval. Na de vervaltijd kun je de bron hervatten.</p>
+      {exported.data && <div><a className="btn" href={api.restoreFileUrl(exported.data.file_id)} download>
+        {exported.data.source_pause.stopped_at ? 'Definitieve export downloaden' : 'Tussenexport downloaden'}</a></div>}
+      <p>{proof.stopped_at === null ? 'Je kunt de bron nu hervatten.' : 'Stop eerst de doelapp voor terugval. Na de vervaltijd kun je de bron hervatten.'}</p>
       <div><ActionButton className="btn" disabled={resume.isPending} onClick={() => resume.mutate()}>Bron hervatten</ActionButton></div>
     </> : <>
-      <p>Pauzeer de bron voor de laatste export. De database blokkeert wijzigingen. Het overstapbewijs blijft één uur geldig. Je kunt tijdens de pauze blijven lezen en opnieuw inloggen. Na dat uur kun je de bron hervatten.</p>
+      <p>Pauzeer de bron voor de overstap. Bestaande sessies kunnen blijven lezen. Nieuwe aanmeldingen blijven mogelijk tot je de bronregistratie afsluit. Het bewijs vervalt één uur na het begin van de pauze.</p>
       <div><ActionButton className="btn" disabled={pause.isPending} onClick={() => pause.mutate()}>Bron pauzeren voor overstap</ActionButton></div>
     </>}
     {(pause.error || resume.error || exported.error) && <ErrorNote error={pause.error || resume.error || exported.error} />}
@@ -465,7 +475,7 @@ export function CompareView({ data, onReleased }: { data: RestoreCompare; onRele
           <thead><tr><th scope="col">Gegevens</th><th scope="col">Bron</th><th scope="col">Doel</th><th scope="col">Inhoud</th></tr></thead>
           <tbody>{Object.entries(data.inventory).map(([kind, item]) => <tr key={kind}>
             <td data-label="Gegevens">{inventoryNames[kind] ?? kind}</td>
-            <td data-label="Bron">{item.source ?? 'Onbekend'}</td><td data-label="Doel">{item.target}</td>
+            <td data-label="Bron">{item.source ?? 'Onbekend'}</td><td data-label="Doel">{item.target ?? 'Ontbreekt'}</td>
             <td data-label="Inhoud">{item.same ? 'Gelijk' : 'Wijkt af'}</td>
           </tr>)}</tbody>
         </table></div>

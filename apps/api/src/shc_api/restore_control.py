@@ -11,12 +11,13 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import inspect, select, text, tuple_
+from sqlalchemy import select, text, tuple_
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from . import backup as bk
 from .config import get_settings
+from .migration_inventory import catalog, fingerprint
 from .models import Base
 
 
@@ -38,21 +39,25 @@ def rollback_dir() -> Path:
 def state_stamp(conn) -> str:
     """Bind ook wijzigingen met gelijke aantallen. xmin verandert bij iedere nieuwe rijversie."""
     known = set(Base.metadata.tables) | {"alembic_version"}
-    if set(inspect(conn).get_table_names()) != known:
+    actual = catalog(conn)
+    if not known.issubset(actual):
         raise bk.BackupError("De doelback-up kan niet alle databasetabellen verantwoorden.")
     revision = conn.scalar(text("SELECT version_num FROM alembic_version"))
     if revision != bk.head_revision():
         raise bk.BackupError("Werk het doelschema bij vóór de vergelijking.")
     digest = hashlib.sha256(revision.encode())
-    for table in Base.metadata.sorted_tables:
-        if table.name in {"sessions", "processed_events"}:
+    for name, table in sorted(actual.items()):
+        if name in {"alembic_version", "sessions", "processed_events"}:
+            continue
+        digest.update(json.dumps([name, sorted(table.columns.keys())]).encode() + b"\0")
+        if not len(table.primary_key):
+            digest.update(_encoded(fingerprint(conn, table)))
             continue
         stmt = select(*table.primary_key, text("xmin::text")).order_by(*table.primary_key)
-        if table.name == "settings":
+        if name == "settings":
             # Vluchtige dienstinformatie en de herstelpauze veranderen terwijl de beheerder vergelijkt.
             stmt = stmt.where(table.c.key.not_in(("maintenance", "worker_heartbeat", "worker_loops", "clock_check",
                                                    "status_watch")))
-        digest.update(table.name.encode() + b"\0")
         page = stmt
         while rows := conn.execute(page.limit(2000)).all():
             for row in rows:

@@ -465,7 +465,7 @@ async def test_web_migration_preserves_source_and_requires_current_comparison(tm
                     with pytest.raises(DBAPIError) as late:
                         await db.commit()
                     assert late.value.orig.sqlstate == "25006"
-                final = await source_admin.post("/system/restore/source/export", {"passphrase": passphrase})
+                final = await source_admin.post("/system/restore/source/export", {"passphrase": passphrase, "stop_source": True})
                 assert final.status_code == 200, final.text
                 info = final.json()
                 assert info["source_pause"]["last_reading"] == await _scalar(source, "SELECT max(id) FROM sensor_readings")

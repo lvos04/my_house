@@ -147,9 +147,12 @@ database-dump). Bij **Gemaakte back-ups** kun je elke back-up downloaden.
    Als de Zigbee-dienst in een lege Compose-map kan schrijven, weigert de app de pauze. Controleer in
    het opslagbeheer het eigendom en de rechten. Een andere eigenaar dan de Zigbee-dienst en alleen
    lees- en zoekrechten voor groep en overige gebruikers beschermen de lege map. Bewaar map en inhoud.
-3. Kies **Definitieve export maken** en download het bestand. Deze export verifieert de schrijfgrens en
-   legt de inhoud van de bron vast. Het bewijs is één uur geldig vanaf het begin van de pauze.
-   Na het verlopen kun je op de bron hervatten en een nieuwe pauze en export starten.
+3. Tijdens de pauze kun je **Tussenexport maken** kiezen. De kijker kan zich daarna opnieuw aanmelden.
+   Kies voor de overstap **Bronregistratie afsluiten en exporteren**, terwijl je als beheerder aangemeld blijft.
+   Deze actie wacht op lopende aanmeldingen, sluit nieuwe aanmeldingen en neemt het volledige logboek mee.
+   Download de **Definitieve export**. Bestaande leessessies kunnen blijven lezen totdat je de bronapp stopt.
+   Zonder definitieve export kun je de pauze meteen opheffen. Na een definitieve export kun je de bron
+   hervatten zodra het bewijs vervalt, één uur na het begin van de pauze.
 4. Installeer het doel als afzonderlijke standaard Custom App met eigen opslag. Maak alleen de tijdelijke
    beheerder aan. Upload de definitieve export en kies **Overstappen naar een afzonderlijke Custom App**.
    Voer de herstelproef uit. Een doel met gebruikershistorie, waaronder gelezen meldingen of beheerhandelingen,

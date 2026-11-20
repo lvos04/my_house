@@ -12,6 +12,32 @@ afterEach(() => {
   localStorage.clear();
 });
 
+it('houdt de tussenexport en de afgesloten bronregistratie herkenbaar bij het downloaden', async () => {
+  const user = userEvent.setup();
+  const pause = { last_reading: 2, reading_count: 2, expires: '2026-11-01T12:00:00Z', stopped_at: null as string | null };
+  const keuzes: boolean[] = [];
+  mockApi((_method, url, body) => {
+    if (url.endsWith('/system/settings')) return { body: { source_pause: pause } };
+    if (url.endsWith('/source/export')) {
+      const { stop_source } = body as { stop_source: boolean };
+      keuzes.push(stop_source);
+      if (stop_source) pause.stopped_at = '2026-11-01T11:05:00Z';
+      return { body: { file_id: stop_source ? 'eindexport' : 'tussenexport', source_pause: pause } };
+    }
+  });
+  render(<Providers><RestoreSection safeMode={false} /></Providers>);
+  await user.click(screen.getByText('Definitieve export op de bron'));
+  const veld = await screen.findByLabelText('Wachtwoordzin voor de export');
+  await user.type(veld, 'synthetische proefzin');
+  await user.click(screen.getByRole('button', { name: 'Tussenexport maken' }));
+  expect(await screen.findByRole('link', { name: 'Tussenexport downloaden' })).toHaveAttribute('href', expect.stringContaining('/tussenexport'));
+  await user.type(veld, 'synthetische proefzin');
+  await user.click(screen.getByRole('button', { name: 'Bronregistratie afsluiten en exporteren' }));
+  expect(await screen.findByRole('link', { name: 'Definitieve export downloaden' })).toHaveAttribute('href', expect.stringContaining('/eindexport'));
+  expect(await screen.findByText(/Bronregistratie afgesloten op/)).toBeInTheDocument();
+  expect(keuzes).toEqual([false, true]);
+});
+
 const verify: RestoreVerify = {
   upload_id: 'a'.repeat(32),
   filename: 'huis-2026-11-01.shcbak',

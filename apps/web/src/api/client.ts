@@ -646,7 +646,8 @@ export const api = {
   restoreFileUrl: (id: string) => `${API_BASE}/system/restore/files/${enc(id)}`,
   pauseSource: () => post<T.SourcePause>('/system/restore/source/pause', {}),
   resumeSource: () => post<{ paused: boolean }>('/system/restore/source/resume', {}),
-  sourceExport: (passphrase: string) => post<{ file_id: string }>('/system/restore/source/export', { passphrase }),
+  sourceExport: (passphrase: string, stop: boolean) => post<{ file_id: string; source_pause: T.SourcePause }>(
+    '/system/restore/source/export', { passphrase, stop_source: stop }),
   restoreApply: (b: T.RestoreApplyIn) => post<T.RestoreApplyResult>('/system/restore/apply', b),
   /** No login needed (sessions are replaced by the restore). */
   restoreJob: (jobId: string) => get<T.RestoreJob>(`/system/restore/jobs/${enc(jobId)}`),

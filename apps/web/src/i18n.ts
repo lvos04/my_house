@@ -193,6 +193,7 @@ export const AUDIT_ACTION_LABEL: Dict = {
   restore_rekeyed: 'Apparaatsleutels opnieuw versleuteld',
   migration_confirmed: 'Overstap bevestigd',
   migration_source_paused: 'Bron gepauzeerd voor overstap',
+  migration_source_stopped: 'Bronregistratie afgesloten voor overstap',
   migration_source_resumed: 'Bron hervat na schrijfpauze',
   integration_paired: 'Apparaat gekoppeld',
   integration_address: 'Adres van koppeling gewijzigd',

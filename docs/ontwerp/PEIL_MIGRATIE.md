@@ -749,6 +749,10 @@ en [Peil 1.1.1](../../design/ontwerptaal/COMPONENTEN.md). Het ontwerp gebruikt d
 
 ### Systeem › Herstellen en verhuizen
 
+Op de bron kan de beheerder tijdens de schrijfpauze een tussenexport downloaden en aangemeld blijven.
+De bestaande exportknop benoemt de grens voor de overdracht met **Bronregistratie afsluiten en exporteren**.
+De status toont het sluitingstijdstip. Alleen de bijbehorende download heet **Definitieve export downloaden**.
+
 1. **Back-up maken en controleren.** De oude app maakt en downloadt een volledige versleutelde back-up via
    **Back-ups**. De beheerder start de nieuwe standaard Custom App met eigen opslag en database. In de nieuwe
    app kiest de beheerder **Uploaden en controleren** en ziet welke versie, woningen, apparaten en tabellen

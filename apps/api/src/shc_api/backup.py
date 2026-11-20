@@ -53,7 +53,7 @@ from typing import Any
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
-from sqlalchemy import MetaData, func, select, text
+from sqlalchemy import func, select, text
 from sqlalchemy import types as sqltypes
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_engine
@@ -108,7 +108,15 @@ REDACTED_PASSWORD = "!geredigeerd"  # noqa: S105 - not a password; can never ver
 SECRET_SETTING_KEYS = {"backup_passphrase_enc", "notify_url_enc"}
 # Een applicatieback-up mag geen eerdere Hub-koppeling opnieuw vertrouwen geven.
 CONNECTOR_LOCAL_TABLES = {"connector_hub_pins", "connector_nonces", "idempotency_keys"}
-SKIP_TABLES = {"sessions", "pairing_codes", "processed_events"} | CONNECTOR_LOCAL_TABLES
+LOCAL_TABLES = {
+    "sessions": "Browsersessies en CSRF-bewijzen zijn tijdelijk en gelden op één installatie.",
+    "pairing_codes": "Een kortlopende eenmalige koppelcode geeft uitsluitend op de uitgevende installatie toegang.",
+    "processed_events": "De worker gebruikt deze tijdelijke ontdubbelsleutels voor zijn eigen adapterverbinding.",
+    "connector_hub_pins": "De beheerder brengt de vertrouwensrelatie met de Hub per installatie tot stand.",
+    "connector_nonces": "De replaycache hoort bij de lokale Hub-koppeling.",
+    "idempotency_keys": "De tijdelijke antwoordcache hoort bij de lokale executor en zijn verzoeken.",
+}
+SKIP_TABLES = LOCAL_TABLES.keys()
 
 
 class BackupError(Exception):
@@ -520,11 +528,15 @@ def verify_file(path: Path, passphrase: str, collect: bool = True) -> Verified:
         summary["_server_id"] = source_id
         if proof := manifest.get("source_pause"):
             z2m = manifest.get("zigbee2mqtt") or {}
+            if not isinstance(proof, dict):
+                raise BackupError("Het pauzebewijs is ongeldig.")
             if (not z2m.get("mounted") or z2m.get("files") != 0 or z2m.get("unreadable") != []
                     or manifest.get("zigbee2mqtt_included")
-                    or set(manifest["tables"]) != set(Base.metadata.tables) - SKIP_TABLES):
+                    or ("stopped_at" in proof and set(manifest["tables"]) != set(proof.get("inventory") or {}))
+                    or not (set(Base.metadata.tables) - SKIP_TABLES).issubset(manifest["tables"])
+                    or SKIP_TABLES & manifest["tables"].keys()):
                 raise BackupError("De tabellen of de verwachte Zigbee-opslag ontbreken in de definitieve export.")
-            if (not reading_ids_known or not isinstance(proof, dict) or proof.get("last_reading") != last_reading
+            if (not reading_ids_known or proof.get("last_reading") != last_reading
                     or proof.get("reading_count") != manifest["tables"].get("sensor_readings", {}).get("rows")
                     or proof.get("source_id") != source_id):
                 raise BackupError("Het laatste bronrecord of de bronidentiteit wijkt af van het pauzebewijs.")
@@ -889,6 +901,20 @@ def _add_z2m(tar: tarfile.TarFile, z2m_dir: Path | None, files: dict, redact: bo
     return report
 
 
+@contextlib.asynccontextmanager
+async def _backup_snapshot(conn, *, source_transaction):
+    if source_transaction:
+        # De bron sluit onder de exclusieve installatielock het aanmeldjournaal.
+        # De export moet de rijen uit precies diezelfde, nog open transactie zien.
+        yield conn
+    else:
+        await conn.rollback()
+        snap = await conn.execution_options(isolation_level="REPEATABLE READ")
+        async with snap.begin():
+            await snap.execute(text("SET TRANSACTION READ ONLY"))
+            yield snap
+
+
 async def write_backup(
     conn: AsyncConnection,
     path: Path,
@@ -900,12 +926,13 @@ async def write_backup(
 ) -> dict:
     """Stream the whole database into an encrypted backup file at `path`; returns the manifest.
 
-    `conn` must not be in a transaction; a REPEATABLE READ snapshot is used for consistency."""
+    Een gewone export gebruikt REPEATABLE READ. Een bronexport draait binnen de afgesloten schrijftransactie."""
+    from .migration_inventory import table_key
+    from .migration_inventory import tables as inventory_tables
+
     _check_passphrase(passphrase)
     created_at = dt.datetime.now(dt.UTC).isoformat()
     rev = await schema_revision(conn)
-    if conn.in_transaction():
-        await conn.rollback()
     meta = {
         "format": FORMAT,
         "format_version": FORMAT_VERSION,
@@ -924,36 +951,47 @@ async def write_backup(
             meta_raw = json.dumps(meta, indent=2).encode()
             _add_bytes(tar, "meta.json", meta_raw)
             files["meta.json"] = {"sha256": hashlib.sha256(meta_raw).hexdigest(), "size": len(meta_raw)}
-            snap = await conn.execution_options(isolation_level="REPEATABLE READ")
-            async with snap.begin():
-                await snap.execute(text("SET TRANSACTION READ ONLY"))
+            async with _backup_snapshot(conn, source_transaction=source_proof is not None) as snap:
+                # Een geredigeerde export gebruikt de bekende kolommen met hun bijbehorende
+                # geheimenbeleid. Een volledige export leest alle werkelijke gegevenskolommen.
+                export_tables = await snap.run_sync(inventory_tables) if include_secrets else inventory_tables()
                 restore_report = await snap.scalar(select(Setting.value["v"]).where(Setting.key == "restore_report"))
                 interrupted = _interrupted_backup_ids(restore_report)
                 if source_proof is not None:
+                    from .cli import MigrationError
                     from .migration_inventory import capture
-                    from .migration_source import PAUSE_KEY, complete, empty_zigbee_store, fence_store
+                    from .migration_source import (
+                        PAUSE_KEY,
+                        check_database_fence,
+                        complete,
+                        empty_zigbee_store,
+                        fence_store,
+                    )
 
                     pause = await snap.scalar(select(Setting.value["v"]).where(Setting.key == PAUSE_KEY))
+                    try:
+                        await snap.run_sync(check_database_fence)
+                    except MigrationError as exc:
+                        raise BackupError(str(exc)) from exc
                     z2m_dir = empty_zigbee_store()
                     fence_store(pause or {})
                     source_proof.update({k: v for k, v in (pause or {}).items() if k != "storage"})
                     source_proof["zigbee_store"] = "write_fenced_empty"
-                    source_proof["inventory"] = await snap.run_sync(capture)
+                    source_proof["inventory"] = await snap.run_sync(capture, export_tables)
                     if not all(item["readable"] for item in source_proof["inventory"].values()):
                         raise BackupError("Controleer de oude hoofdsleutel op de bron vóór de definitieve export.")
                     counts = (await snap.execute(text("SELECT max(id), count(*) FROM sensor_readings"))).one()
-                    if (not complete(source_proof, source_proof.get("source_id"))
+                    if ((source_proof.get("stopped_at") and not complete(source_proof, source_proof.get("source_id")))
                             or counts != (source_proof.get("last_reading"), source_proof.get("reading_count"))):
                         raise BackupError("De schrijfpauze en het laatste bronrecord zijn niet bevestigd.")
                 if target_stamp is not None:
                     from .restore_control import state_stamp
                     target_stamp["value"] = await snap.run_sync(state_stamp)
-                for table in Base.metadata.sorted_tables:
-                    if table.name in SKIP_TABLES:
-                        continue
+                for table in export_tables:
+                    table_name = table_key(table)
                     if progress:
-                        progress(table.name)
-                    pw = _PartWriter(tar, table.name, tmpdir)
+                        progress(table_name)
+                    pw = _PartWriter(tar, table_name, tmpdir)
                     stmt = table.select().order_by(*table.primary_key)
                     result = await snap.stream(stmt.execution_options(yield_per=FETCH_ROWS))
                     keys = list(result.keys())
@@ -961,19 +999,19 @@ async def write_backup(
                     async for partition in result.partitions(FETCH_ROWS):
                         for r in partition:
                             obj = dict(zip(keys, r, strict=True))
-                            if table.name == "backups" and obj["status"] == "running" and obj["id"] not in interrupted:
+                            if table_name == "backups" and obj["status"] == "running" and obj["id"] not in interrupted:
                                 continue  # Laat werkelijk lopende taken weg, inclusief deze export.
-                            if table.name == "settings" and obj["key"] == "migration_source_pause":
+                            if table_name == "settings" and obj["key"] == "migration_source_pause":
                                 continue  # Een lokale bronpauze wordt nooit op het doel geïnstalleerd.
                             if redact:
-                                if table.name == "settings" and obj.get("key") in SECRET_SETTING_KEYS:
+                                if table_name == "settings" and obj.get("key") in SECRET_SETTING_KEYS:
                                     continue
-                                obj = redact_row(table.name, obj)
+                                obj = redact_row(table_name, obj)
                             pw.add(_ENCODER.encode(obj).encode() + b"\n")
                     pw.flush(force=True)
                     for p in pw.parts:
                         files[p.name] = {"sha256": p.sha256, "size": p.size, "rows": p.rows}
-                    tables[table.name] = {"rows": pw.rows, "files": [p.name for p in pw.parts]}
+                    tables[table_name] = {"rows": pw.rows, "files": [p.name for p in pw.parts]}
             z2m = _add_z2m(tar, z2m_dir, files, redact=not include_secrets)
             manifest = {
                 **meta,
@@ -987,7 +1025,9 @@ async def write_backup(
             if source_proof is not None:
                 if z2m["files"] or z2m["unreadable"] or not z2m["mounted"]:
                     raise BackupError("De geverifieerde Zigbee2MQTT-opslag is gewijzigd.")
-                manifest["source_pause"] = source_proof
+                # Een tussenexport levert ook aan oudere doelversies geen vrijgavebewijs.
+                if source_proof.get("stopped_at"):
+                    manifest["source_pause"] = source_proof
             _add_bytes(tar, "manifest.json", json.dumps(manifest, indent=2).encode())
         enc.finish()
         raw.flush()
@@ -1480,21 +1520,25 @@ def _restore_sync(
     from alembic import command
 
     from .commissioning import KEY, LOCK_SQL, gate_state, restored_gate
+    from .migration_inventory import catalog, compared_columns, fingerprint, table_key
 
     conn.execute(text("SET LOCAL lock_timeout = '60s'"))
     conn.execute(text(LOCK_SQL))
     rev = manifest["schema_revision"]
     head = head_revision()
     report.schema_from, report.schema_to = rev, head
-    current = MetaData()
-    current.reflect(bind=conn)
+    current = catalog(conn)
+    quote = conn.dialect.identifier_preparer.format_table
     if migration or guard:
         # Controle en TRUNCATE zitten onder dezelfde tabelsloten. Een gelijktijdige schrijfactie
         # kan het doel niet tussen de twee stappen vullen.
-        names = ", ".join(conn.dialect.identifier_preparer.quote(t.name) for t in current.sorted_tables)
+        names = ", ".join(quote(t) for t in current.values())
         conn.execute(text(f"LOCK TABLE {names} IN ACCESS EXCLUSIVE MODE"))
         if migration:
-            check_migration_target(conn, current.tables, migration)
+            check_migration_target(conn, current, migration)
+            from .migration_source import complete
+            if not complete(manifest.get("source_pause"), migration.source_id):
+                raise BackupError("De afgesloten bronregistratie is niet aangetoond of is verlopen.")
         if guard:
             from .restore_control import check_guard
             pending = conn.scalar(text("SELECT value->'v' FROM settings WHERE key='migration_pending'"))
@@ -1503,23 +1547,26 @@ def _restore_sync(
                 raise BackupError("Bij een open overstap kun je uitsluitend de geverifieerde doelback-up terugzetten.")
             check_guard(conn, guard, path)
     db_rev = None
-    if "alembic_version" in current.tables:
+    if "alembic_version" in current:
         db_rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-    held_recovery = "connector_changes" in current.tables
+    held_recovery = "connector_changes" in current
     if held_recovery:
         conn.execute(text(RESTORE_HISTORY))
         _hold_connector_recovery(conn)
     prior_raw = None
-    if "settings" in current.tables:
+    if "settings" in current:
         prior_raw = conn.execute(text("SELECT value FROM settings WHERE key=:key"), {"key": KEY}).scalar()
     # Alleen vóór invoering mag ontbreken nog de eenmalige classificatie volgen.
     introduced = db_rev is not None and (db_rev not in known_revisions() or not _is_older(db_rev, "0005"))
     prior = gate_state(prior_raw.get("v") if isinstance(prior_raw, dict) else None)
     if prior_raw is None and not introduced:
         prior = None
-    names = [t for t in current.tables if t != "alembic_version"]
+    # Installatiegebonden taakjournalen blijven buiten de vervanging. Een oudere kopie zonder
+    # een aanvullend schema mag gegevens uit dat schema evenmin impliciet wissen.
+    names = [quote(t) for key, t in current.items() if key != "alembic_version"
+             and (key in Base.metadata.tables or key in manifest["tables"])]
     if names:
-        conn.execute(text("TRUNCATE " + ", ".join(f'"{n}"' for n in names) + " RESTART IDENTITY CASCADE"))
+        conn.execute(text("TRUNCATE " + ", ".join(names) + " RESTART IDENTITY"))
     cfg = alembic_config(connection=conn)
     if db_rev != rev:
         # Load the rows into the schema they were written with; migrate forward afterwards.
@@ -1531,8 +1578,7 @@ def _restore_sync(
     # Schemaopbouw in een lege database kan deze ene initialisatierij maken.
     # De inhoud van de back-up wordt hierna geladen; geen dubbele gate-rij.
     conn.execute(text("DELETE FROM settings WHERE key=:key"), {"key": KEY})
-    target = MetaData()
-    target.reflect(bind=conn)
+    target = catalog(conn)
     batch: list[dict] = []
     table = None
     skipped_cols: set[str] = set()
@@ -1540,14 +1586,14 @@ def _restore_sync(
         tname = _table_of(name)
         if tname is None:
             continue
-        if tname not in target.tables or tname == "alembic_version" or tname in CONNECTOR_LOCAL_TABLES:
+        if tname not in target or tname == "alembic_version" or tname in CONNECTOR_LOCAL_TABLES:
             n = sum(1 for line in _lines(f) if line)
             report.dropped["tables"][tname] = report.dropped["tables"].get(tname, 0) + n
             continue
-        if table is None or table.name != tname:
+        if table is None or table_key(table) != tname:
             _flush(conn, table, batch, report)
             batch = []
-            table = target.tables[tname]
+            table = target[tname]
             skipped_cols = set()
         cols = table.columns
         for line in _lines(f):
@@ -1570,36 +1616,35 @@ def _restore_sync(
                 _flush(conn, table, batch, report)
                 batch = []
     _flush(conn, table, batch, report)
+    final = target
     if rev != head:
         command.upgrade(cfg, "head")
         report.migrated = True
-        final = MetaData()
-        final.reflect(bind=conn)
+        final = catalog(conn)
         for t, n in report.counts.items():
-            if t in final.tables:
-                now = conn.execute(select(func.count()).select_from(final.tables[t])).scalar_one()
+            if t in final:
+                now = conn.execute(select(func.count()).select_from(final[t])).scalar_one()
                 if now < n:
                     report.dropped["rows_removed_by_migration"][t] = n - now
     if migration:
-        from .migration_inventory import fingerprint
-        from .migration_inventory import tables as inventory_tables
-
         inventory = (manifest.get("source_pause") or {}).get("inventory", {})
-        if set(inventory) != {table.name for table in inventory_tables()}:
-            raise BackupError("De bronvergelijking dekt niet alle gegevenstabellen.")
+        columns = {name: sorted(c.name for c in compared_columns(t)) for name, t in final.items()
+                   if name != "alembic_version" and name not in SKIP_TABLES}
+        if any(report.dropped.values()) or {name: item.get("columns") for name, item in inventory.items()} != columns:
+            raise BackupError("De bronvergelijking dekt niet alle tabellen, kolommen of rijen op het doel.")
         for name in ("commands", "connector_changes"):
-            if inventory[name] != fingerprint(conn, Base.metadata.tables[name]):
+            if inventory[name] != fingerprint(conn, target[name]):
                 raise BackupError("De geïmporteerde opdrachten of het connectorbewijs wijken af van de bron.")
     _restore_connector_proof(conn, held_recovery)
-    for table in Base.metadata.sorted_tables:  # keep bigserial sequences ahead of restored ids
-        pkc = list(table.primary_key.columns)
-        if len(pkc) == 1 and pkc[0].autoincrement is True and isinstance(pkc[0].type, sqltypes.BigInteger):
-            conn.execute(
-                text(
-                    f"SELECT setval(pg_get_serial_sequence('{table.name}', '{pkc[0].name}'), "  # noqa: S608 (own metadata)
-                    f'COALESCE((SELECT MAX({pkc[0].name}) FROM "{table.name}"), 0) + 1, false)'
-                )
-            )
+    for name, table in final.items():
+        pk = list(table.primary_key)
+        if name in report.counts and len(pk) == 1 and isinstance(pk[0].type, sqltypes.Integer):
+            sequence = conn.scalar(text("SELECT pg_get_serial_sequence(:rel, :col)"),
+                                   {"rel": quote(table), "col": pk[0].name})
+            if sequence:
+                last = conn.scalar(select(func.max(pk[0])))
+                conn.execute(text("SELECT setval(CAST(:seq AS regclass), :value, :used)"),
+                             {"seq": sequence, "value": last if last is not None else 1, "used": last is not None})
     loaded_raw = conn.execute(text("SELECT value FROM settings WHERE key='commissioning_gate'")).scalar()
     loaded = gate_state(loaded_raw.get("v") if isinstance(loaded_raw, dict) else None)
     merged = restored_gate(prior, loaded, mode, dt.datetime.now(dt.UTC).isoformat())
@@ -1623,7 +1668,7 @@ def _restore_sync(
         # Opdrachttermijnen vervallen en de strengste inbedrijfstellingsgate blijft behouden.
         # Leg uitsluitend deze bedoelde omzettingen vast, binnen de transactie van het herstel.
         for name in ("commands", "connector_changes"):
-            inventory[name] = fingerprint(conn, Base.metadata.tables[name])
+            inventory[name] = fingerprint(conn, target[name])
         _set(conn, "migration_pending", {"source_id": migration.source_id, "target_id": migration.server_id,
                                          "source_pause": pause, "inventory": inventory, "gate": merged,
                                          "archive_sha256": guard["comparison"]["archive_sha256"] if guard else None,
@@ -1643,11 +1688,13 @@ def _is_older(rev: str, than: str | None) -> bool:
 def _flush(conn, table, batch: list[dict], report: RestoreReport) -> None:
     if table is None:
         return
-    report.counts.setdefault(table.name, 0)
+    from .migration_inventory import table_key
+    key = table_key(table)
+    report.counts.setdefault(key, 0)
     if not batch:
         return
     conn.execute(table.insert(), batch)
-    report.counts[table.name] += len(batch)
+    report.counts[key] += len(batch)
 
 
 def _set(conn, key: str, value: Any) -> None:

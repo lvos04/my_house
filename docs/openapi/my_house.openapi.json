@@ -2137,6 +2137,31 @@
         "title": "SimulateIn",
         "type": "object"
       },
+      "SourceExportIn": {
+        "properties": {
+          "include_secrets": {
+            "default": true,
+            "title": "Include Secrets",
+            "type": "boolean"
+          },
+          "passphrase": {
+            "maxLength": 256,
+            "minLength": 12,
+            "title": "Passphrase",
+            "type": "string"
+          },
+          "stop_source": {
+            "default": false,
+            "title": "Stop Source",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "passphrase"
+        ],
+        "title": "SourceExportIn",
+        "type": "object"
+      },
       "TariffIn": {
         "description": "Prices per kWh / m³ in the home's currency. Optional fields may be left empty.",
         "properties": {
@@ -7993,7 +8018,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BackupIn"
+                "$ref": "#/components/schemas/SourceExportIn"
               }
             }
           },

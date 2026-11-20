@@ -13,7 +13,7 @@ from ..config import get_settings
 from ..deps import CSRF_COOKIE, DB, SESSION_COOKIE, Auth, revoke_access
 from ..errors import api_error
 from ..events import publish_auth_revoked
-from ..migration_source import PAUSE_KEY, login_event, login_journal
+from ..migration_source import PAUSE_KEY, login_event, login_journal, logins_closed
 from ..models import Session as WebSession
 from ..models import User
 from ..security import (
@@ -206,6 +206,8 @@ async def setup(body: Credentials, request: Request, response: Response, db: DB)
 async def login(body: Credentials, request: Request, response: Response, db: DB) -> dict:
     await lock_commissioning_shared(db)
     pause = await get_setting(db, PAUSE_KEY)
+    if logins_closed(pause):
+        raise api_error(409, "source_stopped", "De bronregistratie is afgesloten voor de overstap.")
     if pause and not await db.scalar(text("SELECT to_regclass('shc_pause.attempts') IS NOT NULL")):
         await login_journal(db)
     record = login_event if pause else audit

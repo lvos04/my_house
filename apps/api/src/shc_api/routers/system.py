@@ -31,7 +31,7 @@ from ..contract_http import ContractProblem, problem
 from ..deps import DB, Admin, Auth, WebAdmin
 from ..errors import SECRET_KEY_INVALID_RESPONSE, api_error, not_found, require_secret_box, secret_key_invalid
 from ..logfilter import fouttekst as _fouttekst
-from ..models import BackupRecord, Base, Device, DeviceBinding, Home, Integration, LogicalRole
+from ..models import BackupRecord, Device, DeviceBinding, Home, Integration, LogicalRole
 from ..security import lan_url_problem, normalize_server_url, remote_url_problem
 from ..store import audit, ensure_server_identity, get_setting, set_secret_setting, set_setting
 from ..views.status import publish_status
@@ -830,25 +830,29 @@ async def source_resume(db: DB, p: WebAdmin) -> dict:
     return {"paused": False}
 
 
-@router.post("/system/restore/source/export")
-async def source_export(body: BackupIn, db: DB, p: WebAdmin) -> dict:
-    from ..db import engine
+class SourceExportIn(BackupIn):
+    stop_source: bool = False
 
-    if not await get_setting(db, migration_source.PAUSE_KEY):
-        raise api_error(409, "source_unverified", "Pauzeer de bron vóór de definitieve export.")
-    await lock_commissioning(db)
+
+@router.post("/system/restore/source/export")
+async def source_export(body: SourceExportIn, db: DB, p: WebAdmin) -> dict:
     key = uuid.uuid4()
     path = restore_control.rollback_dir() / f"{key}.shcbak"
+    pending = path.with_suffix(".partial")
+    proof = {}
     try:
-        path.touch(mode=0o600, exist_ok=False)
-        async with engine().connect() as conn:
-            manifest = await bk.write_backup(conn, path, body.passphrase, True, source_proof={})
-        await asyncio.to_thread(bk.verify_file, path, body.passphrase)
+        await migration_source.prepare_export(db, p.actor, stop=body.stop_source)
+        pending.touch(mode=0o600, exist_ok=False)
+        await bk.write_backup(await db.connection(), pending, body.passphrase, True, source_proof=proof)
+        await asyncio.to_thread(bk.verify_file, pending, body.passphrase)
+        await db.commit()
+        pending.replace(path)
     except (bk.BackupError, OSError) as exc:
-        path.unlink(missing_ok=True)
         raise api_error(409, "source_unverified", str(exc) if isinstance(exc, bk.BackupError)
                         else "De bronexport kon niet worden geverifieerd.") from exc
-    return {"file_id": key, "source_pause": {k: v for k, v in manifest["source_pause"].items() if k != "inventory"}}
+    finally:
+        pending.unlink(missing_ok=True)
+    return {"file_id": key, "source_pause": {k: v for k, v in proof.items() if k != "inventory"}}
 
 
 def _backup_fingerprint(v: bk.Verified) -> str:
@@ -857,7 +861,7 @@ def _backup_fingerprint(v: bk.Verified) -> str:
 
 async def _check_migration_target(db: DB, target: bk.MigrationTarget) -> None:
     conn = await db.connection()
-    await conn.run_sync(bk.check_migration_target, Base.metadata.tables, target)
+    await conn.run_sync(lambda c: bk.check_migration_target(c, migration_inventory.catalog(c), target))
 
 
 @router.post("/system/restore/rekey", responses=SECRET_KEY_INVALID_RESPONSE)
@@ -928,7 +932,7 @@ async def web_restore_drill(body: RestoreUploadIn, db: DB, p: WebAdmin) -> dict:
         except bk.BackupError as exc:
             refusal = str(exc)
     if refusal is None and not migration_source.complete(verified.manifest.get("source_pause"), source_id):
-        refusal = "Bronvolledigheid onbekend. Pauzeer de bron en maak de definitieve export met Zigbee-opslagcontrole."
+        refusal = "Bronvolledigheid onbekend. Sluit de bronregistratie af en gebruik de definitieve export."
     if refusal is None:
         meta["drill"] = {
             "id": str(uuid.uuid4()), "fingerprint": _backup_fingerprint(verified), "target_id": target_id,

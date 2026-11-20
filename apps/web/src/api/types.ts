@@ -1255,6 +1255,7 @@ export interface RestoreVerify {
 /** A: same home on a new server. B: new home (old one archived, its integrations off). */
 export type RestoreMode = 'same_home' | 'new_home' | 'migration';
 export interface SourcePause {
+  stopped_at?: Ts | null;
   expires: Ts;
   reading_count: number;
   last_reading: number | null;
@@ -1364,7 +1365,7 @@ export interface RestoreCompare {
   source_homes?: Record<Uuid, string>;
   homes?: Record<Uuid, string>;
   missing_devices?: number;
-  inventory?: Record<string, { source: number | null; target: number; same: boolean }>;
+  inventory?: Record<string, { source: number | null; target: number | null; same: boolean }>;
   migration?: { source_id: string; target_id: string; confirmation: string | null; source_complete?: boolean };
 }
 
