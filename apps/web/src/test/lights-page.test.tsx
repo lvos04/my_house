@@ -89,6 +89,17 @@ afterEach(() => {
 });
 
 describe('lights page (item 27)', () => {
+  it('een groep zonder schakelmeting toont Onbekend zonder schakelknop', async () => {
+    mockApi((m, url) => url.endsWith('/homes/h1/lights')
+      ? { body: { ...lights, groups: [group({ id: 'g1', on: null })] } }
+      : route()(m, url));
+    render(<Providers><LightsPage /></Providers>);
+    const kaart = await screen.findByTestId('group-g1');
+    expect(kaart).toHaveTextContent('Onbekend');
+    expect(within(kaart).queryByRole('button', { name: /aanzetten|uitzetten/ })).not.toBeInTheDocument();
+    expect(kaart).not.toHaveTextContent(/\d van \d aan/);
+  });
+
   it('shows x of y on, the active scene, unreachable lamps, a failed command with its reason, and "Alle lampen" last', async () => {
     mockApi(route());
     render(<Providers><LightsPage /></Providers>);

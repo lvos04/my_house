@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 
+import pytest
 from hue_inventory import (
     B1,
     B2,
@@ -58,6 +59,30 @@ def test_group_counts_scene_and_all_lights():
     everything = st[G_ALL].state
     assert everything["name"] == ALL_LIGHTS_NAME and everything["all_lights"] is True
     assert (everything["lights_on"], everything["lights_total"]) == (2, 3)
+
+
+@pytest.mark.parametrize("veld, verwacht", [
+    ({}, None), ({"on": None}, None), ({"on": {}}, None), ({"on": {"on": 0}}, None),
+    ({"on": {"on": "false"}}, None), ({"on": {"on": False}}, False), ({"on": {"on": True}}, True),
+])
+def test_groepsstand_vereist_een_expliciete_meting(veld, verwacht):
+    resource = {"id": G_LIVING, "type": "grouped_light", **veld}
+    assert HueModel({G_LIVING: resource}).group_state(G_LIVING).get("on") is verwacht
+
+
+def test_alleen_een_schakelmeting_vernieuwt_de_groepstijd():
+    m = model()
+    eerste = by_id(m.snapshot(AT))[G_LIVING].state["on_at"]
+    assert eerste == AT.isoformat()
+    wijziging = update({"id": L2, "type": "light", "on": {"on": True}})
+    wijziging["creationtime"] = "2026-11-11T14:00:00Z"
+    assert by_id(m.apply_container(wijziging))[G_LIVING].state["on_at"] == eerste
+    wijziging["data"] = [{"id": G_LIVING, "type": "grouped_light", "on": {"on": False}}]
+    stand = by_id(m.apply_container(wijziging))[G_LIVING].state
+    assert stand["on"] is False and stand["on_at"] == wijziging["creationtime"]
+    wijziging["data"][0]["on"] = {}
+    stand = by_id(m.apply_container(wijziging))[G_LIVING].state
+    assert stand.get("on") is None and stand["on_at"] is None
 
 
 def test_light_reachability_via_owner_device():

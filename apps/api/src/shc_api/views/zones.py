@@ -41,6 +41,8 @@ async def zone_view(db: AsyncSession, zone: ClimateZone, home: Home, now: dateti
     profile = await db.get(ComfortProfile, zone.profile_id) if zone.profile_id else None
     caps = caps_of(unit)
     us = unit_state(unit)
+    target = await latest_reading(db, zone.unit_device_id, "target_c") if us.target_c is not None else None
+    target_at = target.observed_at if target and target.quality == "measured" and target.value == us.target_c else None
     others = await other_zone_modes(db, zone, now) if linked else []
     current = await effective_mode(db, unit, now) if linked else None
     sched = await schedule_entries(db, zone.id)
@@ -95,6 +97,7 @@ async def zone_view(db: AsyncSession, zone: ClimateZone, home: Home, now: dateti
         "online": us.online,
         "mode": us.mode or "off",
         "target_c": us.target_c,
+        "target_at": target_at,
         "fan": s.get("fan"),
         "temperature": _measurement(t, "°C", now, pol["stale_after_s"]),
         "humidity": _measurement(h, "%", now, pol["stale_after_s"]),

@@ -382,32 +382,34 @@ private fun LightTile(
     onToggle: () -> Unit,
 ) {
     val p = Huis.peil
-    val on = group.on && group.reachable
+    val stand = group.on
+    val on = stand == true && group.reachable
     val shape = RoundedCornerShape(8.dp)
     val stateText = stringResource(
         when {
             !group.reachable -> R.string.lights_unreachable
-            group.on -> R.string.light_on
+            stand == null -> R.string.status_unknown
+            on -> R.string.light_on
             else -> R.string.lights_off
         },
     )
-    val interaction = if (readOnly) {
+    val interaction = if (readOnly || stand == null) {
         Modifier.semantics { stateDescription = stateText }
     } else {
         Modifier.toggleable(
-            value = group.on,
+            value = stand,
             enabled = enabled && group.reachable,
             role = Role.Switch,
             onValueChange = { onToggle() },
         )
     }
     val (vlak, inkt) = when {
-        !group.reachable -> p.unknownBg to p.unknownInk
+        !group.reachable || stand == null -> p.unknownBg to p.unknownInk
         on -> p.domainLightOnBg to p.domainLightOnInk
         else -> p.card to p.foreground
     }
     val rand = when {
-        !group.reachable || stale -> Modifier.stippelRand(if (stale) p.stale else p.unknown, radius = 8.dp)
+        !group.reachable || stand == null || stale -> Modifier.stippelRand(if (stale) p.stale else p.unknown, radius = 8.dp)
         // The ink, not the amber domain colour (2,8:1 on its own surface in light): ≥ 3:1 (PeilContrastTest).
         on -> Modifier.border(BorderStroke(2.dp, p.domainLightOnInk), shape)
         else -> Modifier.border(BorderStroke(1.dp, p.borderStrong), shape)
@@ -430,12 +432,12 @@ private fun LightTile(
             )
             Text(group.name, style = MaterialTheme.typography.titleSmall, color = if (stale) p.staleInk else inkt)
         }
-        if (!group.reachable) {
+        if (!group.reachable || stand == null) {
             StatusBadge(PeilStatus.ONBEKEND)
-            Text(stateText, style = MaterialTheme.typography.bodySmall, color = inkt)
+            if (!group.reachable) Text(stateText, style = MaterialTheme.typography.bodySmall, color = inkt)
         } else {
             val sub = when {
-                !group.on -> stateText
+                !on -> stateText
                 else -> listOfNotNull(
                     group.scene,
                     group.brightness?.let { "$it%" },

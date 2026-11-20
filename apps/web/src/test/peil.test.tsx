@@ -90,6 +90,14 @@ describe('LichtTegel (WCAG 2.5.3: zichtbare tekst in de toegankelijke naam)', ()
     expect(tuin).toHaveClass('is-unreachable');
   });
 
+  it('toont een ontbrekende schakelstand als onbekend en biedt geen omkering aan', () => {
+    mockApi(() => undefined);
+    render(<Providers><LightTile group={group({ on: null })} /></Providers>);
+    const tegel = screen.getByRole('button', { name: 'Keuken Onbekend' });
+    expect(tegel).toBeDisabled();
+    expect(tegel).not.toHaveAttribute('aria-pressed');
+  });
+
   it('een kijker ziet de tegel zonder knop', () => {
     mockApi(() => undefined);
     render(<Providers user={viewer}><LightTile group={group({ on: true })} /></Providers>);

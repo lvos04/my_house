@@ -264,7 +264,7 @@ Zone = {
   unit_device_id, sensor_device_id,
   unit_linked: bool, unit_status: "not_linked"|"online"|"offline", online: bool,
   mode: "off"|"heat"|"cool"|"auto"|"dry"|"fan",
-  target_c: number|null,
+  target_c: number|null, target_at: ts|null,  // tijd van de bijbehorende gemeten doeltemperatuur
   fan: string|null,
   temperature: Measurement,          // externe sensor, anders de eigen sensor van de unit
   humidity: Measurement,
@@ -432,7 +432,7 @@ commando verandert nooit de regelstand van de zone.
 ## Verlichting en knoppen (Hue)
 
 ```
-LightGroup = {id, name, on: bool, brightness: 0–100|null, scene: string|null, scene_id: uuid|null,
+LightGroup = {id, name, on: bool|null, on_at: ts|null, brightness: 0–100|null, scene: string|null, scene_id: uuid|null,
               reachable: bool, lights_on: int, lights_total: int, lights_reachable: int|null,
               owner_type, all_lights: bool, hidden: bool, last_command: CommandView|null}
 Scene = {id, name, group_id, active: bool}

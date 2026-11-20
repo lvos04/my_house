@@ -69,8 +69,9 @@ def deep_merge(base: dict[str, Any], delta: dict[str, Any]) -> dict[str, Any]:
 
 def light_basic_state(res: dict[str, Any]) -> dict[str, Any]:
     state: dict[str, Any] = {"type": res.get("type")}
-    if "on" in res:
-        state["on"] = bool((res.get("on") or {}).get("on"))
+    switch = res.get("on")
+    if isinstance(switch, dict) and isinstance(switch.get("on"), bool):
+        state["on"] = switch["on"]
     if res.get("dimming") is not None:
         state["brightness"] = res["dimming"].get("brightness")
     if "owner" in res:
@@ -99,6 +100,7 @@ def _collect_refs(obj: Any) -> set[str]:
 class HueModel:
     def __init__(self, resources: dict[str, dict[str, Any]] | None = None):
         self.resources: dict[str, dict[str, Any]] = resources if resources is not None else {}
+        self.group_on_times: dict[str, str] = {}
         self.v1_rules: dict[str, set[str]] = {}  # device rid -> button rids used in v1 rules
         self.v1_rule_names: dict[str, set[str]] = {}
 
@@ -106,6 +108,7 @@ class HueModel:
     def load(self, items: list[dict[str, Any]]) -> None:
         """Replace the cache (the dict object is kept: the worker may hold a reference)."""
         self.resources.clear()
+        self.group_on_times.clear()
         for r in items:
             if r.get("type") in RESOURCE_TYPES and r.get("id"):
                 self.resources[r["id"]] = r
@@ -378,6 +381,7 @@ class HueModel:
 
     def group_update(self, rid: str, at: datetime) -> StateUpdate:
         st = self.group_state(rid)
+        st["on_at"] = self.group_on_times.get(rid)
         return StateUpdate(rid, st, at, online=st["lights_total"] == 0 or st["lights_reachable"] > 0)
 
     def button_device_update(self, device_rid: str, at: datetime) -> StateUpdate:
@@ -430,6 +434,9 @@ class HueModel:
     def snapshot(self, at: datetime) -> list[Event]:
         """Everything after a full load: inventory first, then the current state of each entity."""
         events: list[Event] = list(self.inventory(at))
+        self.group_on_times = {
+            r["id"]: at.isoformat() for r in self.of_type("grouped_light") if "on" in light_basic_state(r)
+        }
         events += [self.light_update(r["id"], at) for r in self.of_type("light")]
         events += [self.group_update(r["id"], at) for r in self.of_type("grouped_light")]
         # Only devices the bridge still has: a state update for a deleted device (whose button services
@@ -481,6 +488,7 @@ class HueModel:
                 continue
             if ctype == "delete":
                 old = self.resources.pop(rid, None) or res
+                self.group_on_times.pop(rid, None)
                 kind = {"light": "light", "grouped_light": "light_group", "scene": "scene"}.get(rtype)
                 if rtype == "device" and any(self.owner_of(r) == rid for t in BUTTON_TYPES for r in self.of_type(t)):
                     kind = "button"
@@ -510,6 +518,12 @@ class HueModel:
                     info_rids.add(rid)
             elif rtype == "grouped_light":
                 groups.add(rid)
+                if "on" in res or ctype == "add":
+                    # Een leeg of ongeldig schakelveld vervangt ook de oude waarde in de resourcecache.
+                    self.resources[rid]["on"] = res.get("on")
+                    self.group_on_times.pop(rid, None)
+                    if "on" in light_basic_state(res) and isinstance(container.get("creationtime"), str):
+                        self.group_on_times[rid] = container["creationtime"]
                 if ctype == "add":
                     info_rids.add(rid)
             elif rtype in ("zigbee_connectivity", "device_power"):

@@ -11,7 +11,7 @@ import { ErnstLabel, ernstVan } from '../components/peil/ErnstLabel';
 import { ZoneCard } from '../components/zone';
 import { MeterList, partMeters, StackBar } from '../components/energy';
 import { ago, dateTime, kwh, money, time, watts } from '../format';
-import { PlusIcon, BulbIcon, BulbOffIcon } from '../components/Icons';
+import { PlusIcon, BulbIcon, BulbOffIcon, UnknownIcon } from '../components/Icons';
 import { FormError, useClimateCan } from '../climate/common';
 
 /** Greeting by the hour in the home's time zone. */
@@ -30,7 +30,7 @@ export function LightTile({ group }: { group: LightGroup }) {
   });
   const state = !group.reachable
     ? 'niet bereikbaar'
-    : group.on
+    : group.on == null ? 'Onbekend' : group.on
       ? [group.scene, group.brightness !== null ? `${group.brightness}%` : null].filter(Boolean).join(' · ') || 'Aan'
       : 'Uit';
   const status = m.isPending || cmd?.busy
@@ -40,7 +40,7 @@ export function LightTile({ group }: { group: LightGroup }) {
       : state;
   // LichtTegel (Peil C-45): icoon + naam + toestand. Geen aria-label: de toegankelijke naam begint met de
   // zichtbare tekst ("Keuken Uit"), aria-pressed zegt aan/uit (WCAG 2.5.3). Onbereikbaar = Onbekend met reden.
-  const Icon = group.reachable && group.on ? BulbIcon : BulbOffIcon;
+  const Icon = group.on == null ? UnknownIcon : group.reachable && group.on ? BulbIcon : BulbOffIcon;
   const shown = !group.reachable ? <><span className="lt-unknown">Onbekend — </span>{state}</> : status;
   const cls = `light-tile live${group.on && group.reachable ? ' on' : ''}${group.reachable ? '' : ' is-unreachable'}`;
   if (!control) {
@@ -52,7 +52,7 @@ export function LightTile({ group }: { group: LightGroup }) {
     );
   }
   return (
-    <ActionButton className={cls} aria-pressed={group.on} disabled={!group.reachable || m.isPending} onClick={() => m.mutate()}>
+    <ActionButton className={cls} aria-pressed={group.on ?? undefined} disabled={!group.reachable || group.on == null || m.isPending} onClick={() => m.mutate()}>
       <span className="lt-name"><Icon />{group.name}</span>
       <span className="small muted">{shown}</span>
       {m.error ? <span className="small" style={{ color: 'var(--down-ink)' }}>{m.error instanceof Error ? m.error.message : 'Mislukt'}</span> : null}

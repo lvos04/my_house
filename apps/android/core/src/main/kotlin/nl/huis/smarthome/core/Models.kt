@@ -191,7 +191,7 @@ data class LastCommand(
 data class LightGroup(
     val id: String,
     val name: String,
-    val on: Boolean = false,
+    val on: Boolean? = null,
     val brightness: Int? = null,
     val scene: String? = null,
     @SerialName("scene_id") val sceneId: String? = null,

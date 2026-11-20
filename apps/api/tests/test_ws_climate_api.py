@@ -29,6 +29,23 @@ async def _new_home(admin) -> tuple[str, dict]:
 # --- item 31: zones without a unit ----------------------------------------------------------
 
 
+async def test_doeltemperatuur_heeft_alleen_een_meettijd_bij_dezelfde_meting(admin):
+    rig = await make_rig(admin, living=("heat", 21.0))
+    pad = f"/zones/{rig.zones['Woonkamer']}"
+    tijd = datetime.now(UTC)
+    for waarde in (20.0, 21.0):
+        tijd += timedelta(microseconds=1)
+        async with sessionmaker()() as db:
+            await ingest_reading(db, rig.units["Woonkamer"], "target_c", waarde, "°C", tijd)
+            await db.commit()
+        zone = (await admin.get(pad)).json()
+        assert zone["target_c"] == 21.0
+        if waarde == 21.0:
+            assert datetime.fromisoformat(zone["target_at"]) == tijd
+        else:
+            assert zone["target_at"] is None
+
+
 async def test_zone_without_unit_is_neutral_and_shows_sensor_values(admin):
     hid, zones = await _new_home(admin)
     z = zones["Woonkamer"]

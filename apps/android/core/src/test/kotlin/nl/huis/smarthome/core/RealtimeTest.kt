@@ -24,6 +24,19 @@ class RealtimeTest {
     private val sid = "6f1c2e8a-1b2c-4d5e-8f90-123456789abc"
 
     @Test
+    fun onbekendeGroepsstandBlijftOnbekendBijOphalenEnBijEenGebeurtenis() {
+        for ((veld, verwacht) in listOf("" to null, ""","on":null""" to null, ""","on":true""" to true, ""","on":false""" to false)) {
+            val groep = """{"id":"g","name":"Keuken"$veld}"""
+            val lijst = ShcJson.decodeFromString<LightsResponse>("""{"groups":[$groep]}""")
+            val overzicht = ShcJson.decodeFromString<Overview>("""{"home":{"id":"h","name":"Huis"},"lights":[$groep]}""")
+            val bericht = RealtimeEvent.parse("""{"type":"lights.updated","data":$groep}""") as RealtimeEvent.LightsUpdated
+            assertEquals(verwacht, lijst.groups.single().on)
+            assertEquals(verwacht, overzicht.lights.single().on)
+            assertEquals(verwacht, bericht.group.on)
+        }
+    }
+
+    @Test
     fun parsesAllDocumentedEvents() {
         val status = RealtimeEvent.parse("""{"type":"status.updated","data":[{"key":"worker","label":"Achtergronddienst","state":"ok","detail":"Laatste hartslag 10 s geleden","age_s":10},{"key":"safe_mode"}]}""")
         assertEquals(2, (status as RealtimeEvent.StatusUpdated).status.size)

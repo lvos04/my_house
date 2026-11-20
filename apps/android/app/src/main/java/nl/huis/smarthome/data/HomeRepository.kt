@@ -732,8 +732,9 @@ class HomeRepository(private val context: Context, val store: SecureStore) {
     }
 
     fun toggleGroup(group: LightGroup) {
+        val on = group.on ?: return
         if (!canOperate() || !group.reachable) return
-        scope.launch { sendLightCommand(group.id, GroupCommand(on = !group.on)) }
+        scope.launch { sendLightCommand(group.id, GroupCommand(on = !on)) }
     }
 
     /** Brightness 1–100, sent 0,5 s after the last change. */

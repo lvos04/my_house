@@ -47,10 +47,20 @@ def group_view(
     if all_lights and name in ("Lichtgroep", "Hue-apparaat", ""):
         name = ALL_LIGHTS_NAME
     scene_rid = s.get("scene_id")
+    on = s.get("on")
+    measured = d.last_seen
+    if "on_at" in s:
+        try:
+            measured = datetime.fromisoformat(s["on_at"]) if isinstance(s["on_at"], str) else None
+        except ValueError:
+            measured = None
+    if not isinstance(on, bool) or measured is None or measured.tzinfo is None or measured > datetime.now(UTC):
+        on, measured = None, None
     return {
         "id": d.id,
         "name": name,
-        "on": bool(s.get("on")),
+        "on": on,
+        "on_at": measured,
         "brightness": s.get("brightness"),
         "scene": s.get("scene"),
         "scene_id": (scene_ids or {}).get(scene_rid) if scene_rid else None,

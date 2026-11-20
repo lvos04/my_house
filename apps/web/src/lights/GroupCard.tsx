@@ -8,6 +8,7 @@ import { BrightnessSlider } from './BrightnessSlider';
 import { BulbIcon, BulbOffIcon, UnknownIcon } from '../components/Icons';
 
 export function groupSummary(g: LightGroup): string {
+  if (g.on == null) return 'Onbekend';
   if (g.lights_total > 0) return `${g.lights_on} van ${g.lights_total} aan`;
   return g.on ? 'Aan' : 'Uit';
 }
@@ -48,7 +49,9 @@ export function GroupCard({ group, scenes, control }: { group: LightGroup; scene
             {active && group.on ? ` · scène ${active}` : ''}
           </span>
         </div>
-        {control ? (
+        {group.on == null ? (
+          <span className="pill unknown"><UnknownIcon />Onbekend</span>
+        ) : control ? (
           // Zichtbaar "Aan"/"Uit" staat vooraan in de toegankelijke naam (WCAG 2.5.3), daarna de handeling.
           <ActionButton
             className={`btn${group.on ? ' primary' : ''}`}
@@ -73,7 +76,7 @@ export function GroupCard({ group, scenes, control }: { group: LightGroup; scene
           label={`Helderheid ${group.name}`}
           value={group.brightness}
           disabled={disabled}
-          onCommit={(v) => send.mutate({ body: group.on ? { brightness: v } : { on: true, brightness: v }, label: `Helderheid ${v}%` })}
+          onCommit={(v) => send.mutate({ body: group.on === false ? { on: true, brightness: v } : { brightness: v }, label: `Helderheid ${v}%` })}
         />
       ) : (
         group.on && group.brightness !== null && <span className="small muted">Helderheid {group.brightness}%</span>

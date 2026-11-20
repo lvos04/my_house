@@ -584,7 +584,7 @@ export interface CommandOutcome {
 export interface LightGroup {
   id: Uuid;
   name: string;
-  on: boolean;
+  on: boolean | null;
   brightness: number | null;
   scene: string | null;
   scene_id: Uuid | null;
