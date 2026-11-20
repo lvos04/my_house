@@ -20,9 +20,11 @@ opruimen() {
   rm -rf -- "$basis"
 }
 trap opruimen EXIT
-"${as_pg[@]}" initdb -D "$basis/data" --auth-local=trust --auth-host=reject --locale=C.UTF-8
-"${as_pg[@]}" pg_ctl -D "$basis/data" -l "$basis/server.log" -o "-c listen_addresses='' -k '$basis'" -w start
-export PGHOST="$basis" SHC_TEST_PG=postgresql://postgres@ SHC_E2E_PG=postgresql://postgres@
+# De historische proefprocessen toetsen zelf dat de URL een loopback-host bevat.
+poort=$(python -c 'import socket; s=socket.socket(); s.bind(("localhost", 0)); print(s.getsockname()[1]); s.close()')
+"${as_pg[@]}" initdb -D "$basis/data" --auth-local=trust --auth-host=trust --locale=C.UTF-8
+"${as_pg[@]}" pg_ctl -D "$basis/data" -l "$basis/server.log" -o "-c listen_addresses=localhost -p $poort -k '$basis'" -w start
+export PGHOST=localhost PGPORT="$poort" SHC_TEST_PG="postgresql://postgres@localhost:$poort" SHC_E2E_PG="postgresql://postgres@localhost:$poort"
 case $1 in
   backend)
     export TMPDIR="$basis/tmp"

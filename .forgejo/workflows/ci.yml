@@ -47,19 +47,21 @@ jobs:
 
   web:
     runs-on: ubuntu-24.04
-    defaults:
-      run:
-        working-directory: apps/web
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with: {persist-credentials: false}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: {node-version: "22"}
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
-      - run: npm audit --omit=dev --audit-level=high
+      - id: werk
+        run: bash .forgejo/ci/webwerkmap.sh
+      - name: Pakketten installeren, typen controleren, testen, bouwen en auditen
+        run: |
+          cd "$WEBBRON/apps/web"
+          npm ci
+          npm run typecheck
+          npm test
+          npm run build
+          npm audit --omit=dev --audit-level=high
 
   e2e:
     runs-on: ubuntu-24.04
@@ -72,21 +74,27 @@ jobs:
         with: {persist-credentials: false}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with: {node-version: "22"}
-      - run: bash .forgejo/ci/python.sh e2e
+      - id: werk
+        run: bash .forgejo/ci/webwerkmap.sh
+      - run: |
+          cd "$WEBBRON"
+          bash .forgejo/ci/python.sh e2e
       - name: Typecontrole en Chromium voor de browsertests
-        working-directory: apps/web
         run: |
+          cd "$WEBBRON/apps/web"
           npm ci
           node node_modules/typescript/bin/tsc -p e2e/tsconfig.json
           node node_modules/@playwright/test/cli.js install chromium
       - name: Browsertests tegen de lokale webapp, API en PostgreSQL
-        run: bash .forgejo/ci/postgresproef.sh e2e
+        run: |
+          cd "$WEBBRON"
+          bash .forgejo/ci/postgresproef.sh e2e
       - name: Testrapport en traces
         if: failure()
         uses: https://code.forgejo.org/forgejo/upload-artifact@16871d9e8cfcf27ff31822cac382bbb5450f1e1e # v4
         with:
           name: e2e-report
-          path: apps/web/e2e/.output/
+          path: ${{ steps.werk.outputs.pad }}/apps/web/e2e/.output/
           retention-days: 14
           if-no-files-found: ignore
 
@@ -97,10 +105,11 @@ jobs:
         with: {persist-credentials: false}
       - name: ShellCheck en vaste basisimages
         run: |
-          if ! command -v shellcheck >/dev/null; then apt-get update -qq && apt-get install -y shellcheck; fi
+          apt-get update -qq
+          apt-get install -y --no-install-recommends shellcheck busybox python3-yaml
           shellcheck infra/scripts/*.sh apps/web/docker/*.sh apps/web/e2e/*.sh .forgejo/ci/*.sh
           python3 infra/scripts/check_dockerfile_digests.py
-      - run: python3 -m unittest discover -s infra/tests -v
+      - run: /usr/bin/python3 -m unittest discover -s infra/tests -v
       - name: Compose-profielen en TrueNAS-renderingen met testwaarden
         run: bash infra/scripts/validate_compose.sh
 
