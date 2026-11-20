@@ -23,16 +23,16 @@ trap opruimen EXIT
 "${as_pg[@]}" initdb -D "$basis/data" --auth-local=trust --auth-host=reject --locale=C.UTF-8
 "${as_pg[@]}" pg_ctl -D "$basis/data" -l "$basis/server.log" -o "-c listen_addresses='' -k '$basis'" -w start
 export PGHOST="$basis" SHC_TEST_PG=postgresql://postgres@ SHC_E2E_PG=postgresql://postgres@
-export TMPDIR="$basis/tmp"
 case $1 in
   backend)
+    export TMPDIR="$basis/tmp"
     # Alleen deze checkout vertrouwen wanneer postgres de historische commits uitleest.
     export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$PWD"
     cd apps/api
     "${as_pg[@]}" env PATH="$PATH" python -m pytest -p no:cacheprovider -q tests
     ;;
   e2e)
-    SHC_E2E_PYTHON=python apps/web/e2e/run-stack.sh
+    TMPDIR="$RUNNER_TEMP" DEBUG=pw:browser SHC_E2E_PYTHON=python apps/web/e2e/run-stack.sh
     ;;
   *) exit 2 ;;
 esac

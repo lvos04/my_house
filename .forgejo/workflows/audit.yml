@@ -23,7 +23,8 @@ jobs:
       - name: Python-hashlock controleren
         run: |
           grep -vE '^[./]' apps/api/requirements.txt > "$RUNNER_TEMP/lock.txt"
-          pipx run pip-audit==2.10.1 --disable-pip --progress-spinner off -r "$RUNNER_TEMP/lock.txt"
+          cache=$(mktemp -d "$RUNNER_TEMP/pip-audit.XXXXXXXX")
+          XDG_CACHE_HOME="$cache" pipx run pip-audit==2.10.1 --cache-dir "$cache/pypi" --disable-pip --progress-spinner off -r "$RUNNER_TEMP/lock.txt"
   web:
     runs-on: ubuntu-24.04
     steps:

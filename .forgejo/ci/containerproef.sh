@@ -6,7 +6,7 @@ imagebestand="$RUNNER_TEMP/proefomgeving.id"
 docker buildx build --load --iidfile "$imagebestand" .forgejo/ci/proefomgeving
 volume=$(docker volume create)
 container=
-# shellcheck disable=SC2329 # Wordt door de EXIT-trap aangeroepen.
+# shellcheck disable=SC2317,SC2329 # Wordt door de EXIT-trap aangeroepen.
 opruimen() {
   if [[ -n $container ]]; then docker rm -fv "$container" >/dev/null; fi
   docker volume rm "$volume" >/dev/null
@@ -14,7 +14,7 @@ opruimen() {
 trap opruimen EXIT
 werk=$(docker volume inspect --format '{{.Mountpoint}}' "$volume")
 slotmap=/home/transcode/truenas-v2/.lokaal
-container=$(docker create --network host --cpus 2 \
+container=$(docker create --network host --cpus 2 --shm-size=1g \
   --mount "type=volume,source=$volume,target=$werk" \
   --mount "type=volume,source=my-house-ci-sloten,target=$slotmap" \
   --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \

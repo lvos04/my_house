@@ -163,7 +163,7 @@ wait_http "$E2E_BASE_URL/api/v1/health" 10 "De proxy naar de API" || exit 1
 
 log "Playwright starten"
 set +e
-npx playwright test --config playwright.config.ts "$@"
+node node_modules/@playwright/test/cli.js test --config playwright.config.ts "$@"
 STATUS=$?
 set -e
 exit "$STATUS"
