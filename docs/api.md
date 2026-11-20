@@ -438,6 +438,18 @@ ontbrekende meting en behouden de overige gegevens. Alleen een gemeten uitstand 
 Web en Android vragen dezelfde versie bij `/ws`. Een oudere verbinding krijgt bij een onbekende
 stand een `refresh` voor `lights.updated` en haalt de gefilterde lijst opnieuw op.
 
+`on_at` komt van de waarneming die de groepsstand heeft gemeten. Werkt Hue alleen de helderheid
+bij, dan houdt de doorgegeven stand haar oorspronkelijke meettijd. Een volledige groepswaarneming
+zonder geldige stand maakt de stand onbekend. Ook bij al opgeslagen groepen staat `last_seen`
+uitsluitend voor de laatste apparaatwaarneming.
+
+| Opgeslagen groepsstand en schakelmeettijd | Standaardantwoord | Versie 2 en groepsbericht |
+|---|---|---|
+| Aan of uit met een geldige meettijd, ook bij een latere `last_seen` | Groep zichtbaar | Gemeten stand en oorspronkelijke `on_at` |
+| Aan of uit zonder meettijd | Groep weggelaten | `on: null`, `on_at: null` |
+| Meettijd onleesbaar, zonder tijdzone of in de toekomst | Groep weggelaten | `on: null`, `on_at: null` |
+| Stand ontbreekt of is geen boolean | Groep weggelaten | `on: null`, `on_at: null` |
+
 ```
 LightGroup = {id, name, on: bool|null, on_at: ts|null, brightness: 0–100|null, scene: string|null, scene_id: uuid|null,
               reachable: bool, lights_on: int, lights_total: int, lights_reachable: int|null,

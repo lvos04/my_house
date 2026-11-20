@@ -48,12 +48,11 @@ def group_view(
         name = ALL_LIGHTS_NAME
     scene_rid = s.get("scene_id")
     on = s.get("on")
-    measured = d.last_seen
-    if "on_at" in s:
-        try:
-            measured = datetime.fromisoformat(s["on_at"]) if isinstance(s["on_at"], str) else None
-        except ValueError:
-            measured = None
+    on_at = s.get("on_at")
+    try:
+        measured = datetime.fromisoformat(on_at) if isinstance(on_at, str) else None
+    except ValueError:
+        measured = None
     if not isinstance(on, bool) or measured is None or measured.tzinfo is None or measured > datetime.now(UTC):
         on, measured = None, None
     return {

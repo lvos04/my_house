@@ -23,7 +23,7 @@ test('Hue-knop: conflict met bridge-regel en dubbele koppeling, simuleren', asyn
     name: `Gang ${u}`,
     stable_identity: randomUUID(),
     online: true,
-    state: { type: 'grouped_light', on: false, brightness: 0, owner_type: 'room', all_lights: false, lights_on: 0, lights_total: 2, lights_reachable: 2, name: `Gang ${u}`, member_identities: members, members_complete: true },
+    state: { type: 'grouped_light', on: false, on_at: new Date().toISOString(), brightness: 0, owner_type: 'room', all_lights: false, lights_on: 0, lights_total: 2, lights_reachable: 2, name: `Gang ${u}`, member_identities: members, members_complete: true },
   });
   const [b1, b2] = [randomUUID(), randomUUID()];
   const events = ['initial_press', 'short_release', 'long_press'];

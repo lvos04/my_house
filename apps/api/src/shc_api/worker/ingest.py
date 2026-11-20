@@ -372,10 +372,13 @@ class IngestMixin:
             if name and name != d.name and self._rename_allowed(d):
                 d.name = str(name)[:100]
             merged = {**(d.state or {}), **st}
-            # De groepsstand komt uit de volledige Hue-groepswaarneming.
-            # Bij ontbreken mag de vorige stand niet de nieuwe meettijd krijgen.
-            if typ == "grouped_light" and not isinstance(st.get("on"), bool):
-                merged.pop("on", None)
+            if typ == "grouped_light":
+                if isinstance(st.get("on"), bool):
+                    # Afgeleide Hue-updates leveren de oorspronkelijke schakelmeettijd mee, ook als die onbekend is.
+                    merged["on_at"] = st.get("on_at", ev.observed_at.isoformat())
+                else:
+                    merged.pop("on", None)
+                    merged.pop("on_at", None)
             if typ == "button_device":
                 buttons = st.get("buttons") or []
                 merged["events"] = sorted({e for btn in buttons for e in (btn.get("events") or [])}) or merged.get(

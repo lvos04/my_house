@@ -134,7 +134,7 @@ test('Peil 1.1.1: -soft-band ≥ 7:1 met -ink, rand -ink bij een gekozen modus e
   const groep = `Bureau ${unique()}`;
   seed('device', {
     home_id: homeId, provider: 'hue', kind: 'light_group', name: groep, stable_identity: randomUUID(), online: true,
-    state: { type: 'grouped_light', on: true, brightness: 60, owner_type: 'room', lights_on: 1, lights_total: 1, lights_reachable: 1 },
+    state: { type: 'grouped_light', on: true, on_at: new Date().toISOString(), brightness: 60, owner_type: 'room', lights_on: 1, lights_total: 1, lights_reachable: 1 },
   });
   for (const [scheme, thema] of [['light', 'licht'], ['dark', 'donker']] as const) {
     await page.emulateMedia({ colorScheme: scheme });

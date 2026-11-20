@@ -14,7 +14,7 @@ test('kijk-account ziet geen bediening', async ({ adminPage: page, api, homeId }
     name: `Keuken ${u}`,
     stable_identity: randomUUID(),
     online: true,
-    state: { type: 'grouped_light', on: true, brightness: 60, owner_type: 'room', lights_on: 1, lights_total: 1, lights_reachable: 1 },
+    state: { type: 'grouped_light', on: true, on_at: new Date().toISOString(), brightness: 60, owner_type: 'room', lights_on: 1, lights_total: 1, lights_reachable: 1 },
   });
   seed('alert', { home_id: homeId, key: `e2e-viewer:${u}`, severity: 'info', title: `Melding voor kijker ${u}`, detail: 'Alleen lezen.' });
   for (const usr of await api.get<{ id: string; username: string }[]>('/users')) {

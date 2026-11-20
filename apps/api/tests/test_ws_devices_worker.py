@@ -196,10 +196,21 @@ async def test_ontbrekende_groepsmeting_na_aan_blijft_onbekend_op_alle_leesroute
     worker = make_worker()
     attach(worker, integ, SimpleNamespace(device_info=lambda _: None))
     rid = str(uuid.uuid4())
-    referentie = await add_device(home_id, "light_group", "Referentie", state={"on": True})
-    for veld, verwacht in (({"on": True}, True), ({}, None), ({"on": "false"}, None), ({"on": False}, False)):
-        await worker.handle_events(integ, [StateUpdate(rid, {"type": "grouped_light", **veld}, datetime.now(UTC))])
+    gemeten = datetime.now(UTC) - timedelta(minutes=5)
+    referentie = await add_device(home_id, "light_group", "Referentie", state={"on": True, "on_at": gemeten.isoformat()})
+    waargenomen = datetime.now(UTC)
+    for veld, verwacht, meettijd in (
+        ({"on": True}, True, waargenomen),
+        ({"on": True, "on_at": gemeten.isoformat()}, True, gemeten),
+        ({"on": True, "on_at": None}, None, None),
+        ({}, None, None),
+        ({"on_at": gemeten.isoformat()}, None, None),
+        ({"on": "false"}, None, None),
+        ({"on": False}, False, waargenomen),
+    ):
+        await worker.handle_events(integ, [StateUpdate(rid, {"type": "grouped_light", **veld}, waargenomen)])
         apparaat = (await _devices(home_id))[rid]
+        assert apparaat.state.get("on_at") == (meettijd.isoformat() if meettijd else None)
         for versie in (None, "1", "2", "toekomstig"):
             params = {"light_state_version": versie} if versie else {}
             lijst = await admin.get(f"/homes/{home_id}/lights", params=params)
@@ -213,7 +224,7 @@ async def test_ontbrekende_groepsmeting_na_aan_blijft_onbekend_op_alle_leesroute
                 assert {g["id"]: g["on"] for g in groepen} == standen
         async with sessionmaker()() as db:
             realtime = await group_view_for(db, apparaat)
-        assert realtime["on"] is verwacht
+        assert (realtime["on"], realtime["on_at"]) == (verwacht, meettijd)
 
 
 async def test_hue_inventory_groups_scenes_buttons(admin):
