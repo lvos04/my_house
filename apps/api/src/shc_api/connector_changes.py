@@ -16,7 +16,7 @@ from starlette.exceptions import HTTPException
 from .commanding import queue_zone_setpoint
 from .connector import RESTORED_COMMAND_DETAIL, VerifiedRequest, bounded_reservation
 from .connector_actions import ACTIONS, Target, check_target_policy, not_found, resolve_target
-from .connector_proof import apply_preview, digest
+from .connector_proof import MEASUREMENT_PREFIX, apply_preview, digest
 from .contract_http import contract_error
 from .errors import require_secret_box
 from .hub_keys import utc_seconds
@@ -30,6 +30,7 @@ from .models import (
     IdempotencyKey,
     Integration,
     ScheduleBlock,
+    Setting,
     utcnow,
 )
 from .policy import PolicyDenied
@@ -94,27 +95,69 @@ async def _binding(db: AsyncSession, target: Target) -> str:
     })
 
 
+def _measurement(target: Target, binding: str, etag: str) -> dict:
+    identity = {"unit_id": str(target.device.id), "zone_id": str(target.zone.id),
+                "outdoor_group": target.zone.outdoor_group, "binding": binding}
+    return {**identity, "hash": digest({"identity": identity, "resource_etag": etag})}
+
+
+async def _unattributed_proposal(db: AsyncSession, target: Target, binding: str) -> bool:
+    # Een oud voorstel zonder opdracht bevat soms alleen een ETag. Na een wissel van unit of
+    # configuratie kunnen we zijn bedienvelden dan niet betrouwbaar aan deze zone toewijzen.
+    rows = await db.execute(select(ConnectorChange.before, ConnectorChange.resource_etag,
+                                   ConnectorChange.rollback_from["measurement_hash"].astext).outerjoin(
+        Setting, Setting.key == MEASUREMENT_PREFIX + cast(ConnectorChange.id, Text),
+    ).where(
+        ConnectorChange.action_id == SETPOINT, ConnectorChange.target == {"zone_id": str(target.zone.id)},
+        ConnectorChange.command_id.is_(None), ConnectorChange.before.has_key("target_c"),
+        Setting.value["v"][ConnectorChange.preview_hash].is_(None),
+    ))
+    known_fields = target.device.gree_control_fields()
+    return any(seal is not None or digest({"binding": binding, "before": before}) != etag
+               or not before.get("controls", {}).keys() <= known_fields for before, etag, seal in rows)
+
+
 async def remember_proposal_fields(conn: AsyncConnection) -> None:
-    """Koppel ook oude metingen zonder opdracht aan de unit als de opgeslagen ETag haar identiteit bevestigt."""
+    """Herleid een oude meting uitsluitend zolang haar oorspronkelijke ETag bij de huidige koppeling past."""
     async with AsyncSession(bind=conn) as db:
         rows = await db.execute(
-            select(ClimateZone, Device, ConnectorChange.before, ConnectorChange.resource_etag)
-            .select_from(ConnectorChange)
-            .join(ClimateZone, cast(ClimateZone.id, Text) == ConnectorChange.target["zone_id"].astext)
-            .join(Device, Device.id == ClimateZone.unit_device_id)
+            select(ConnectorChange, ClimateZone, Setting)
+            .outerjoin(ClimateZone, cast(ClimateZone.id, Text) == ConnectorChange.target["zone_id"].astext)
+            .outerjoin(Setting, Setting.key == MEASUREMENT_PREFIX + cast(ConnectorChange.id, Text))
             .where(ConnectorChange.action_id == SETPOINT, ConnectorChange.command_id.is_(None),
-                   ConnectorChange.before.has_key("controls"), Device.provider == "gree")
+                   ConnectorChange.before.has_key("target_c"))
         )
         bindings = {}
-        for zone, device, before, etag in rows:
+        for change, zone, record in rows:
+            measurements = record.value["v"] if record is not None else {}
+            measurement = measurements.get(change.preview_hash)
+            if measurement is None:
+                if zone is None or zone.unit_device_id is None:
+                    continue
+                device = await db.get(Device, zone.unit_device_id)
+                if device is None or device.provider != "gree":
+                    continue
+                target = Target(ACTIONS[SETPOINT], zone, device, {})
+                if zone.id not in bindings:
+                    bindings[zone.id] = await _binding(db, target)
+                binding = bindings[zone.id]
+                if digest({"binding": binding, "before": change.before}) != change.resource_etag:
+                    continue
+                identity = _measurement(target, binding, change.resource_etag)
+                values = {"v": {**measurements, change.preview_hash: identity}}
+                if record is None:
+                    db.add(Setting(key=MEASUREMENT_PREFIX + str(change.id), value=values))
+                else:
+                    record.value = values
+            else:
+                # Ook na herkoppelen of verwijderen van de zone blijft dit de gemeten unit.
+                device = await db.get(Device, uuid.UUID(measurement["unit_id"]))
+                if device is None or device.provider != "gree":
+                    continue
             known = device.gree_control_fields()
-            missing = before["controls"].keys() - known
-            if not missing:
-                continue
-            if zone.id not in bindings:
-                bindings[zone.id] = await _binding(db, Target(ACTIONS[SETPOINT], zone, device, {}))
-            if digest({"binding": bindings[zone.id], "before": before}) == etag:
-                device.state = {**(device.state or {}), "gree_control_fields": sorted(known | missing)}
+            fields = known.union(change.before.get("controls", {}))
+            if fields != known:
+                device.state = {**(device.state or {}), "gree_control_fields": sorted(fields)}
         await db.flush()
 
 
@@ -182,7 +225,8 @@ async def propose(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[
         before = {"schedule": await _schedule(db, target.zone)}
         observed_at = utcnow()
     elif action == SETPOINT and await _recoverable(db, target):
-        before = await _read_current(db, target.device, remember_fields=True)
+        if not await _unattributed_proposal(db, target, binding):
+            before = await _read_current(db, target.device, remember_fields=True)
         observed_at = utcnow() if before is not None else None
         if before is None or not _compatible(target, before):
             reason = "readback_unavailable"
@@ -190,6 +234,7 @@ async def propose(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[
         reason = "capability_unavailable"
 
     etag = digest({"binding": binding, "before": before})
+    measurement = _measurement(target, binding, etag) if action == SETPOINT and before is not None else None
     if prop["expected_version"] not in {"absent", "geen", "eigenaar", etag}:
         raise _stale()
     recipe = None if reason or action == CONCEPT else {"target_c": before["target_c"]}
@@ -202,12 +247,15 @@ async def propose(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[
         client=client, proposal_key=proposal_key, action_id=action, target=prop["target"],
         parameters=prop["parameters"], actor_hash=digest(prop["actor"]), resource_etag=etag, preview_hash=preview_hash,
         before=before, observed_at=observed_at, status=status, reason_code=reason, valid_until=valid_until,
+        rollback_from={"measurement_hash": measurement["hash"]} if measurement else None,
     ).on_conflict_do_nothing(
         index_elements=[ConnectorChange.client, ConnectorChange.proposal_key],
     ).returning(ConnectorChange.id)
     identity = await bounded_reservation(db, lambda: db.scalar(reserve))
     if identity is None:
         raise contract_error(409, "conflict", "Deze voorstel-ID is al gebruikt.")
+    if measurement is not None:
+        db.add(Setting(key=MEASUREMENT_PREFIX + str(identity), value={"v": {preview_hash: measurement}}))
     if status == "proposed" and action == SETPOINT:
         # Dit ontvangstbewijs blijft lokaal, net als de andere idempotentierijen en de Hub-pin.
         db.add(IdempotencyKey(
@@ -308,7 +356,7 @@ async def apply(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[in
         change.status, change.reason_code = "failed", "readback_unavailable"
         return 409, {"code": "readback_unavailable", "message": "De actuele stand is niet betrouwbaar leesbaar.",
                      "details": {"evidence_id": str(change.id)}, "trace_id": str(uuid.uuid4())}
-    if digest({"binding": await _binding(db, target), "before": current}) != change.resource_etag:
+    if not await _same_context(db, target, change, current, change.before):
         raise _stale()
     if utcnow() >= min(expires, change.valid_until):
         raise contract_error(409, "proposal_unavailable", "Het voorstel of uitvoeringsverzoek is verlopen.")
@@ -363,7 +411,7 @@ def _remember_rollback(change: ConnectorChange, command_id: uuid.UUID, current: 
     previous = _previous_attempts(change)
     if change.rollback_command_id is not None:
         previous = [*previous, str(change.rollback_command_id)]
-    change.rollback_from = {"state": current, "previous_attempts": previous}
+    change.rollback_from = {**(change.rollback_from or {}), "state": current, "previous_attempts": previous}
     change.rollback_command_id, change.rollback_status, change.rollback_expires_at = command_id, "queued", expires
     change.rollback_after = change.rollback_at = change.rollback_reason_code = None
 
@@ -415,7 +463,17 @@ async def _same_context(db, target, change, measured, expected) -> bool:
         return False
     if not _same_controls(measured, change.before):
         return False
-    return digest({"binding": await _binding(db, target), "before": change.before}) == change.resource_etag
+    binding = await _binding(db, target)
+    if await _unattributed_proposal(db, target, binding):
+        return False
+    record = await db.get(Setting, MEASUREMENT_PREFIX + str(change.id))
+    measurement = record.value["v"].get(change.preview_hash) if record is not None else None
+    seal = (change.rollback_from or {}).get("measurement_hash")
+    if seal is not None and (measurement or {}).get("hash") != seal:
+        return False
+    if measurement is not None and measurement != _measurement(target, binding, change.resource_etag):
+        return False
+    return digest({"binding": binding, "before": change.before}) == change.resource_etag
 
 
 async def linked_change(db: AsyncSession, command_id: uuid.UUID) -> ConnectorChange | None:

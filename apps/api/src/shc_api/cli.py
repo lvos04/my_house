@@ -192,28 +192,58 @@ async def check_connector_transition(revision: str | None, url: str | None = Non
             if await conn.scalar(text("SELECT version_num FROM alembic_version")) != revision:
                 raise MigrationError("De databaserevisie is tijdens de start gewijzigd.")
             await conn.run_sync(_check_connector_rows)
+            if await conn.run_sync(_connector_reservations):
+                raise MigrationError("De worker wacht op de migratie die de oorspronkelijke reservering archiveert.")
             await _prepare_connector_worker(conn)
     finally:
         await engine.dispose()
 
 
+def _connector_reservations(conn):
+    """Wachtend werk uit de versie die het claimtijdstip rechtstreeks in updated_at bewaarde."""
+    from sqlalchemy import text
+
+    from .connector_changes import LOCAL_PROPOSAL, WAIT_FOR_CONNECTOR_WORKER
+
+    return conn.execute(text("""
+        SELECT cmd.id, cmd.updated_at, k.key, k.scope
+        FROM connector_changes c JOIN idempotency_keys k ON k.key = c.id AND k.scope = :scope
+        JOIN commands cmd ON cmd.id IN (c.command_id, c.rollback_command_id)
+        WHERE cmd.source = 'connector' AND cmd.status = 'queued' AND cmd.updated_at <> :wait
+          AND NOT coalesce(k.response_body->'reservations' ? cmd.id::text, false)
+        FOR UPDATE OF cmd, k
+    """), {"scope": LOCAL_PROPOSAL, "wait": WAIT_FOR_CONNECTOR_WORKER}).all()
+
+
+def _transfer_reservations(conn, reservations) -> None:
+    from sqlalchemy import text
+
+    from .connector_changes import WAIT_FOR_CONNECTOR_WORKER
+
+    for command_id, claim_after, proposal, scope in reservations:
+        conn.execute(text("""
+            UPDATE idempotency_keys SET response_body = jsonb_set(coalesce(response_body, '{}'), '{reservations}',
+                coalesce(response_body->'reservations', '{}') || jsonb_build_object(CAST(:command AS text),
+                    jsonb_build_object('worker', scope, 'claim_after', CAST(:claim_after AS timestamptz))))
+            WHERE key = :proposal AND scope = :scope
+        """), {"command": str(command_id), "claim_after": claim_after, "proposal": proposal, "scope": scope})
+        # Een toekomstige reservering blijft ook voor de oorspronkelijke worker exact op tijd.
+        # Reeds opeisbaar werk krijgt de afscherming die eerdere workers bij een softwarewissel respecteren.
+        conn.execute(text("""
+            UPDATE commands SET updated_at = :wait WHERE id = :command AND updated_at <= CURRENT_TIMESTAMP
+        """), {"wait": WAIT_FOR_CONNECTOR_WORKER, "command": command_id})
+
+
 async def _prepare_connector_worker(conn) -> None:
     from sqlalchemy import text
 
-    from .connector_changes import LOCAL_PROPOSAL, WAIT_FOR_CONNECTOR_WORKER, remember_proposal_fields
+    from .connector_changes import remember_proposal_fields
     from .connector_proof import REMEMBER_FIELDS
 
     await conn.execute(text(REMEMBER_FIELDS))
     await remember_proposal_fields(conn)
     # De startcontrole heeft open oud herstel uitgesloten. Laat ook een ongebruikt oud voorstel vervallen.
     await conn.execute(text("DELETE FROM idempotency_keys WHERE scope = 'connector:voorstel'"))
-    # Bescherm ook eerder ingepland werk met het huidige soort lokaal ontvangstbewijs.
-    await conn.execute(text("""
-        UPDATE commands cmd SET updated_at = :wait
-        FROM connector_changes c JOIN idempotency_keys k ON k.key = c.id AND k.scope = :scope
-        WHERE cmd.source = 'connector' AND cmd.status = 'queued' AND cmd.updated_at <> :wait
-          AND cmd.id IN (c.command_id, c.rollback_command_id)
-    """), {"wait": WAIT_FOR_CONNECTOR_WORKER, "scope": LOCAL_PROPOSAL})
 
 
 def verify_migration_dump(path: Path, output: Path | None = None) -> None:
@@ -316,12 +346,15 @@ def migrate(url: str | None = None, *, backup_dir: Path | None = None, pre_dump:
         head = bk.head_revision()
         if current is not None and bk.schema_relation(current) == "newer":
             raise SchemaNewerError(current, head)
+        reservations = []
         if current is not None and not bk._is_older(current, "0007"):
             _check_connector_rows(conn)
+            reservations = _connector_reservations(conn)
         # pg_dump opent een eigen verbinding en ziet de oorspronkelijke, gecommitteerde database.
         dump = None
-        if pre_dump and current is not None and current != head:
+        if reservations or (pre_dump and current is not None and current != head):
             dump = pre_migration_dump(target_url, current, backup_dir or s.backup_dir)
+        _transfer_reservations(conn, reservations)
         command.upgrade(bk.alembic_config(connection=conn), "head")
         if current is not None and bk._is_older(current, "0007"):
             _check_connector_rows(conn)

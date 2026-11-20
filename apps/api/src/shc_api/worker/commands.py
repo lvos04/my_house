@@ -11,7 +11,7 @@ import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import DateTime, Text, case, cast, func, or_, select, update
 
 from .. import climate as cl
 from .. import connector_changes, events
@@ -28,7 +28,7 @@ from ..commanding import (
 from ..commissioning import command_facts, lock_commissioning_shared, lock_home_commands
 from ..db import sessionmaker
 from ..logfilter import fouttekst
-from ..models import ClimateZone, CommandRecord, Device, Home, ZoneLog
+from ..models import ClimateZone, CommandRecord, ConnectorChange, Device, Home, IdempotencyKey, ZoneLog
 from ..policy import PolicyDenied, check_command
 from ..store import get_setting
 from ..views.common import caps_of, other_zone_modes
@@ -40,6 +40,23 @@ MAX_AGE_FIRST = timedelta(minutes=2)  # a command not started within this is not
 MAX_AGE_RETRY = timedelta(minutes=5)
 SENDING_STUCK = timedelta(minutes=2)
 ANY_RESTORE = object()
+
+
+def _claim_time():
+    """Een overgedragen connectoropdracht houdt het claimtijdstip van het oorspronkelijke ontvangstbewijs."""
+    reservation = IdempotencyKey.response_body["reservations"][cast(CommandRecord.id, Text)]
+    cutoff = connector_changes.WAIT_FOR_CONNECTOR_WORKER
+    claim_after = case((reservation["worker"].astext == IdempotencyKey.scope,
+                        cast(reservation["claim_after"].astext, DateTime(timezone=True))), else_=cutoff)
+    original = (select(func.coalesce(claim_after, cutoff))
+                .select_from(ConnectorChange).join(IdempotencyKey, IdempotencyKey.key == ConnectorChange.id)
+                .where(IdempotencyKey.scope == connector_changes.LOCAL_PROPOSAL, reservation.is_not(None),
+                       or_(ConnectorChange.command_id == CommandRecord.id,
+                           ConnectorChange.rollback_command_id == CommandRecord.id))
+                .correlate(CommandRecord).scalar_subquery())
+    native = case((CommandRecord.updated_at == cutoff, CommandRecord.created_at))
+    return case((CommandRecord.source == connector_changes.SOURCE, func.coalesce(original, native)),
+                else_=CommandRecord.updated_at)
 
 
 class CommandsMixin:
@@ -152,9 +169,7 @@ class CommandsMixin:
             await lock_commissioning_shared(db)
             if restore_marker is not ANY_RESTORE and await get_setting(db, "restored_from") != restore_marker:
                 return None
-            reserved = and_(CommandRecord.source == connector_changes.SOURCE,
-                            CommandRecord.updated_at == connector_changes.WAIT_FOR_CONNECTOR_WORKER)
-            due = [CommandRecord.status == "queued", or_(CommandRecord.updated_at <= now, reserved)]
+            due = [CommandRecord.status == "queued", _claim_time() <= now]
             if home_ids:
                 due.append(CommandRecord.home_id.in_(home_ids))
             homes = await db.scalars(select(CommandRecord.home_id).where(*due).group_by(CommandRecord.home_id)

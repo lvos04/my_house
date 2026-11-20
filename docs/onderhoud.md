@@ -15,6 +15,7 @@ wachtwoordzin van de back-up, dan kun je die ook meegeven met `--passphrase-file
 1. Maak een volledige back-up en controleer of deze leesbaar is. Stop de app en maak een snapshot van de hele opslag, inclusief de geheimen.
 2. Kies de nieuwe versie in het Custom App-formulier. Zie [Installatie op TrueNAS](installatie-truenas.md#updaten-en-terugdraaien).
 3. Bij een oudere database schrijft de API vóór de upgrade `pre-migrate-*.sql.gz` en de bijbehorende `.sha256` in de back-upmap. De hele reeks revisies draait in één transactie. Na een geweigerde dump of mislukte revisie blijft de database op de oorspronkelijke revisie.
+   Ook bij gelijk schema maakt de API deze export voordat zij een bestaande connectorreservering overdraagt. De export bewaart het oorspronkelijke claimtijdstip, de opdracht-ID en het lokale uitvoerrecht. Gebruik voor een proef met de oorspronkelijke worker de geverifieerde export en de softwareversie die de opdracht inplande.
 4. De worker start pas als de API gezond is, dus nooit tegen een half bijgewerkte database.
 
 **Database van een nieuwere versie.** Start een oudere versie van my_house op een database die een nieuwere versie al

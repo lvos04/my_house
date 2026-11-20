@@ -64,10 +64,13 @@ from .connector import RESTORED_COMMAND_DETAIL
 from .connector_proof import (
     IN_FLIGHT,
     INCOMPLETE_PROOF,
+    MEASURED_IDENTITY,
+    MEASUREMENTS,
     OPEN_RECOVERY,
     PREVIEWS,
     REMEMBER_FIELDS,
     RESTORE_HISTORY,
+    SCHEMA_CANCELLATION,
     check_archive,
     check_preview,
 )
@@ -1086,7 +1089,7 @@ def dump_filename(auto: bool) -> str:
     return f"shc-{'auto-' if auto else ''}dump-{stamp}.shcdump"
 
 
-def _pg_dump_sync(url: str, target: Path, passphrase: str, created_at: str) -> dict:
+def _pg_dump_sync(url: str, target: Path, passphrase: str, created_at: str, *, snapshot: str | None = None) -> dict:
     """Stream ``pg_dump --format=custom`` through the backup encryption into ``target``."""
     import shutil
     import subprocess  # noqa: S404 - fixed executable, no shell
@@ -1101,10 +1104,12 @@ def _pg_dump_sync(url: str, target: Path, passphrase: str, created_at: str) -> d
     if pw:
         env["PGPASSWORD"] = pw
     connector_excludes = [f"--exclude-table-data=public.{table}" for table in sorted(CONNECTOR_LOCAL_TABLES)]
+    source_snapshot = [f"--snapshot={snapshot}"] if snapshot else []
     with open(target, "wb") as raw:
         enc = EncryptingWriter(raw, passphrase, created_at, content=DUMP_CONTENT)
         proc = subprocess.Popen(  # noqa: S603 - fixed executable, no shell
-            [exe, "--format=custom", "--no-owner", "--no-privileges", *connector_excludes, f"--dbname={dsn}"],
+            [exe, "--format=custom", "--no-owner", "--no-privileges", *source_snapshot, *connector_excludes,
+             f"--dbname={dsn}"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=env,
@@ -1159,6 +1164,28 @@ def decrypt_dump(path: Path, passphrase: str, out: Path, *, url: str | None = No
         return size
 
 
+async def _connector_dump_snapshot(source) -> str:
+    # De export sluit lokale rechten uit. Controleer de rechten in dezelfde momentopname als
+    # pg_dump, ook als de oorspronkelijke bewijsrij bij schematerugval tijdelijk in settings zit.
+    await source.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
+    if await source.scalar(text("SELECT to_regclass('idempotency_keys') IS NOT NULL")):
+        live = ""
+        if await source.scalar(text("SELECT to_regclass('connector_changes') IS NOT NULL")):
+            live = "UNION ALL SELECT id::text, command_id::text FROM connector_changes"
+        if await source.scalar(text(f"""
+            WITH proof(id, command_id) AS (
+                SELECT value->'v'->>'id', value->'v'->>'command_id' FROM settings
+                WHERE value->>'format' = 'connector-0007' AND key = 'connector_history:' || (value->'v'->>'id')
+                {live}
+            )
+            SELECT EXISTS (SELECT 1 FROM proof p JOIN commands cmd ON cmd.id::text = p.command_id
+                           JOIN idempotency_keys k ON k.key::text = p.id
+                           WHERE {SCHEMA_CANCELLATION} AND k.scope IN ('connector:voorstel', 'connector:voorstel:2'))
+        """)):  # noqa: S608 - vaste tabellen en bewijsvoorwaarden
+            raise BackupError("Het connectorherstelbewijs van de schema-annulering bevat nog uitvoerrecht.")
+    return await source.scalar(text("SELECT pg_export_snapshot()"))
+
+
 async def run_db_dump(
     passphrase: str,
     *,
@@ -1196,7 +1223,9 @@ async def run_db_dump(
             await db.commit()
             rid = rec.id
         try:
-            info = await asyncio.to_thread(_pg_dump_sync, db_url, tmp, passphrase, created_at)
+            async with engine.begin() as source:
+                snapshot = await _connector_dump_snapshot(source)
+                info = await asyncio.to_thread(_pg_dump_sync, db_url, tmp, passphrase, created_at, snapshot=snapshot)
             await asyncio.to_thread(verify_dump, tmp, passphrase, url=db_url)
             tmp.replace(path)
         except BaseException as exc:
@@ -1360,8 +1389,9 @@ def _hold_connector_recovery(conn) -> None:
     conn.execute(text(f"""
         CREATE TEMP TABLE held_connector_recovery ON COMMIT DROP AS
         SELECT id, "before", after, rollback_from, rollback_after, command_id, rollback_command_id,
-               status, reason_code, rollback_status, rollback_reason_code, {IN_FLIGHT} AS command_uncertain
-        FROM connector_changes c WHERE {OPEN_RECOVERY}
+               status, reason_code, rollback_status, rollback_reason_code, {IN_FLIGHT} AS command_uncertain,
+               {MEASURED_IDENTITY} AS measurement
+        FROM connector_changes c {MEASUREMENTS} WHERE {OPEN_RECOVERY}
     """))  # noqa: S608 - beide SQL-fragmenten zijn vaste broncode
 
 
@@ -1372,8 +1402,8 @@ def _restore_connector_proof(conn, held_recovery: bool) -> None:
             SELECT * FROM held_connector_recovery
             EXCEPT
             SELECT id, "before", after, rollback_from, rollback_after, command_id, rollback_command_id,
-                   status, reason_code, rollback_status, rollback_reason_code, {IN_FLIGHT}
-            FROM connector_changes c
+                   status, reason_code, rollback_status, rollback_reason_code, {IN_FLIGHT}, {MEASURED_IDENTITY}
+            FROM connector_changes c {MEASUREMENTS}
         )
     """)).scalar_one():  # noqa: S608 - IN_FLIGHT is vaste broncode
         raise BackupError("Terugzetten geweigerd: het bestaande open apparaatherstel zou bewijs verliezen.")

@@ -16,6 +16,9 @@ from sqlalchemy.schema import CreateTable
 
 from .models import known_gree_control_fields
 
+MEASUREMENT_PREFIX = "connector_measurement:"
+MEASUREMENTS = f"LEFT JOIN settings m ON m.key = '{MEASUREMENT_PREFIX}' || c.id"
+MEASURED_IDENTITY = "m.value->'v'->c.preview_hash"
 
 def digest(value) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
@@ -85,6 +88,17 @@ REFUSED = """
                                               'refused_before_send')
     AND c.after IS NULL AND c.after_at IS NULL AND c.rollback_command_id IS NULL AND c.rollback_status IS NULL
     AND EXISTS (SELECT 1 FROM commands a WHERE a.id = c.command_id AND a.status IN ('failed', 'denied', 'cancelled'))
+"""
+SCHEMA_CANCELLATION = "cmd.status = 'cancelled' AND cmd.detail = 'Connectorbediening vervallen bij schemaherstel'"
+LOCAL_RIGHT = """EXISTS (SELECT 1 FROM idempotency_keys k WHERE k.key = c.id
+                         AND k.scope IN ('connector:voorstel', 'connector:voorstel:2'))"""
+SCHEMA_CANCELLED = f"""
+    {SCHEMA_CANCELLATION} AND cmd.attempts = 0
+    AND c.status = 'queued' AND c.reason_code IS NULL AND c.after IS NULL AND c.after_at IS NULL
+    AND c.rollback_command_id IS NULL AND c.rollback_status IS NULL AND c.rollback_at IS NULL
+    AND c.rollback_after IS NULL AND c.rollback_reason_code IS NULL AND c.rollback_expires_at IS NULL
+    AND (c.rollback_from IS NULL OR c.rollback_from - 'measurement_hash' = jsonb_build_object())
+    AND NOT {LOCAL_RIGHT}
 """
 OLD_STATE = """
     c.before = jsonb_build_object('power', c.before->'power', 'mode', c.before->'mode',
@@ -166,10 +180,18 @@ PREVIEWS = f"""
     SELECT jsonb_build_object(
         'action', c.action_id, 'target', c.target, 'parameters', c.parameters, 'etag', c.resource_etag,
         'before', c.before, 'hash', c.preview_hash, 'linked', c.command_id IS NOT NULL,
-        'settled', ({RESTORED}) OR ({UNCHANGED}) OR ({REFUSED}),
+        'settled', ({RESTORED}) OR ({UNCHANGED}) OR ({REFUSED}) OR ({SCHEMA_CANCELLED}),
+        'invalid_cancellation', ({SCHEMA_CANCELLATION}) AND ({SCHEMA_CANCELLED}) IS NOT TRUE,
+        'measurement', {MEASURED_IDENTITY}, 'device_id', cmd.device_id,
+        'invalid_identity', (m.key IS NOT NULL AND c.before ? 'controls'
+                             AND jsonb_typeof({MEASURED_IDENTITY}) IS DISTINCT FROM 'object')
+                            OR (c.rollback_from ? 'measurement_hash'
+                                AND c.rollback_from->>'measurement_hash'
+                                    IS DISTINCT FROM ({MEASURED_IDENTITY})->>'hash'),
         'state', d.state, 'capabilities', d.capabilities, 'half', i.config->'half_degrees'
     )::text
     FROM connector_changes c LEFT JOIN commands cmd ON cmd.id = c.command_id
+    {MEASUREMENTS}
     LEFT JOIN devices d ON d.id = cmd.device_id
     LEFT JOIN integrations i ON i.id = d.integration_id
     WHERE c.action_id = 'zone.command'
@@ -183,7 +205,8 @@ def check_preview(raw: str) -> None:
     saved = json.loads(raw)
     before = saved["before"]
     invalid = BackupError("Terugzetten geweigerd: het connectorherstelbewijs wijkt af van de oorspronkelijke preview.")
-    if not isinstance(before, dict) or "target_c" not in before:
+    if (not isinstance(before, dict) or "target_c" not in before or saved["invalid_cancellation"]
+        or saved["invalid_identity"]):
         raise invalid
     diff = {"before": before, "proposed": saved["parameters"]}
     recipes = [{"target_c": before["target_c"]}]
@@ -193,6 +216,17 @@ def check_preview(raw: str) -> None:
                             legacy="controls" not in before) for recipe in recipes)
     if saved["hash"] not in hashes:
         raise invalid
+    measurement = saved["measurement"]
+    if measurement is not None:
+        if not isinstance(measurement, dict) or set(measurement) != {"unit_id", "zone_id", "outdoor_group", "binding",
+                                                                     "hash"}:
+            raise invalid
+        seal = measurement.pop("hash")
+        if (measurement["zone_id"] != saved["target"].get("zone_id")
+            or saved["linked"] and measurement["unit_id"] != saved["device_id"]
+            or digest({"binding": measurement["binding"], "before": before}) != saved["etag"]
+            or digest({"identity": measurement, "resource_etag": saved["etag"]}) != seal):
+            raise invalid
     if saved["linked"] and not saved["settled"]:
         required = known_gree_control_fields(saved["state"] or {}, saved["capabilities"] or [])
         required.difference_update({"Pow", "Mod", "SetTem", "TemSen"})
@@ -234,7 +268,7 @@ async def check_archive(archive: Path, url: str) -> None:
     if not pg_restore:
         raise BackupError("pg_restore ontbreekt. Het connectorherstelbewijs kan niet worden gecontroleerd.")
     tables = {name: Base.metadata.tables[name] for name in (
-        "commands", "connector_changes", "settings", "devices", "integrations",
+        "commands", "connector_changes", "settings", "devices", "integrations", "idempotency_keys",
     )}
     async with _proof_database(url) as db:
         for name, model in tables.items():
@@ -283,6 +317,7 @@ async def _load_copy_data(stream, db, tables):
         # Configuratie en status zijn nodig voor de bedienvelden. Apparaatsleutels horen niet in de proefdatabase.
         projection = {
             "devices": ("id", "home_id", "state", "capabilities", "integration_id"), "integrations": ("id", "config"),
+            "idempotency_keys": ("scope", "key"),
         }
         columns = projection.get(name, fields)
         await db.copy_to_table(name, columns=columns, source=_copy_rows(stream, name, fields, columns))
@@ -302,7 +337,7 @@ async def _copy_rows(stream, table_name, fields, columns):
             field = line.rstrip(b"\n").split(b"\t")[index]
             if table_name == "commands" and field != b"connector":
                 continue
-            if table_name == "settings" and not field.startswith(b"connector_history:"):
+            if table_name == "settings" and not field.startswith((b"connector_history:", MEASUREMENT_PREFIX.encode())):
                 continue
         if indexes:
             parts = line.rstrip(b"\n").split(b"\t")

@@ -15,6 +15,8 @@ VERSIES = {
     "schema0007a": "299cb5b1f3f0449d6b2748c764cba1fea8818c28",
     "schema0007b": "44486bf8d66be0c2f2e42d8150304f03f83d764b",
     "schema0008": "000a036f6fb1cbb00c63c377b1d5e76fb5e5f44d",
+    "voorgaand": "5079599361142df293db06eb16578d3621fd0dc3",
+    "voor_herstel": "e22286cd3620b5e9d31e8a0acf0841892b9ab04b",
 }
 
 
@@ -44,6 +46,10 @@ def versies(tmp_path_factory):
     ("schema0007b", "herstelbewijs", "oude_afgehandelde"),
     ("schema0007a", "herstelbewijs", "oude_vervallen"),
     ("nieuw", "herstelbewijs", "dump_weigert or vorige_worker or oude_0007"),
+    ("schema0007b", "overdracht", "oude_meting_na_wijziging_buitengroep"),
+    ("schema0007a", "overdracht", "oude_drieveldmeting_na_groepswissel"),
+    ("voorgaand", "overdracht", "zelfde_schema or gedocumenteerde_export"),
+    ("nieuw", "overdracht", "onuitgevoerde_historie or meetidentiteit or reservering or compatibele_worker"),
 ])
 def test_versiewissel(versies, versie, bestand, selectie):
     bron = REPO if versie == "nieuw" else versies / versie

@@ -90,7 +90,7 @@ ondertekende verzoeken en de lokale replaycontrole vast.
   uitvoerbewijzen. De volledige voorstel- en herstelgeschiedenis reist in 0006 mee als instellingen.
   Bij een volgende start koppelt de applicatie deze feiten binnen één transactie aan hun oorspronkelijke
   opdracht-ID’s, ook als een eerdere versie de 0007-tabel al heeft aangemaakt. De apparaat-ID van de opdracht
-  of de ETag van een voorstel koppelt eerder gemeten bedienvelden aan de juiste unit.
+  of de geverifieerde meetidentiteit van een voorstel koppelt eerder gemeten bedienvelden aan de juiste unit.
 - Het contractfoutformaat `{code,message,details,trace_id}` geldt op de connectorroutes. De
   bestaande bedienroutes behouden `{"detail":{…}}` (ADR-0003).
 - Bij uitvoerbaar klimaatwerk bindt de goedkeuring de exacte preview, ETag, actie, doel,
@@ -107,3 +107,54 @@ ondertekende verzoeken en de lokale replaycontrole vast.
   worker op afhandeling door de vorige installatie. Bij terugkeer naar oudere software op hetzelfde schema
   blijft een opdracht voor de huidige connector uitgesteld in de bestaande wachtrij. De bevoegde worker
   claimt de oorspronkelijke opdracht onder de woninglock en toetst opnieuw de goedkeuring en de vervaltijd.
+
+## Toestandstabel bij versiewissels
+
+Elke gemeten klimaatstand hoort bij de unit-ID, zone-ID, buitengroep en configuratiebinding van
+de betreffende preview. Deze gegevens staan onder de voorstel-ID en previewhash in de instellingentabel. De controlesom koppelt deze identiteit aan de oorspronkelijke ETag. Apply en
+rollback delen die identiteit met hun teruglezingen. De hash van de oorspronkelijke preview blijft
+controleerbaar door de eerdere software. Een oude voorstelmeting zonder opdracht krijgt pas een
+identiteit als haar ETag nog overeenkomt. Bij een onbekende herkomst blijft de bediening van de
+betrokken zone geblokkeerd.
+
+Bij overdracht van een bestaande wachtrij maakt de migratie onder de installatielock eerst een
+geverifieerde SQL-export. Het lokale ontvangstbewijs bewaart per opdracht het oorspronkelijke
+claimtijdstip en het soort worker. Een toekomstige reservering houdt ook in de wachtrij haar eigen
+tijdstip. Een losse worker wacht tot de migratie de reservering heeft veiliggesteld. Voor terugval
+met de eerdere software bevat de SQL-export de oorspronkelijke wachtrij en lokale rechten.
+
+De proef op schema 0006 gebruikt `fbaebb3`. Op schema 0007 staat 7a voor `299cb5b` en 7b voor
+`44486bf`. Op schema 0008 is de oude worker `000a036`, de vorige worker `5079599` en de voorgaande
+herstelversie `e22286c`. Huidig verwijst naar de code bij deze tabel. De lokale simulator levert de apparaatstanden.
+
+| Toestand | Software en schema | Gecontroleerd resultaat | Regressieproef |
+|---|---|---|---|
+| Alleen voorgesteld, ongewijzigde koppeling | 7b/0007 → huidig/0008 | De ETag bevestigt de unit. Een later ontbrekende stille stand blokkeert apply. | `test_oude_stille_stand_blijft_bekend_bij_versiewissel` |
+| Alleen voorgesteld, buitengroep gewijzigd vóór identificatie | 7b/0007 → huidig/0008 | De historische stand blijft bewaard. Apply geeft 409 met nul opdrachten. | `test_oude_meting_na_wijziging_buitengroep` |
+| Oude meting van voeding, modus en doeltemperatuur, zonder bedienvelden | 7a/0007 → huidig/0008 na groepswijziging | Ook bij een volledig leesbare nieuwe stand houdt de onzekere herkomst van de oude meting bediening tegen. Apply geeft 409 met nul opdrachten. | `test_oude_drieveldmeting_na_groepswissel` |
+| Nieuwe meting na groepswijziging | Huidig/0008 → herstart/0008 | Beide metingen houden hun eigen groep en dezelfde unit. Een verdwenen veld blokkeert de opdracht. | `test_meetidentiteit_bij_nieuwe_groep` |
+| Apply ingepland | Huidig/0008 → 0006 → 7b/0007 → huidig/0008, tweemaal | De opdracht vervalt, de bewijsrij blijft behouden en de oude workers verzenden niets. | `test_voorstel_en_wachtende_apply_na_twee_schemawissels` |
+| Apply geclaimd, verzending onderbroken | Huidig/0008 → herstart/0008 | De vastgelegde claim en verse teruglezing bepalen welke herstelactie beschikbaar is. | `test_onderbroken_claim_sluit_met_verse_teruglezing` |
+| Apply verzonden | Huidig/0008 → dump en herstel/0008 | Claim en oorspronkelijke stand keren terug uit de dump. De simulator bereikt na goedkeuring 20 °C. | `test_onderbreking_na_echte_simulatorverzending` (apply) |
+| Apply bevestigd, rollback ongepland | 7a of 7b/0007 → huidig/0008 | Open herstel houdt de upgrade tegen. Na herstel in de oude installatie kan de upgrade door. | `test_apply_bevestigd_zonder_geplande_rollback` |
+| Rollback ingepland op ouder schema | 7a of 7b/0007 → huidig/0008 | De oorspronkelijke worker behoudt de opdracht en kan het herstel voltooien. | `test_vorige_installatie_voltooit_herstel_na_versieweigering` |
+| Rollback ingepland op huidig schema | Huidig/0008 → oude worker/0008 → huidig/0008, tweemaal | De oude worker claimt nul opdrachten. De bevoegde worker bevestigt dezelfde rollback-ID. | `test_terug_naar_vorige_worker_met_open_rollback` |
+| Rollback uit de vorige wachtrij overgedragen | Vorige/0008 → huidig/0008 | De worker wacht op de export. De overdracht bewaart de reservering. Een tweede start maakt geen tweede archief. | `test_zelfde_schema_vooraf_archief` (overdracht) |
+| Terugval uit het automatische overdrachtsarchief | Vorige/0008 → huidig/0008 → aparte kopie met vorige/0008 | De oorspronkelijke worker claimt op de kopie dezelfde rollback-ID precies één keer en bevestigt 20 °C. | `test_zelfde_schema_vooraf_archief` (terugval) |
+| Terugval uit een handmatige export | Vorige/0008 → huidig/0008 → aparte kopie met vorige/0008 | De handmatig geverifieerde export bewaart eveneens de oorspronkelijke opdracht en het tijdstip. | `test_gedocumenteerde_export_voor_softwareterugval` |
+| Rollback zonder overdracht | Vorige/0008 | De oorspronkelijke worker voltooit de eigen rollback op 20 °C. | `test_zelfde_schema_rollback_in_voorgaande_software` |
+| Archief beschadigd vóór overdracht | Huidig/0008 met oude reservering → geweigerde migratie/0008 | De onjuiste SHA-256 laat de opdracht en het volledige ontvangstbewijs intact. | `test_reservering_bij_geweigerde_export_en_later_claimtijdstip` |
+| Reservering in de toekomst | Huidig/0008 met oude reservering → herstart/0008 | Na een geverifieerde export blijft het tijdstip gelijk en claimt geen van beide workers te vroeg. | `test_reservering_bij_geweigerde_export_en_later_claimtijdstip` |
+| Terug naar een worker met dezelfde reserveringswijze | Huidig/0008 → voorgaande herstelversie/0008 → huidig/0008 | De eerdere software plant en voltooit de rollback op het huidige voorstel. Bij de volgende start blijven de meetidentiteit en de rollback-ID gelijk. | `test_compatibele_worker_behoudt_oorspronkelijke_rollback` |
+| Rollback verzonden | Huidig/0008 → dump en herstel/0008 | De dump bewaart de claim. Een afwijkende bedienstand houdt herstel open. | `test_onderbreking_na_echte_simulatorverzending` (rollback), `test_teruglezing_na_geweigerde_downgrade` |
+| Rollback bevestigd | Huidig/0008 → 0006 → 7b/0007 → huidig/0008, tweemaal | Bewijs en beide opdracht-ID’s keren terug zonder lokaal uitvoerrecht. | `test_oude_0007_leest_bewaard_bewijs_na_schemawissel`, `test_logische_export_op_0006_neemt_hersteld_bewijs_mee` |
+| Onderbroken vóór verzending | Huidig/0008 → herstart/0008 → 0006 | Verse teruglezingen bevestigen de oorspronkelijke stand zonder verzending. | `test_onderbreking_voor_verzending` |
+| Historie na weigering vóór verzending | 7a/0007 → huidig/0008 | Beide geteste dumpversies behouden opdracht, reden en stand. | `test_oude_vervallen_opdracht_laat_nieuwe_backups_beschikbaar` |
+| Historie met gelijke voor- en nastand | 7b/0007 → huidig/0008 → vorige/0008 → huidig/0008 | Afgehandelde historie laat upgrade en herstart toe. | `test_oude_afgehandelde_opdracht_houdt_upgrade_vrij` |
+| Historie na schema-annulering, later een nieuw veld | Huidig/0008 → 0006 → huidig/0008 | Dump en herstart bewaren de oorspronkelijke preview met nul claims en vervallen recht. | `test_onuitgevoerde_historie_na_nieuw_bedienveld` |
+| Geannuleerde opdracht met lokaal recht | Huidig/0008 na schematerugval | De broncontrole en de herstart weigeren de als vervallen aangemerkte opdracht. | `test_onuitgevoerde_historie_na_nieuw_bedienveld` |
+| Geannuleerde opdracht met een claim | Huidig/0008 na schematerugval | De dump weigert de afwijkende claimteller. | `test_onuitgevoerde_historie_na_nieuw_bedienveld` |
+| Beschadigde vorige stand | Huidig/0008 na schematerugval en met ingeplande opdracht | Ook voor oude historie blokkeert een afwijkende previewhash de dump en de herstart. | `test_onuitgevoerde_historie_na_nieuw_bedienveld`, `test_dump_weigert_verlies_van_een_vastgesteld_veld` |
+| Meetidentiteit uit de preview ontbreekt | Huidig/0008 → herstart/0008 | De verwijzing in de bewijsrij wijst de ontbrekende identiteit aan. Dump en herstart worden geweigerd. | `test_meetidentiteit_bij_nieuwe_groep` |
+| Verweesde historie | Huidig/0008 en historische export uit 7a/0007 | Een connectoropdracht zonder bijbehorende bewijsrij blokkeert de dump. | `test_geannuleerde_opdracht_zonder_bewijs_blijft_verweesd`, `test_basis_eerder_teruggezette_opdracht_in_nieuwe_dump` |
+| Gevulde installatie | 0006 → huidig/0008 → aparte kopie op 0006 | Inhoud van tabellen en sequenties wordt met de voorstaat vergeleken. | `test_gevulde_upgrade_en_sha_terugweg` |
