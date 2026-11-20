@@ -597,6 +597,7 @@ async def live_power(db: AsyncSession, home_id: uuid.UUID) -> dict | None:
     parts = []
     total = None
     total_at = None
+    grid_reading = None
     missing: list[str] = []
     grid_bound = False
     for role, label in ENERGY_ROLES:
@@ -607,6 +608,7 @@ async def live_power(db: AsyncSession, home_id: uuid.UUID) -> dict | None:
         fresh = r is not None and r.value is not None and (now - r.observed_at) <= LIVE_STALE
         if role == "grid":
             grid_bound = True
+            grid_reading = r
             if fresh:
                 total, total_at = r.value, r.observed_at
             continue
@@ -617,6 +619,7 @@ async def live_power(db: AsyncSession, home_id: uuid.UUID) -> dict | None:
                     "label": label,
                     "watts": r.value,
                     "quality": "measured",
+                    "source_quality": r.quality,
                     "at": r.observed_at,
                     "stale": False,
                 }
@@ -628,6 +631,7 @@ async def live_power(db: AsyncSession, home_id: uuid.UUID) -> dict | None:
                     "label": label,
                     "watts": None,
                     "quality": "missing",
+                    "source_quality": r.quality if r else None,
                     "at": r.observed_at if r else None,
                     "stale": True,
                 }
@@ -662,6 +666,8 @@ async def live_power(db: AsyncSession, home_id: uuid.UUID) -> dict | None:
     return {
         "at": total_at or (max(times) if times else now),
         "total_w": total,
+        "total_observed_at": grid_reading.observed_at if grid_reading else None,
+        "total_source_quality": grid_reading.quality if grid_reading else None,
         "complete": total is not None and not missing,
         "note": note,
         "parts": parts,

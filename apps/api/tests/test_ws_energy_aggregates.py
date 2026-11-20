@@ -59,14 +59,14 @@ async def add_meter(home_id, kind, name, role=None, since=None) -> uuid.UUID:
         return d.id
 
 
-async def put_readings(device_id, metric, points, unit="kWh"):
+async def put_readings(device_id, metric, points, unit="kWh", quality="measured"):
     rows = [
         {
             "device_id": device_id,
             "metric": metric,
             "value": v,
             "unit": unit,
-            "quality": "measured",
+            "quality": quality,
             "observed_at": t,
             "event_id": f"t:{metric}:{t.isoformat()}",
         }
@@ -508,6 +508,42 @@ async def test_export_missing_values_are_empty_cells(admin):
 
 
 # --- live power -------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("qualities", [("estimated", "derived", "measured"), ("measured", "estimated", "derived")])
+async def test_bronkwaliteit(admin, qualities):
+    hid = await new_home(admin)
+    now = datetime.now(UTC) - timedelta(seconds=2)
+    for role, kind, quality, watts, age in zip(
+        ("grid", "boiler", "airco"), ("p1_meter", "energy_socket", "energy_socket"),
+        qualities, (40, 0, 12), (20, 5, 0), strict=True,
+    ):
+        meter = await add_meter(hid, kind, role, role)
+        await put_readings(meter, "power_w", [(now - timedelta(seconds=age), watts)], unit="W", quality=quality)
+
+    response = await admin.get(f"/homes/{hid}/energy/live")
+    assert response.status_code == 200
+    live = response.json()
+    parts = {part["role"]: part for part in live["parts"]}
+    assert (live["total_w"], parts["boiler"]["watts"], parts["airco"]["watts"]) == (40, 0, 12)
+    assert parts["boiler"]["quality"] == parts["airco"]["quality"] == "measured"  # Bestaande presentatievelden.
+    assert (live["total_source_quality"], parts["boiler"]["source_quality"], parts["airco"]["source_quality"]) == qualities
+    assert datetime.fromisoformat(live["total_observed_at"]) == now - timedelta(seconds=20)
+    assert datetime.fromisoformat(parts["boiler"]["at"]) == now - timedelta(seconds=5)
+    assert datetime.fromisoformat(parts["airco"]["at"]) == now
+
+
+async def test_verouderde_p1_houdt_eigen_meettijd(admin):
+    hid = await new_home(admin)
+    grid = await add_meter(hid, "p1_meter", "P1", "grid")
+    boiler = await add_meter(hid, "energy_socket", "Boiler", "boiler")
+    fresh = datetime.now(UTC) - timedelta(seconds=2)
+    stale = fresh - timedelta(minutes=6)
+    await put_readings(grid, "power_w", [(stale, 80)], unit="W", quality="estimated")
+    await put_readings(boiler, "power_w", [(fresh, 0)], unit="W")
+    live = (await admin.get(f"/homes/{hid}/energy/live")).json()
+    assert live["total_w"] is None and datetime.fromisoformat(live["at"]) == fresh
+    assert live["total_source_quality"] == "estimated" and datetime.fromisoformat(live["total_observed_at"]) == stale
 
 
 async def test_live_power_shows_stale_submeter_and_live_round_publishes(admin, monkeypatch):

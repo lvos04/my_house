@@ -43,11 +43,11 @@
   "id": "B06-005",
   "status": "Bezig",
   "validatie": "Unit-getest; Sim-getest; NIET GEVALIDEERD (hardware)",
-  "bewijs": "code-HEAD b0a6a98 (VERSION 0.2.0); baseline deze sessie: pytest integrations 188 geslaagd/1 overgeslagen, pytest apps/api 319/319 (run 2; run 1 hing op een flaky test), vitest 164/164, ruff schoon, validate_compose.sh ok (INVENTARIS.md §15); repo-CI run 42587407462 op 9c9d02f geslaagd (backend, web, e2e, compose, stack); energy.py; worker/aggregates.py; models.py:203-221 (logical_roles, device_bindings); tests/test_core_logic.py::test_counter_reset_and_duplicates_and_gap, ::test_dst_day_has_25_hours; tests/test_ws_energy_aggregates.py::test_reset_only_accepted_when_following_readings_rise_from_new_base, ::test_dst_days_are_complete_and_counted_in_real_hours; tests/test_api.py::test_energy_summary_no_double_count_and_replacement; DELTA_MATRIX.md §1 B06-005, §4 EX28",
+  "bewijs": "code-HEAD b0a6a98 (VERSION 0.2.0); baseline deze sessie: pytest integrations 188 geslaagd/1 overgeslagen, pytest apps/api 319/319 (run 2; run 1 hing op een flaky test), vitest 164/164, ruff schoon, validate_compose.sh ok (INVENTARIS.md §15); repo-CI run 42587407462 op 9c9d02f geslaagd (backend, web, e2e, compose, stack); energy.py; worker/aggregates.py; models.py:203-221 (logical_roles, device_bindings); tests/test_core_logic.py::test_counter_reset_and_duplicates_and_gap, ::test_dst_day_has_25_hours; tests/test_ws_energy_aggregates.py::test_reset_only_accepted_when_following_readings_rise_from_new_base, ::test_dst_days_are_complete_and_counted_in_real_hours; tests/test_api.py::test_energy_summary_no_double_count_and_replacement; DELTA_MATRIX.md §1 B06-005, §4 EX28. apps/api/tests/test_ws_energy_aggregates.py::test_bronkwaliteit controleert de opgeslagen kwaliteit van P1 en beide deelmeters via GET energy/live.",
   "blokkade": "Echte P1/Energy Socket/kWh-meter (D14; kWh-meter mogelijk nog niet geplaatst). Levering aan de Hub/B14 via de bestaande leesroutes met viewer-token (energy/summary|live|export, met quality; tweede lezing DELTA_MATRIX.md §11 W1); een push-event alleen als de Hub-adapter erom vraagt (P3-04, optioneel).",
   "opmerking": "Validatie (toelichting, tot 2026-11-10 in het veld validatie): Bestaand in code + Unit-getest + Sim-getest; levering aan de Hub kan via bestaande leesroutes; NIET GEVALIDEERD (hardware). Geen verbruik per binnenunit (gedeelde compressor); de Hub rekent niet opnieuw.",
   "repo": "my_house",
-  "bijgewerkt": "2026-11-10"
+  "bijgewerkt": "2026-11-20"
  },
  {
   "id": "B06-006",
