@@ -1,6 +1,11 @@
 {
   "name": "@shc/web",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://git.medialeon.nl/leon/my_house.git",
+    "directory": "apps/web"
+  },
   "version": "0.0.0",
   "type": "module",
   "scripts": {

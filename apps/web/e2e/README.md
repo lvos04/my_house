@@ -19,7 +19,7 @@ anders `apps/api/.venv/bin/python`, anders `python3`. Chromium installeer je met
 `npx playwright install chromium`.
 
 Rapporten en traces komen in `e2e/.output/` (niet in git). In CI draait de job `e2e` in
-`.github/workflows/ci.yml`.
+`.forgejo/workflows/ci.yml`.
 
 ### Met het lettertype van de CI-machine
 

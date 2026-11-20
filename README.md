@@ -24,7 +24,7 @@ De web-app en de Android-app volgen de ontwerptaal **Peil** 1.1.1 van het TrueNA
 ## Snel starten
 
 - **TrueNAS SCALE:** gebruik het formulier voor een standaard Custom App. De installatiehandleiding beschrijft de opslag, poort en terugweg bij een update. [Installatie op TrueNAS](docs/installatie-truenas.md)
-- **Android-app:** [apps/android/README.md](apps/android/README.md). De ondertekende APK staat bij elke GitHub-release (zodra de release-sleutel is ingesteld); een testversie komt uit GitHub Actions (artifact `huis-debug-apk`).
+- **Android-app:** [apps/android/README.md](apps/android/README.md). De ondertekende APK staat bij de release zodra de Android-sleutel is ingesteld. De Android-workflow levert de testversie als artefact `huis-debug-apk`. [Releases](https://git.medialeon.nl/leon/my_house/releases) · [Forgejo Actions](https://git.medialeon.nl/leon/my_house/actions?workflow=android.yml)
 
 Open daarna `http://<server>:8088`, maak het beheerdersaccount aan (er is geen standaardwachtwoord), maak de woning aan en volg de **installatiewizard** (`/installatie`). Uitleg per fabrikant staat in de app op **Help** (`/help`). Zet daarna automatische back-ups aan bij **Systeem › Back-ups en bewaren**.
 
@@ -40,6 +40,8 @@ De Compose-stack onder `infra/compose` en het bijbehorende installatiescript zij
 - **Airco-meting:** HomeWizard 1-fase kWh-meter (HWE-KWH1) op de aparte airco-groep, door een elektricien geplaatst.
 
 ## Repository
+
+[Broncode op Forgejo](https://git.medialeon.nl/leon/my_house)
 
 ```
 apps/api          FastAPI + worker + klimaat-/energie-engine (Python)
@@ -61,7 +63,7 @@ docs              plan, API-contract, architectuur, beslissingen, handleidingen
 - Backend: `apps/api` en `integrations` (Python 3.12). Tests: `pytest` in beide mappen; de API-tests hebben PostgreSQL 16 nodig (`SHC_TEST_PG`). Pakketten komen uit het lock-bestand met hashes `apps/api/requirements.txt`; hoe je dat bijwerkt staat in [onderhoud.md](docs/onderhoud.md#afhankelijkheden-bijwerken-voor-wie-de-code-bijhoudt).
 - Web: `apps/web` (`npm ci`, `npm test`); browsertests met `apps/web/e2e/run-stack.sh`, zie [apps/web/e2e/README.md](apps/web/e2e/README.md).
 - Android: `apps/android` (`./gradlew :core:test :app:testDebugUnitTest`).
-- CI (`.github/workflows/ci.yml`) draait de backend- en webtests bij elke push en pull request, plus een rooktest en browsertests tegen de gebouwde images. De Android-tests en de debug-APK komen uit `.github/workflows/android.yml` (bij wijzigingen in `apps/android`) en draaien bij elke release opnieuw.
+- Forgejo Actions draait bij pushes en pull requests de backend- en webtests, de versiewissels, de herstelproef en de browsertests. Bij Android-wijzigingen bouwt de Android-workflow ook een debug-APK. De handmatige releaseworkflow herhaalt de CI en de Android-unittests. [CI-runs](https://git.medialeon.nl/leon/my_house/actions?workflow=ci.yml) · [Android-runs](https://git.medialeon.nl/leon/my_house/actions?workflow=android.yml)
 
 ### Herstelproef met twee lokale Custom Apps
 

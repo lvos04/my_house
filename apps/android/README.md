@@ -25,7 +25,7 @@ Zonder verbinding toont de app de laatst bekende waarden met "Verouderd · Laats
 
 ### Release (aanbevolen)
 
-Bij elke release staat op GitHub een ondertekende APK: `huis-v<versie>.apk`, met `.sha256` en de vingerafdruk van het certificaat (`.certificate-sha256`). Alle releases zijn met dezelfde eigen sleutel ondertekend, dus een nieuwe versie installeert gewoon over de oude heen. Instellen van die sleutel: `docs/installatie-truenas.md` › *Android-app: eigen release-sleutel*.
+Zodra de eigen releasesleutel is ingesteld, bevat elke Forgejo-release een ondertekende APK (`huis-v<versie>.apk`), de SHA-256-controlesom en de vingerafdruk van het certificaat (`.certificate-sha256`). Alle releases zijn met dezelfde eigen sleutel ondertekend, dus een nieuwe versie installeert gewoon over de oude heen. Instellen van die sleutel: `docs/installatie-truenas.md` › *Android-app: eigen release-sleutel*. [Releases](https://git.medialeon.nl/leon/my_house/releases)
 
 - `versionName` komt uit het bestand `VERSION` in de root van de repository, `versionCode` = major × 10000 + minor × 100 + patch (0.3.12 → 312). Minor en patch moeten onder 100 blijven.
 - De release-build wordt door R8 verkleind (`isMinifyEnabled` + `isShrinkResources`); de regels staan in `app/proguard-rules.pro`.
@@ -47,7 +47,7 @@ Bij elke release draaien eerst de unit-tests van `core` en `app` (ook als er nog
 
 ### Testversie (debug)
 
-Bij elke push die `apps/android` wijzigt bouwt GitHub Actions (workflow **Android**) een debug-APK: **Actions › Android ›** laatste geslaagde run **›** artefact **huis-debug-apk**. Die is met een debugsleutel ondertekend en kan niet over een release heen worden geïnstalleerd (en andersom).
+Bij elke push die `apps/android` wijzigt bouwt Forgejo Actions een debug-APK. Open de laatste groene Android-run en download het artefact **huis-debug-apk**. [Android-runs](https://git.medialeon.nl/leon/my_house/actions?workflow=android.yml) Die is met een debugsleutel ondertekend en kan niet over een release heen worden geïnstalleerd (en andersom).
 
 Zelf bouwen kan met Android Studio (Ladybug of nieuwer) of met JDK 17 + Android SDK 35:
 

@@ -1,6 +1,11 @@
 {
   "name": "shc-e2e-compose",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://git.medialeon.nl/leon/my_house.git",
+    "directory": "infra/e2e"
+  },
   "type": "module",
   "description": "Browser tests against the compose stack; run with infra/scripts/e2e_compose.sh. Uses apps/web/node_modules."
 }
