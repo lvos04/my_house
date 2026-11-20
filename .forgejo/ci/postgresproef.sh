@@ -12,8 +12,16 @@ export PATH="$pgbin:$PATH"
 basis=$(mktemp -d "$RUNNER_TEMP/shc-pg.XXXXXXXX")
 chown postgres:postgres "$basis"
 install -d -o postgres -g postgres -m 700 "$basis/tmp"
-# De kortlevende dienst krijgt eigen opslag. De upgrades, back-ups en herstarts houden hun testbestanden op schijf.
-pgdata=$(mktemp -d "${SHC_CI_PGROOT:-$basis}/data.XXXXXXXX")
+# Alleen een ruim bemeten geheugenvolume mag de kortlevende dienst dragen.
+# Een runner kan de containeroptie negeren. Historische clusters en back-ups blijven op schijf.
+pgroot=$basis
+if [[ -n ${SHC_CI_PGROOT:-} ]]; then
+  vrij=$(df -Pk "$SHC_CI_PGROOT" | awk 'NR == 2 {print $4}')
+  echo "Beschikbaar voor de tijdelijke geheugendatabase: ${vrij:?} KiB."
+  if (( vrij >= 1572864 )); then pgroot=$SHC_CI_PGROOT; fi
+fi
+if [[ $pgroot == "$basis" ]]; then echo "De tijdelijke PostgreSQL-dienst gebruikt schijfopslag."; fi
+pgdata=$(mktemp -d "$pgroot/data.XXXXXXXX")
 chown postgres:postgres "$pgdata"
 as_pg=(runuser -u postgres --)
 opruimen() {
@@ -25,7 +33,7 @@ opruimen() {
 trap opruimen EXIT
 # De historische proefprocessen toetsen zelf dat de URL een loopback-host bevat.
 poort=$(python -c 'import socket; s=socket.socket(); s.bind(("localhost", 0)); print(s.getsockname()[1]); s.close()')
-"${as_pg[@]}" initdb -D "$pgdata" --auth-local=trust --auth-host=trust --locale=C.UTF-8
+"${as_pg[@]}" initdb -D "$pgdata" --waldir="$basis/wal" --auth-local=trust --auth-host=trust --locale=C.UTF-8
 "${as_pg[@]}" pg_ctl -D "$pgdata" -l "$basis/server.log" -o "-c listen_addresses=localhost -p $poort -k '$basis'" -w start
 export PGHOST=localhost PGPORT="$poort" SHC_TEST_PG="postgresql://postgres@localhost:$poort" SHC_E2E_PG="postgresql://postgres@localhost:$poort"
 case $1 in

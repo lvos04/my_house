@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/catthehacker/ubuntu:act-24.04@sha256:7bf3a8afc2bbfe7fdaf4b9d2716cb2f3634fd21e4f38e26aa17a12cfda80d721
-      options: --shm-size=1g
+      options: --shm-size=2g
     env:
       SHC_CI_PGROOT: /dev/shm
     timeout-minutes: 100
@@ -73,8 +73,6 @@ jobs:
     container:
       image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
       options: --shm-size=1g
-    env:
-      SHC_CI_PGROOT: /dev/shm
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
