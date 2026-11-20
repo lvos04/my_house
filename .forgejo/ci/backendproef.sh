@@ -5,17 +5,21 @@ if [[ -z ${SHC_CI_PGROOT:-} ]]; then exec bash .forgejo/ci/postgresproef.sh back
 vrij=$(df -Pk "$SHC_CI_PGROOT" | awk 'NR == 2 {print $4}')
 if (( vrij >= 1572864 )); then exec bash .forgejo/ci/postgresproef.sh backend; fi
 
-# Hergebruik uitsluitend de basisimage van deze eigen job op de geïsoleerde bouwengine.
-naam=$(hostname)
-id=
-beeld=
-if [[ $naam =~ ^([0-9a-f]{12}|[0-9a-f]{64})$ ]] &&
-   gegevens=$(docker container inspect --format '{{.Id}} {{.Image}}' "$naam" 2>/dev/null); then
-  read -r id beeld <<< "$gegevens"
+# De bouwengine kan gescheiden zijn van de daemon die de runnerjob uitvoert.
+ref=${SHC_CI_BACKENDIMAGE:-}
+if [[ -z $ref ]]; then exec bash .forgejo/ci/postgresproef.sh backend; fi
+if [[ ! $ref =~ ^([[:alnum:]][[:alnum:].:/_-]*@)?sha256:[0-9a-f]{64}$ ]]; then
+  echo 'De basisimage voor de API-suite heeft geen vaste digest.' >&2
+  exit 2
 fi
-if [[ $id != "$naam"* || ! $beeld =~ ^sha256:[0-9a-f]{64}$ ]]; then
-  exec bash .forgejo/ci/postgresproef.sh backend
+if ! beeld=$(docker image inspect --format '{{.Id}}' "$ref" 2>/dev/null); then
+  if ! docker pull --quiet "$ref" >/dev/null; then
+    echo 'De bouwengine kan de vaste basisimage niet laden. De API-suite draait in de runnerjob.' >&2
+    exec bash .forgejo/ci/postgresproef.sh backend
+  fi
+  beeld=$(docker image inspect --format '{{.Id}}' "$ref")
 fi
+[[ $beeld =~ ^sha256:[0-9a-f]{64}$ ]]
 
 werk=$(mktemp -d "$RUNNER_TEMP/backend.XXXXXXXX")
 kenmerk=$(cat /proc/sys/kernel/random/uuid)
