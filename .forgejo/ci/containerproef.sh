@@ -3,8 +3,21 @@
 set -euo pipefail
 soort=$1
 imagebestand="$RUNNER_TEMP/proefomgeving.id"
+proefbestand="$RUNNER_TEMP/proefomgeving.volume"
+if [[ $soort == ruim ]]; then
+  # Afsluitende stap: ook na afbreken de proefclient, alles wat de proef startte en de Compose-stacks weg.
+  if [[ -s $proefbestand ]]; then
+    docker ps -aq --filter "label=nl.medialeon.ci.proef=$(cat "$proefbestand")" | xargs -r docker rm -fv >/dev/null
+    for project in "my-house-$SHC_VERSION" "my-house-e2e-$SHC_VERSION"; do
+      docker compose -p "$project" down -v --remove-orphans >/dev/null 2>&1 || true
+    done
+    docker volume rm "$(cat "$proefbestand")" >/dev/null 2>&1 || true
+  fi
+  exit 0
+fi
 docker buildx build --load --iidfile "$imagebestand" .forgejo/ci/proefomgeving
 volume=$(docker volume create)
+echo "$volume" > "$proefbestand"
 container=
 # shellcheck disable=SC2317,SC2329 # Wordt door de EXIT-trap aangeroepen.
 opruimen() {
@@ -16,6 +29,7 @@ werk=$(docker volume inspect --format '{{.Mountpoint}}' "$volume")
 bron=/opt/shc-proef
 slotmap=/home/transcode/truenas-v2/.lokaal
 container=$(docker create --network host --cpus 2 --shm-size=1g \
+  --label "nl.medialeon.ci.proef=$volume" -e "CI_PROEF=$volume" \
   --mount "type=volume,source=$volume,target=$werk" \
   --mount "type=volume,source=my-house-ci-sloten,target=$slotmap" \
   --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
