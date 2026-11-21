@@ -156,10 +156,17 @@ def test_p3_bewijs_dekt_verificatiekern_en_open_punten(echt: list[dict[str, Any]
     assert "apps/web/src/test/terugkeerpad.test.tsx" in terugkeer["bewijs"]
     assert "geen terugkeerpad" in terugkeer["opmerking"]
     assert "S-P3-742" in terugkeer["opmerking"]
-    punt = per_id["C1.3-MH-06"]
-    assert punt["status"] == "Niet gestart"
-    assert punt["validatie"] == "Niet getest"
-    assert "P3" in punt["opmerking"]
+
+
+def test_manifestbewijs_benoemt_validatie_en_open_acceptatie(echt: list[dict[str, Any]]) -> None:
+    punt = next(r for r in echt if r["id"] == "C1.3-MH-06")
+    assert punt["status"] == "Bezig"
+    assert {"Sim-getest", "NIET GEVALIDEERD (echte NAS)", "NIET GEVALIDEERD (hardware)"} <= set(
+        punt["validatie"].split("; ")
+    )
+    assert "jl-manifest validate --strict" in punt["bewijs"]
+    assert "Z-17" in punt["opmerking"] and "Z-21" in punt["opmerking"]
+    assert "N-P6-06" in punt["blokkade"]
 
 
 def test_alles_in_een_bewijs_dekt_simulatie_en_open_acceptatie(echt: list[dict[str, Any]]) -> None:

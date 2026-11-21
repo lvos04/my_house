@@ -102,18 +102,37 @@ jobs:
 
   compose:
     runs-on: ubuntu-24.04
+    env:
+      ASF_COMMIT: 5ece4a31b18c71f5c4d82034148e486eb3d12302
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with: {persist-credentials: false}
       - name: ShellCheck en vaste basisimages
         run: |
           bash .forgejo/ci/pakketlijst.sh
-          apt-get install -y --no-install-recommends shellcheck busybox python3-yaml
+          apt-get install -y --no-install-recommends shellcheck busybox python3-yaml python3.12-venv
           shellcheck infra/scripts/*.sh apps/web/docker/*.sh apps/web/e2e/*.sh .forgejo/ci/*.sh
           python3 infra/scripts/check_dockerfile_digests.py
       - run: /usr/bin/python3 -m unittest discover -s infra/tests -v
       - name: Compose-profielen en TrueNAS-renderingen met testwaarden
         run: bash infra/scripts/validate_compose.sh
+      - name: Lees de gepinde manifestvalidator
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          repository: leon/appstore-en-fork
+          ref: ${{ env.ASF_COMMIT }}
+          path: .appstore-validator
+          github-server-url: https://git.medialeon.nl
+          token: ${{ secrets.BRON_LEESTOKEN }}
+          persist-credentials: false
+          sparse-checkout: apps/api
+      - name: Valideer het manifest en toets de weigergevallen
+        run: |
+          test "$(git -C .appstore-validator rev-parse HEAD)" = "$ASF_COMMIT"
+          python3.12 -m venv "$RUNNER_TEMP/validator"
+          "$RUNNER_TEMP/validator/bin/pip" install --require-hashes --only-binary=:all: -r .appstore-validator/apps/api/requirements.lock
+          "$RUNNER_TEMP/validator/bin/pip" install --no-deps .appstore-validator/apps/api
+          JL_MANIFEST="$RUNNER_TEMP/validator/bin/jl-manifest" /usr/bin/python3 -m unittest -v infra.tests.manifestproef
 
   allinone:
     name: Custom App-rechten en migratiebewijs

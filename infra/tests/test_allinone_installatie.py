@@ -2,12 +2,17 @@
 
 import json
 import os
+import re
 import subprocess
 import unittest
 from pathlib import Path
 from uuid import uuid4
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
+MANIFEST = ROOT / "deploy/manifest/my_house.manifest.yaml"
+FORMULIER = ROOT / "deploy/truenas/CUSTOM_APP.md"
 
 
 class Installatie(unittest.TestCase):
@@ -80,7 +85,69 @@ class Installatie(unittest.TestCase):
             text = "\n".join(s for s in sections if not s.startswith("alleen voor ontwikkeling\n"))
             self.assertIn("standaard custom app", text)
             self.assertNotIn("install via yaml", text)
-            self.assertNotIn("render_truenas.py --", text)
+            self.assertNotIn("render_truenas.py", text)
+            self.assertNotIn("install.sh", text)
+
+    def test_manifest_en_formulier_dekken_dezelfde_kerndiensten(self):
+        manifest = yaml.safe_load(MANIFEST.read_text())
+        poort, = manifest["network"]["ports"]
+        parameters = {p["name"]: p for p in manifest["parameters"]}
+        self.assertEqual(manifest["install"]["method"], "custom_app")
+        self.assertEqual((poort["protocol"], poort["container_port"]), ("tcp", 8080))
+        self.assertEqual(parameters[poort["host_port"]["param"]]["default"], 8088)
+        self.assertFalse(manifest["network"]["host_network"])
+        self.assertEqual(manifest["privileges"], {"privileged": False, "devices": [], "cap_add": [], "gpu": "none"})
+        self.assertEqual(manifest["healthcheck"]["type"], "builtin")
+        self.assertEqual(manifest["healthcheck"]["monitor"]["pad"], "/readyz")
+        self.assertEqual(manifest["healthcheck"]["monitor"]["verwachte_status"], 200)
+        opslag, = manifest["storage"]
+        self.assertEqual(opslag["mount"], "/appdata")
+        koppeling, = manifest["custom_app"]["storage"]
+        self.assertEqual(koppeling["name"], opslag["name"])
+        dataset = parameters[koppeling["host_path"]["param"]]
+        self.assertEqual(dataset["source"], "dataset_picker")
+        self.assertEqual(dataset["dataset_role"], opslag["required_dataset_role"])
+        self.assertEqual(manifest["backup"]["snapshot_datasets"], [opslag["name"]])
+        self.assertEqual(manifest["backup"]["db_export"]["method"], "pg_dump")
+        for doel in ("rpo", "rto"):
+            parameter = parameters[manifest["backup"][doel]["param"]]
+            self.assertEqual((parameter["type"], parameter["decision"]), ("duration", "D16"))
+            self.assertNotIn("default", parameter)
+        self.assertFalse(manifest["upgrade"]["tag_only_rollback_safe"])
+        formulier = FORMULIER.read_text()
+        for veld in (manifest["app_id"], manifest["image"]["repository"], "8080", "8088", "/appdata", "/readyz",
+                     "shc_allinone.startpad", "#offline-terugvalkopie-voorbereiden"):
+            self.assertIn(veld, formulier)
+
+    def test_hostpaden_gebruiken_een_poolplaatshouder(self):
+        for pad in (FORMULIER, MANIFEST):
+            self.assertNotRegex(pad.read_text(), r"/mnt/(?!<POOL>/)")
+        self.assertIn("/mnt/<POOL>/", FORMULIER.read_text())
+
+    def test_stick_is_optioneel_en_heeft_alleen_een_formulierveld(self):
+        formulier = FORMULIER.read_text()
+        self.assertEqual(
+            set(re.findall(r"/dev/[^\s`]+", formulier)), {"/dev/serial/by-id/<NAAM-VAN-JE-STICK>", "/dev/zigbee"}
+        )
+        self.assertNotIn("/dev/", MANIFEST.read_text())
+        for veld in ("Zigbee-stick (alleen als je er een hebt)", "SHC_ZIGBEE_ADAPTER", "ember",
+                     "NIET GEVALIDEERD (echte NAS)", "NIET GEVALIDEERD (hardware)"):
+            self.assertIn(veld, formulier)
+        self.assertNotRegex(formulier, r"(?im)^`{3}(sh|bash)|\bls\s+-")
+
+    def test_ontwikkelcompose_gebruikt_de_bestaande_proefstack(self):
+        ontwikkel = ROOT / "deploy/dev/compose.yaml"
+        voorbeeld = ROOT / ".env.example"
+        self.assertIn("geen installatieweg", ontwikkel.read_text().splitlines()[0].lower())
+        self.assertIn("ontwikkeling", voorbeeld.read_text().splitlines()[0].lower())
+        opdracht = ["docker", "compose", "--env-file", str(voorbeeld), "-f", str(ontwikkel),
+                    "config", "--format", "json"]
+        env = dict(os.environ, SHC_HTTP_PORT="18088", SHC_ROOT="/proefopslag")
+        proces = subprocess.run(opdracht, env=env, capture_output=True, text=True, check=True)  # noqa: S603
+        diensten = json.loads(proces.stdout)["services"]
+        self.assertEqual(diensten["web"]["ports"][0]["published"], "18088")
+        self.assertIn("/proefopslag/postgres", [v["source"] for v in diensten["db"]["volumes"]])
+        self.assertNotIn("zigbee2mqtt", diensten)
 
     def test_runtime_gebruikt_vaste_pakketbronnen(self):
         dockerfile = (ROOT / "deploy/allinone/Dockerfile").read_text()

@@ -1,14 +1,10 @@
 # Installatie op TrueNAS SCALE
 
-Gebruik **Apps › Discover Apps › Custom App** voor de standaard Custom App. Voor installatie heb je de gepubliceerde alles-in-één-image en de bijbehorende vaste versietag nodig. De huidige bouwstap levert de lokale testimage. De publicatiegegevens, de rooktest en het gevalideerde manifest volgen in S-P3-725 en S-P3-755.
+Gebruik **Apps › Discover Apps › Custom App**. De standaard Custom App met één alles-in-één-image is de enige installatieweg. Wacht op de eerste publicatie van deze image met vaste versietag en registerdigest (BLOK-06). Voorbereiden kan met de [formulierhandleiding](../deploy/truenas/CUSTOM_APP.md).
 
 ## Opslag en formulier
 
-1. Kies voor een eerste installatie een lege dataset. Geef in **Storage** deze dataset als schrijfbare opslag door op containerpad `/appdata`. Voor een directe start als gebruiker en groep 568 moet die gebruiker er al kunnen schrijven.
-2. Vul in **Image** de repository en de vaste tag van de alles-in-één-release in. Leg ook de startmodule van deze image vast in het formulier. Vraag de naam één keer op met **Entrypoint** `/opt/venv/bin/python` en de afzonderlijke argumenten `-IBu`, `-m` en `shc_allinone.startpad`. Het proces toont in het logboek één naam die begint met `shc_allinone.start_` en sluit af zonder de opslag te openen. Vervang het laatste argument door die volledige naam. Bij een losse tagwissel blijft het formulier naar dezelfde workersoftware verwijzen. Een historische image die deze module mist kan geen diensten openen. Gebruik bij **Network** TCP-containerpoort 8080. De voorgestelde hostpoort is 8088.
-3. Laat extra capabilities en hostnetwerk uit. De app maakt zelf de hoofdsleutel en de afzonderlijke brokerwachtwoorden. Alleen de webpoort wordt aangeboden.
-4. Met een Zigbee-stick kun je in **Devices** het eigen apparaat aan `/dev/zigbee` koppelen. Kies indien nodig `SHC_ZIGBEE_ADAPTER` uit `ember`, `zstack`, `deconz`, `zigate` of `zboss`. De standaard is `ember`. Gebruiker 568 moet toegang hebben en het Zigbee-proces moet zijn bestands- en procesrechten kunnen begrenzen. Zonder stick kun je dit onderdeel overslaan.
-5. Open de webapp via de gekozen hostpoort. Maak het beheerdersaccount en de woning aan, doorloop **Systeem › Installatiewizard** en stel back-ups in onder **Systeem › Back-ups en bewaren**.
+Kies voor de eerste installatie een lege dataset voor `/appdata`. De voorgestelde hostpoort is 8088. Kies een vrije poort en leg de startmodule vast die de image voor deze versie in het logboek toont. De formulierhandleiding geeft de invulvolgorde, de optionele Zigbee-stick en de controles vóór ingebruikname. [Velden van de standaard Custom App](../deploy/truenas/CUSTOM_APP.md)
 
 ## Updaten en terugdraaien
 
@@ -61,4 +57,4 @@ Daarna installeert elke nieuwe versie gewoon over de oude heen.
 
 ## Alleen voor ontwikkeling
 
-De afzonderlijke diensten onder `infra/compose` en de scripts onder `infra/scripts` ondersteunen de lokale ontwikkel- en CI-omgeving.
+De lokale proefstack gebruikt `deploy/dev/compose.yaml` en `.env.example` met eigen testgegevens. De scripts `install.sh` en `render_truenas.py` onder `infra/scripts` en de historische procedure ‘Install via YAML’ horen bij die ontwikkelproeven.

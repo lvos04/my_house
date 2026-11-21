@@ -23,14 +23,14 @@ De web-app en de Android-app volgen de ontwerptaal **Peil** 1.1.1 van het TrueNA
 
 ## Snel starten
 
-- **TrueNAS SCALE:** gebruik het formulier voor een standaard Custom App. De installatiehandleiding beschrijft de opslag, poort en terugweg bij een update. [Installatie op TrueNAS](docs/installatie-truenas.md)
+- **TrueNAS SCALE:** de standaard Custom App met één image is de enige installatieweg. Wacht op de publicatie van de alles-in-één-image met vaste tag en digest. Vul daarna het formulier in. Bewaar vóór een update een snapshot van de hele dataset voor terugkeer naar de bijpassende versie. [Formuliervelden](deploy/truenas/CUSTOM_APP.md) · [Installatie en terugdraaien](docs/installatie-truenas.md)
 - **Android-app:** [apps/android/README.md](apps/android/README.md). De ondertekende APK staat bij de release zodra de Android-sleutel is ingesteld. De Android-workflow levert de testversie als artefact `huis-debug-apk`. [Releases](https://git.medialeon.nl/leon/my_house/releases) · [Forgejo Actions](https://git.medialeon.nl/leon/my_house/actions?workflow=android.yml)
 
-Open daarna `http://<server>:8088`, maak het beheerdersaccount aan (er is geen standaardwachtwoord), maak de woning aan en volg de **installatiewizard** (`/installatie`). Uitleg per fabrikant staat in de app op **Help** (`/help`). Zet daarna automatische back-ups aan bij **Systeem › Back-ups en bewaren**.
+Open de portal op de gekozen hostpoort (voorstel 8088), maak het beheerdersaccount en de woning aan en volg de **installatiewizard** (`/installatie`). Uitleg per fabrikant staat in de app op **Help** (`/help`). Zet daarna automatische back-ups aan bij **Systeem › Back-ups en bewaren**.
 
 ## Alleen voor ontwikkeling
 
-De Compose-stack onder `infra/compose` en het bijbehorende installatiescript zijn bedoeld voor lokale ontwikkeling en CI met testgegevens. Voor die omgeving is er een apart [Cloudflare Tunnel-profiel](docs/buiten-huis.md).
+Gebruik lokaal de ingang `deploy/dev/compose.yaml` voor de bestaande proefstack. Kopieer `.env.example` naar `.env` en zet `SHC_ROOT` op het absolute pad van je eigen voorbereide proefmap. Controleer de configuratie vanuit de repomap met `docker compose --env-file .env -f deploy/dev/compose.yaml config --quiet`. De hulpmiddelen `infra/scripts/install.sh` en `infra/scripts/render_truenas.py` ondersteunen de oude meercontainerproeven, waaronder ‘Install via YAML’. Voor de proefstack is er een apart [Cloudflare Tunnel-profiel](docs/buiten-huis.md).
 
 ## Hardware-advies (open punten)
 
@@ -49,7 +49,9 @@ apps/web          React + TypeScript PWA
 apps/android      Kotlin + Jetpack Compose app
 integrations      Adapters: hue, gree, homewizard, zigbee (+ contracttests)
 infra/compose     Compose-stack voor ontwikkeling en CI, broker- en Zigbee-config
-infra/scripts     install.sh, render_truenas.py, rooktest en browsertests tegen de stack
+deploy/truenas    velden van de standaard Custom App
+deploy/manifest   platformmanifest van de alles-in-één-image
+infra/scripts     hulpmiddelen, rooktest en browsertests voor de proefstack
 infra/e2e         Browsertests tegen de echte images (nginx, API, worker, nep-airco)
 docs              plan, API-contract, architectuur, beslissingen, handleidingen
 ```

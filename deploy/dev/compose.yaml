@@ -1,0 +1,4 @@
+# Alleen voor ontwikkeling en CI met testgegevens. Dit is geen installatieweg.
+name: smart-home-dev
+include:
+  - ../../infra/compose/compose.yaml
