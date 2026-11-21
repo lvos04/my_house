@@ -160,6 +160,13 @@ jobs:
         run: |
           bash .forgejo/ci/scan.sh "shc-api:$SHC_VERSION"
           bash .forgejo/ci/scan.sh "shc-web:$SHC_VERSION"
+      - name: Broker met de vaste stackconfiguratie bouwen
+        run: |
+          bron=$(docker compose -f infra/compose/compose.yaml config --images | grep '^eclipse-mosquitto:.*@sha256:')
+          docker buildx build --load -t "shc-mosquitto:$SHC_VERSION" -f - infra/compose/config <<EOF
+          FROM $bron
+          COPY --chown=1883:1883 --chmod=0644 mosquitto.conf /mosquitto/config/mosquitto.conf
+          EOF
       - name: Rooktest via nginx, back-up verifiëren, API-herstart en browsertests met de worker
         run: bash .forgejo/ci/containerproef.sh stack
       - if: failure()
@@ -170,4 +177,4 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
       - if: always()
-        run: docker image rm "shc-api:$SHC_VERSION" "shc-web:$SHC_VERSION" || true
+        run: docker image rm "shc-api:$SHC_VERSION" "shc-web:$SHC_VERSION" "shc-mosquitto:$SHC_VERSION" || true
