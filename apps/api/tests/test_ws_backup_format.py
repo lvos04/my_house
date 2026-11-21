@@ -40,9 +40,12 @@ async def temp_db(revision: str | None = "head"):
     from alembic import command
 
     name = f"shc_tmp_{uuid.uuid4().hex[:10]}"
-    conn = await asyncpg.connect(_admin_dsn())
-    await conn.execute(f'CREATE DATABASE "{name}"')
-    await conn.close()
+    admin_dsn = _admin_dsn()
+    conn = await asyncpg.connect(admin_dsn)
+    try:
+        await conn.execute(f'CREATE DATABASE "{name}"')
+    finally:
+        await conn.close()
     u = urlsplit(get_settings().database_url)
     url = urlunsplit((u.scheme, u.netloc, f"/{name}", "", ""))
     try:
@@ -50,8 +53,43 @@ async def temp_db(revision: str | None = "head"):
             await asyncio.to_thread(command.upgrade, bk.alembic_config(url), revision)
         yield url
     finally:
-        conn = await asyncpg.connect(_admin_dsn())
-        await conn.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+        conn = await asyncpg.connect(admin_dsn)
+        try:
+            # PostgreSQL kan nog een afsluitende sessie tellen. Alleen een bezette eigen proefdatabase krijgt herhaling.
+            for poging in range(1, 4):
+                try:
+                    await conn.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+                    break
+                except asyncpg.ObjectInUseError:
+                    if poging == 3:
+                        raise
+                    await asyncio.sleep(0.25)
+        finally:
+            await conn.close()
+
+
+async def test_tijdelijke_database_verdwijnt_ook_bij_een_nog_afsluitende_sessie(monkeypatch):
+    execute = asyncpg.Connection.execute
+    pogingen = 0
+
+    async with temp_db(None) as url:
+        naam = urlsplit(url).path.lstrip("/")
+
+        async def tijdelijk_bezet(conn, query, *args, **kwargs):
+            nonlocal pogingen
+            if query.startswith("DROP DATABASE ") and f'"{naam}"' in query:
+                pogingen += 1
+                if pogingen == 1:
+                    raise asyncpg.ObjectInUseError("De laatste testsessie sluit nog af.")
+            return await execute(conn, query, *args, **kwargs)
+
+        monkeypatch.setattr(asyncpg.Connection, "execute", tijdelijk_bezet)
+
+    conn = await asyncpg.connect(_admin_dsn())
+    try:
+        assert pogingen == 2
+        assert not await conn.fetchval("SELECT EXISTS (SELECT FROM pg_database WHERE datname = $1)", naam)
+    finally:
         await conn.close()
 
 
