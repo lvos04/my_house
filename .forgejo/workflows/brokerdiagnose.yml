@@ -1,0 +1,28 @@
+name: Bestandsdiagnose van de proefbroker
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  broker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with: {persist-credentials: false}
+      - name: Openen van vaste proefbestanden op de bouwengine meten
+        shell: bash
+        run: |
+          set -eu
+          bron=$(docker compose -f infra/compose/compose.yaml config --images | grep '^eclipse-mosquitto:.*@sha256:')
+          image="shc-brokerdiagnose:ci-${{ github.run_id }}-${{ github.run_attempt }}"
+          trap 'docker image rm "$image" >/dev/null' EXIT
+          docker buildx build --load -t "$image" - <<EOF
+          FROM $bron
+          RUN apk add --no-cache strace && mkdir -p /etc/mosquitto/conf.d /appdata \
+              && for f in /etc/mosquitto/mosquitto.conf /etc/mosquitto/conf.d/proef.conf /mosquitto/config/mosquitto.conf /appdata/proef.conf; do \
+                echo onbekende_proefoptie > "\$f" && chmod 0644 "\$f"; done
+          EOF
+          docker run --rm -i --network none --user 1883:1883 --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --cpus 1 --tmpfs /tmp:mode=1777 \
+            --entrypoint sh "$image" -es < .forgejo/ci/brokerdiagnose.sh
