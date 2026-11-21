@@ -378,6 +378,17 @@ class Trial:
         name = self.container("api-uit", self.storage("api-uit"), entrypoint=(*PYTHON, "-c", API_GESTOPT))
         within(lambda: b"Proef-API gestopt; nginx draait door." in self.logs(name), "De proef-API stopte niet.")
         self.smoke(name, "--expect-unavailable")
+        code = secrets.token_urlsafe(24)
+        request = """
+import http.client, sys
+conn = http.client.HTTPConnection("localhost", 8080, timeout=5)
+conn.request("GET", "/api/v1/system/restore/jobs/" + sys.stdin.read())
+assert conn.getresponse().status == 503
+conn.close()
+"""
+        self.exec(name, *PYTHON, "-c", request, content=code.encode())
+        if code.encode() in self.logs(name):
+            raise AssertionError("De proxyfout bij een onbereikbaar taakrapport bevat de proefcode")
         assert self.exec(name, *HEALTH, check=False).returncode == 1
         docker("stop", name)
 

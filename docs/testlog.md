@@ -179,4 +179,6 @@ Sim-getest op twee lokale Custom Apps met een proefmeter en lege Zigbee-bronopsl
 | Herstel | Archief en doelback-up op SHA-256 gecontroleerd. De bevestigde webtaak bereikte done. |
 | Herstart B | Beide bronaccounts ingelogd. restore/compare bevestigde de broninhoud in alle 24 overdraagbare tabellen, ook na een nieuwe doelmeting. De vier bronmetingen zijn binair gelijk. |
 | Bron na herstel | Alle 33 brontabellen hebben hetzelfde aantal en dezelfde binaire rijinhoud. |
+| Terugval | De geverifieerde doelback-up is teruggezet. De oorspronkelijke doelbeheerder kan inloggen en B bevat de oorspronkelijke gebruikersrij en geen bronwoning. De brontabellen op A bleven gelijk. |
+| Taakrapporten | Herstel en terugval gaven zonder sessie het juiste rapport met de archieftellingen. Een ingekorte code kreeg HTTP 404. Beide containerlogs bevatten nul reeksen van acht opeenvolgende tekens uit de twee taakcodes. |
 <!-- S-P3-735 einde -->

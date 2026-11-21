@@ -98,17 +98,63 @@ def simulate(trial, name, side):
     trial.exec(name, *PYTHON, "-", side, content=METER.read_bytes())
 
 
+def archive_inventory(trial, name, upload, phrase):
+    # De inventaris in de versleutelde bronkopie telt de duurzame rijen. Het totaal van
+    # de archiefbestanden in upload["tables"] omvat ook installatielokale instellingen.
+    read_counts = """
+import json, sys
+from pathlib import Path
+from uuid import UUID
+from shc_api.backup import verify_file
+path = Path("/appdata/backups/uploads") / (UUID(sys.argv[1]).hex + ".shcbak")
+proof = verify_file(path, sys.stdin.read(), collect=False).manifest["source_pause"]["inventory"]
+print(json.dumps({table: entry["rows"] for table, entry in proof.items()}))
+"""
+    measured = trial.exec(name, *PYTHON, "-c", read_counts, upload["upload_id"], content=phrase.encode())
+    counts = json.loads(measured.stdout)
+    assert counts.keys() == upload["tables"].keys()
+    return counts
+
+
 def check_inventory(result, tables):
     inventory = result["inventory"]
     assert result["restored_at"]
     if inventory.keys() != tables.keys():
         raise Proeffout("Tabellen verschillen tussen archief en vergelijking: "
                         + ", ".join(sorted(inventory.keys() ^ tables.keys())))
-    different = [f"{t} (bron {row['source']}, doel {row['target']})"
-                 for t, row in sorted(inventory.items()) if not row["same"]]
+    different = [f"{t} (archief {tables[t]}, bron {row['source']}, doel {row['target']})"
+                 for t, row in sorted(inventory.items())
+                 if row["same"] is not True or any(type(row[k]) is not int or row[k] != tables[t]
+                                                  for k in ("source", "target"))]
     if different:
         raise Proeffout(f"Inhoudsverschil in {', '.join(different)}")
     assert all(inventory[t] == {"source": n, "target": n, "same": True} for t, n in EXPECTED.items())
+
+
+def prepare_restore(web, request):
+    preview = web.request("POST", RESTORE + "/preview", request)
+    comparison = preview["comparison"]
+    confirmed = dict(request, rollback_id=comparison["rollback_id"], confirmation=preview["confirmation"])
+    return confirmed, comparison
+
+
+def apply_and_read_report(web, body, tables):
+    task = web.request("POST", RESTORE + "/apply", body, expected=202)
+    code = task["job_id"]
+    path = RESTORE + "/jobs/" + code
+    assert code and task["poll"] == "/api/v1" + path
+    reader = WebApp(web.address)  # De oude sessie vervalt tijdens het herstel.
+
+    def finished():
+        job = reader.request("GET", path)
+        assert job["job_id"] == code and job["state"] in {"running", "done"}, "Onverwachte hersteltaak"
+        if job["state"] == "running":
+            return False
+        assert job["report"]["mode"] == body["mode"] and job["report"]["counts"] == tables
+        return True
+
+    within(finished, "Geen volledig taakrapport binnen de proeftijd")
+    return code
 
 
 def installation(trial, label, network):
@@ -148,7 +194,8 @@ def measure(trial, record):
     assert device["stable_identity"] == "proefmeter-735"
     source.request("POST", "/devices/" + device["id"] + "/bind", {"role": "grid"})
 
-    target.authenticate("setup", {"username": "doelbeheer", "password": secrets.token_urlsafe(32)})
+    target_admin = {"username": "doelbeheer", "password": secrets.token_urlsafe(32)}
+    target.authenticate("setup", target_admin)
     phrase = secrets.token_urlsafe(32)
     source.request("POST", RESTORE + "/source/pause")
     export = source.request("POST", RESTORE + "/source/export", {"passphrase": phrase, "stop_source": True})
@@ -172,32 +219,23 @@ def measure(trial, record):
     upload = target.request("POST", RESTORE + "/verify", archive=archive, phrase=phrase)
     assert upload["restorable"] and upload["secrets_included"] and not upload["redacted"]
     assert all(upload["tables"][t] == n for t, n in EXPECTED.items())
+    expected_inventory = archive_inventory(trial, b, upload, phrase)
     body = {"upload_id": upload["upload_id"], "passphrase": phrase}
     drill = target.request("POST", RESTORE + "/drill", body)
     assert drill["data_ok"] and drill["drill_id"], drill["migration_refusal"]
     assert drill["source_id"] != drill["target_id"]
-    body.update(mode="migration", drill_id=drill["drill_id"])
-    preview = target.request("POST", RESTORE + "/preview", body)
-    comp = preview["comparison"]
+    body, comp = prepare_restore(target, dict(body, mode="migration", drill_id=drill["drill_id"]))
     assert comp["archive_sha256"] == hashlib.sha256(archive).hexdigest()
     rollback = target.request("GET", RESTORE + "/files/" + comp["rollback_id"])
     assert comp["rollback_sha256"] == hashlib.sha256(rollback).hexdigest()
     assert all(comp["tables"][t]["before"] == empty["public." + t][0]
                and comp["tables"][t]["after"] == n for t, n in EXPECTED.items())
-    body.update(rollback_id=comp["rollback_id"], confirmation=preview["confirmation"])
     reviewed = snapshot(trial, b, live_target=True)
     refused = target.request("POST", RESTORE + "/apply", {**body, "passphrase": wrong}, expected=422)
     assert refused["detail"]["code"] == "backup_invalid"
     assert snapshot(trial, b, live_target=True) == reviewed
     record("Verkeerde wachtwoordzin bij toepassen", "De bevestigde vergelijking leidde tot HTTP 422. B bleef leeg.")
-    job = target.request("POST", RESTORE + "/apply", body, expected=202)
-
-    def finished():
-        state = target.request("GET", RESTORE + "/jobs/" + job["job_id"])["state"]
-        assert state in {"running", "done"}, f"Hersteltaak eindigde met {state}"
-        return state == "done"
-
-    within(finished, "Hersteltaak niet voltooid binnen de proeftijd")
+    restore_code = apply_and_read_report(target, body, upload["tables"])
     record("Herstel", "Archief en doelback-up op SHA-256 gecontroleerd. De bevestigde webtaak bereikte done.")
 
     docker("restart", b)
@@ -208,7 +246,7 @@ def measure(trial, record):
     # Herstel mag de meter niet zelf als opnieuw waargenomen aanmerken. Pas na controle van de
     # herstelde identiteit en bronhistorie levert de simulator een nieuwe waarneming aan de worker.
     first = target.request("GET", RESTORE + "/compare")
-    check_inventory(first, upload["tables"])
+    check_inventory(first, expected_inventory)
     assert target.request("GET", "/homes") == [home]
     assert {z["id"] for z in target.request("GET", home_path + "/zones")} == zones
     assert first["missing_devices"] == 0 and [d["id"] for d in first["devices"]] == [device["id"]]
@@ -219,7 +257,7 @@ def measure(trial, record):
         assert restored["public." + table] == before["public." + table], f"Bronrijen verschillen in {table}"
     simulate(trial, b, "doel")
     result = target.request("GET", RESTORE + "/compare")
-    check_inventory(result, upload["tables"])
+    check_inventory(result, expected_inventory)
     assert result["source_homes"] == result["homes"] == {home["id"]: home["name"]}
     assert result["missing_devices"] == 0 and not result["duplicates"]
     assert result["functions_verified"] and result["summary"] == {"compatible": 1, "partial": 0, "unavailable": 0}
@@ -230,9 +268,37 @@ def measure(trial, record):
            f"{len(result['inventory'])} overdraagbare tabellen, ook na een nieuwe doelmeting. "
            "De vier bronmetingen zijn binair gelijk.")
 
-    after = snapshot(trial, a)
-    assert before == after, "De database op A is tijdens het herstel in B gewijzigd"
+    assert before == snapshot(trial, a), "De database op A is tijdens het herstel in B gewijzigd"
     record("Bron na herstel", f"Alle {len(before)} brontabellen hebben hetzelfde aantal en dezelfde binaire rijinhoud.")
+
+    back = target.request("POST", RESTORE + "/verify", archive=rollback, phrase=phrase)
+    request, comparison = prepare_restore(target, {"upload_id": back["upload_id"], "passphrase": phrase,
+                                                   "mode": "same_home"})
+    assert comparison["archive_sha256"] == comp["rollback_sha256"]
+    rollback_code = apply_and_read_report(target, request, back["tables"])
+    assert rollback_code != restore_code
+    original = WebApp(target.address)
+    original.request("GET", RESTORE + "/jobs/" + restore_code[:-1], expected=404)
+    assert original.authenticate("login", target_admin)["role"] == "admin" and original.request("GET", "/homes") == []
+    assert snapshot(trial, b)["public.users"] == empty["public.users"]
+    assert before == snapshot(trial, a), "De database op A is tijdens de terugval in B gewijzigd"
+    record("Terugval", "De geverifieerde doelback-up is teruggezet. De oorspronkelijke doelbeheerder kan inloggen "
+           "en B bevat de oorspronkelijke gebruikersrij en geen bronwoning. De brontabellen op A bleven gelijk.")
+
+    for name in (a, b):
+        logs = trial.logs(name)
+        if not logs:
+            raise Proeffout("Containerlog ontbreekt bij de controle van de taakcodes")
+        for code in (restore_code, rollback_code):
+            if len(code) < 8 or any(code[i:i + 8].encode() in logs for i in range(len(code) - 7)):
+                raise Proeffout("Hersteltaakcode of deel ervan leesbaar in de containerlogs")
+        if name == b:
+            entry = b'GET /api/v1/system/restore/jobs/{job_id} HTTP/1.1" '
+            if logs.count(entry + b"200") < 2 or entry + b"404" not in logs:
+                raise Proeffout("Afgeschermde toegangsregels voor de taakrapporten ontbreken")
+    record("Taakrapporten", "Herstel en terugval gaven zonder sessie het juiste rapport met de archieftellingen. "
+           "Een ingekorte code kreeg HTTP 404. Beide containerlogs bevatten nul reeksen van acht opeenvolgende "
+           "tekens uit de twee taakcodes.")
 
 
 def write_report(rows, outcome):

@@ -1,4 +1,4 @@
-"""Databasefouten in de log zonder de DETAIL-regel van PostgreSQL (KLEIN-37; opzet van home-control-hub, KLEIN-32).
+"""Bescherm hersteltaakcodes en de DETAIL-regel van PostgreSQL in de log.
 
 PostgreSQL zet bij een constraint-schending een DETAIL-regel in de fouttekst: de sleutelwaarde
 ("Key (kolom)=(waarde) already exists.") of de hele rij ("Failing row contains (...)"). ``hide_parameters=True``
@@ -12,6 +12,7 @@ PostgreSQL zet bij een constraint-schending een DETAIL-regel in de fouttekst: de
 - :class:`DbDetailFilter` is het vangnet op de handlers van de app: in bericht en exceptietekst wordt alles vanaf een
   regel die met ``DETAIL:`` begint, en elke regel met ``Failing row contains``, vervangen door een vaste aantekening.
   Bij de cli-commando's zonder eigen logconfiguratie hangt het aan ``logging.lastResort`` (KLEIN-53).
+  Het filter vervangt ook het geheime padsegment van een taakrapport, voordat uvicorn de toegangsregel opmaakt.
 """
 
 from __future__ import annotations
@@ -29,6 +30,9 @@ DETAIL_WEGGELATEN = "[DETAIL weggelaten]"
 # Vanaf het begin van een regel die (na witruimte) met DETAIL: begint, tot het eind van de tekst.
 _DETAIL_TOT_EIND = re.compile(r"^[ \t]*DETAIL:.*\Z", re.MULTILINE | re.DOTALL)
 _FAILING_ROW = re.compile(r"^.*Failing row contains.*$", re.MULTILINE)
+# Het pad achter jobs/ geeft zonder sessie toegang tot het rapport. Ook de query kan de code herhalen.
+_TAAKPAD = re.compile(r"""(/system/restore/jobs/)[^\s"'<>]+""")
+_TAAKVELD = re.compile(r"""(\bjob_id["']?\s*[:=]\s*["']?)[A-Za-z0-9_-]+""")
 
 
 def db_error_text(exc: BaseException) -> str:
@@ -73,31 +77,44 @@ def scrub_detail(tekst: str) -> str:
     return _FAILING_ROW.sub(DETAIL_WEGGELATEN, tekst)
 
 
+def _logtekst(tekst: str) -> str:
+    tekst = _TAAKPAD.sub(r"\g<1>{job_id}", tekst)
+    return scrub_detail(_TAAKVELD.sub(r"\g<1>{job_id}", tekst))
+
+
 _STANDAARD_FORMATTER = logging.Formatter()
 
 
 class DbDetailFilter(logging.Filter):
-    """Logfilter (vangnet): haalt DETAIL van PostgreSQL uit bericht, exceptie- en stacktekst. Laat elk record door."""
+    """Scherm PostgreSQL-details en geheime taakpaden af in toegangsregels, berichten en tracebacks."""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        if record.name == "uvicorn.access" and isinstance(record.args, tuple) and len(record.args) == 5:
+            # AccessFormatter maakt de verzoekregel opnieuw uit deze vijf argumenten.
+            client, method, path, version, status = record.args
+            if isinstance(path, str):
+                record.args = (client, method, _logtekst(path), version, status)
         try:
             bericht = record.getMessage()
-        except Exception:  # een kapot record laten we aan de formatter over
-            bericht = None
-        if bericht is not None:
-            schoon = scrub_detail(bericht)
-            if schoon != bericht:  # alleen dan: de access-log van uvicorn leest record.args zelf
-                record.msg, record.args = schoon, None
+        except Exception:
+            return False  # De formatter zou de ruwe argumenten in zijn eigen foutmelding schrijven.
+        schoon = _logtekst(bericht)
+        if schoon != bericht:
+            record.msg, record.args = schoon, None
+            # De terminalformatter zou anders alsnog het oorspronkelijke kleurbericht gebruiken.
+            record.__dict__.pop("color_message", None)
+        elif isinstance(kleurbericht := getattr(record, "color_message", None), str):
+            record.color_message = _logtekst(kleurbericht)
         if record.exc_info and record.exc_info[0] is not None:
             tekst = record.exc_text or _STANDAARD_FORMATTER.formatException(record.exc_info)
-            schoon = scrub_detail(tekst)
+            schoon = _logtekst(tekst)
             if schoon != tekst:
                 # de geschoonde tekst als cache; zonder exc_info kan geen handler het origineel opnieuw opmaken
                 record.exc_text, record.exc_info = schoon, None
         elif record.exc_text:
-            record.exc_text = scrub_detail(record.exc_text)
+            record.exc_text = _logtekst(record.exc_text)
         if record.stack_info:
-            record.stack_info = scrub_detail(record.stack_info)
+            record.stack_info = _logtekst(record.stack_info)
         return True
 
 

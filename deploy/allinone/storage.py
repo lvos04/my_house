@@ -306,7 +306,7 @@ def prepare_web(run_dir: Path, env: dict[str, str]) -> None:
     template = (ASSETS / "nginx.conf.template").read_text()
     excluded = (
         '"${TUNNEL_IP}:https"', "set_real_ip_from ", "real_ip_header ",
-        "resolver ", "resolver_timeout ",
+        "resolver ", "resolver_timeout ", "access_log /var/log/nginx/access.log ",
     )
     web = "\n".join(line for line in template.splitlines() if not line.lstrip().startswith(excluded))
     web = web.replace("${API_UPSTREAM}", "127.0.0.1:8000")
