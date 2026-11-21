@@ -2,6 +2,7 @@
 
 import gzip
 import json
+import os
 import secrets
 import subprocess
 import sys
@@ -240,6 +241,13 @@ class Trial:
         name = f"{self.prefix}-{label}"
         owner = f"nl.medialeon.herstelproef={name}"
         volume_options = ["--mount", f"type=volume,source={volume},target=/appdata"] if volume else []
+        if volume and os.environ.get("SHC_CI_BROKERPROFIEL") == "1":
+            # Beide paden verwijzen naar dezelfde brokerdatabase, ook bij een lege eerste start.
+            # nocopy voorkomt dat Docker pakketbestanden uit /var/lib aan de proefopslag toevoegt.
+            volume_options.extend([
+                "--mount", f"type=volume,source={volume},target=/var/lib,volume-nocopy",
+                "--tmpfs", "/etc/mosquitto/conf.d:uid=568,gid=568,mode=0700",
+            ])
         overrides = ["--entrypoint", entrypoint[0]] if entrypoint else []
         try:
             created = docker(

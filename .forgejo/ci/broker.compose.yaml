@@ -2,6 +2,6 @@ services:
   mosquitto:
     image: shc-mosquitto:${SHC_VERSION:?}
     volumes: !override
-      - ${SHC_ROOT:?}/mosquitto/config/acl:/mosquitto/config/acl:ro
-      - ${SHC_ROOT:?}/mosquitto/config/passwd:/mosquitto/config/passwd:ro
-      - ${SHC_ROOT:?}/mosquitto/data:/mosquitto/data
+      - ${SHC_ROOT:?}/mosquitto/config/acl:/etc/mosquitto/acl:ro
+      - ${SHC_ROOT:?}/mosquitto/config/passwd:/etc/mosquitto/passwd:ro
+      - ${SHC_ROOT:?}/mosquitto/data:/var/lib/mosquitto
