@@ -8,7 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
+from uuid import uuid4
 
 from deploy.allinone import healthcheck, storage, supervisor, terugval
 
@@ -63,17 +64,24 @@ class ZigbeeTest(unittest.TestCase):
         storage.finish_first_start(data)
 
     def test_offline_start_gebruikt_alleen_postgres_en_de_huidige_voorbereiding(self):
-        for resultaat in (0, 2):
-            with self.subTest(exitcode=resultaat), tempfile.TemporaryDirectory() as directory:
+        receipt = str(uuid4())
+        for resultaat, uitvoer in ((0, receipt), (2, receipt), (0, ""), (0, "ongeldig")):
+            with self.subTest(exitcode=resultaat, uitvoer=uitvoer), tempfile.TemporaryDirectory() as directory:
                 data = Path(directory)
                 self.existing_storage(data)
+
+                def voorbereiding(control, name, args, uitvoer=uitvoer, resultaat=resultaat):
+                    if uitvoer:
+                        print(f"Terugval-ID: {uitvoer}", file=control.fallback_output)
+                    return resultaat
+
                 with (
                     patch.object(supervisor, "DATA", data),
                     patch.object(supervisor, "drop_privileges"),
                     patch.object(supervisor, "transfer_ownership"),
                     patch.object(supervisor.signal, "signal"),
                     patch.object(supervisor.Supervisor, "database") as database,
-                    patch.object(supervisor.Supervisor, "run", return_value=resultaat) as run,
+                    patch.object(supervisor.Supervisor, "run", autospec=True, side_effect=voorbereiding) as run,
                     patch.object(supervisor.Supervisor, "shutdown") as shutdown,
                     patch.object(supervisor.Supervisor, "watch") as watch,
                     patch.object(supervisor, "Zigbee") as zigbee,
@@ -81,13 +89,16 @@ class ZigbeeTest(unittest.TestCase):
                 ):
                     code = terugval.main()
                 database.assert_called_once_with()
-                run.assert_called_once_with("terugval", ["shc-api", "prepare-connector-fallback"])
+                run.assert_called_once_with(ANY, "terugval", ["shc-api", "prepare-connector-fallback"])
                 shutdown.assert_called_once_with()
                 watch.assert_not_called()
                 zigbee.assert_not_called()
-                self.assertEqual(code == 0, resultaat == 0)
-                if resultaat:
+                self.assertEqual(code == 0, resultaat == 0 and uitvoer == receipt)
+                if code:
                     self.assertIn("oude worker blijft uit", log.getvalue())
+                    self.assertNotIn("Terugval-ID:", log.getvalue())
+                else:
+                    self.assertIn(receipt, log.getvalue())
 
     def test_offline_start_weigert_lege_kopie(self):
         with (

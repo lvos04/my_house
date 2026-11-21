@@ -5,18 +5,18 @@ Gebruik **Apps › Discover Apps › Custom App** voor de standaard Custom App. 
 ## Opslag en formulier
 
 1. Kies voor een eerste installatie een lege dataset. Geef in **Storage** deze dataset als schrijfbare opslag door op containerpad `/appdata`. Voor een directe start als gebruiker en groep 568 moet die gebruiker er al kunnen schrijven.
-2. Vul in **Image** de repository en de vaste tag van de alles-in-één-release in. Gebruik bij **Network** TCP-containerpoort 8080. De voorgestelde hostpoort is 8088.
+2. Vul in **Image** de repository en de vaste tag van de alles-in-één-release in. Leg ook de startmodule van deze image vast in het formulier. Vraag de naam één keer op met **Entrypoint** `/opt/venv/bin/python` en de afzonderlijke argumenten `-IBu`, `-m` en `shc_allinone.startpad`. Het proces toont in het logboek één naam die begint met `shc_allinone.start_` en sluit af zonder de opslag te openen. Vervang het laatste argument door die volledige naam. Bij een losse tagwissel blijft het formulier naar dezelfde workersoftware verwijzen. Een historische image die deze module mist kan geen diensten openen. Gebruik bij **Network** TCP-containerpoort 8080. De voorgestelde hostpoort is 8088.
 3. Laat extra capabilities en hostnetwerk uit. De app maakt zelf de hoofdsleutel en de afzonderlijke brokerwachtwoorden. Alleen de webpoort wordt aangeboden.
 4. Met een Zigbee-stick kun je in **Devices** het eigen apparaat aan `/dev/zigbee` koppelen. Kies indien nodig `SHC_ZIGBEE_ADAPTER` uit `ember`, `zstack`, `deconz`, `zigate` of `zboss`. De standaard is `ember`. Gebruiker 568 moet toegang hebben en het Zigbee-proces moet zijn bestands- en procesrechten kunnen begrenzen. Zonder stick kun je dit onderdeel overslaan.
 5. Open de webapp via de gekozen hostpoort. Maak het beheerdersaccount en de woning aan, doorloop **Systeem › Installatiewizard** en stel back-ups in onder **Systeem › Back-ups en bewaren**.
 
 ## Updaten en terugdraaien
 
-Maak vóór de update een volledige, gecontroleerde back-up. Stop de app en maak een snapshot van de gehele dataset, inclusief `secrets` en de Zigbee-map. Kies daarna de nieuwe vaste tag in het formulier. De bewaker controleert de pre-migratiedump voordat hij de transactie met de schemawijzigingen start.
+Maak vóór de update een volledige, gecontroleerde back-up. Stop de app en maak een snapshot van de gehele dataset, inclusief `secrets` en de Zigbee-map. Kies de nieuwe vaste tag in het formulier en leg tegelijk de bijbehorende startmodule uit **Opslag en formulier** vast, ook bij een bestaande installatie. Laat deze configuratie bij een terugval staan en gebruik voor de kloon de afzonderlijke terugvalapp. De bewaker controleert de pre-migratiedump voordat hij de transactie met de schemawijzigingen start.
 
 Bij een ontbrekende sleutel of onherkende indeling stopt de app. Bewaar de dataset en de snapshot. Maak op aparte opslag een schrijfbare kloon van de snapshot. Laat de oude app gestopt. Voer op die kloon met de **huidige** image `shc-api prepare-connector-fallback` uit via het eenmalige startprogramma. De stappen voor het formulier staan onder [Offline terugvalkopie voorbereiden](onderhoud.md#offline-terugvalkopie-voorbereiden).
 
-Kies pas na de eindmelding **Terugvalkopie voorbereid. PostgreSQL is gestopt.** en exitcode 0 de vaste tag die bij de snapshot hoort. Verwijder het eenmalige startprogramma en koppel precies de voorbereide kloon aan de app. Bij een fout of ontbrekende bevestiging blijft de oude worker uit. Controleer aanmelding, woning, koppelingen, beheermeldingen en back-up.
+Kies pas na de eindmelding **Terugvalkopie voorbereid. PostgreSQL is gestopt.** en exitcode 0 de vaste tag die bij de snapshot hoort. Stel vóór het aankoppelen van de kloon het alleen-lezen startbestand, het argument `terugval-app` en `SHC_TERUGVAL_ID` in zoals beschreven in de onderhoudsprocedure. Laat deze instellingen bij iedere start staan. Het startprogramma controleert de vrijgave op de aangekoppelde database voordat de historische diensten starten. Controleer aanmelding, woning, koppelingen, beheermeldingen en back-up.
 
 ## Overstap van een bestaande installatie
 

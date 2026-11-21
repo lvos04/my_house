@@ -1,0 +1,26 @@
+# Alleen voor terugval van de bestaande Compose-installatie op de aparte bronkopie.
+x-terugval: &terugval
+  entrypoint: ["/opt/venv/bin/python", "-IB", "/opt/venv/bin/shc-api", "terugval"]
+  environment:
+    SHC_TERUGVAL_ID: ${SHC_TERUGVAL_ID:?Vul het Terugval-ID uit de voorbereiding van de kopie in}
+  volumes:
+    - type: bind
+      source: ${SHC_TERUGVAL_START:?Kies het absolute pad naar apps/api/src/shc_api/terugval_start.py uit de huidige release}
+      target: /opt/venv/bin/shc-api
+      read_only: true
+      bind:
+        create_host_path: false
+    - type: bind
+      source: ${SHC_ROOT:?Kies de aparte terugvalkopie}/postgres/PG_VERSION
+      target: /run/shc-terugval-pgversie
+      read_only: true
+      bind:
+        create_host_path: false
+
+services:
+  api:
+    <<: *terugval
+    command: ["serve"]
+  worker:
+    <<: *terugval
+    command: ["worker"]

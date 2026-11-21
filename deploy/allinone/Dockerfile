@@ -75,6 +75,9 @@ COPY apps/web/nginx.conf.template apps/web/docker/15-shc-config.sh /opt/shc/
 COPY infra/compose/config/acl infra/compose/config/zigbee2mqtt.yaml.template /opt/shc/
 COPY deploy/allinone/nginx.conf /opt/shc/nginx.conf
 COPY deploy/allinone/*.py /opt/venv/lib/python3.12/site-packages/shc_allinone/
+# Ook twee builds met dezelfde VERSION kunnen verschillende workers bevatten.
+RUN module=$(/opt/venv/bin/python -IB -m shc_allinone.startpad) \
+    && ln -s supervisor.py "/opt/venv/lib/python3.12/site-packages/shc_allinone/${module##*.}.py"
 ENV PATH=/usr/lib/postgresql/16/bin:/opt/venv/bin:$PATH \
     PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 EXPOSE 8080

@@ -220,28 +220,76 @@ async def check_connector_transition(revision: str | None, url: str | None = Non
         await engine.dispose()
 
 
-async def prepare_connector_fallback(url: str) -> None:
-    """Sluit de wachtrij in een offline terugvalkopie zonder haar schema te wijzigen."""
+def _prepare_fallback(conn) -> str:
+    from sqlalchemy import text
+
+    from . import backup
+    from .connector_proof import PROPOSAL_SCOPE
+    from .connector_transition import OPEN_AFTER_SWITCH, cancel_for_version
+    from .migration_source import check_database_fence
+
+    revision = _database_revision(conn)
+    if backup.schema_relation(revision) not in {"same", "older"}:
+        raise MigrationError("De databaserevisie van de terugvalkopie is onbekend.")
+    paused = conn.scalar(text("SELECT value->'v' FROM settings WHERE key='migration_source_pause'"))
+    if paused:
+        check_database_fence(conn)
+    if backup._is_older(revision, "0007"):
+        if conn.scalar(text("""SELECT EXISTS (SELECT FROM commands WHERE source='connector'
+                              AND status IN ('queued','sending','sent'))""")):
+            raise MigrationError("De terugvalkopie mist het connectorherstelbewijs.")
+    elif paused:
+        # De schrijftoegang blijft dicht, ook voor een UPDATE of DELETE die nul rijen raakt.
+        _check_connector_rows(conn, read_only=True)
+        if conn.scalar(text(f"""SELECT ({OPEN_AFTER_SWITCH}) OR
+                       EXISTS (SELECT FROM idempotency_keys k WHERE {PROPOSAL_SCOPE})""")):  # noqa: S608 - vaste SQL
+            raise MigrationError(
+                "De gepauzeerde kopie bevat open connectorwerk. Bewaar de eindexport en beide opslagen. "
+                "Hervat de oorspronkelijke bron na de vervaltijd met de worker gestopt. Maak daarna een "
+                "nieuwe offline kopie en bereid die voor."
+            )
+    else:
+        cancel_for_version(conn)
+    return revision
+
+
+async def prepare_connector_fallback(url: str, *, issue_receipt: bool = False) -> uuid.UUID | None:
+    """Sluit de wachtrij in de offline kopie. De CLI geeft pas na de commit een terugval-ID uit."""
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import create_async_engine
     from sqlalchemy.pool import NullPool
 
-    from . import backup
     from .commissioning import LOCK_SQL
-    from .connector_transition import cancel_for_version
 
     engine = create_async_engine(url, poolclass=NullPool, hide_parameters=True)
+    receipt = uuid.uuid4() if issue_receipt else None
     try:
-        async with engine.begin() as conn:
-            await conn.execute(text(LOCK_SQL))
-            revision = await conn.run_sync(_database_revision)
-            if backup.schema_relation(revision) not in {"same", "older"}:
-                raise MigrationError("De databaserevisie van de terugvalkopie is onbekend.")
-            if not backup._is_older(revision, "0007"):
-                await conn.run_sync(cancel_for_version)
-            elif await conn.scalar(text("""SELECT EXISTS (SELECT FROM commands WHERE source='connector'
-                                          AND status IN ('queued','sending','sent'))""")):
-                raise MigrationError("De terugvalkopie mist het connectorherstelbewijs.")
+        async with engine.connect() as conn:
+            if receipt:
+                # Eén fysieke verbinding serialiseert herhaalde voorbereidingen tot en met de commit.
+                # Een mislukte herkansing mag de eerdere vrijgave niet laten herleven.
+                await conn.execute(text("SELECT pg_advisory_lock(hashtextextended('shc-terugval', 0))"))
+                reset = await conn.scalar(text("""SELECT format('ALTER DATABASE %I RESET shc.terugval', d.datname)
+                    FROM pg_database d JOIN pg_db_role_setting s ON d.oid=s.setdatabase
+                    WHERE d.datname=current_database() AND s.setrole=0 AND EXISTS
+                    (SELECT FROM unnest(s.setconfig) opt WHERE split_part(opt, '=', 1)='shc.terugval')"""))
+                if reset:
+                    await conn.exec_driver_sql(reset)
+                await conn.commit()
+            async with conn.begin():
+                await conn.execute(text(LOCK_SQL))
+                revision = await conn.run_sync(_prepare_fallback)
+                if receipt:
+                    from .terugval_start import KopieOnbekend, opslagidentiteit
+
+                    try:
+                        storage = await opslagidentiteit(conn, voorbereiden=True)
+                    except KopieOnbekend as exc:
+                        raise MigrationError(str(exc)) from exc
+                    grant = await conn.scalar(text("""SELECT format('ALTER DATABASE %I SET shc.terugval = %L',
+                        current_database(), CAST(:proof AS text))"""), {"proof": f"{receipt}:{revision}:{storage}"})
+                    await conn.exec_driver_sql(grant)
+        return receipt
     finally:
         await engine.dispose()
 
@@ -1135,7 +1183,7 @@ def main(argv: list[str] | None = None) -> None:
             print("Stel SHC_DATABASE_URL in voor de offline kopie. De oude worker blijft uit.", file=sys.stderr)
             raise SystemExit(2)
         try:
-            asyncio.run(prepare_connector_fallback(get_settings().database_url))
+            receipt = asyncio.run(prepare_connector_fallback(get_settings().database_url, issue_receipt=True))
         except MigrationError as exc:
             print(f"Voorbereiding geweigerd. {exc} De oude worker blijft uit.", file=sys.stderr)
             raise SystemExit(2) from exc
@@ -1143,6 +1191,7 @@ def main(argv: list[str] | None = None) -> None:
             print("De offline kopie kon niet worden gecontroleerd. De oude worker blijft uit.", file=sys.stderr)
             raise SystemExit(2) from None
         print("De terugvalkopie is gecontroleerd. Ongeclaimde connectoropdrachten zijn geannuleerd.")
+        print(f"Terugval-ID: {receipt}")
         return
     if args.cmd == "verify-migration-dump":
         try:

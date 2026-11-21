@@ -1,8 +1,11 @@
 """De installatieroute en de herkomst van de runtimepakketten."""
 
+import json
 import os
+import subprocess
 import unittest
 from pathlib import Path
+from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -41,6 +44,35 @@ class Installatie(unittest.TestCase):
         installatie = (ROOT / "docs/installatie-truenas.md").read_text().split("## Updaten en terugdraaien\n")[1]
         self.assertLess(installatie.index("shc-api prepare-connector-fallback"), installatie.index("Kies pas na"))
         self.assertIn("exitcode 0 de vaste tag", installatie.split("Kies pas na", 1)[1])
+        for vereist in ("terugval-app", "/opt/venv/bin/shc-api", "SHC_TERUGVAL_ID"):
+            self.assertIn(vereist, procedure)
+
+    def test_bestaande_compose_bindt_het_startbestand_bij_api_en_worker(self):
+        start = ROOT / "apps/api/src/shc_api/terugval_start.py"
+        receipt = str(uuid4())
+        command = ["docker", "compose", "-f", "infra/compose/compose.yaml", "-f", "infra/compose/terugval.yaml",
+                   "config", "--format", "json"]
+        env = dict(os.environ, SHC_ROOT="/proefkopie", SHC_TERUGVAL_START=str(start), SHC_TERUGVAL_ID=receipt)
+        config = subprocess.run(command, cwd=ROOT, env=env, check=True, capture_output=True)  # noqa: S603 - vaste config
+        services = json.loads(config.stdout)["services"]
+        for naam, opdracht in (("api", "serve"), ("worker", "worker")):
+            service = services[naam]
+            self.assertEqual(service["entrypoint"],
+                             ["/opt/venv/bin/python", "-IB", "/opt/venv/bin/shc-api", "terugval"])
+            self.assertEqual(service["command"], [opdracht])
+            self.assertEqual(service["environment"]["SHC_TERUGVAL_ID"], receipt)
+            self.assertIn("SHC_DATABASE_URL", service["environment"])
+            mount, = [v for v in service["volumes"] if v["target"] == "/opt/venv/bin/shc-api"]
+            self.assertEqual(mount["source"], str(start))
+            self.assertTrue(mount["read_only"])
+            self.assertFalse(mount["bind"].get("create_host_path", False))
+            marker, = [v for v in service["volumes"] if v["target"] == "/run/shc-terugval-pgversie"]
+            self.assertEqual(marker["source"], "/proefkopie/postgres/PG_VERSION")
+            self.assertTrue(marker["read_only"])
+        del env["SHC_TERUGVAL_ID"]
+        ontbreekt = subprocess.run(command, cwd=ROOT, env=env, capture_output=True)  # noqa: S603 - vaste config
+        self.assertNotEqual(ontbreekt.returncode, 0)
+        self.assertIn(b"Terugval-ID", ontbreekt.stderr)
 
     def test_formulier_is_de_installatieroute(self):
         for name in ("README.md", "docs/installatie-truenas.md"):

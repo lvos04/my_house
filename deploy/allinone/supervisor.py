@@ -213,11 +213,12 @@ class Zigbee:
 
 
 class Supervisor:
-    def __init__(self, env: dict[str, str]):
+    def __init__(self, env: dict[str, str], *, fallback_output=None):
         self.env = env
         self.children: dict[str, subprocess.Popen] = {}
         self.stopping = False
         self.new_storage = False
+        self.fallback_output = fallback_output
 
     def stop(self, *_args) -> None:
         self.stopping = True
@@ -242,7 +243,8 @@ class Supervisor:
         raise StartFout(f"{label} is niet beschikbaar.")
 
     def start(self, name: str, cmd: list[str]) -> subprocess.Popen:
-        process = subprocess.Popen(cmd, env=self.env, start_new_session=True)  # noqa: S603 - vaste dienstcommando's
+        output = self.fallback_output if name == "terugval" else None
+        process = subprocess.Popen(cmd, env=self.env, stdout=output, start_new_session=True)  # noqa: S603 - vaste dienst
         self.children[name] = process
         return process
 
@@ -375,12 +377,12 @@ def service_env() -> dict[str, str]:
     return env
 
 
-def main(*, offline_fallback: bool = False) -> int:
+def main(*, offline_fallback: bool = False, fallback_output=None) -> int:
     os.umask(0o077)
     root = os.geteuid() == 0
     zigbee = None
     storage_fd = None
-    supervisor = Supervisor(service_env())
+    supervisor = Supervisor(service_env(), fallback_output=fallback_output)
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, supervisor.stop)
     try:

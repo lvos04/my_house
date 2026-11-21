@@ -10,7 +10,7 @@ import textwrap
 import time
 from contextlib import ExitStack
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 PYTHON = ("/opt/venv/bin/python", "-IBu")
 HEALTH = (*PYTHON, "-m", "shc_allinone.healthcheck")
@@ -219,7 +219,8 @@ class Trial:
         self.cleanup.callback(docker, "volume", "rm", volume)
         return volume
 
-    def container(self, label, volume=None, user="0", options=(), entrypoint=(), network="none", *, failing_dump=False):
+    def container(self, label, volume=None, user="0", options=(), entrypoint=(), network="none", *,
+                  failing_dump=False, terugvalstart=False):
         name = f"{self.prefix}-{label}"
         owner = f"nl.medialeon.herstelproef={name}"
         volume_options = ["--mount", f"type=volume,source={volume},target=/appdata"] if volume else []
@@ -248,6 +249,11 @@ class Trial:
             # Alleen deze container krijgt de foutfixture. De proefopslag bevat geen uitvoerbare code.
             fixture = Path(__file__).with_name("pg_dump_fout.sh")
             docker("cp", str(fixture), f"{container_id}:/usr/lib/postgresql/16/bin/pg_dump")
+        if terugvalstart:
+            # De gedeelde CI-daemon kan geen hostpad uit de werkcontainer koppelen. De kopie in
+            # de gestopte proefcontainer is net als de alleen-lezen koppeling buiten bereik van uid 568.
+            start = Path(__file__).resolve().parents[2] / "apps/api/src/shc_api/terugval_start.py"
+            docker("cp", str(start), f"{container_id}:/opt/venv/bin/shc-api")
         docker("start", container_id, timeout=120)
         return name
 
@@ -648,9 +654,29 @@ for name in names:
                               entrypoint=(*PYTHON, "-m", "shc_allinone.terugval"))
         assert docker("wait", name, timeout=90).stdout.strip() == str(expected_code).encode()
         assert message.encode() in self.logs(name)
+        if expected_code == 0:
+            regel, = [s for s in self.logs(name).decode().splitlines() if s.startswith("Terugval-ID: ")]
+            return str(UUID(regel.removeprefix("Terugval-ID: ")))
+
+    def guarded_fallback(self, volume):
+        entry = (*PYTHON, "/opt/venv/bin/shc-api", "terugval-app")
+        missing = self.container("zonder-startbestand", volume, user="568", entrypoint=entry)
+        assert docker("wait", missing).stdout.strip() == b"2"
+        refused = self.container("zonder-vrijgave", volume, user="568", entrypoint=entry, terugvalstart=True,
+                                 options=("--env", f"SHC_TERUGVAL_ID={uuid4()}"))
+        assert docker("wait", refused, timeout=90).stdout.strip() == b"1"
+        assert b"Terugval geweigerd" in self.logs(refused)
+        receipt = self.prepare_fallback("vrijgave-0009", volume, 0, "Terugvalkopie voorbereid. PostgreSQL is gestopt.")
+        accepted = self.container("met-vrijgave", volume, user="568", entrypoint=entry, terugvalstart=True,
+                                  options=("--env", f"SHC_TERUGVAL_ID={receipt}"))
+        self.healthy(accepted)
+        assert self.sql(accepted, RIJEN).count(b"\n") == 3
+        docker("stop", accepted)
 
     def migration(self, volume):
         db = self.db_fixture("voor", volume)
+        module = self.exec(db, *PYTHON, "-m", "shc_allinone.startpad").stdout.decode().strip()
+        assert module.startswith("shc_allinone.start_") and len(bytes.fromhex(module.split("_")[-1])) == 32
         downgrade = """
 from alembic import command
 from shc_api.backup import alembic_config
@@ -676,7 +702,7 @@ command.downgrade(alembic_config(service_env()["SHC_DATABASE_URL"]), "0003")
         assert self.snapshot(db, "shc") == before_dump
         docker("stop", db)
 
-        upgraded = self.container("upgrade", volume)
+        upgraded = self.container("upgrade", volume, entrypoint=(*PYTHON, "-m", module))
         self.healthy(upgraded)
         head = self.sql(upgraded, ZOEK_REVISIE).strip()
         assert head != b"0003"
@@ -692,6 +718,7 @@ command.downgrade(alembic_config(service_env()["SHC_DATABASE_URL"]), "0003")
         print("PostgreSQL 16 via unix-socket: dumpweigering, gevulde upgrade en exact terugzetten bewezen.", flush=True)
 
         docker("stop", upgraded)
+        self.guarded_fallback(volume)
         db = self.db_fixture("toekomst", volume)
         self.sql(db, "UPDATE alembic_version SET version_num = 'proef_toekomst'")
         before_recovery = self.snapshot(db, "shc")

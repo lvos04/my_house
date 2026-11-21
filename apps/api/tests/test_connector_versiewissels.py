@@ -33,6 +33,8 @@ def versies(tmp_path_factory):
     for naam, commit in VERSIES.items():
         # Dezelfde bron in CI en lokaal. Iedere proef gebruikt een eigen PostgreSQL-database.
         args = ["git", "archive", commit, "VERSION", "apps/api", "integrations"]
+        if naam == "direct_vorig":
+            args.append("deploy/allinone")
         with subprocess.Popen(args, cwd=REPO, stdout=subprocess.PIPE) as proc:
             with tarfile.open(fileobj=proc.stdout, mode="r|") as archive:
                 archive.extractall(root / naam, filter="data")

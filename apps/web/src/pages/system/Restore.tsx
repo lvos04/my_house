@@ -226,9 +226,11 @@ function SourcePauseForm() {
         {(exported.data ? exported.data.source_pause.stopped_at : proof.file_id)
           ? 'Definitieve export downloaden' : 'Tussenexport downloaden'}</a></div>}
       <p>{proof.stopped_at === null ? 'Je kunt de bron nu hervatten.' : <>
-        Stop de doelapp voor terugval en laat de oude worker uit. Volg de installatiehandleiding om de offline
+        Bewaar de doelexport en beide opslagen en laat de oude worker uit. Volg de installatiehandleiding om de offline
         bronkopie met de huidige <code>shc-api prepare-connector-fallback</code> voor te bereiden.
-        Hervat de bron op die kopie pas na exitcode 0 en na de vervaltijd.
+        Gebruik het Terugval-ID van die kopie. Stop de doelapp en hervat de bron op die kopie pas na exitcode 0
+        en na de vervaltijd. Bij gewijzigde opslag kun je op de oorspronkelijke opslag hervatten met de worker
+        gestopt. Maak daarna een nieuwe kopie en bereid die voor.
       </>}</p>
       <div><ActionButton className="btn" disabled={resume.isPending} onClick={() => resume.mutate()}>Bron hervatten</ActionButton></div>
     </> : <>

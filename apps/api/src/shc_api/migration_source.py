@@ -65,6 +65,12 @@ def fence_store(proof: dict, *, release: bool = False, restore_on_error: bool = 
             fcntl.flock(fd, fcntl.LOCK_EX)
             info = os.fstat(fd)
             if (info.st_dev, info.st_ino) != (expected["device"], expected["inode"]):
+                if release:
+                    raise bk.BackupError(
+                        "De gekoppelde Zigbee2MQTT-opslag is gewijzigd. Bewaar beide opslagen en de eindexport. "
+                        "Hervat de oorspronkelijke bron met de oorspronkelijke opslag na de vervaltijd, terwijl "
+                        "de worker gestopt is. Maak vervolgens een nieuwe offline terugvalkopie."
+                    )
                 raise bk.BackupError("De gekoppelde Zigbee2MQTT-opslag is gewijzigd.")
             mode = stat.S_IMODE(info.st_mode)
             if release:

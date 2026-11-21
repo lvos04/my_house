@@ -73,7 +73,7 @@ Echte TrueNAS-app start, authenticatie, persistente data na herstart, firewall/p
 ## 4. Terugdraaien / verwijderen
 1. Schakel automatisering en ingest uit. Bewaar audit en logs en stop de nieuwe app.
 2. Zet de passende database of snapshot terug op aparte opslag. Volg [Offline terugvalkopie voorbereiden](../../onderhoud.md#offline-terugvalkopie-voorbereiden). De huidige `shc-api prepare-connector-fallback` moet op die kopie exitcode 0 geven. Bij een fout blijft de oude worker uit.
-3. Start daarna de bijpassende vaste image op de voorbereide kopie. Controleer aanmelding, clients en gegevensintegriteit.
+3. Start de bijpassende vaste image via het alleen-lezen startbestand met `terugval-app` en het Terugval-ID van de kopie. Controleer aanmelding, clients en gegevensintegriteit.
 4. Leg in het incidentrapport vast welke gegevens zijn teruggezet. Voor het verwijderen van gegevens bij uitfasering is afzonderlijke bevestiging nodig.
 
 ## 5. Let op
