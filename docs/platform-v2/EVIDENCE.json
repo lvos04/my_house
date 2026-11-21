@@ -163,7 +163,7 @@
   "id": "C1.3-MH-06",
   "status": "Bezig",
   "validatie": "Sim-getest; NIET GEVALIDEERD (echte NAS); NIET GEVALIDEERD (hardware)",
-  "bewijs": "jl-manifest validate --strict deploy/manifest/my_house.manifest.yaml (appstore-en-fork@5ece4a3). infra/tests/manifestproef.py toetst het manifest en de geweigerde proefkopieën. infra/tests/test_allinone_installatie.py vergelijkt de publicatiepoort, opslag, gereedheidsmonitor en optionele stick met deploy/truenas/CUSTOM_APP.md.",
+  "bewijs": "jl-manifest validate --strict deploy/manifest/my_house.manifest.yaml (appstore-en-fork@5ece4a3). infra/tests/manifestproef.py toetst het manifest en de geweigerde proefkopieën. infra/tests/test_allinone_installatie.py vergelijkt de webpoort, opslag, gereedheidsmonitor en optionele stick met deploy/truenas/CUSTOM_APP.md. Bouwcommit d542003: de Forgejo-job compose draaide de zes manifestproeven en de infratests met uitkomst success (https://git.medialeon.nl/leon/my_house/actions/runs/71).",
   "blokkade": "BLOK-06: de alles-in-één-release met registerdigest ontbreekt. NIET GEVALIDEERD (echte NAS): formulier, digestteruglezing, installatie en terugval (D01, N-P6-06). NIET GEVALIDEERD (hardware): apparaatdoorgifte, rechten voor 568 en werking van de echte stick (D13).",
   "opmerking": "Alleen met de validator en lokale configuratie getest. De Zigbee-stick is optioneel volgens Z-17. De standaard kent alleen vaste hostapparaten. Het manifest laat de apparatenlijst leeg en de gebruiker kiest de eigen stick in het formulier (Z-21 open). De validator weigert parameter HUB_URL als invalid_format. Parameter hub_url en omgevingsvariabele HUB_URL geven reserved_env.",
   "repo": "my_house",
