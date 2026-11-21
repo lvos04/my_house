@@ -788,6 +788,7 @@ export interface Tariff {
   valid_from: string; // YYYY-MM-DD
   import_per_kwh: number;
   export_per_kwh: number;
+  export_price_known?: boolean;
   fixed_per_day: number;
   import_t1_per_kwh: number | null;
   import_t2_per_kwh: number | null;

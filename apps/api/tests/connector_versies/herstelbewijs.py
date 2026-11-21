@@ -6,7 +6,7 @@ import subprocess
 import uuid
 
 import pytest
-from versie import andere_versie
+from versie import EINDSCHEMA, andere_versie
 
 from shc_api import backup as bk
 from shc_api import cli
@@ -179,7 +179,7 @@ async def test_terug_naar_vorige_worker_met_open_rollback(proef, tmp_path):
         assert (await sql(url, claim, ident))[0][:2] == ("cancelled", 0)
         assert proef.unit.state["SetTem"] == 22 and len(proef.unit.commands) == 1
         nieuw = await andere_versie({"actie": "migreer", "map": str(tmp_path)})
-        assert not nieuw["geweigerd"] and nieuw["schema"] == "0009"
+        assert not nieuw["geweigerd"] and nieuw["schema"] == EINDSCHEMA
     await proef.work()
     na = await proef.evidence(herstel_id)
     assert na["rollback_command_id"] == herstel_id and na["rollback_reason_code"] == "versiewissel"
@@ -264,7 +264,7 @@ async def test_oude_0007_leest_bewaard_bewijs_na_schemawissel(proef, tmp_path):
                                  {"key": "connector_history:" + voorstel["proposal_id"]}) == bewaard
                 await sql(kopie, "UPDATE commands SET status='confirmed' WHERE id=:id", herstel_id)
             nieuw = await andere_versie(opdracht, url=kopie)
-            assert not nieuw["geweigerd"] and nieuw["schema"] == "0009"
+            assert not nieuw["geweigerd"] and nieuw["schema"] == EINDSCHEMA
             assert await sql(kopie, rij, ident) == voor
             assert await sql(kopie, "SELECT count(*) FROM commands WHERE source='connector' AND status='confirmed'") == [(2,)]
             assert await sql(kopie, "SELECT count(*) FROM idempotency_keys WHERE key=:id", ident) == [(0,)]

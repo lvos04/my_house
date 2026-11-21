@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
-from versie import andere_versie
+from versie import EINDSCHEMA, andere_versie
 
 from shc_api import backup, cli
 from shc_api.config import get_settings
@@ -76,8 +76,8 @@ async def import_en_herstart(pad, url, voorstel):
 async def test_versiewissel_met_logische_export(proef, tmp_path, monkeypatch):
     bron = get_settings().database_url
     schema = cli.current_revision(bron)
-    assert schema in {"0008", "0009"}
-    if schema == "0009":
+    assert schema in {"0008", EINDSCHEMA}
+    if schema == EINDSCHEMA:
         from shc_api import connector_changes, connector_transition
         ander = connector_changes.LOCAL_PROPOSAL + "-andere-versie"
         monkeypatch.setattr(backup, "VERSION", backup.VERSION + "+andere-versie")
@@ -95,7 +95,7 @@ async def test_versiewissel_met_logische_export(proef, tmp_path, monkeypatch):
     try:
         async with engine.connect() as conn:
             manifest = await backup.write_backup(conn, pad, PW, include_secrets=True)
-            if schema == "0009":
+            if schema == EINDSCHEMA:
                 assert manifest["app_version"].endswith("+andere-versie")
     finally:
         await engine.dispose()
@@ -104,7 +104,7 @@ async def test_versiewissel_met_logische_export(proef, tmp_path, monkeypatch):
     assert archiefbewijs(pad, plan["proposal_id"], archief.manifest["format_version"]) == verwacht
 
     async with temp_db(None) as doel:
-        assert (await andere_versie({"actie": "migreer", "map": str(tmp_path / "doel")}, url=doel))["schema"] == "0009"
+        assert (await andere_versie({"actie": "migreer", "map": str(tmp_path / "doel")}, url=doel))["schema"] == EINDSCHEMA
         await sql(doel, "INSERT INTO settings(key,value) VALUES ('proef_logische_meting','true')")
         resultaat = await andere_versie({"actie": "meet_logische_export", "pad": str(pad), "voorstel": plan["proposal_id"]},
                                         url=doel)
@@ -122,11 +122,11 @@ async def test_versiewissel_met_logische_export(proef, tmp_path, monkeypatch):
     assert hashlib.sha256(pad.read_bytes()).digest() == sha
     assert len(proef.unit.commands) == 1 and proef.unit.state["SetTem"] == 22
     assert status == "cancelled" and claims == 0 and not recht
-    print(f"LOGISCHE_EXPORT {schema}->0009 geweigerd={geweigerd} SQL_NULL={sqlnull} json_type={jsontype} "
+    print(f"LOGISCHE_EXPORT {schema}->{EINDSCHEMA} geweigerd={geweigerd} SQL_NULL={sqlnull} json_type={jsontype} "
           f"reden={reden} melding={melding} claims={claims} extra_verzendingen=0")
     if geweigerd and not sqlnull and jsontype == "null":
-        raise SqlNullGewijzigd(f"{schema}->0009: {geweigerd} geweigerd na omzetting van SQL NULL naar JSON null")
+        raise SqlNullGewijzigd(f"{schema}->{EINDSCHEMA}: {geweigerd} geweigerd na omzetting van SQL NULL naar JSON null")
     assert geweigerd is None and sqlnull and jsontype is None
-    if schema == "0009" and reden == RESTORED_COMMAND_DETAIL and not melding:
+    if schema == EINDSCHEMA and reden == RESTORED_COMMAND_DETAIL and not melding:
         pytest.xfail("R-HARDE-EIS-16 na S-P3-730: reden versiewissel en beheermelding ontbreken op gelijk schema")
     assert reden == "versiewissel" and melding

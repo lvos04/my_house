@@ -5,7 +5,7 @@ import { EnergyPage } from '../pages/Energy';
 import { applyWsMessage } from '../ws';
 import { qk } from '../api/keys';
 import type { EnergySummary, LivePower, Tariff } from '../api/types';
-import { EMPTY_FORM, tariffErrors, tariffPayload } from '../energy/Tariffs';
+import { EMPTY_FORM, formFromTariff, tariffErrors, tariffPayload } from '../energy/Tariffs';
 import { canGoNext, periodLastDay, periodStart, periodTitle, shiftPeriod, todayIn } from '../energy/period';
 import { exportProblem } from '../energy/Export';
 import { bucketState } from '../energy/EnergyChart';
@@ -53,6 +53,14 @@ afterEach(() => {
 });
 
 describe('tariff form model (item 7, 35)', () => {
+  it('behoudt een expliciete nul bij het wijzigen van een ander tariefveld', () => {
+    const t: Tariff = { id: 't1', valid_from: '2026-04-08', import_per_kwh: 0.25, export_per_kwh: 0,
+      fixed_per_day: 0, import_t1_per_kwh: null, import_t2_per_kwh: null, gas_per_m3: null, source: 'handmatig' };
+    expect(tariffPayload(formFromTariff({ ...t, export_price_known: true })).export_per_kwh).toBe(0);
+    expect(tariffPayload(formFromTariff({ ...t, export_price_known: false }))).not.toHaveProperty('export_per_kwh');
+    expect(tariffPayload(formFromTariff(t))).not.toHaveProperty('export_per_kwh');
+  });
+
   it('leaves out empty optional fields and accepts decimal commas', () => {
     expect(tariffPayload({ ...EMPTY_FORM, valid_from: '2026-01-01', import_per_kwh: '0,25' })).toEqual({ valid_from: '2026-01-01', import_per_kwh: 0.25 });
     expect(

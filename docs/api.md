@@ -521,7 +521,12 @@ Tariff = {id, valid_from: date, import_per_kwh, export_per_kwh, fixed_per_day,
 `TariffIn = {valid_from, import_per_kwh (0–5), export_per_kwh? (−1–5), fixed_per_day? (0–50),
 import_t1_per_kwh?, import_t2_per_kwh?, gas_per_m3? (0–20)}`. Lege optionele velden mogen; een komma
 als decimaalteken ook. T1 en T2 vul je samen in of allebei niet. Een tarief geldt vanaf `valid_from`
-tot het volgende; bij T1/T2-prijzen gebruikt de app de gemeten verdeling over normaal en dal.
+tot het volgende. Bij T1/T2-prijzen gebruikt de app de gemeten verdeling over normaal en dal.
+
+Een ontbrekende of lege `export_per_kwh` geeft een onbekende vergoeding. Een ingevulde nul geeft een
+vergoeding van nul. De tarieflijst geeft dat onderscheid door met het optionele veld `export_price_known`.
+Bij een onbekende vergoeding ontvangt de Hub `null`. Voor bestaande web- en telefoonclients houdt het
+numerieke veld zijn standaardwaarde. Historische nullen zonder bewijs van invoer blijven onbekend.
 
 **Rollen.** `grid` (P1, huis totaal), `grid_export` (teruglevering van de P1), `airco` (kWh-meter van
 beide units samen), `boiler` (Energy Socket, alleen meten) en `rest` (= `grid` − `airco` − `boiler`).
@@ -553,9 +558,14 @@ het verbruik dat onder een tarief valt; ligt dat onder 100 %, dan zegt `cost_not
 opgeslagen metingen, maximaal 31 dagen per keer (anders 422 `range_too_large`). Zonder `from`/`to`: de
 laatste 30 dagen tot vandaag. Elke regel valt in de periode waarin die meter aan zijn rol gekoppeld
 was. CSV: puntkomma als scheidingsteken, komma als decimaalteken (opent zo in Excel), kolommen
-`tijd_utc;tijd_lokaal;rol;apparaat;meting;waarde;eenheid;kwaliteit;opmerking`. JSON:
-`{"schema":"shc.energy.v2", home, timezone, resolution, from, to, rows: [{at, role, device, metric, value, unit, quality, notes?}]}`.
-Een ontbrekende waarde is een lege cel of `null`.
+`tijd_utc;tijd_lokaal;rol;apparaat;meting;waarde;eenheid;kwaliteit;opmerking`. Met `include_metadata=true` komen
+`meter_id` en `reset_overgeslagen` achter deze CSV-kolommen. JSON:
+`{"schema":"shc.energy.v2", home, timezone, resolution, from, to, rows: [{at, role, device, meter_id?, metric, value, unit, quality, reset_skipped?, notes?}]}`.
+Een ontbrekende waarde is een lege cel of `null`. De meter-ID blijft gelijk bij een naamswijziging.
+Een uur- of dagwaarde krijgt alleen `measured` als alle bijdragende punten gemeten zijn en het
+tijdvak volledig is. Een geschat punt geeft ten hoogste `estimated`. Onbekende bronkwaliteit of
+een overgeslagen resetinterval geeft `missing` met een lege waarde. Dit geldt ook voor oude
+archiefuren waarvan de puntkwaliteit niet is vastgelegd.
 
 ## Apparaten en integraties
 

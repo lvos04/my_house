@@ -19,6 +19,8 @@ from shc_api.models import Alert, AuditLog, Device, DeviceBinding, EnergyHourly,
 from shc_api.store import ingest_reading, raise_alert, resolve_alert
 from shc_api.worker.aggregates import AggregatesMixin
 
+from .test_hub_alleen_lezen import koppel as koppel
+
 AMS = ZoneInfo("Europe/Amsterdam")
 
 
@@ -586,3 +588,175 @@ async def test_energy_limits_setting(admin):
     assert r.status_code == 200 and r.json()["airco"] == 3.5 and r.json()["grid"] == 17.25
     assert (await admin.put("/energy/limits", {"airco": 0})).status_code == 422
     assert (await admin.put("/energy/limits", {"airco": None})).json()["airco"] == e.ROLE_MAX_KW["airco"]
+
+
+async def hour_export(admin, hid, day):
+    result = await admin.get(
+        f"/homes/{hid}/energy/export",
+        params={"from": day, "to": day, "resolution": "hour", "format": "json"},
+    )
+    assert result.status_code == 200
+    return [row for row in result.json()["rows"] if row["metric"] == "energy_import_kwh"]
+
+
+@pytest.mark.parametrize("quality, expected, all_points", [
+    ("estimated", "estimated", True), ("estimated", "estimated", False), ("unknown", "missing", False),
+])
+async def test_kwaliteit_van_grenspunt_in_beide_uren(admin, quality, expected, all_points):
+    hid = await new_home(admin)
+    meter = await add_meter(hid, "p1_meter", "Testmeter", "grid")
+    start = datetime(2026, 4, 7, 22, tzinfo=UTC)
+    points = series(start, 97, 15, 100.0, 0.25)
+    if all_points:
+        await put_readings(meter, "energy_import_kwh", points, quality=quality)
+    else:
+        await put_readings(meter, "energy_import_kwh", points[:4] + points[5:])
+        await put_readings(meter, "energy_import_kwh", points[4:5], quality=quality)
+    for archived in (False, True):
+        if archived:
+            await W()._aggregate_chunk(meter, "energy_import_kwh", 17.25, start, start + timedelta(days=1))
+        rows = await hour_export(admin, hid, "2026-04-08")
+        labels = [expected] * 24 if all_points else [expected] * 2 + ["measured"] * 22
+        assert [r["quality"] for r in rows] == labels
+        assert [r["value"] for r in rows[:2]] == ([1.0, 1.0] if expected == "estimated" else [None, None])
+
+
+async def test_overgeslagen_reset_blijft_in_archief_en_export(admin):
+    hid = await new_home(admin)
+    meter = await add_meter(hid, "p1_meter", "Testmeter", "grid")
+    start = datetime(2026, 4, 7, 22, tzinfo=UTC)
+    points = series(start, 49, 15, 100, 0.25) + series(start + timedelta(minutes=735), 48, 15, 40, 0.25)
+    await put_readings(meter, "energy_import_kwh", points)
+    for archived in (False, True):
+        if archived:
+            await W()._aggregate_chunk(meter, "energy_import_kwh", 17.25, start, start + timedelta(days=1))
+            async with sessionmaker()() as db:
+                hour = await db.get(EnergyHourly, (meter, "energy_import_kwh", start + timedelta(hours=12)))
+                assert "reset_skipped" in hour.flags
+        rows = await hour_export(admin, hid, "2026-04-08")
+        assert len(rows) == 24 and rows[11]["quality"] == rows[13]["quality"] == "measured"
+        assert rows[12]["quality"] == "missing" and rows[12]["value"] is None
+        assert rows[12]["reset_skipped"] and e.NOTE_RESET_SKIPPED in rows[12]["notes"]
+        csv_export = await admin.get(
+            f"/homes/{hid}/energy/export", params={"from": "2026-04-08", "to": "2026-04-08", "include_metadata": True}
+        )
+        csv_rows = list(csv.DictReader(io.StringIO(csv_export.text), delimiter=";"))
+        assert csv_rows[12]["meter_id"] == str(meter) and csv_rows[12]["reset_overgeslagen"] == "True"
+        assert csv_rows[12]["waarde"] == "" and csv_rows[12]["kwaliteit"] == "missing"
+
+
+async def test_vergoeding_afwezig_null_en_expliciet_nul(admin, koppel):
+    client, pair = koppel
+    headers, _ = await pair(client)
+    hid = await new_home(admin)
+    url = f"/homes/{hid}/tariffs"
+    body = {"valid_from": "2026-04-08", "import_per_kwh": 0.25}
+    first = (await admin.post(url, json=body)).json()
+    for data, known in (({}, False), ({"export_per_kwh": None}, False), ({"export_per_kwh": 0}, True), ({}, False)):
+        reply = await admin.put(f"/tariffs/{first['id']}", {**body, **data})
+        assert reply.status_code == 200
+        (tariff,) = (await admin.get(url)).json()
+        assert tariff["export_per_kwh"] == 0 and tariff["export_price_known"] is known
+        response = await client.get("/api/v1" + url, headers=headers)
+        assert response.status_code == 200
+        (published,) = response.json()
+        assert published["export_price_known"] is known
+        assert published["export_per_kwh"] == (0 if known else None)
+
+
+@pytest.mark.parametrize("switch", [48, 50])
+async def test_export_gebruikt_bron_id_bij_gelijknamige_meterwissel(admin, switch):
+    hid = await new_home(admin)
+    start = datetime(2026, 4, 7, 22, tzinfo=UTC)
+    change = start + timedelta(minutes=15 * switch)
+    old = await add_meter(hid, "p1_meter", "Testmeter", "grid", since=start)
+    new = await add_meter(hid, "p1_meter", "Testmeter", "grid", since=change)
+    async with sessionmaker()() as db:
+        binding = await db.scalar(select(DeviceBinding).where(DeviceBinding.device_id == old))
+        binding.effective_to = change
+        await db.commit()
+    for meter in (old, new):
+        await put_readings(meter, "energy_import_kwh", series(start, 97, 15, 100, 0.25))
+    for archived in (False, True):
+        if archived:
+            for meter in (old, new):
+                await W()._aggregate_chunk(meter, "energy_import_kwh", 17.25, start, start + timedelta(days=1))
+        rows = await hour_export(admin, hid, "2026-04-08")
+        assert {r["meter_id"] for r in rows} == {str(old), str(new)}
+        assert {r["device"] for r in rows} == {"Testmeter"}
+        at_change = [r for r in rows if datetime.fromisoformat(r["at"]) == start + timedelta(hours=12)]
+        if switch == 50:
+            assert [r["value"] for r in at_change] == [0.5, 0.5]
+            assert all(r["quality"] == "estimated" and e.NOTE_GAP in r["notes"] for r in at_change)
+        else:
+            assert len(at_change) == 1 and at_change[0]["meter_id"] == str(new) and at_change[0]["value"] == 1
+
+
+async def test_oud_uurarchief_zonder_bronkwaliteit_blijft_onbekend(admin):
+    hid = await new_home(admin)
+    start = datetime(2026, 4, 7, 22, tzinfo=UTC)
+    meter = await add_meter(hid, "p1_meter", "Testmeter", "grid", since=start)
+    async with sessionmaker()() as db:
+        await db.execute(insert(EnergyHourly), [
+            {"device_id": meter, "metric": "energy_import_kwh", "hour_start": start, "kwh": 0.75, "flags": ["reset"]}
+        ])
+        await db.commit()
+    first = (await hour_export(admin, hid, "2026-04-08"))[0]
+    assert first["quality"] == "missing" and first["value"] is None and e.NOTE_RESET in first["notes"]
+
+
+async def test_migratie_bewaart_oude_tarieven_en_bronbewijs_bij_terugval():
+    import asyncio
+
+    import asyncpg
+    from alembic import command
+
+    from shc_api import backup
+
+    from .test_ws_backup_format import temp_db
+
+    async with temp_db("0009") as url:
+        cfg = backup.alembic_config(url)
+        db = await asyncpg.connect(url.replace("+asyncpg", ""))
+        try:
+            hid = uuid.uuid4()
+            await db.execute(
+                "INSERT INTO homes(id,name,timezone,currency,active_from) VALUES($1,'Testwoning','UTC','EUR',now())", hid
+            )
+            await db.executemany(
+                "INSERT INTO tariffs(id,home_id,valid_from,import_per_kwh,export_per_kwh,source) "
+                "VALUES($1,$2,$3,0.25,$4,'handmatig')",
+                [(uuid.uuid4(), hid, date(2026, 4, i), prijs) for i, prijs in ((1, 0), (2, 0.05))],
+            )
+            await asyncio.to_thread(command.upgrade, cfg, "0010")
+            old = await db.fetch("SELECT export_per_kwh, export_price_known FROM tariffs ORDER BY valid_from")
+            assert [(float(r[0]), r[1]) for r in old] == [(0, None), (0.05, None)]
+            await db.execute("UPDATE tariffs SET export_price_known=true")
+            zero_id = str(await db.fetchval("SELECT id FROM tariffs WHERE export_per_kwh=0"))
+            extras = {"v": {zero_id: {"gas_per_m3": 1.25}}}
+            await db.execute("INSERT INTO settings(key,value) VALUES('tariff_extras',$1)", json.dumps(extras))
+            meter = uuid.uuid4()
+            await db.execute(
+                "INSERT INTO devices (id,home_id,provider,kind,name,stable_identity,online,capabilities,compatibility,"
+                "lifecycle,state,discovered_at) VALUES($1,$2,'test','p1_meter','Testmeter','test',false,'[]',"
+                "'untested','active','{}',now())", meter, hid
+            )
+            await db.execute(
+                "INSERT INTO energy_hourly(device_id,metric,hour_start,kwh,point_quality,flags) "
+                "VALUES($1,'energy_import_kwh',now(),0.75,'estimated','[]')", meter
+            )
+            for _ in range(2):
+                await asyncio.to_thread(command.downgrade, cfg, "0009")
+                assert await db.fetchval("SELECT flags ? 'incomplete' FROM energy_hourly")
+                await asyncio.to_thread(command.upgrade, cfg, "0010")
+                assert await db.fetchval("SELECT bool_and(export_price_known) FROM tariffs") is True
+                assert await db.fetchval("SELECT point_quality='estimated' AND flags='[]' FROM energy_hourly")
+                assert json.loads(await db.fetchval("SELECT value FROM settings WHERE key='tariff_extras'")) == extras
+            await asyncio.to_thread(command.downgrade, cfg, "0009")
+            # De oude tariefroute vervangt bij bewerken de extra's voor de betreffende rij.
+            await db.execute("UPDATE settings SET value=$1 WHERE key='tariff_extras'", json.dumps(extras))
+            await asyncio.to_thread(command.upgrade, cfg, "0010")
+            assert await db.fetchval("SELECT export_price_known FROM tariffs WHERE export_per_kwh=0") is None
+            assert await db.fetchval("SELECT version_num FROM alembic_version") == "0010"
+        finally:
+            await db.close()

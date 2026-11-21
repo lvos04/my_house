@@ -23,6 +23,8 @@ from shc_api.models import Integration
 from shc_api.worker import Worker
 from shc_api.worker.core import wait_while_schema_newer
 
+EINDSCHEMA = "0010"
+
 
 async def andere_versie(invoer, versie=None, url=None):
     bron = Path(os.environ["PROEF_VERSIES"]) / versie if versie else Path(os.environ["PROEF_EINDVERSIE"])

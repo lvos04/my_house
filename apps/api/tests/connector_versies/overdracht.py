@@ -7,7 +7,7 @@ import uuid
 import pytest
 from alembic import command
 from herstelbewijs import route
-from versie import andere_versie
+from versie import EINDSCHEMA, andere_versie
 
 from shc_api import backup, cli
 from shc_api.config import get_settings
@@ -47,7 +47,7 @@ async def controleer_groepswissel(proef, tmp_path, oud):
     na = (await sql(url, unit, ident))[0]
     assert voor[0] == na[0] == proef.device_id and na[1] > voor[1]
     start = await andere_versie({"actie": "migreer", "map": str(tmp_path)})
-    assert start["schema"] == "0009" and not start["geweigerd"]
+    assert start["schema"] == EINDSCHEMA and not start["geweigerd"]
     assert await sql(url, "SELECT before FROM connector_changes WHERE id=:id",
                      {"id": uuid.UUID(oud["proposal_id"])}) == [(oud["before"],)]
     oud_verzoek = proef.request(preview=oud)
@@ -151,7 +151,7 @@ async def test_versiewissel_annuleert_ook_op_terugvalkopie(proef, tmp_path, arch
     if archiefsoort != "automatisch":
         archief = await asyncio.to_thread(cli.pre_migration_dump, url, "0008", tmp_path / "handmatig")
     start = {"actie": "migreer", "map": str(tmp_path)}
-    assert (await andere_versie(start)) == {"schema": "0009", "geweigerd": False, "archief": True}
+    assert (await andere_versie(start)) == {"schema": EINDSCHEMA, "geweigerd": False, "archief": True}
     assert not (await andere_versie(start))["archief"]
     if archiefsoort == "automatisch":
         archief, = tmp_path.glob("*.sql.gz")

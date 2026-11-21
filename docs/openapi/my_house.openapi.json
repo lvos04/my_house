@@ -2174,7 +2174,6 @@
                 "type": "null"
               }
             ],
-            "default": 0,
             "title": "Export Per Kwh"
           },
           "fixed_per_day": {
@@ -5579,6 +5578,18 @@
               ],
               "title": "Resolution",
               "type": "string"
+            }
+          },
+          {
+            "description": "Voeg de meter-ID en het kenmerk voor overgeslagen resets toe aan CSV.",
+            "in": "query",
+            "name": "include_metadata",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Voeg de meter-ID en het kenmerk voor overgeslagen resets toe aan CSV.",
+              "title": "Include Metadata",
+              "type": "boolean"
             }
           }
         ],

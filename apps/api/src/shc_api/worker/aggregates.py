@@ -195,6 +195,7 @@ class AggregatesMixin:
                         "last_value": r.last_value,
                         "samples": r.samples,
                         "flags": r.flags,
+                        "point_quality": r.point_quality,
                         "updated_at": now,
                     }
                     for r in rows
@@ -205,7 +206,9 @@ class AggregatesMixin:
                         index_elements=["device_id", "metric", "hour_start"],
                         set_={
                             c: stmt.excluded[c]
-                            for c in ("kwh", "first_value", "last_value", "samples", "flags", "updated_at")
+                            for c in (
+                                "kwh", "first_value", "last_value", "samples", "flags", "point_quality", "updated_at"
+                            )
                         },
                     )
                     await db.execute(stmt)

@@ -51,15 +51,17 @@ async def live(home_id: uuid.UUID, db: DB, p: Auth) -> dict | None:
 # --- tariffs -------------------------------------------------------------------------------
 
 
-def tariff_view(t: Tariff, extras: dict | None = None) -> dict:
+def tariff_view(t: Tariff, extras: dict | None = None, *, legacy_zero: bool = False) -> dict:
     def f(v):
         return None if v is None else float(v)
 
+    price = t.known_export_price
     return {
         "id": t.id,
         "valid_from": t.valid_from,
         "import_per_kwh": float(t.import_per_kwh),
-        "export_per_kwh": float(t.export_per_kwh or 0),
+        "export_per_kwh": 0.0 if legacy_zero and price is None else price,
+        "export_price_known": price is not None,
         "fixed_per_day": float(t.fixed_per_day or 0),
         "import_t1_per_kwh": f(t.import_t1_per_kwh),
         "import_t2_per_kwh": f(t.import_t2_per_kwh),
@@ -75,7 +77,9 @@ async def tariffs(home_id: uuid.UUID, db: DB, p: Auth) -> list[dict]:
     rows = (
         await db.execute(select(Tariff).where(Tariff.home_id == home_id).order_by(Tariff.valid_from.desc()))
     ).scalars()
-    return [tariff_view(t, extras) for t in rows]
+    # Bestaande web- en telefoonclients verwachten een getal. Ook een oudere
+    # Hub moet een ontbrekende vergoeding als onbekend kunnen lezen.
+    return [tariff_view(t, extras, legacy_zero=p.client_purpose != "hub") for t in rows]
 
 
 def _range(v: float | None, lo: float, hi: float, what: str) -> float | None:
@@ -91,7 +95,7 @@ class TariffIn(BaseModel):
 
     valid_from: date
     import_per_kwh: float
-    export_per_kwh: float | None = 0
+    export_per_kwh: float | None = None
     fixed_per_day: float | None = 0  # empty = no fixed costs (verbeterlijst 7)
     import_t1_per_kwh: float | None = None
     import_t2_per_kwh: float | None = None
@@ -114,7 +118,7 @@ class TariffIn(BaseModel):
     @model_validator(mode="after")
     def _check(self) -> TariffIn:
         _range(self.import_per_kwh, 0, 5, "Stroomprijs")
-        self.export_per_kwh = _range(self.export_per_kwh, -1, 5, "Terugleververgoeding") or 0.0
+        _range(self.export_per_kwh, -1, 5, "Terugleververgoeding")
         self.fixed_per_day = _range(self.fixed_per_day, 0, 50, "Vaste kosten per dag") or 0.0
         _range(self.import_t1_per_kwh, 0, 5, "Prijs normaal tarief (T1)")
         _range(self.import_t2_per_kwh, 0, 5, "Prijs dal tarief (T2)")
@@ -159,7 +163,7 @@ async def add_tariff(home_id: uuid.UUID, body: TariffIn, db: DB, p: Admin) -> di
     await _set_gas(db, t.id, body.gas_per_m3)
     await audit(db, p.actor, "tariff_added", str(body.valid_from), **_audit_detail(body))
     await db.commit()
-    return tariff_view(t, await tariff_extras(db))
+    return tariff_view(t, await tariff_extras(db), legacy_zero=True)
 
 
 def _audit_detail(body: TariffIn) -> dict:
@@ -186,7 +190,7 @@ async def update_tariff(tariff_id: uuid.UUID, body: TariffIn, db: DB, p: Admin) 
         after=_audit_detail(body),
     )
     await db.commit()
-    return tariff_view(t, await tariff_extras(db))
+    return tariff_view(t, await tariff_extras(db), legacy_zero=True)
 
 
 @router.delete("/tariffs/{tariff_id}", status_code=204)
@@ -271,6 +275,9 @@ async def export(
     from_: date | None = Query(None, alias="from"),
     to: date | None = None,
     resolution: Literal["hour", "day", "raw"] = "hour",
+    include_metadata: bool = Query(
+        False, description="Voeg de meter-ID en het kenmerk voor overgeslagen resets toe aan CSV."
+    ),
 ):
     """Streamed export. Default: hourly totals per meter (from the aggregates); `day` for daily
     totals; `raw` for the stored readings, at most 31 days at a time. Rows only cover the period
@@ -319,7 +326,7 @@ async def export(
     async def csv_body():
         out = io.StringIO()
         w = csv.writer(out, delimiter=";")
-        w.writerow(CSV_HEADER)
+        w.writerow(CSV_HEADER + (["meter_id", "reset_overgeslagen"] if include_metadata else []))
         async with sessionmaker()() as s:
             h = await s.get(Home, home_id)
             async for r in export_rows(s, h, start, end, resolution):
@@ -335,7 +342,7 @@ async def export(
                         r["unit"] or "",
                         r["quality"] or "",
                         r.get("notes") or "",
-                    ]
+                    ] + ([r["meter_id"], r.get("reset_skipped")] if include_metadata else [])
                 )
                 if out.tell() >= EXPORT_FLUSH_BYTES:
                     yield out.getvalue()

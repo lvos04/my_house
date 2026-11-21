@@ -42,9 +42,12 @@ _AGG_GROUPED = text(
            bool_or(flags @> '["incomplete"]'::jsonb) AS incomplete,
            bool_or(flags @> '["gap"]'::jsonb) AS gap,
            bool_or(flags @> '["suspect"]'::jsonb) AS suspect,
-           bool_or(flags @> '["reset"]'::jsonb) AS reset
+           bool_or(flags @> '["reset"]'::jsonb) AS reset,
+           bool_or(flags @> '["reset_skipped"]'::jsonb) AS reset_skipped,
+           bool_or(point_quality = 'estimated') AS estimated,
+           bool_or(point_quality IS NULL OR point_quality NOT IN ('measured', 'estimated')) AS unknown
     FROM (
-        SELECT hour_start, kwh, flags,
+        SELECT hour_start, kwh, flags, point_quality,
                (GREATEST(0, EXTRACT(EPOCH FROM (LEAST(hour_start + interval '1 hour', :hi)
                                                - GREATEST(hour_start, :lo)))) / 3600.0)::float8 AS frac
         FROM energy_hourly
@@ -130,7 +133,7 @@ async def raw_points(
 ) -> list[en.CounterPoint]:
     """Readings in [lo, hi) plus the last one before and the first few after, so usage across the
     edges of the period (also after a long outage) is not lost (verbeterlijst: rand van een dag)."""
-    base = select(SensorReading.observed_at, SensorReading.value).where(
+    base = select(SensorReading.observed_at, SensorReading.value, SensorReading.quality).where(
         SensorReading.device_id == device_id, SensorReading.metric == metric, SensorReading.value.is_not(None)
     )
     before = (
@@ -150,7 +153,7 @@ async def raw_points(
             .limit(en.CONFIRM_READINGS + 1)
         )
     ).all()
-    return [en.CounterPoint(r.observed_at, r.value) for r in (*before, *inside, *after)]
+    return [en.CounterPoint(r.observed_at, r.value, r.quality) for r in (*before, *inside, *after)]
 
 
 def _clean_and_distribute(points, rate, gap, buckets, lo_ts, hi_ts) -> None:
@@ -224,11 +227,14 @@ async def _agg_rows_into(db, device_id, metric, lo, hi, buckets, unit, tz, singl
                 continue
         b.kwh += float(r.kwh or 0.0)
         b.covered_s += float(r.hours or 0.0) * 3600.0
+        quality = "missing" if r.unknown else "estimated" if r.estimated else "measured"
+        b.point_quality = en.weakest_quality(b.point_quality, quality)
         for flag, on in (
             (en.F_INCOMPLETE, r.incomplete),
             (en.F_GAP, r.gap),
             (en.F_SUSPECT, r.suspect),
             (en.F_RESET, r.reset),
+            (en.F_RESET_SKIPPED, r.reset_skipped),
         ):
             if on:
                 b.add_flag(flag)
@@ -313,7 +319,7 @@ async def load_tariffs(db: AsyncSession, home_id: uuid.UUID) -> en.TariffTable:
         en.TariffPeriod(
             valid_from=t.valid_from,
             import_per_kwh=float(t.import_per_kwh),
-            export_per_kwh=float(t.export_per_kwh or 0),
+            export_per_kwh=t.known_export_price,
             fixed_per_day=float(t.fixed_per_day or 0),
             import_t1_per_kwh=f(t.import_t1_per_kwh),
             import_t2_per_kwh=f(t.import_t2_per_kwh),
@@ -352,10 +358,12 @@ def _rest(series: dict[str, list[en.Bucket]]) -> tuple[list[en.Bucket], list[str
     for i, g in enumerate(grid):
         v = g.kwh - sum(series[r][i].kwh for r in subs)
         rb = en.Bucket(g.start, g.end, max(0.0, v), g.covered_s)
+        rb.point_quality = g.point_quality
         rb.flags = set(g.flags)
         rb.notes = list(g.notes)
         for r in subs:
             sb = series[r][i]
+            rb.point_quality = en.weakest_quality(rb.point_quality, sb.point_quality)
             rb.flags |= sb.flags
             if not sb.complete and g.complete:
                 rb.add_flag(en.F_ESTIMATED)
@@ -376,6 +384,15 @@ def _rest(series: dict[str, list[en.Bucket]]) -> tuple[list[en.Bucket], list[str
 
 def _local_day(b: en.Bucket, tz: ZoneInfo) -> date:
     return b.start.astimezone(tz).date()
+
+
+def _series_quality(bs: list[en.Bucket], now: datetime) -> str:
+    qualities = [b.quality for b in bs if b.covered_s > 0]
+    if not qualities:
+        return "missing"
+    if any(not b.complete and b.end <= now for b in bs):
+        qualities.append("estimated")
+    return en.weakest_quality(*qualities)
 
 
 async def energy_summary(db: AsyncSession, home: Home, period: str, day: date) -> dict:
@@ -430,11 +447,11 @@ async def energy_summary(db: AsyncSession, home: Home, period: str, day: date) -
         any_price = False
         for i, b in enumerate(bs):
             t = prices[i]
-            if t is None:
+            p = t.export_per_kwh if role == "grid_export" and t else import_price[i]
+            if p is None:
                 per.append(None)
                 continue
-            p = t.export_per_kwh if role == "grid_export" else import_price[i]
-            c = b.kwh * (p or 0.0)
+            c = b.kwh * p
             per.append(c)
             total += c
             priced_kwh += b.kwh
@@ -443,7 +460,7 @@ async def energy_summary(db: AsyncSession, home: Home, period: str, day: date) -
         if kwh > 0:
             coverage = priced_kwh / kwh
         else:
-            coverage = sum(1 for p in prices if p is not None) / len(prices) if prices else 0.0
+            coverage = sum(p is not None for p in per) / len(per) if per else 0.0
         return (total if any_price else None), coverage, per
 
     meters = []
@@ -454,12 +471,9 @@ async def energy_summary(db: AsyncSession, home: Home, period: str, day: date) -
         kwh = sum(b.kwh for b in bs)
         c, cov, per = role_cost(role, bs)
         costs_per_role[role] = per
-        finished = [b for b in bs if b.end <= now]
-        suspect = any(en.F_SUSPECT in b.flags for b in bs)
-        if role == "rest":
-            quality = "estimated" if (rest_issues or any(en.F_ESTIMATED in b.flags for b in bs)) else "derived"
-        else:
-            quality = "measured" if all(b.complete for b in finished) and not suspect else "estimated"
+        quality = _series_quality(bs, now)
+        if role == "rest" and quality == "measured":
+            quality = "estimated" if rest_issues else "derived"
         notes: list[str] = []
         for b in bs:
             notes += [n for n in b.notes if n not in notes]
@@ -510,21 +524,26 @@ async def energy_summary(db: AsyncSession, home: Home, period: str, day: date) -
                 g_priced += b.kwh
                 any_gp = True
         gas_cost = gc if any_gp else None
-        finished = [b for b in gas if b.end <= now]
         gas_out = {
             "m3": round(gm3, 3),
             "unit": "m³",
             "cost": round(gc, 2) if any_gp else None,
             "cost_coverage": round(g_priced / gm3, 3) if any_gp and gm3 > 0 else (1.0 if any_gp else 0.0),
-            "quality": "measured" if all(b.complete for b in finished) else "estimated",
+            "quality": _series_quality(gas, now),
             "note": None if any_gp else "Geen gasprijs ingesteld bij het tarief.",
         }
 
     total_cost = None
-    if grid_cost is not None:
+    export_costs = costs_per_role.get("grid_export", [])
+    unpriced_export = {
+        i for i, b in enumerate(series.get("grid_export", [])) if b.kwh > 0 and export_costs[i] is None
+    }
+    if grid_cost is not None and not unpriced_export:
         total_cost = grid_cost - (export_rev or 0.0) + fixed + (gas_cost or 0.0)
     cost_note = None
-    if grid_cost is not None and grid_cov < 0.999:
+    if unpriced_export:
+        cost_note = "De terugleververgoeding ontbreekt voor een deel van deze periode."
+    elif grid_cost is not None and grid_cov < 0.999:
         cost_note = f"Kosten gedeeltelijk: {grid_cov:.0%} van het verbruik valt onder een tarief."
     elif grid_cost is None and "grid" in series and tariffs:
         cost_note = "Geen tarief geldig in deze periode."
@@ -554,7 +573,7 @@ async def energy_summary(db: AsyncSession, home: Home, period: str, day: date) -
         cost_parts = [costs_per_role.get("grid", [None] * len(fine))[i] for i in members]
         exp_parts = [costs_per_role.get("grid_export", [None] * len(fine))[i] for i in members]
         bc = None
-        if any(c is not None for c in cost_parts):
+        if any(c is not None for c in cost_parts) and unpriced_export.isdisjoint(members):
             bc = round(sum(c or 0.0 for c in cost_parts) - sum(c or 0.0 for c in exp_parts), 2)
         item = {
             "start": b.start,
@@ -738,6 +757,7 @@ async def export_rows(
                         "at": s.observed_at,
                         "role": role,
                         "device": dev_name,
+                        "meter_id": str(bnd.device_id),
                         "metric": s.metric,
                         "value": s.value,
                         "unit": s.unit,
@@ -768,15 +788,19 @@ async def export_rows(
                 for b in bs:
                     if b.end_ts <= lo_ts or b.start_ts >= hi_ts or b.start > ctx.now:
                         continue
+                    if b.start_ts < lo_ts or b.end_ts > hi_ts:
+                        # Ook oudere lezers herkennen een gedeeltelijke rolbinding als onvolledig.
+                        b.add_flag(en.F_INCOMPLETE)
                     b.finalize()
-                    has = b.covered_s > 0
                     yield {
                         "at": b.start.astimezone(UTC),
                         "role": "gas" if metric == en.GAS_METRIC else role,
                         "device": dev_name,
+                        "meter_id": str(bnd.device_id),
                         "metric": metric,
-                        "value": round(b.kwh, 4) if has else None,
+                        "value": round(b.kwh, 4) if b.quality != "missing" else None,
                         "unit": unit_label,
-                        "quality": ("measured" if b.complete else "estimated") if has else "missing",
+                        "quality": b.quality,
+                        "reset_skipped": en.F_RESET_SKIPPED in b.flags,
                         "notes": "; ".join(b.notes),
                     }

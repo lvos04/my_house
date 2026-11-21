@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
-from versie import andere_versie
+from versie import EINDSCHEMA, andere_versie
 
 from shc_api import backup as bk
 from shc_api import cli
@@ -281,7 +281,7 @@ async def test_voorstel_en_wachtende_apply_na_twee_schemawissels(proef, tmp_path
             await andere_versie({"actie": "werk", "woning": str(proef.home_id)}, versie=software)
             assert not proef.unit.commands
         opnieuw = await andere_versie(open_database)
-        assert opnieuw["schema"] == "0009" and not opnieuw["geweigerd"]
+        assert opnieuw["schema"] == EINDSCHEMA and not opnieuw["geweigerd"]
         assert await sql(url, selecteer, ids) == voor
     proef.key_id = sleutel
     antwoord = await proef.post("apply", proef.request(preview=eerste))
@@ -368,7 +368,7 @@ async def test_apply_bevestigd_zonder_geplande_rollback(proef, tmp_path):
     await proef.work()
     assert proef.unit.state == vorige_stand and len(proef.unit.commands) == 2
     nieuw = await eindversie("upgrade", url, voorstel["proposal_id"], proef.home_id, tmp_path)
-    assert not nieuw["geweigerd"] and nieuw["schema"] == "0009" and nieuw["archief"]
+    assert not nieuw["geweigerd"] and nieuw["schema"] == EINDSCHEMA and nieuw["archief"]
     print("APPLY_BEVESTIGD geen_rollback_gepland=True upgrade_geweigerd=True daarna_hersteld=True")
 
 
@@ -380,7 +380,7 @@ async def test_basis_open_herstel_bij_versiewissel(proef, tmp_path):
           f"migratie_geweigerd={resultaat['geweigerd']} automatisch_archief={resultaat['archief']} "
           f"rollback={resultaat['rollback']} reden={resultaat['reden']} "
           f"herstelpreview={resultaat['preview']} stand={proef.unit.state['SetTem']}")
-    assert not resultaat["geweigerd"] and resultaat["schema"] == "0009"
+    assert not resultaat["geweigerd"] and resultaat["schema"] == EINDSCHEMA
     assert resultaat["reden"] == "versiewissel" and not resultaat["preview"]
     assert proef.unit.state["SetTem"] == 22 and len(proef.unit.commands) == 1
 

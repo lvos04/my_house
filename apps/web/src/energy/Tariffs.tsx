@@ -78,12 +78,17 @@ export function tariffPayload(f: TariffForm): TariffIn {
 
 const dec = (v: number | null | undefined) => (v === null || v === undefined ? '' : String(v).replace('.', ','));
 
+function exportPrice(t: Tariff): number | null {
+  // Een nul van een oudere bron kan ook de standaard voor een leeg veld zijn.
+  return (t.export_price_known ?? t.export_per_kwh !== 0) ? t.export_per_kwh : null;
+}
+
 export function formFromTariff(t: Tariff): TariffForm {
   const dual = t.import_t1_per_kwh !== null && t.import_t2_per_kwh !== null;
   return {
     valid_from: t.valid_from,
     import_per_kwh: dec(t.import_per_kwh),
-    export_per_kwh: t.export_per_kwh ? dec(t.export_per_kwh) : '',
+    export_per_kwh: dec(exportPrice(t)),
     fixed_per_day: t.fixed_per_day ? dec(t.fixed_per_day) : '',
     dual,
     import_t1_per_kwh: dual ? dec(t.import_t1_per_kwh) : '',
@@ -229,7 +234,7 @@ export function TariffSection({ homeId, currency, today, isAdmin }: { homeId: st
                       <div className="small muted">T1 {price(t.import_t1_per_kwh, currency)} · T2 {price(t.import_t2_per_kwh, currency)}</div>
                     )}
                   </td>
-                  <td data-label="Teruglevering per kWh">{price(t.export_per_kwh, currency)}</td>
+                  <td data-label="Teruglevering per kWh">{price(exportPrice(t), currency)}</td>
                   <td data-label="Vast per dag">{price(t.fixed_per_day, currency)}</td>
                   <td data-label="Gas per m³">{price(t.gas_per_m3, currency)}</td>
                   <td data-label="Bron">{SOURCE_LABEL[t.source] ?? t.source}</td>

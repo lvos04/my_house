@@ -21,6 +21,7 @@ import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
+from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
 RESET_SMALL_KWH = 5.0  # legacy constant (kept for callers); resets are now confirmed by later readings
@@ -56,6 +57,7 @@ F_GAP = "gap"  # an interval longer than max_gap (missing readings, delta spread
 F_INCOMPLETE = "incomplete"  # hour not fully covered
 F_SUSPECT = "suspect"  # an implausible reading or step was skipped
 F_RESET = "reset"  # counter reset / meter replacement accepted
+F_RESET_SKIPPED = "reset_skipped"
 F_ESTIMATED = "estimated"  # derived value had to be clamped or a part is missing
 
 NOTE_GAP = "ontbrekende metingen"
@@ -63,7 +65,10 @@ NOTE_RESET = "tellerreset gedetecteerd"
 NOTE_RESET_SKIPPED = "tellerreset; interval overgeslagen"
 NOTE_SUSPECT = "verdachte meterstand overgeslagen"
 NOTE_ESTIMATED = "deels geschat"
-FLAG_NOTES = {F_GAP: NOTE_GAP, F_INCOMPLETE: NOTE_GAP, F_SUSPECT: NOTE_SUSPECT, F_RESET: NOTE_RESET}
+FLAG_NOTES = {
+    F_GAP: NOTE_GAP, F_INCOMPLETE: NOTE_GAP, F_SUSPECT: NOTE_SUSPECT,
+    F_RESET: NOTE_RESET, F_RESET_SKIPPED: NOTE_RESET_SKIPPED,
+}
 
 
 def max_gap_for(metric: str) -> timedelta:
@@ -84,10 +89,23 @@ def max_rate_for(metric: str, role: str | None, kind: str | None, overrides: dic
     return float(o.get("default", DEFAULT_MAX_KW))
 
 
+def weakest_quality(*qualities: str | None) -> str:
+    if any(q not in ("measured", "estimated") for q in qualities):
+        return "missing"
+    return "estimated" if "estimated" in qualities else "measured"
+
+
+class _Reading(NamedTuple):
+    time: float
+    value: float
+    quality: str
+
+
 @dataclass(slots=True)
 class CounterPoint:
     at: datetime  # tz-aware UTC
     kwh: float  # counter value (kWh, or m³ for gas)
+    quality: str = "measured"
 
 
 @dataclass(slots=True)
@@ -100,6 +118,7 @@ class Interval:
     gap: bool = False
     flags: tuple[str, ...] = ()
     note: str | None = None
+    quality: str = "missing"
 
 
 @dataclass(slots=True)
@@ -111,6 +130,15 @@ class Bucket:
     complete: bool = True
     notes: list[str] = field(default_factory=list)
     flags: set[str] = field(default_factory=set)
+    point_quality: str = "measured"  # neutraal tot de eerste bijdrage
+
+    @property
+    def quality(self) -> str:
+        if self.covered_s <= 0 or self.point_quality == "missing" or F_RESET_SKIPPED in self.flags:
+            return "missing"
+        if not self.complete or F_SUSPECT in self.flags or F_ESTIMATED in self.flags:
+            return "estimated"
+        return self.point_quality
 
     @property
     def start_ts(self) -> float:
@@ -133,7 +161,9 @@ class Bucket:
 
     def finalize(self) -> None:
         self.complete = (
-            self.covered_s + 60 >= self.duration_s and F_GAP not in self.flags and F_INCOMPLETE not in self.flags
+            self.covered_s + 60 >= self.duration_s
+            and not self.flags.intersection({F_GAP, F_INCOMPLETE, F_RESET_SKIPPED})
+            and self.point_quality != "missing"
         )
 
 
@@ -206,76 +236,70 @@ def clean_intervals(
 
     `max_rate` is in kWh per hour (= kW) or m³/h; None means no upper limit.
     """
-    pts: list[tuple[float, float]] = []
+    pts: list[_Reading] = []
     for p in points:
         v = p.kwh
         if v is None or not math.isfinite(v):
             continue
-        pts.append((p.at.timestamp(), float(v)))
+        pts.append(_Reading(p.at.timestamp(), float(v), weakest_quality(p.quality)))
     pts.sort()
     gap_s = max_gap.total_seconds()
     out: list[Interval] = []
 
-    def emit(t0: float, t1: float, amount: float, flags: tuple[str, ...] = (), note: str | None = None) -> None:
-        if t1 <= t0:
-            return
-        out.append(Interval(t0, t1, amount, (t1 - t0) > gap_s, flags, note))
+    def emit(a: _Reading, b: _Reading, amount: float, flags=(), note=None, quality: str | None = None) -> None:
+        if b.time > a.time:
+            interval_quality = quality or weakest_quality(a.quality, b.quality)
+            out.append(Interval(a.time, b.time, amount, b.time - a.time > gap_s, flags, note, interval_quality))
 
-    def plausible(a: tuple[float, float], b: tuple[float, float]) -> bool:
-        d = b[1] - a[1]
-        return -NEG_TOLERANCE <= d <= _limit(max_rate, b[0] - a[0])
+    def plausible(a: _Reading, b: _Reading) -> bool:
+        return -NEG_TOLERANCE <= b.value - a.value <= _limit(max_rate, b.time - a.time)
 
-    base: tuple[float, float] | None = None
-    pending: list[tuple[float, float]] = []
+    def advance(a: _Reading, b: _Reading) -> _Reading:
+        # Bij kleine negatieve jitter blijft de oude waarde bijdragen aan de volgende stap.
+        if b.value < a.value:
+            return _Reading(b.time, a.value, weakest_quality(a.quality, b.quality))
+        return b
+
+    base: _Reading | None = None
+    pending: list[_Reading] = []
     last_t: float | None = None
     for p in pts:
-        if last_t is not None and p[0] == last_t:
-            continue  # duplicate timestamp: first value wins
-        last_t = p[0]
-        if p[1] < 0:  # negative counter: never valid, skipped (rejected at ingest as well)
+        if p.time == last_t:
+            continue
+        last_t = p.time
+        if p.value < 0:
             continue
         if base is None:
             base = p
-            continue
-        if pending:
-            if plausible(base, p):
-                # the pending readings were outliers: skip them and continue from the old base
-                emit(base[0], p[0], max(0.0, p[1] - base[1]), (F_SUSPECT,), NOTE_SUSPECT)
-                base = (p[0], max(p[1], base[1]))
+        elif plausible(base, p):
+            flags = (F_SUSPECT,) if pending else ()
+            emit(base, p, max(0.0, p.value - base.value), flags, NOTE_SUSPECT if pending else None)
+            base = advance(base, p)
+            pending = []
+        elif pending and plausible(pending[-1], p):
+            pending.append(p)
+            if len(pending) > confirm:
+                base = _accept_new_base(base, pending, max_rate, emit)
                 pending = []
-                continue
-            if plausible(pending[-1], p):
-                pending.append(p)
-                if len(pending) > confirm:
-                    base = _accept_new_base(base, pending, max_rate, emit)
-                    pending = []
-                continue
-            pending = [p]  # neither: start a new candidate chain
-            continue
-        if plausible(base, p):
-            emit(base[0], p[0], max(0.0, p[1] - base[1]))
-            base = (p[0], max(p[1], base[1]))  # tiny negative jitter keeps the higher value
         else:
             pending = [p]
     if base is not None and pending:
-        # unconfirmed jump/drop at the end of the data: count nothing yet, mark the span
-        out.append(Interval(base[0], pending[-1][0], 0.0, True, (F_SUSPECT,), NOTE_RESET_SKIPPED))
+        out.append(Interval(base.time, pending[-1].time, 0.0, True, (F_SUSPECT, F_RESET_SKIPPED), NOTE_RESET_SKIPPED))
     return out
 
 
-def _accept_new_base(base, chain, max_rate, emit) -> tuple[float, float]:
+def _accept_new_base(base: _Reading, chain: list[_Reading], max_rate, emit) -> _Reading:
     c0 = chain[0]
-    if c0[1] < base[1]:
-        # Confirmed counter reset: the new counter's value is consumption since the reset, when plausible.
-        if c0[1] <= _limit(max_rate, c0[0] - base[0]) and (max_rate is not None or c0[1] < RESET_SMALL_KWH):
-            emit(base[0], c0[0], c0[1], (F_RESET,), NOTE_RESET)
+    quality = weakest_quality(base.quality, *(p.quality for p in chain))
+    if c0.value < base.value:
+        if c0.value <= _limit(max_rate, c0.time - base.time) and (max_rate is not None or c0.value < RESET_SMALL_KWH):
+            emit(base, c0, c0.value, (F_RESET,), NOTE_RESET, quality)
         else:
-            emit(base[0], c0[0], 0.0, (F_RESET,), NOTE_RESET_SKIPPED)
+            emit(base, c0, 0.0, (F_RESET, F_RESET_SKIPPED), NOTE_RESET_SKIPPED, "missing")
     else:
-        # Confirmed implausible jump (meter replaced with a higher reading): never counted as usage.
-        emit(base[0], c0[0], 0.0, (F_SUSPECT,), NOTE_SUSPECT)
+        emit(base, c0, 0.0, (F_SUSPECT,), NOTE_SUSPECT, quality)
     for a, b in zip(chain, chain[1:], strict=False):
-        emit(a[0], b[0], max(0.0, b[1] - a[1]))
+        emit(a, b, max(0.0, b.value - a.value))
     return chain[-1]
 
 
@@ -323,6 +347,7 @@ def distribute(
                 b = buckets[k]
                 b.kwh += iv.amount * (e - s) / span
                 b.covered_s += e - s
+                b.point_quality = weakest_quality(b.point_quality, iv.quality)
                 if iv.gap:
                     b.add_flag(F_GAP)
                 for f in iv.flags:
@@ -350,6 +375,7 @@ class HourAgg:
     last_value: float | None
     samples: int
     flags: list[str]
+    point_quality: str
 
 
 def hourly(
@@ -389,7 +415,8 @@ def hourly(
         flags = set(h.flags)
         if h.covered_s + 60 < 3600:
             flags.add(F_INCOMPLETE)
-        out.append(HourAgg(h.start, h.kwh, first.get(i), last.get(i), samples.get(i, 0), sorted(flags)))
+        quality = h.point_quality if h.covered_s else "missing"
+        out.append(HourAgg(h.start, h.kwh, first.get(i), last.get(i), samples.get(i, 0), sorted(flags), quality))
     return out
 
 
@@ -400,7 +427,7 @@ def hourly(
 class TariffPeriod:
     valid_from: date
     import_per_kwh: float
-    export_per_kwh: float = 0.0
+    export_per_kwh: float | None = None
     fixed_per_day: float = 0.0
     import_t1_per_kwh: float | None = None
     import_t2_per_kwh: float | None = None

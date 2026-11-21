@@ -26,7 +26,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.hybrid import hybrid_method
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, validates
 from sqlalchemy.sql import ColumnElement
 
 
@@ -432,11 +432,25 @@ class Tariff(Base):
     valid_from: Mapped[date] = mapped_column(Date)
     import_per_kwh: Mapped[float] = mapped_column(Numeric(8, 5))
     export_per_kwh: Mapped[float] = mapped_column(Numeric(8, 5), default=0, server_default="0")
+    export_price_known: Mapped[bool | None] = mapped_column(Boolean)
     fixed_per_day: Mapped[float] = mapped_column(Numeric(8, 5), default=0, server_default="0")
     source: Mapped[str] = mapped_column(String(32), default="handmatig")
     # Optional day (T1) / night (T2) import prices; import_per_kwh stays the single-rate price.
     import_t1_per_kwh: Mapped[float | None] = mapped_column(Numeric(8, 5))
     import_t2_per_kwh: Mapped[float | None] = mapped_column(Numeric(8, 5))
+
+
+    @validates("export_per_kwh")
+    def _record_export_price(self, key, value):
+        self.export_price_known = value is not None
+        return 0 if value is None else value
+
+    @property
+    def known_export_price(self) -> float | None:
+        # Oudere nulbedragen kunnen ook uit een leeg veld komen.
+        if self.export_price_known is False or (self.export_price_known is None and not self.export_per_kwh):
+            return None
+        return float(self.export_per_kwh)
 
 
 class EnergyHourly(Base):
@@ -447,6 +461,7 @@ class EnergyHourly(Base):
     metric: Mapped[str] = mapped_column(String(48), primary_key=True)
     hour_start: Mapped[datetime] = mapped_column(primary_key=True, index=True)
     kwh: Mapped[float] = mapped_column(Float)
+    point_quality: Mapped[str | None] = mapped_column(String(12))
     first_value: Mapped[float | None] = mapped_column(Float)
     last_value: Mapped[float | None] = mapped_column(Float)
     samples: Mapped[int] = mapped_column(Integer, default=0, server_default="0")

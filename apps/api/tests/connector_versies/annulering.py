@@ -6,7 +6,7 @@ from datetime import timedelta
 
 from herstelbewijs import route
 from overdracht import herstel_archief, zonder_quiet
-from versie import andere_versie
+from versie import EINDSCHEMA, andere_versie
 
 from shc_api import cli
 from shc_api.config import get_settings
@@ -99,7 +99,7 @@ async def test_dezelfde_unit_in_andere_zone(proef, tmp_path, monkeypatch):
     assert len(proef.unit.commands) == 1 and proef.unit.state["Quiet"] == 0 and proef.unit.state["SetTem"] == 20
     aantal_voor = len(proef.unit.commands)
     assert (await andere_versie({"actie": "migreer", "map": str(tmp_path)})) == {
-        "schema": "0009", "geweigerd": False, "archief": True,
+        "schema": EINDSCHEMA, "geweigerd": False, "archief": True,
     }
     oud_id = {"id": uuid.UUID(eerste["proposal_id"])}
     assert await sql(url, "SELECT before->'controls'->'Quiet' FROM connector_changes WHERE id=:id", oud_id) == [(0,)]

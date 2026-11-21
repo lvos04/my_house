@@ -10,7 +10,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 from postgres import draai_postgres
-from versie import andere_versie
+from versie import EINDSCHEMA, andere_versie
 
 from shc_api import cli
 from shc_api.config import get_settings
@@ -85,7 +85,7 @@ async def test_snapshot_met_bijbehorende_vorige_software(proef, tmp_path, route,
                             "--checkpoint=fast", "--wal-method=stream", "--manifest-checksums=SHA256"], check=True)
     await asyncio.to_thread(subprocess.run, ["pg_verifybackup", str(data)], check=True)
     start = {"actie": "migreer", "map": str(tmp_path / "upgrade")}
-    assert await andere_versie(start) == {"schema": "0009", "geweigerd": False, "archief": True}
+    assert await andere_versie(start) == {"schema": EINDSCHEMA, "geweigerd": False, "archief": True}
     verwacht = [("cancelled", 0, "versiewissel")]
     assert await sql(bron, rij, ident) == verwacht
     assert await sql(bron, bewijs, sleutel) == oud

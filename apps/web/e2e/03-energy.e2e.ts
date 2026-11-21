@@ -29,11 +29,11 @@ test('energie: tarief zonder optionele velden, vorige en volgende dag, export', 
   const tariffs = page.getByRole('region', { name: 'Tarieven' });
   const row = tariffs.getByRole('row').filter({ hasText: '€ 0,27' });
   await expect(row).toBeVisible();
-  await expect(row.getByRole('cell').nth(1)).toHaveText('€ 0,00'); // teruglevering: empty = 0
+  await expect(row.getByRole('cell').nth(1)).toHaveText('–'); // De terugleververgoeding is niet ingevuld.
   await expect(row.getByRole('cell').nth(3)).toHaveText('–'); // no gas price
   const stored = await api.get<any[]>(`/homes/${homeId}/tariffs`);
   expect(stored).toHaveLength(1);
-  expect(stored[0]).toMatchObject({ import_per_kwh: 0.27, export_per_kwh: 0, fixed_per_day: 0, gas_per_m3: null });
+  expect(stored[0]).toMatchObject({ import_per_kwh: 0.27, export_per_kwh: 0, export_price_known: false, fixed_per_day: 0, gas_per_m3: null });
 
   // Day view: previous day, then back with "next"; the next button stops at today.
   const nav = page.getByRole('group', { name: 'Periode kiezen' });
