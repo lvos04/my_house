@@ -122,8 +122,8 @@ async function zoneMetMetingen(api: Api, homeId: string): Promise<string> {
   const unit = seedAirco(homeId, `Airco slaapkamer ${unique()}`);
   await api.send('PATCH', `/zones/${zone.id}`, { unit_device_id: unit.id, sensor_device_id: null });
   const { temperature, target } = reeksen();
-  const t = seed<{ added: number }>('readings', { device_id: unit.id, metric: 'temperature', unit: '°C', points: temperature });
-  const d = seed<{ added: number }>('readings', { device_id: unit.id, metric: 'target_c', unit: '°C', points: target });
+  const t = seed<{ added: number; now: string }>('readings', { device_id: unit.id, metric: 'temperature', unit: '°C', points: temperature });
+  const d = seed<{ added: number }>('readings', { device_id: unit.id, metric: 'target_c', unit: '°C', points: target, now: t.now });
   expect(t.added).toBe(temperature.length);
   expect(d.added).toBe(target.length);
   zoneId = zone.id;
@@ -453,8 +453,8 @@ test.describe('grafiek "Laatste 24 uur": verouderde sensor', () => {
       temperature.push([m, Math.round((20 + Math.sin(m / 40)) * 10) / 10]);
       target.push([m, 21]);
     }
-    seed('readings', { device_id: unit.id, metric: 'temperature', unit: '°C', points: temperature });
-    seed('readings', { device_id: unit.id, metric: 'target_c', unit: '°C', points: target });
+    const { now } = seed<{ now: string }>('readings', { device_id: unit.id, metric: 'temperature', unit: '°C', points: temperature });
+    seed('readings', { device_id: unit.id, metric: 'target_c', unit: '°C', points: target, now });
     // Het oordeel komt van de server (laatste meting twee uur oud, termijn 30 minuten); de grafiek volgt dat oordeel.
     expect((await api.zone(homeId, 'Slaapkamer')).temperature.stale).toBe(true);
 

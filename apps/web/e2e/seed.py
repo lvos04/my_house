@@ -120,11 +120,12 @@ async def heartbeat(a: dict) -> dict:
 async def readings(a: dict) -> dict:
     """A series of readings for one device and metric, as the worker stores them (store.ingest_reading):
     {"device_id": …, "metric": "temperature", "unit": "°C", "points": [[minutes_ago, value_or_null], …]}.
-    A null value is a reading without a value (shown as "Geen meting", never as 0)."""
+    A null value is a reading without a value (shown as "Geen meting", never as 0).
+    Geef de teruggegeven `now` mee om een volgende reeks op dezelfde tijdstippen te zetten."""
     from shc_api.db import sessionmaker
     from shc_api.store import ingest_reading
 
-    now = datetime.now(UTC).replace(microsecond=0)
+    now = datetime.fromisoformat(a["now"]) if "now" in a else datetime.now(UTC).replace(microsecond=0)
     device_id, metric, unit = uuid.UUID(a["device_id"]), a["metric"], a.get("unit", "°C")
     added = 0
     async with sessionmaker()() as db:
