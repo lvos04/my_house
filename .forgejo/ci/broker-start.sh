@@ -2,7 +2,9 @@
 # De Custom App geeft de broker per start eigen hashes en een ACL. Bied die aan
 # onder de paden van het Mosquitto-profiel en start dezelfde pakketbinary.
 set -eu
-[ "$#" -eq 2 ] && [ "$1" = -c ] || exec /usr/sbin/mosquitto "$@"
+if [ "$#" -ne 2 ] || [ "$1" != -c ]; then
+  exec /usr/sbin/mosquitto "$@"
+fi
 bron=$(dirname "$2")
 doel=/etc/mosquitto/conf.d
 test /appdata/mosquitto -ef /var/lib/mosquitto

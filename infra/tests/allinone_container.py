@@ -112,25 +112,6 @@ else:
     supervisor.Supervisor.run = interrupt
 raise SystemExit(supervisor.main())
 """
-MISLUKTE_DUMP = """
-from shc_allinone import supervisor
-from shc_allinone.runtime import DATA
-
-prepare = supervisor.prepare_secrets
-env = supervisor.service_env
-bin_dir = DATA / "app"
-tool = bin_dir / "pg_dump"
-
-def prepare_proef(data):
-    password = prepare(data)
-    tool.write_text("#!/bin/sh\\nexit 27\\n")
-    tool.chmod(0o700)
-    return password
-
-supervisor.prepare_secrets = prepare_proef
-supervisor.service_env = lambda: {**env(), "PATH": str(bin_dir) + ":" + env()["PATH"]}
-raise SystemExit(supervisor.main())
-"""
 PROCESBOOM = """
 import json
 from pathlib import Path
@@ -230,6 +211,7 @@ class Trial:
         self.image = image
         self.cleanup = cleanup
         self.prefix = f"my-house-s-p3-{step}-" + uuid4().hex[:10]
+        self.broker_profile = os.environ.get("SHC_CI_BROKERPROFIEL") == "1"
 
     def storage(self, label):
         volume = f"{self.prefix}-{label}"
@@ -237,11 +219,11 @@ class Trial:
         self.cleanup.callback(docker, "volume", "rm", volume)
         return volume
 
-    def container(self, label, volume=None, user="0", options=(), entrypoint=(), network="none"):
+    def container(self, label, volume=None, user="0", options=(), entrypoint=(), network="none", *, failing_dump=False):
         name = f"{self.prefix}-{label}"
         owner = f"nl.medialeon.herstelproef={name}"
         volume_options = ["--mount", f"type=volume,source={volume},target=/appdata"] if volume else []
-        if volume and os.environ.get("SHC_CI_BROKERPROFIEL") == "1":
+        if volume and self.broker_profile:
             # Beide paden verwijzen naar dezelfde brokerdatabase, ook bij een lege eerste start.
             # nocopy voorkomt dat Docker pakketbestanden uit /var/lib aan de proefopslag toevoegt.
             volume_options.extend([
@@ -262,6 +244,10 @@ class Trial:
             raise
         container_id = created.stdout.decode().strip()
         self.cleanup.callback(docker, "rm", "-fv", container_id, timeout=120)
+        if failing_dump:
+            # Alleen deze container krijgt de foutfixture. De proefopslag bevat geen uitvoerbare code.
+            fixture = Path(__file__).with_name("pg_dump_fout.sh")
+            docker("cp", str(fixture), f"{container_id}:/usr/lib/postgresql/16/bin/pg_dump")
         docker("start", container_id, timeout=120)
         return name
 
@@ -405,7 +391,8 @@ os.execvpe("shc-api", ["shc-api", "backup", "--passphrase-stdin", "--json"], ser
 
     def zigbee_file_boundary(self):
         # Dit kleine Node-programma doorloopt dezelfde fork, startvolgorde en rechtenwissel als Zigbee2MQTT.
-        script = """
+        roots = ["/appdata", "/var/lib"] if self.broker_profile else ["/appdata"]
+        script = "const roots = " + json.dumps(roots) + ";\n" + """
 const fs = require("node:fs");
 function denied(name) {
   try { fs.closeSync(fs.openSync(name, "r")); }
@@ -413,8 +400,8 @@ function denied(name) {
   return false;
 }
 const own = process.env.ZIGBEE2MQTT_DATA + "/secret.yaml";
-const restricted = ["/appdata/secrets/app-key", "/appdata/secrets/mqtt-shc",
-                    "/appdata/postgres/data/PG_VERSION"].every(denied);
+const files = ["secrets/app-key", "secrets/mqtt-shc", "postgres/data/PG_VERSION"];
+const restricted = roots.every(root => files.every(file => denied(root + "/" + file)));
 fs.closeSync(fs.openSync(own, "r"));
 console.log(restricted && !process.env.PGPROEF && !process.env.SHC_PROEF
   ? "Zigbee-bestandsgrens bevestigd." : "Zigbee-bestandsgrens ontbreekt.");
@@ -681,7 +668,7 @@ command.downgrade(alembic_config(service_env()["SHC_DATABASE_URL"]), "0003")
         docker("stop", db)
         self.prepare_fallback("terugval-0003", volume, 0, "Terugvalkopie voorbereid. PostgreSQL is gestopt.")
 
-        bad = self.container("dumpfout", volume, user="568", entrypoint=(*PYTHON, "-c", MISLUKTE_DUMP))
+        bad = self.container("dumpfout", volume, user="568", failing_dump=True)
         within(lambda: self.state(bad).startswith("exited"), "Mislukte dump hield de start niet tegen")
         assert b"Melding van pg_dump: 27" in self.logs(bad)
         assert docker("inspect", "--format", "{{.State.ExitCode}}", bad).stdout.strip() == b"1"
