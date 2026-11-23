@@ -34,7 +34,7 @@ RUN /opt/build/bin/pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/whe
 # Only the PGDG apt signing key is taken from here, so pg_dump below comes from the same
 # repository and major version as the database (contract C11: the pre-migration dump must
 # match the server; keep this tag on the same major as the db service in compose.yaml).
-FROM postgres:16.15-trixie@sha256:f9a7b9ebf6f56201f949db745e47bc423c0f0f8294bafe991cc10bf74b029657 AS pgdg
+FROM postgres:16.16-trixie@sha256:3950ad7c3148ca2175ef1b6c36c9efbf78957ae8fbe8b3a5d7c35af50500382f AS pgdg
 
 FROM python:3.12.16-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 ARG APP_VERSION=dev
