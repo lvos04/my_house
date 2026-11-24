@@ -17,3 +17,4 @@ for soort in contract peil; do
   env -u BRON_LEESTOKEN python3 "tools/${soort}_kopie.py" controleer
   env -u BRON_LEESTOKEN python3 "tools/${soort}_kopie.py" vergelijk --bron "$bron"
 done
+FORGEJO_TOKEN="$BRON_LEESTOKEN" python3 tools/contract_kopie.py vergelijk --online

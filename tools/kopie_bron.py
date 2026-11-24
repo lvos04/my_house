@@ -1,4 +1,4 @@
-"""Gedeelde hulp voor de versie-gepinde kopieën uit ``lvos04/ai-server-manager`` (de bron van waarheid).
+"""Gedeelde hulp voor de versie-gepinde kopieën uit ``ai-server-manager`` (de bron van waarheid).
 
 Gebruikt door ``tools/contract_kopie.py`` (platformcontract, contract 1.3 kop en §10) en ``tools/peil_kopie.py``
 (ontwerptaal Peil, ONTWERPTAAL §14, E08). Alleen de standaardbibliotheek: de hulpmiddelen draaien in CI vóór er iets
@@ -7,8 +7,8 @@ geïnstalleerd is en lokaal zonder venv.
 Een bronbestand wordt gelezen
 
 - **lokaal** uit een checkout van ai-server-manager (``git show <ref>:<pad>``, of de werkmap als er geen ref is), of
-- **online** van GitHub (``raw.githubusercontent.com``; de bronrepo is publiek, er is geen token nodig), met vier
-  herhalingen na 2/4/8/16 s bij een netwerkfout.
+- **online** van Forgejo voor het platformcontract (FORGEJO_TOKEN of forgejo/token in de gebruikersconfiguratie)
+  en van de publieke GitHub-bron voor Peil, met vier herhalingen bij een netwerkfout.
 
 Een bestand dat niet te lezen is, geeft een uitzondering; de aanroeper meldt dat als fout of waarschuwing, nooit als
 "in orde".
@@ -22,10 +22,12 @@ import re
 import subprocess
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
 BRON_REPO = "lvos04/ai-server-manager"
+CONTRACT_REPO = "leon/ai-server-manager"
 RAW = "https://raw.githubusercontent.com/{repo}/{ref}/{pad}"
 COMMIT = re.compile(r"[0-9a-f]{40}")
 
@@ -47,23 +49,49 @@ def semver(versie: str) -> tuple[int, ...]:
     return tuple(int(x) for x in versie.split("."))
 
 
-def haal_online(pad: str, ref: str, *, wachttijden: tuple[int, ...] = (0, 2, 4, 8, 16)) -> bytes:
-    """Bronbestand van GitHub op ``ref`` (commit of branch)."""
-    url = RAW.format(repo=BRON_REPO, ref=ref, pad=pad)
+def forgejo_verzoek(repo: str, ref: str, pad: str) -> urllib.request.Request:
+    """Lees de privébron met de ingestelde Forgejo-leestoegang, ook buiten CI."""
+    url = (
+        f"https://git.medialeon.nl/api/v1/repos/{urllib.parse.quote(repo)}/raw/{urllib.parse.quote(pad)}"
+        f"?{urllib.parse.urlencode({'ref': ref})}"
+    )
+    verzoek = urllib.request.Request(url, headers={"User-Agent": "platform-contractcontrole/1.0"})  # noqa: S310
+    token = os.environ.get("FORGEJO_TOKEN")
+    if not token:
+        config = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+        tokenbestand = config / "forgejo" / "token"
+        if tokenbestand.is_file():
+            token = tokenbestand.read_text(encoding="utf-8").strip()
+    if token:
+        verzoek.add_unredirected_header("Authorization", f"token {token}")
+    return verzoek
+
+
+def haal_online(
+    pad: str, ref: str, *, bron_repo: str = BRON_REPO, wachttijden: tuple[int, ...] = (0, 2, 4, 8, 16)
+) -> bytes:
+    """Bronbestand op de gevraagde commit of branch."""
+    if bron_repo == CONTRACT_REPO:
+        verzoek = forgejo_verzoek(bron_repo, ref, pad)
+    else:
+        url = RAW.format(repo=BRON_REPO, ref=ref, pad=pad)
+        verzoek = urllib.request.Request(url)  # noqa: S310 - vaste Peil-bron
     laatste: Exception | None = None
     for wacht in wachttijden:
         if wacht:
             time.sleep(wacht)
         try:
-            with urllib.request.urlopen(url, timeout=30) as resp:  # noqa: S310 - vaste https-URL naar GitHub
+            with urllib.request.urlopen(verzoek, timeout=30) as resp:  # noqa: S310 - vaste bronnen
                 return bytes(resp.read())
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
-                raise NietGevonden(f"{url}: 404") from exc
+                raise NietGevonden(f"{verzoek.full_url}: 404") from exc
+            if exc.code in (401, 403):
+                raise Onbereikbaar(f"{verzoek.full_url}: leestoegang geweigerd (HTTP {exc.code})") from exc
             laatste = exc
         except (urllib.error.URLError, TimeoutError) as exc:
             laatste = exc
-    raise Onbereikbaar(f"{url}: niet op te halen ({laatste})")
+    raise Onbereikbaar(f"{verzoek.full_url}: niet op te halen ({laatste})")
 
 
 def haal_lokaal(bron_map: Path, pad: str, ref: str | None) -> bytes:

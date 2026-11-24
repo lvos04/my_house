@@ -8,15 +8,18 @@ Drie lagen:
    alleen een waarschuwing (hier getoetst met een tijdelijke git-repo als bron, dus ook in CI);
 3. **tegen de echte bron** als ``ai-server-manager`` naast deze repo staat (of ``MH_CONTRACT_BRON`` ernaar wijst). Staat
    die er niet, dan wordt alleen deze laag overgeslagen — nooit als geslaagd gemeld. In CI doet de stap
-   ``tools/contract_kopie.py vergelijk --online`` hetzelfde tegen GitHub.
+   ``tools/contract_kopie.py vergelijk --online`` hetzelfde tegen Forgejo.
 """
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import shutil
 import subprocess
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 import contract_kopie as ck
@@ -66,7 +69,7 @@ def test_kopie_heeft_de_gepinde_sha256(repo: Path) -> None:
 def test_kopie_is_contract_1_3_met_conformiteitslijst(repo: Path) -> None:
     herkomst = json.loads((repo / ck.HERKOMST).read_text(encoding="utf-8"))
     assert herkomst["versie"] == VERWACHTE_VERSIE
-    assert herkomst["bron_repo"] == "lvos04/ai-server-manager"
+    assert herkomst["bron_repo"] == "leon/ai-server-manager"
     contract = (repo / ck.MAP / "PLATFORM_CONTRACTEN.md").read_bytes()
     assert b"Versie: `contracts 1.3`" in contract
     lijst = (repo / ck.MAP / "CONTRACT_1.3_CONFORMITEIT.md").read_text(encoding="utf-8")
@@ -171,3 +174,43 @@ def test_kopie_is_byte_gelijk_aan_de_echte_bron_op_de_gepinde_commit(repo: Path)
         pytest.skip("ai-server-manager staat niet naast deze repo (zet MH_CONTRACT_BRON); CI vergelijkt online")
     fouten, _ = ck.vergelijk(repo, bron_map, online=False)
     assert fouten == []
+
+
+@pytest.mark.parametrize("afwijking", [False, True])
+def test_online_contractcontrole_op_forgejo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, afwijking: bool) -> None:
+    config = tmp_path / "forgejo"
+    config.mkdir()
+    (config / "token").write_text(tmp_path.name, encoding="utf-8")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("FORGEJO_TOKEN", raising=False)
+    toegang = tmp_path.name
+    if afwijking:
+        toegang += "-ci"
+        monkeypatch.setenv("FORGEJO_TOKEN", toegang)
+
+    docs = ck.REPO_ROOT / ck.MAP
+    pin = str(ck.lees_herkomst(ck.REPO_ROOT)["bron_commit"])
+    pins = dict.fromkeys(["PLATFORM_CONTRACTEN.md", "CONTRACT_1.3_CONFORMITEIT.md"], pin)
+    tak = "ccr-c133d7a0-kuz1cv"
+    gelezen = set()
+
+    def bron(verzoek: urllib.request.Request, timeout: int) -> io.BytesIO:
+        url = urllib.parse.urlsplit(verzoek.full_url)
+        naam = Path(url.path).name
+        assert url.scheme == "https" and url.netloc == "git.medialeon.nl"
+        assert url.path == f"/api/v1/repos/leon/ai-server-manager/raw/docs/platform-v2/{naam}"
+        assert verzoek.get_header("Authorization") == f"token {toegang}"
+        assert "Authorization" not in verzoek.headers  # leestoegang gaat niet mee bij een redirect
+        assert verzoek.get_header("User-agent")
+        assert timeout > 0
+        [ref] = urllib.parse.parse_qs(url.query)["ref"]
+        assert ref in (pins[naam], tak)
+        gelezen.add((naam, ref))
+        inhoud = (docs / naam).read_bytes()
+        return io.BytesIO(inhoud + b" " if afwijking and ref == pin else inhoud)
+
+    monkeypatch.setattr(urllib.request, "urlopen", bron)
+    assert ck.main(["vergelijk", "--online"]) == int(afwijking)
+    assert set(pins.items()) <= gelezen
+    if not afwijking:
+        assert {(naam, tak) for naam, ref in pins.items() if ref == pin} <= gelezen

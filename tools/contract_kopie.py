@@ -2,7 +2,7 @@
 """Byte-gelijke kopie van het platformcontract bewaken (contract 1.3, kop en §10; C1.3-ALG-01, C1.3-MH-01).
 
 ``docs/platform-v2/PLATFORM_CONTRACTEN.md`` en ``docs/platform-v2/CONTRACT_<versie>_CONFORMITEIT.md`` zijn
-**byte-gelijk** aan de bron in ``lvos04/ai-server-manager`` op een vaste bron-commit. ``CONTRACT_HERKOMST.json``
+**byte-gelijk** aan de bron in ``leon/ai-server-manager`` op een vaste bron-commit. ``CONTRACT_HERKOMST.json``
 (zelfde map) pint de versie, de bron-commit en de sha256 van beide bestanden. Een kopie wordt nooit lokaal aangepast,
 ook niet om een link te repareren; een nieuwe kopie overnemen is een stap van de orkestratie (``bijwerken``).
 
@@ -19,6 +19,7 @@ Opdrachten (alleen de standaardbibliotheek):
 ``bijwerken --bron <checkout> --commit <40 hex> [--ref <branch>]``
     Kopieën en ``CONTRACT_HERKOMST.json`` opnieuw schrijven vanuit die checkout op die commit.
 
+Forgejo gebruikt FORGEJO_TOKEN of het bestand forgejo/token in de gebruikersconfiguratie.
 Uitgang 0 = in orde (eventueel met waarschuwingen), 1 = drift of fout, 2 = verkeerd gebruik.
 """
 
@@ -33,8 +34,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from kopie_bron import (  # noqa: E402 - pad hierboven
-    BRON_REPO,
     COMMIT,
+    CONTRACT_REPO,
     NietGevonden,
     Onbereikbaar,
     haal_lokaal,
@@ -81,8 +82,8 @@ def controleer(root: Path = REPO_ROOT) -> list[str]:
     bestanden = herkomst.get("bestanden")
     if not isinstance(versie, str) or not re.fullmatch(r"\d+\.\d+", versie):
         return [f"{HERKOMST}: 'versie' moet de vorm 1.3 hebben"]
-    if herkomst.get("bron_repo") != BRON_REPO:
-        fouten.append(f"{HERKOMST}: bron_repo moet {BRON_REPO} zijn")
+    if herkomst.get("bron_repo") != CONTRACT_REPO:
+        fouten.append(f"{HERKOMST}: bron_repo moet {CONTRACT_REPO} zijn")
     if not isinstance(commit, str) or not COMMIT.fullmatch(commit):
         fouten.append(f"{HERKOMST}: bron_commit moet een volledige commit-hash (40 hex) zijn")
     verwacht = {CONTRACT, conformiteit(versie)}
@@ -130,7 +131,7 @@ def vergelijk(root: Path, bron_map: Path | None, online: bool) -> tuple[list[str
 
         def haal(r: str | None, pad: str, waar: Path | None = waar) -> bytes:
             if waar is None:
-                return haal_online(pad, r or commit)
+                return haal_online(pad, r or commit, bron_repo=CONTRACT_REPO)
             return haal_lokaal(waar, pad, r)
 
         for naam in (CONTRACT, conformiteit(versie)):
@@ -196,7 +197,7 @@ def bijwerken(root: Path, bron_map: Path, commit: str, ref: str | None) -> list[
         pins[naam] = {"bron_pad": f"{BRON_MAP}/{naam}", "sha256": sha256(data)}
     herkomst = {
         "versie": versie,
-        "bron_repo": BRON_REPO,
+        "bron_repo": CONTRACT_REPO,
         "bron_commit": commit,
         "bron_ref": ref or "",
         "bestanden": pins,
@@ -211,9 +212,13 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Byte-gelijke kopie van het platformcontract bewaken.")
     sub = p.add_subparsers(dest="opdracht", required=True)
     sub.add_parser("controleer", help="offline: gepinde sha256, versie en naam van de conformiteitslijst")
-    v = sub.add_parser("vergelijk", help="tegen de bron (lokale checkout en/of GitHub)")
+    v = sub.add_parser("vergelijk", help="tegen de bron (lokale checkout en/of Forgejo)")
     v.add_argument("--bron", type=Path, help="map van een checkout van ai-server-manager")
-    v.add_argument("--online", action="store_true", help="tegen GitHub: gepinde commit en bronbranch")
+    v.add_argument(
+        "--online",
+        action="store_true",
+        help="vergelijk pin en bronbranch op Forgejo (FORGEJO_TOKEN of lokaal forgejo/token)",
+    )
     b = sub.add_parser("bijwerken", help="kopieën opnieuw schrijven vanuit een checkout")
     b.add_argument("--bron", type=Path, required=True)
     b.add_argument("--commit", required=True)

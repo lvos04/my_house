@@ -18,6 +18,8 @@ bewaart database en logboeken). De Python met `apps/api` en `integrations` komt 
 anders `apps/api/.venv/bin/python`, anders `python3`. Chromium installeer je met
 `npx playwright install chromium`.
 
+Gebruik de ingestelde ene Playwright-werker. Alle tests delen dezelfde API en testdatabase. De offlineproef stopt die API tijdelijk.
+
 Rapporten en traces komen in `e2e/.output/` (niet in git). In CI draait de job `e2e` in
 `.forgejo/workflows/ci.yml`.
 
