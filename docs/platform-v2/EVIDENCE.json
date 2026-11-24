@@ -45,9 +45,9 @@
   "validatie": "Unit-getest; Sim-getest; NIET GEVALIDEERD (hardware)",
   "bewijs": "code-HEAD b0a6a98 (VERSION 0.2.0); baseline deze sessie: pytest integrations 188 geslaagd/1 overgeslagen, pytest apps/api 319/319 (run 2; run 1 hing op een flaky test), vitest 164/164, ruff schoon, validate_compose.sh ok (INVENTARIS.md §15); repo-CI run 42587407462 op 9c9d02f geslaagd (backend, web, e2e, compose, stack); energy.py; worker/aggregates.py; models.py:203-221 (logical_roles, device_bindings); tests/test_core_logic.py::test_counter_reset_and_duplicates_and_gap, ::test_dst_day_has_25_hours; tests/test_ws_energy_aggregates.py::test_reset_only_accepted_when_following_readings_rise_from_new_base, ::test_dst_days_are_complete_and_counted_in_real_hours; tests/test_api.py::test_energy_summary_no_double_count_and_replacement; DELTA_MATRIX.md §1 B06-005, §4 EX28. apps/api/tests/test_ws_energy_aggregates.py::test_bronkwaliteit controleert de opgeslagen kwaliteit van P1 en beide deelmeters via GET energy/live.",
   "blokkade": "Echte P1/Energy Socket/kWh-meter (D14; kWh-meter mogelijk nog niet geplaatst). Levering aan de Hub/B14 via de bestaande leesroutes met viewer-token (energy/summary|live|export, met quality; tweede lezing DELTA_MATRIX.md §11 W1); een push-event alleen als de Hub-adapter erom vraagt (P3-04, optioneel).",
-  "opmerking": "Validatie (toelichting, tot 2026-11-10 in het veld validatie): Bestaand in code + Unit-getest + Sim-getest; levering aan de Hub kan via bestaande leesroutes; NIET GEVALIDEERD (hardware). Geen verbruik per binnenunit (gedeelde compressor); de Hub rekent niet opnieuw.",
+  "opmerking": "alleen NAS-test nodig voor de proef met fysieke meters op de bestaande energieleesroutes (D14). Validatie (toelichting, tot 2026-11-10 in het veld validatie): Bestaand in code + Unit-getest + Sim-getest; levering aan de Hub kan via bestaande leesroutes; NIET GEVALIDEERD (hardware). Geen verbruik per binnenunit (gedeelde compressor); de Hub rekent niet opnieuw.",
   "repo": "my_house",
-  "bijgewerkt": "2026-11-20"
+  "bijgewerkt": "2026-11-24"
  },
  {
   "id": "B06-006",
@@ -185,9 +185,9 @@
   "validatie": "Sim-getest; Unit-getest; NIET GEVALIDEERD (hardware); NIET GEVALIDEERD (echte NAS)",
   "bewijs": "commits d5a7f9f (gepinde kopie Peil 1.1.1 uit ai-server-manager@4ff4b3f, HERKOMST.json, tools/peil_kopie.py), 322a00c (web: rand -ink, ondernavigatie op labelbreedte zonder extra gewicht), 13520e2 (Android: PeilTokens.kt, ondernavigatie, 40 Paparazzi-afdrukken opnieuw); ontwerpreview docs/ontwerp/PEIL_REVIEW.md §11 en docs/screenshots/peil/review/peil-1.1.1-samenvatting.json (28 schermen × 6 breedtes × 2 thema's: axe 0, tekst < 4,5:1 0, overloop 0, inhoud buiten zijn element 0); browsertests e2e/11-peil.e2e.ts; GitHub Actions op 0cead2c: CI-run 42779782484 geslaagd (backend 188+370 tests, 2 overgeslagen = vergelijking met een lokale bronrepo, die CI online doet; web 292; e2e 26; compose; images, scan en rooktest + 5 browsertests achter nginx) en Android-run 42779782488 geslaagd (PeilTokens --check, unit-tests + Paparazzi-vergelijking, debug- en release-APK); lokaal: pytest apps/api 372, integrations 188 (+1 overgeslagen), vitest 292, e2e 26, infra-unittests 23 (ook busybox), Android core 82 + app 109",
   "blokkade": "NIET GEVALIDEERD (hardware): echte schermlezer (TalkBack/NVDA) en echte telefoon in fel licht niet getest. NIET GEVALIDEERD (echte NAS): de app achter een echte TrueNAS niet getest.",
-  "opmerking": "Peil 1.1.1 overgenomen via de nieuwe gepinde kopie (C1.3-ALG-05), niet lokaal omzeild. Alleen uiterlijk: functies, routes, teksten en API gelijk (OpenAPI-driftcontrole groen). Alles Sim-getest in Chromium (Playwright) en Paparazzi (layoutlib).",
+  "opmerking": "alleen NAS-test nodig. Peil 1.1.1 overgenomen via de nieuwe gepinde kopie (C1.3-ALG-05), niet lokaal omzeild. Alleen uiterlijk: functies, routes, teksten en API gelijk (OpenAPI-driftcontrole groen). Alles Sim-getest in Chromium (Playwright) en Paparazzi (layoutlib).",
   "repo": "my_house",
-  "bijgewerkt": "2026-11-10"
+  "bijgewerkt": "2026-11-24"
  },
  {
   "id": "REVIEW-my_house-contract-1.3",
