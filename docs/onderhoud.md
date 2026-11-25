@@ -188,7 +188,7 @@ beginnen voor verzoeken die vanaf de eerste volledige seconde na bevestiging zij
 1. Meld je in de webapp met je wachtwoord aan als beheerder. Open **Systeem › Herstellen en verhuizen**. Kies je bewaarde volledige export (`.shcbak`), vul de wachtwoordzin in en kies **Uploaden en controleren**.
 2. Kies **Zelfde woning** en **Herstelproef uitvoeren**. De app zet de export terug in een tijdelijke database. Zorg voor voldoende vrije ruimte voor deze kopie.
 3. Open **Resultaat per tabel**. Controleer de aantallen en de status **Komt overeen**. Lees ook hoeveel apparaatsleutels opnieuw moeten worden ingelezen of gekoppeld. Een verschil vraagt om onderzoek vóór terugzetten. Kies **Annuleren** om de oefening te beëindigen. Bij een echte herstelactie volg je de stappen van [Herstellen](#herstellen).
-4. Meldt de proef een sleutelverschil, bewaar het sleutelbestand van de bron bij de export voor de beheerder. [Hoofdsleutel vervangen](#hoofdsleutel-vervangen)
+4. Meldt de proef een sleutelverschil, bewaar het bijbehorende sleutelbestand apart van de export in je wachtwoordmanager. [Hoofdsleutel vervangen](#hoofdsleutel-vervangen)
 
 ## Verhuizen
 
@@ -222,7 +222,7 @@ aanmaken. Schema's en profielen gaan dan niet mee.
 
 ## Hoofdsleutel vervangen
 
-Een nieuwe Custom App op lege opslag maakt een eigen hoofdsleutel. Bewaar de volledige bronexport, de originele bronopslag en het bijbehorende sleutelbestand. De hoofdsleutel en de wachtwoordzin waarmee je de export opent hebben elk een eigen functie. Voor het opnieuw versleutelen van teruggezette gegevens gebruik je het bestand met de **oude** hoofdsleutel.
+Voor een geplande sleutelwissel volg je de [overstap naar een afzonderlijke Custom App](#overstappen-van-een-bestaande-compose-installatie). De nieuwe app maakt op lege opslag een eigen hoofdsleutel. Bewaar de volledige bronexport, de originele bronopslag en het bijbehorende sleutelbestand. De hoofdsleutel en de wachtwoordzin waarmee je de export opent hebben elk een eigen functie. Voor het opnieuw versleutelen van teruggezette gegevens gebruik je het bestand met de **oude** hoofdsleutel.
 
 1. Herstel de volledige export via **Systeem › Herstellen en verhuizen**. Log daarna opnieuw in met het wachtwoord van een beheerder uit de export. Laat de veilige modus aan.
 2. Open in diezelfde sectie **Apparaatsleutels herstellen**. Kies bij **Bestand met de oude hoofdsleutel** de bewaarde kopie van `secrets/app-key` van de bron. Bij een historische meercontainerbron heet dit bestand `secrets/secret_key`. Staat de sleutel als tekst in je wachtwoordmanager, bewaar dan op je vertrouwde beheercomputer tijdelijk een UTF-8-tekstbestand met uitsluitend die waarde. Kies **Oude hoofdsleutel uploaden**. Verwijder daarna de tijdelijke kopie op de beheercomputer en bewaar het origineel in de wachtwoordmanager.
