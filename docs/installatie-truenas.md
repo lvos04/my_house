@@ -20,11 +20,9 @@ Gebruik een aparte dataset voor de Custom App. De vorige Compose-installatie hee
 
 Installatie op een echte NAS en toegang tot een fysieke dongle zijn nog te toetsen (D01 en D13).
 
-## Alleen voor ontwikkeling
+## Android-app: eigen release-sleutel
 
-De lokale proefstack gebruikt `deploy/dev/compose.yaml` en `.env.example` met eigen testgegevens. De scripts `install.sh` en `render_truenas.py` onder `infra/scripts` en de historische procedure ‘Install via YAML’ horen bij die ontwikkelproeven.
-
-### Android-app: eigen release-sleutel
+Deze ontwikkelstappen zijn voor de beheerder die een Android-release ondertekent.
 
 Android installeert een update alleen als die met **dezelfde sleutel** is ondertekend als de geïnstalleerde app. Daarom ondertekent GitHub de APK met jouw eigen release-sleutel. Die sleutel staat nooit in de broncode, alleen in de geheimen van je GitHub-repository.
 
@@ -58,3 +56,7 @@ Zolang je deze sleutel niet hebt ingesteld, bevat een release **geen APK** (wel 
 4. Trek bij **Account › Telefoons** de oude koppeling van die telefoon in.
 
 Daarna installeert elke nieuwe versie gewoon over de oude heen.
+
+## Alleen voor ontwikkeling
+
+De lokale proefstack gebruikt `deploy/dev/compose.yaml` en `.env.example` met eigen testgegevens. De scripts `install.sh` en `render_truenas.py` onder `infra/scripts` en de historische procedure ‘Install via YAML’ horen bij die ontwikkelproeven.
