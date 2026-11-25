@@ -118,7 +118,12 @@ API en worker als echte processen tegen PostgreSQL, met een nagebootste HomeWiza
 - **GitHub:** echte runs van `release.yml`, `edge.yml` en `audit.yml`, cosign-ondertekening en Dependabot-PR's.
 - **Cloudflare:** een verlopen Access-sessie op een geïnstalleerde PWA, en split-horizon DNS met een eigen reverse proxy.
 
-**Afzonderlijke softwareproef.** De Android-emulatorproef voor de bedienweigering staat open. Hiervoor is een emulator met KVM nodig.
+**Afzonderlijke softwareproef: bedienweigering op een Android-emulator (2026-11-25).** `apps/android/app/src/androidTest/java/nl/huis/smarthome/BedienweigeringTest.kt` stuurt op een emulator een lampgroep- en een zoneopdracht naar een nepserver op loopback. De nepserver weigert beide met 409 `device_not_tested`. Gecontroleerd: één verzoek per opdracht zonder herhaling, en de app toont de vertaalde weigering uit `strings.xml` in het Nederlands en het Engels ("Er is geen bedienopdracht verstuurd."). Alleen testgegevens, geen echt apparaat, geen NAS en geen account.
+
+- Omgeving: KVM bruikbaar (`emulator -accel-check`, exit 0), eigen tijdelijke AVD met `system-images;android-35;google_apis;x86_64` (Android 15, API 35, x86_64), gestart met `emulator -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -gpu swiftshader_indirect -accel on`. Na de proef is de emulator gestopt en de AVD verwijderd.
+- `ANDROID_SERIAL=<emulator> ./gradlew --no-daemon --max-workers=4 -Dorg.gradle.jvmargs=-Xmx2g :app:connectedDebugAndroidTest`: exit 0, 1 test, 0 fouten, 0 overgeslagen.
+- Tegenproef: met de herkenning van `device_not_tested` in `CoreTexts.resourceFor` tijdelijk uitgeschakeld faalde dezelfde emulatorproef (exit 1, de servertekst verscheen in plaats van de vertaalde weigering). Daarna hersteld en opnieuw groen.
+- Grens: de proef dekt de app-kant van de weigering op een emulator. Het scherm zelf, een echt toestel (D14), de echte apparaten (D12, D13), de echte NAS en het account zijn hiermee niet getest. De Forgejo-CI draait deze emulatorproef niet.
 
 ## Eerste test op je NAS (checklist)
 

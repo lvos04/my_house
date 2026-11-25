@@ -44,6 +44,7 @@ android {
         targetSdk = 35
         versionCode = appVersionCode
         versionName = appVersionName
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -120,4 +121,9 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.mockito.core)
+
+    // Emulatorproef van de bedienweigering (docs/testlog.md): :app:connectedDebugAndroidTest.
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.okhttp.mockwebserver)
 }
