@@ -80,7 +80,8 @@ class Installatie(unittest.TestCase):
         self.assertIn(b"Terugval-ID", ontbreekt.stderr)
 
     def test_formulier_is_de_installatieroute(self):
-        for name in ("README.md", "docs/installatie-truenas.md"):
+        for name in ("README.md", "docs/installatie-truenas.md", "docs/problemen-oplossen.md", "docs/onderhoud.md",
+                     "docs/platform-v2/03_INSTALLATIE/I05_MY_HOUSE.md"):
             sections = (ROOT / name).read_text().lower().split("\n## ")
             text = "\n".join(s for s in sections if not s.startswith("alleen voor ontwikkeling\n"))
             self.assertIn("standaard custom app", text)

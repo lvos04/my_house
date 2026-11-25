@@ -10,7 +10,7 @@ Kies voor de eerste installatie een lege dataset voor `/appdata`. De voorgesteld
 
 Maak vóór de update een volledige, gecontroleerde back-up. Stop de app en maak een snapshot van de gehele dataset, inclusief `secrets` en de Zigbee-map. Kies de nieuwe vaste tag in het formulier en leg tegelijk de bijbehorende startmodule uit **Opslag en formulier** vast, ook bij een bestaande installatie. Laat deze configuratie bij een terugval staan en gebruik voor de kloon de afzonderlijke terugvalapp. De bewaker controleert de pre-migratiedump voordat hij de transactie met de schemawijzigingen start.
 
-Bij een ontbrekende sleutel of onherkende indeling stopt de app. Bewaar de dataset en de snapshot. Maak op aparte opslag een schrijfbare kloon van de snapshot. Laat de oude app gestopt. Voer op die kloon met de **huidige** image `shc-api prepare-connector-fallback` uit via het eenmalige startprogramma. De stappen voor het formulier staan onder [Offline terugvalkopie voorbereiden](onderhoud.md#offline-terugvalkopie-voorbereiden).
+Bij een ontbrekende sleutel of onherkende indeling stopt de app. Bewaar de dataset en de snapshot. Maak op aparte opslag een schrijfbare kloon van de snapshot. Laat de oude app gestopt. Kies voor die kloon in het formulier de **huidige** image en het eenmalige startprogramma voor terugval. Dat voert intern `shc-api prepare-connector-fallback` uit. De stappen voor het formulier staan onder [Offline terugvalkopie voorbereiden](onderhoud.md#offline-terugvalkopie-voorbereiden).
 
 Kies pas na de eindmelding **Terugvalkopie voorbereid. PostgreSQL is gestopt.** en exitcode 0 de vaste tag die bij de snapshot hoort. Stel vóór het aankoppelen van de kloon het alleen-lezen startbestand, het argument `terugval-app` en `SHC_TERUGVAL_ID` in zoals beschreven in de onderhoudsprocedure. Laat deze instellingen bij iedere start staan. Het startprogramma controleert de vrijgave op de aangekoppelde database voordat de historische diensten starten. Controleer aanmelding, woning, koppelingen, beheermeldingen en back-up.
 
@@ -20,7 +20,11 @@ Gebruik een aparte dataset voor de Custom App. De vorige Compose-installatie hee
 
 Installatie op een echte NAS en toegang tot een fysieke dongle zijn nog te toetsen (D01 en D13).
 
-## Android-app: eigen release-sleutel
+## Alleen voor ontwikkeling
+
+De lokale proefstack gebruikt `deploy/dev/compose.yaml` en `.env.example` met eigen testgegevens. De scripts `install.sh` en `render_truenas.py` onder `infra/scripts` en de historische procedure ‘Install via YAML’ horen bij die ontwikkelproeven.
+
+### Android-app: eigen release-sleutel
 
 Android installeert een update alleen als die met **dezelfde sleutel** is ondertekend als de geïnstalleerde app. Daarom ondertekent GitHub de APK met jouw eigen release-sleutel. Die sleutel staat nooit in de broncode, alleen in de geheimen van je GitHub-repository.
 
@@ -54,7 +58,3 @@ Zolang je deze sleutel niet hebt ingesteld, bevat een release **geen APK** (wel 
 4. Trek bij **Account › Telefoons** de oude koppeling van die telefoon in.
 
 Daarna installeert elke nieuwe versie gewoon over de oude heen.
-
-## Alleen voor ontwikkeling
-
-De lokale proefstack gebruikt `deploy/dev/compose.yaml` en `.env.example` met eigen testgegevens. De scripts `install.sh` en `render_truenas.py` onder `infra/scripts` en de historische procedure ‘Install via YAML’ horen bij die ontwikkelproeven.

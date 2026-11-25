@@ -1,12 +1,14 @@
 # Architectuur
 
+De standaard Custom App bundelt de kerndiensten in één image. Het diagram hieronder beschrijft de meercontaineropstelling voor ontwikkeling en CI. [Architectuur van de alles-in-één-image](adr/ADR-0015-alles-in-een-gebouwd.md) · [Formuliervelden](../deploy/truenas/CUSTOM_APP.md)
+
 ```mermaid
 flowchart LR
   subgraph Telefoon & browser
     W[Web-app PWA]
     A[Android-app]
   end
-  subgraph Stack["TrueNAS Custom App (Compose)"]
+  subgraph Stack["Ontwikkelopstelling (Compose)"]
     subgraph edge["netwerk edge"]
       CF[cloudflared]
     end

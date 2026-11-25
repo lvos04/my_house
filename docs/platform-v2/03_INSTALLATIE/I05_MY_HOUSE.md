@@ -1,36 +1,36 @@
 # my_house Smart Home Control — installatie, update, test en herstel
 
 **Rol:** Eén eigen klimaat-, verlichting- en energieapp.  
-**Aanpak:** Installeer met echte apparaatgate.  
+**Aanpak:** Gebruik de standaard Custom App. Controleer de inbedrijfstelling per apparaat.
 **Bron:** https://github.com/lvos04/my_house.  
-**Versiebeleid:** v0.1.0 images my_house-api:0.1.0 en my_house-web:0.1.0; lees actuele repo docs.
+**Versiebeleid:** gebruik de alles-in-één-image zodra de vaste releasetag en registerdigest zijn gepubliceerd. [Formuliervelden](../../../deploy/truenas/CUSTOM_APP.md)
 
 ## 1. Vooraf controleren
 TrueNAS versie; Hue bridge, Gree modellen, HomeWizard lokale API, Zigbee dongle indien gekocht.
 
-**Toegang / netwerk:** Documentatie HTTP 8088 als LAN-only; Cloudflare Tunnel optioneel.
+**Toegang / netwerk:** Kies een vrije hostpoort voor de portal op het vertrouwde netwerk.
 
-**Data / mounts:** Compose stack met PostgreSQL, MQTT, API, worker, web, optioneel Zigbee2MQTT; dataset /mnt/<POOL>/apps/smart-home.
+**Data / mounts:** Kies voor de eerste installatie een lege dataset en koppel die aan `/appdata`. De image bevat PostgreSQL, MQTT, API, worker, web en optioneel Zigbee2MQTT.
 
 **Preflight-regels (niet overslaan):** TrueNAS-release en Docker-appconfig controleren; data-eigenaar bepalen; bestaande install herkennen; bezette ports en container netwerken vergelijken; herstelbare backup + exacte image pin eisen; secrets nooit in logs of screenshots; test op stille omgeving vóór productie.
 
 ## 2. Stappen in uitvoeringsvolgorde
 
-### Stap 1. Dataset en repository
-**Uitvoeren:** Maak apps/smart-home data+secrets; haal code/compose van gepinde tag en bekijk voor uitvoering; run install.sh voor secrets met expliciete bevestiging.
-**Verifiëren:** Secrets niet in Git of public paste; ACL correct.
+### Stap 1. Dataset en image
+**Uitvoeren:** Maak in TrueNAS een eigen lege dataset. Bewaar bij een overstap de oorspronkelijke opslag met haar snapshot en sleutels. Controleer het releasebewijs van de gekozen image.
+**Verifiëren:** De dataset en de vaste image zijn herkenbaar. Alleen de bedoelde diensten en de beheerder hebben toegang tot de benodigde gegevens.
 **Bewijs:** noteer NAS-versie, appimage digest, datum, gemaskeerde output, eventuele screenshot en status in Excel (ID `I05-05-01`).
 **Als dit mislukt:** stop hier; maak oorzaak en rollbackpad inzichtelijk. Geen volgende stap starten zolang deze test of de back-upgate rood is.
 
 ### Stap 2. Formulier standaard Custom App zonder Zigbee/tunnel
-**Uitvoeren:** Gebruik `infra/scripts/render_truenas.py` volgens docs/installatie-truenas.md met NAS LAN-IP; niet blind voorbeeld-IP gebruiken.
-**Verifiëren:** YAML valide, alleen beoogde volumes/port 8088.
+**Uitvoeren:** Open **Apps › Discover Apps › Custom App**. Vul de image, portal, poort en opslag in volgens de [formulierhandleiding](../../../deploy/truenas/CUSTOM_APP.md).
+**Verifiëren:** De dataset is aan `/appdata` gekoppeld. Alleen de gekozen webpoort is gepubliceerd.
 **Bewijs:** noteer NAS-versie, appimage digest, datum, gemaskeerde output, eventuele screenshot en status in Excel (ID `I05-05-02`).
 **Als dit mislukt:** stop hier; maak oorzaak en rollbackpad inzichtelijk. Geen volgende stap starten zolang deze test of de back-upgate rood is.
 
 ### Stap 3. TrueNAS Install via formulier standaard Custom App
-**Uitvoeren:** Custom App YAML, pinned api/web images, rest van stack volgens repo, geen zelfbedachte image.
-**Verifiëren:** Alle core services healthy op TrueNAS.
+**Uitvoeren:** Vraag de startmodule op via het formulier en lees de naam in het logboek. Leg de module vast bij de gekozen tag en digest en sla het formulier met die module op.
+**Verifiëren:** De digest komt overeen met het releasebewijs, de healthcheck is groen en aanmelden via de portal lukt.
 **Bewijs:** noteer NAS-versie, appimage digest, datum, gemaskeerde output, eventuele screenshot en status in Excel (ID `I05-05-03`).
 **Als dit mislukt:** stop hier; maak oorzaak en rollbackpad inzichtelijk. Geen volgende stap starten zolang deze test of de back-upgate rood is.
 
@@ -53,13 +53,13 @@ TrueNAS versie; Hue bridge, Gree modellen, HomeWizard lokale API, Zigbee dongle 
 **Als dit mislukt:** stop hier; maak oorzaak en rollbackpad inzichtelijk. Geen volgende stap starten zolang deze test of de back-upgate rood is.
 
 ### Stap 7. Zigbee optioneel
-**Uitvoeren:** Installeer eerst dongle/sensor; `ls -l /dev/serial/by-id/`; gebruik adapter driver overeenkomend hardware, add zigbee compose flag.
+**Uitvoeren:** Selecteer de stick in **Devices** en kies de bijbehorende adapter volgens de [formulierhandleiding](../../../deploy/truenas/CUSTOM_APP.md#zigbee-stick-alleen-als-je-er-een-hebt).
 **Verifiëren:** MQTT connect en temperatuursensor met battery/stale alarms.
 **Bewijs:** noteer NAS-versie, appimage digest, datum, gemaskeerde output, eventuele screenshot en status in Excel (ID `I05-05-07`).
 **Als dit mislukt:** stop hier; maak oorzaak en rollbackpad inzichtelijk. Geen volgende stap starten zolang deze test of de back-upgate rood is.
 
 ### Stap 8. Android en restore
-**Uitvoeren:** Download gepinde APK uit eigen GitHub release, QR pair, token revoke; export encrypted back-up en herstel op tweede stack.
+**Uitvoeren:** Koppel de telefoon via **Account › Telefoons** en toets intrekken. Maak in de webapp een volledige versleutelde export en volg op een afzonderlijke Custom App de [herstelwizard](../../onderhoud.md#herstellen).
 **Verifiëren:** Telefoon en web werken na reboot; verhuizing zonder dataverlies.
 **Bewijs:** noteer NAS-versie, appimage digest, datum, gemaskeerde output, eventuele screenshot en status in Excel (ID `I05-05-08`).
 **Als dit mislukt:** stop hier; maak oorzaak en rollbackpad inzichtelijk. Geen volgende stap starten zolang deze test of de back-upgate rood is.
@@ -72,7 +72,7 @@ Echte TrueNAS-app start, authenticatie, persistente data na herstart, firewall/p
 
 ## 4. Terugdraaien / verwijderen
 1. Schakel automatisering en ingest uit. Bewaar audit en logs en stop de nieuwe app.
-2. Zet de passende database of snapshot terug op aparte opslag. Volg [Offline terugvalkopie voorbereiden](../../onderhoud.md#offline-terugvalkopie-voorbereiden). De huidige `shc-api prepare-connector-fallback` moet op die kopie exitcode 0 geven. Bij een fout blijft de oude worker uit.
+2. Zet de passende database of snapshot terug op aparte opslag. Volg [Offline terugvalkopie voorbereiden](../../onderhoud.md#offline-terugvalkopie-voorbereiden). Kies het eenmalige startprogramma van de huidige image in het formulier en controleer de eindmelding en exitcode 0 voor die kopie. Bij een fout blijft de oude worker uit.
 3. Start de bijpassende vaste image via het alleen-lezen startbestand met `terugval-app` en het Terugval-ID van de kopie. Controleer aanmelding, clients en gegevensintegriteit.
 4. Leg in het incidentrapport vast welke gegevens zijn teruggezet. Voor het verwijderen van gegevens bij uitfasering is afzonderlijke bevestiging nodig.
 

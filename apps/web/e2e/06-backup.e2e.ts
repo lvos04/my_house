@@ -1,14 +1,9 @@
-// Flow 6: back-ups. Set the automatic backup (passphrase, hour, how many, daily dump + weekly full
-// export), make a backup now, download it, and check it with "Herstellen en verhuizen" step 1 (upload
-// and verify): a wrong passphrase is refused in Dutch, the right one shows what is in the file. Nothing
-// is restored. Second test: the push address for messages outside the app (Systeem › Meldingen buiten
-// de app): refused in Dutch, set, test message, removed.
 import { readFile } from 'node:fs/promises';
-import { expect, HOME_NAME, test } from './helpers';
+import { ADMIN, expect, HOME_NAME, seed, test } from './helpers';
 
 const PASSPHRASE = 'correct paard batterij niet';
 
-test('back-up: instellingen, nu maken, downloaden en controleren via upload', async ({ adminPage: page }, testInfo) => {
+test('back-up maken, herstel oefenen, terugzetten en de oude hoofdsleutel inlezen', async ({ adminPage: page, api }, testInfo) => {
   test.setTimeout(180_000);
   await page.goto('/systeem#backups');
   const section = page.getByRole('region', { name: 'Back-ups en bewaren' });
@@ -45,6 +40,8 @@ test('back-up: instellingen, nu maken, downloaden en controleren via upload', as
   await settings.getByRole('button', { name: 'Opslaan' }).click();
   await expect(fact('Wat')).toHaveText('Elke dag een volledige export');
   await expect(fact('Laatste automatische dump')).toHaveCount(0);
+
+  const { sleutel } = seed<{ sleutel: string }>('oude_koppeling', { home_id: (await api.home()).id });
 
   // Make a backup now (runs in a separate process on the server).
   const manual = section.getByRole('form', { name: 'Back-up maken' });
@@ -94,6 +91,7 @@ test('back-up: instellingen, nu maken, downloaden en controleren via upload', as
   await expect(restore.getByRole('heading', { name: 'Herstelproef in tijdelijke database' })).toBeVisible({ timeout: 60_000 });
   await expect(restore.getByRole('alert')).toContainText('De back-up komt van deze installatie');
   await expect(restore.getByRole('button', { name: 'Nieuwe app vullen' })).toBeDisabled();
+  await expect(restore.getByRole('status')).toContainText('Apparaatsleutels opnieuw inlezen of koppelen: 1');
   await restore.getByText('Resultaat per tabel').click();
   await expect(restore.getByRole('row', { name: /^homes / })).toContainText('Komt overeen');
 
@@ -109,6 +107,41 @@ test('back-up: instellingen, nu maken, downloaden en controleren via upload', as
   // Cancel: the upload is discarded and nothing changed.
   await restore.getByRole('button', { name: 'Annuleren' }).click();
   await expect(restore.getByRole('form', { name: 'Back-up uploaden' })).toBeVisible();
+  // Nu dezelfde export werkelijk terugzetten. De beheerder bewaart eerst de geverifieerde doelkopie.
+  await upload.getByLabel('Back-upbestand (.shcbak)').setInputFiles(file);
+  await upload.getByLabel('Wachtwoordzin van de back-up').fill(PASSPHRASE);
+  await upload.getByRole('button', { name: 'Uploaden en controleren' }).click();
+  await restore.getByRole('button', { name: 'Doelback-up maken en vergelijken' }).click();
+  const [rollback] = await Promise.all([
+    page.waitForEvent('download'),
+    restore.getByRole('link', { name: 'Geverifieerde doelback-up downloaden' }).click(),
+  ]);
+  expect(rollback.suggestedFilename()).toMatch(/\.shcbak$/);
+  await restore.getByRole('checkbox').check();
+  await restore.getByRole('button', { name: 'Herstellen', exact: true }).click();
+  await expect(page.getByText(/^(Herstel klaar|Klaar\. Log in)/)).toBeVisible({ timeout: 60_000 });
+
+  await page.goto('/systeem#herstel');
+  await page.getByLabel('Gebruikersnaam').fill(ADMIN.username);
+  await page.getByLabel('Wachtwoord', { exact: true }).fill(ADMIN.password);
+  await page.getByRole('button', { name: 'Inloggen' }).click();
+  await expect(page.getByRole('button', { name: 'Inloggen' })).toHaveCount(0);
+  await page.goto('/systeem#herstel');
+  const release = restore.getByRole('button', { name: 'Veilige modus opheffen' });
+  await expect(release).toBeVisible();
+  const rekey = restore.getByRole('form', { name: 'Apparaatsleutels herstellen' });
+  const keyInput = rekey.getByLabel('Bestand met de oude hoofdsleutel');
+  const keyFile = { name: 'app-key', mimeType: 'application/octet-stream', buffer: Buffer.from(sleutel) };
+  await keyInput.setInputFiles(keyFile);
+  await rekey.getByRole('button', { name: 'Oude hoofdsleutel uploaden' }).click();
+  await expect(rekey.getByRole('status')).toHaveText('Opnieuw versleuteld: 1. Al bruikbaar: 0. Opnieuw te koppelen: 0. Opnieuw in te stellen: 0.');
+  await expect(keyInput).toHaveValue('');
+  await keyInput.setInputFiles(keyFile);
+  await rekey.getByRole('button', { name: 'Oude hoofdsleutel uploaden' }).click();
+  await expect(rekey.getByRole('status')).toHaveText('Opnieuw versleuteld: 0. Al bruikbaar: 1. Opnieuw te koppelen: 0. Opnieuw in te stellen: 0.');
+  page.once('dialog', (dialog) => void dialog.accept());
+  await release.click();
+  await expect(release).toHaveCount(0);
 });
 
 test('meldingen buiten de app: adres weigeren, instellen, testbericht en verwijderen', async ({ adminPage: page }) => {

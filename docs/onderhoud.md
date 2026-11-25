@@ -1,14 +1,6 @@
 # Onderhoud, back-up, herstel en verhuizen
 
-In deze handleiding is `<root>` de map met je gegevens (bijvoorbeeld `/mnt/tank/apps/smart-home`) en
-`<api-container>` de naam van de API-container. Die vind je met `docker ps`; op TrueNAS heet hij
-meestal `ix-smart-home-api-1` (de andere containers heten `…-worker-1`, `…-db-1` enzovoort).
-
-Commando's met `shc-api` voer je uit in de API-container, bijvoorbeeld
-`docker exec -it <api-container> shc-api verify-backup /backups/<bestand>.shcbak`. In die container is
-`<root>/backups/` te zien als `/backups` en `<root>/app/` als `/data`. Vraagt een commando om de
-wachtwoordzin van de back-up, dan kun je die ook meegeven met `--passphrase-file <pad>` of
-`--passphrase-stdin`.
+Gebruik als beheerder de webapp voor back-ups, herstelproeven en het inlezen van een bewaarde oude hoofdsleutel. Installeren, bijwerken en terugdraaien gaan via het TrueNAS-formulier voor de standaard Custom App met één image. [Formuliervelden](../deploy/truenas/CUSTOM_APP.md)
 
 ## Updates en terugdraaien
 
@@ -30,28 +22,22 @@ Gebruik voor terugval naar een oudere versie de onderstaande procedure.
 
 **Terugdraaien.** Volg [Offline terugvalkopie voorbereiden](#offline-terugvalkopie-voorbereiden). Kies pas na exitcode 0 de vorige versie met precies die kopie op aparte opslag. Bij een fout blijft de oude worker uit. Controleer de woning en de versleutelde koppelingen.
 
-**Lokale herstelproef voor een pre-migratiedump.** Bewaar dump en controlesom in dezelfde map. `shc-api verify-migration-dump <dump> --out <nieuw.sql>` valideert de SHA-256, de gzip-integriteit en het einde van de SQL-export. Het uitvoerbestand moet nieuw zijn. Kies een ongebruikte databasenaam. Voer het aanmaken en importeren als één opdracht uit: `createdb --template=template0 herstelproef && psql -X --single-transaction -v ON_ERROR_STOP=1 -d herstelproef -f <nieuw.sql>`. Bij een bestaande naam stopt de opdracht vóór de import. Vergelijk revisie en tabelinhoud met de voorstaat en bewaar de originele geheimen voor het lezen van versleutelde gegevens. Gebruik voor oude dumps zonder opgeslagen controlesom een onafhankelijk geverifieerde snapshot of back-up. Bereid vóór een start met de vorige worker ook de geïmporteerde database voor. [Offline terugvalkopie voorbereiden](#offline-terugvalkopie-voorbereiden)
-
-## Back-ups
-
 ### Offline terugvalkopie voorbereiden
 
-1. Stop de app en sluit beide workers uit tot de voorbereiding klaar is. Bewaar de bron, de originele geheimen, de gecontroleerde back-up en de snapshot. Zet de snapshot of het archief terug op een **afzonderlijke, schrijfbare kopie**. Houd die kopie buiten bereik van de Hub en apparaten.
-2. Gebruik de **huidige** software voor de voorbereiding. Kies de werkwijze die bij de opslag hoort.
-   - **Custom App met een kopie van de hele dataset.** Koppel alleen deze kloon aan `/appdata` van een tijdelijke Custom App met de huidige vaste image. Laat apparaten losgekoppeld. Overschrijf het startprogramma (Entrypoint) met `/opt/venv/bin/python` en geef `-IBu`, `-m` en `shc_allinone.terugval` als drie aparte argumenten op. Zet automatisch herstarten uit. Het startprogramma opent alleen de lokale PostgreSQL van de kopie, voert `shc-api prepare-connector-fallback` uit en sluit PostgreSQL af.
-   - **Compose-opslag, afzonderlijke database of geïmporteerde dump.** Start alleen PostgreSQL voor de kopie. Houd API en worker gestopt. Stel in een eenmalig CLI-proces van de huidige versie `SHC_DATABASE_URL` expliciet in op die database. Draait PostgreSQL apart, koppel dan het bestand `postgres/PG_VERSION` van diezelfde opslag alleen-lezen aan `/run/shc-terugval-pgversie` in het CLI-proces. Voer daar `shc-api prepare-connector-fallback` uit. Controleer de melding **De terugvalkopie is gecontroleerd** en sluit het CLI-proces af.
-3. Ga alleen verder bij **exitcode 0**. De CLI toont een **Terugval-ID**. Bij de Custom App moet ook **Terugvalkopie voorbereid. PostgreSQL is gestopt.** in het logboek staan. Bewaar het ID bij de betreffende kopie. Bij een fout blijft de oude worker uit. Een nieuwe voorbereiding geeft een nieuw ID.
-4. Richt de terugvalapp in terwijl zij gestopt is en vóór je de kopie aankoppelt. Gebruik het uitvoerbare [startbestand uit de huidige release](../apps/api/src/shc_api/terugval_start.py). Bewaar het buiten de appdata op opslag die alleen de beheerder kan wijzigen. Het startbestand vergelijkt het ID, de revisie en de bestandsidentiteit van de gekoppelde PostgreSQL-opslag met de vrijgave in de databasecatalogus. Ook een nieuwe kloon van een al voorbereide kopie heeft een eigen voorbereiding nodig. Bij een afwijking, een ontbrekend ID of open connectoropdrachten stopt het vóór de historische migratie, API en worker.
-   - **Custom App.** Koppel het startbestand als alleen-lezen bestand aan `/opt/venv/bin/shc-api`. Kies gebruiker en groep 568 en geef ze uitvoerrecht op het bestand en toegang tot de kloon. Zet **Entrypoint** op `/opt/venv/bin/python` met de drie afzonderlijke argumenten `-IBu`, `/opt/venv/bin/shc-api` en `terugval-app`. Vul bij **Environment** `SHC_TERUGVAL_ID` in met het afgegeven ID. Bewaar deze instellingen ook bij een tagwissel of herstart. De historische image zelf kent het argument `terugval-app` niet en weigert de start als het startbestand ontbreekt.
-   - **Bestaande Compose-installatie.** Gebruik op de kloon de oorspronkelijke Compose-configuratie samen met [terugval.yaml](../infra/compose/terugval.yaml) uit de huidige release. Stel `SHC_ROOT` in op de kloon, `SHC_TERUGVAL_START` op het absolute pad naar het beheerde startbestand en `SHC_TERUGVAL_ID` op het afgegeven ID. Geef beide bestanden bij iedere start mee met `docker compose -f <oorspronkelijk-composebestand> -f <terugval.yaml>`. Voor een losse database of een geïmporteerde dump gelden beide alleen-lezen bestandskoppelingen en hetzelfde ID voor ieder historisch API- en workerproces.
-5. Koppel de voorbereide kopie en start de bijpassende vaste versie via de ingestelde terugvalapp. Controleer woningen, koppelingen en meldingen. Bij een ingeplande rollback staat **Handmatige controle nodig** bij de oorspronkelijke opdracht. Vergelijk de fysieke stand met de preview vóór verdere bediening.
+1. Stop de bronapp en de terugvalapp. Bewaar de bron, de oorspronkelijke sleutels en de gecontroleerde back-up. Maak in TrueNAS een **schrijfbare kloon van de hele snapshot van vóór de update**. Houd deze kopie tijdens de voorbereiding buiten bereik van de Hub en apparaten.
+2. Koppel in een tijdelijke Custom App alleen de kloon aan `/appdata`. Kies de **huidige** vaste image, laat apparaten losgekoppeld en zet automatisch herstarten uit. Vul bij **Entrypoint** `/opt/venv/bin/python` in en voeg `-IBu`, `-m` en `shc_allinone.terugval` als drie afzonderlijke argumenten toe. Sla het formulier op. Dit startprogramma opent de lokale database van de kopie en voert intern `shc-api prepare-connector-fallback` uit.
+3. Ga alleen verder als het logboek een **Terugval-ID**, de eindmelding **Terugvalkopie voorbereid. PostgreSQL is gestopt.** en exitcode 0 toont. Bewaar het ID bij deze kopie. Bij een fout blijft de oude worker uit. Een nieuwe kloon vereist een eigen voorbereiding en ID.
+4. Richt de gestopte terugvalapp in vóór je de kloon aankoppelt. Bewaar het uitvoerbare [startbestand uit de huidige release](../apps/api/src/shc_api/terugval_start.py) buiten de appdata op opslag die alleen de beheerder kan wijzigen. Koppel het bestand **alleen-lezen** aan `/opt/venv/bin/shc-api`. Kies gebruiker en groep 568 met uitvoerrecht op het bestand en toegang tot de kloon. Kies **Entrypoint** `/opt/venv/bin/python` met de afzonderlijke argumenten `-IBu`, `/opt/venv/bin/shc-api` en `terugval-app`. Vul bij **Environment Variables** `SHC_TERUGVAL_ID` in met het ID uit het logboek.
+5. Koppel alleen de voorbereide kloon en start de bijpassende vaste vorige versie. Laat de instellingen van het startbestand bij elke start staan. Het controleert het ID, de revisie, de identiteit van de opslag en open connectoropdrachten vóór de oude diensten starten. Controleer aanmelding, woningen, koppelingen en meldingen. Bij **Handmatige controle nodig** vergelijk je de apparaatstand met de oorspronkelijke preview vóór verdere bediening.
+
+## Back-ups
 
 ### Automatisch (aanbevolen)
 
 Zet automatische back-ups aan bij **Systeem › Back-ups en bewaren › Automatische back-ups**:
 
 - **Wachtwoordzin** (minimaal 12 tekens). Die wordt versleuteld opgeslagen met de hoofdsleutel van de
-  server (`secrets/secret_key`) en nooit meer getoond. Bewaar hem ook in je wachtwoordmanager: zonder
+  Custom App (`secrets/app-key`) en nooit meer getoond. Bewaar hem ook in je wachtwoordmanager: zonder
   wachtwoordzin is geen enkele back-up terug te zetten.
 - **Tijdstip:** het hele uur waarop de back-up begint, in de tijdzone van de woning (standaard 03:00).
 - **Aantal bewaren:** hoeveel automatische back-ups blijven staan (standaard 14, 1–365).
@@ -80,14 +66,10 @@ Hoe het werkt:
 - Het overzicht toont bij *Back-up* hoe oud de laatste goede back-up is. Ouder dan 36 uur, of
   Zigbee-gegevens die ontbreken terwijl je Zigbee gebruikt: oranje.
 
-Vroeger werd de wachtwoordzin in het bestand `<root>/app/backup_passphrase` gezet. Dat werkt nog als er
-in de app geen wachtwoordzin is ingesteld, maar stel hem liever in de app in.
-
 ### Handmatig
 
 **Systeem › Back-ups en bewaren › Nu een back-up maken**, met een wachtwoordzin en de keuze om geheimen
-weg te laten. Of: `docker exec -it <api-container> shc-api backup` (met `--dump` voor alleen een
-database-dump). Bij **Gemaakte back-ups** kun je elke back-up downloaden.
+weg te laten. Kies voor webherstel een volledige export met geheimen. Download het bestand bij **Gemaakte back-ups**.
 
 ### Wat erin zit
 
@@ -96,7 +78,7 @@ database-dump). Bij **Gemaakte back-ups** kun je elke back-up downloaden.
   je *geheimen weglaten* kiest, de versleutelde apparaatsleutels en wachtwoord-hashes. Inlogsessies en
   koppelcodes zitten er nooit in.
 - **Database-dump (`.shcdump`):** alleen de database (pg_dump), versleuteld. Geen Zigbee2MQTT-gegevens.
-  Terugzetten gaat met de hand, zie [Database-dump terugzetten](#database-dump-terugzetten).
+  De herstelwizard leest volledige exports. Kies daarvoor de bijbehorende `.shcbak`. Bewaar een losse dump voor afzonderlijk onderzoek.
 - **Hub-koppeling:** de gepinde sleutelset, gebruikte nonces en opgeslagen idempotentieantwoorden
   blijven buiten nieuwe exports en database-dumps. Bevestig een bestaande Hub-koppeling opnieuw na herstel.
 - **Zonder geheimen** (geredigeerd): de export bewaart bekende gewone Zigbee-instellingen en lege
@@ -114,7 +96,7 @@ database-dump). Bij **Gemaakte back-ups** kun je elke back-up downloaden.
   Zonder die sleutel zijn de apparaatsleutels in de back-up onleesbaar. Dan moet je Hue, HomeWizard (API v2) en
   de Gree-units opnieuw koppelen en de wachtwoordzin en het push-adres opnieuw instellen in de app.
 - Maak TrueNAS-snapshots van de dataset (die blijven op de NAS).
-- **Kopie buiten huis (replicatie): kopieer alleen `<root>/backups/`.** Nooit `app/`, `secrets/` of
+- **Kopie buiten huis (replicatie): kopieer alleen de map `backups/` uit de appdataset.** Nooit `app/`, `secrets/` of
   `postgres/`: daar staan de hoofdsleutel en de database, waarmee de opgeslagen wachtwoordzin te
   ontsleutelen is. Een kopie van alleen `backups/` is zonder je wachtwoordzin onbruikbaar. Op TrueNAS:
   maak van `backups` een eigen dataset (child dataset) en repliceer alleen die, of beperk de
@@ -180,58 +162,7 @@ database-dump). Bij **Gemaakte back-ups** kun je elke back-up downloaden.
    Bij een open overstap vind je de oorspronkelijke kopie onder **Doelback-up van deze taak downloaden**.
    Je kunt die via **Zelfde woning** terugzetten na een nieuwe doelback-up en vergelijking.
    De actuele vergelijking en het bronbewijs moeten geldig zijn wanneer je **Overstap bevestigen** kiest.
-6. Zet het doel in veilige modus. Bewaar de volledige export en de doelopslag. Vergelijk de wijzigingen en bevestig het behoud. Houd de bronworker gestopt en volg [Offline terugvalkopie voorbereiden](#offline-terugvalkopie-voorbereiden) op een afzonderlijke kopie. De voorbereiding kan een afgesloten bron met een veilige connectorwachtrij controleren terwijl de schrijfpauze actief blijft. Stop de doelapp vóór hervatten. Start eerst alleen de API van de voorbereide Compose-kopie en kies na de vervaltijd **Bron hervatten**.
-7. Meldt de voorbereiding open connectorwerk of meldt **Bron hervatten** gewijzigde Zigbee2MQTT-opslag, bewaar de eindexport en beide opslagen. Laat beide workers uit. Open alleen de bron-API met haar oorspronkelijke opslag en kies na de vervaltijd **Bron hervatten**. Stop die API, maak een nieuwe kopie van de hervatte bron en bereid die offline voor. Vergelijk de gegevens opnieuw. Start de terugvalapp met het nieuwe ID zodra de vergelijking akkoord is. Bij een verschil blijven de kopieën beschikbaar voor herstel.
-
-### Database-dump terugzetten
-
-Een `.shcdump` (database-dump) zet je met de hand terug. Hij bevat geen Zigbee2MQTT-gegevens; daarvoor
-heb je de wekelijkse volledige export.
-
-De volledige export en de database-dump bewaren het connectorbewijs met vorige stand en gekoppelde
-opdrachten. Bij herstel van een volledige export vervalt de uitvoertermijn van de bewaarde opdrachten.
-Herstel van een export wordt geweigerd als bij een oude connectoropdracht het bewijs ontbreekt of als
-bestaand open herstelbewijs verloren zou gaan. Bewaar bij handmatig terugzetten eerst een geverifieerde
-export van de huidige database. Gebruik voor vergelijking een afzonderlijke database als in het doel
-nog apparaatherstel openstaat. Bij het maken en ontsleutelen van een database-dump controleert de
-app de vorige stand en herstelstatus van elke relevante connectoropdracht in een tijdelijke
-PostgreSQL-database. Hiervoor heeft de databaserol het recht nodig om een database aan te maken.
-De app ruimt de controledatabase na afloop op. Een eerder gecontroleerd uitvoerbestand blijft bij een fout beschikbaar.
-Van een afgehandeld opdrachtpaar uit de oudste connectorversie blijven de toen gemeten voeding, modus en
-doeltemperatuur als historie beschikbaar. Evidence vermeldt `readback_incomplete` voor de ontbrekende bedienvelden.
-
-Bij een software- of schemawissel blijft een ongeclaimde connectoropdracht met haar ID, meetvelden
-en de reden `versiewissel` in de historie. Bij een ingeplande rollback verschijnt **Handmatige controle
-nodig** in de meldingen van de woning. Controleer de fysieke stand en de oorspronkelijke preview
-voordat je verder bedient. Een eerder geclaimde opdracht met een onzekere uitkomst kan een wissel
-tegenhouden. Controleer de oorspronkelijke meting en de teruglezing. Houd de oude worker op de kopie uit zolang de voorbereiding dit herstel weigert.
-
-Gebruik voor een oudere SQL-export de huidige `verify-migration-dump` bij het schrijven van de
-import-SQL. De import sluit de connectorwachtrij af binnen dezelfde transactie. Voor iedere start
-met oudere software, ook na een SQL-import of een logische export, geldt vervolgens
-[Offline terugvalkopie voorbereiden](#offline-terugvalkopie-voorbereiden). Het schema en de
-oorspronkelijke opslagkopie blijven beschikbaar voor vergelijking.
-
-Kies voor de dump een nieuwe databasenaam en gebruik de versleutelde dump rechtstreeks:
-
-```bash
-docker exec -it <api-container> shc-api restore-dump /backups/<bestand>.shcdump --new-database herstelproef
-```
-
-De opdracht controleert de versleutelde dump en importeert deze in een nieuw aangemaakte, lege database.
-Ze ruimt lokale koppelgegevens uit oudere dumps op voordat ze de database onder de gekozen naam publiceert.
-Bij een bezette naam stopt de opdracht. De oorspronkelijke installatie blijft beschikbaar.
-Verbind voor de controle alleen een afzonderlijke, afgeschermde testinstallatie met de nieuwe database.
-Laat de worker uit totdat de beheerder de vergelijking en het terugvalpad heeft gecontroleerd.
-Start de afzonderlijke API met toegang voor alleen de beheerder. Een dump zet de veilige modus niet aan.
-Was de app gekoppeld aan een Hub, bevestig dan de actuele publieke sleutelset opnieuw in my_house.
-Teruggezette opdrachten kunnen ook na herbevestiging uitsluitend als bewijs worden gelezen. Nieuwe opdrachten
-vereisen een nieuw lokaal voorstel en een nieuwe goedkeuring.
-Vergelijk de vingerafdruk met die van de Hub en registreer in de Hub de nieuwe bevestiging voor
-deze instantie. Start de worker en open de app pas na de beheercontrole en, bij een bestaande
-Hub-koppeling, na deze herbevestiging. Voor een oudere worker is bovendien exitcode 0 van de huidige
-voorbereiding op deze definitieve kopie vereist. Houd het Hub-schrijfpad afgeschermd zolang de herbevestiging
-ontbreekt. Bij een installatie zonder Hub-koppeling blijft het schrijfpad uit.
+6. Bewaar bron en doel op afzonderlijke opslag. Houd de bronworker gestopt. Voor terugdraaien naar een vorige Custom App gebruik je de [offline terugvalkopie](#offline-terugvalkopie-voorbereiden). De aanvullende voorwaarden voor het hervatten van een historische meercontainerbron staan onder [Historisch onderhoud van een bronkopie](#historisch-onderhoud-van-een-bronkopie).
 
 ### Hub-sleutelset bevestigen
 
@@ -254,25 +185,10 @@ beginnen voor verzoeken die vanaf de eerste volledige seconde na bevestiging zij
 
 ## Herstel oefenen (aanbevolen elk kwartaal)
 
-```bash
-docker exec -it <api-container> shc-api restore-drill /backups/shc-YYYYMMDD-HHMMSS.shcbak
-```
-
-Dit zet de back-up terug in een **tijdelijke database** naast de echte (de echte database en de worker
-merken er niets van) en controleert:
-
-- of elke tabel evenveel records heeft als in de back-up;
-- of de apparaatsleutels en de versleutelde instellingen (wachtwoordzin voor back-ups, push-adres) te
-  ontsleutelen zijn met de hoofdsleutel die de server **nu** gebruikt.
-
-Aan het eind staat *RESULTAAT: geslaagd* of *NIET geslaagd*. Daarna wordt de tijdelijke database
-verwijderd; met `--keep` blijft hij bestaan, met `--json` krijg je het resultaat als JSON. Zorg voor
-genoeg vrije schijfruimte (ongeveer de grootte van de database).
-
-Faalt alleen de sleutelcontrole, dan is de back-up met een andere hoofdsleutel gemaakt dan deze server
-gebruikt. Zoek de oude `secret_key` op en gebruik na een echt herstel `shc-api rekey --old-key-file`.
-Heb je de oude sleutel niet meer, dan moet je na een herstel Hue, HomeWizard (v2) en Gree opnieuw
-koppelen.
+1. Meld je in de webapp met je wachtwoord aan als beheerder. Open **Systeem › Herstellen en verhuizen**. Kies je bewaarde volledige export (`.shcbak`), vul de wachtwoordzin in en kies **Uploaden en controleren**.
+2. Kies **Zelfde woning** en **Herstelproef uitvoeren**. De app zet de export terug in een tijdelijke database. Zorg voor voldoende vrije ruimte voor deze kopie.
+3. Open **Resultaat per tabel**. Controleer de aantallen en de status **Komt overeen**. Lees ook hoeveel apparaatsleutels opnieuw moeten worden ingelezen of gekoppeld. Een verschil vraagt om onderzoek vóór terugzetten. Kies **Annuleren** om de oefening te beëindigen. Bij een echte herstelactie volg je de stappen van [Herstellen](#herstellen).
+4. Meldt de proef een sleutelverschil, bewaar het sleutelbestand van de bron bij de export voor de beheerder. [Hoofdsleutel vervangen](#hoofdsleutel-vervangen)
 
 ## Verhuizen
 
@@ -306,46 +222,17 @@ aanmaken. Schema's en profielen gaan dan niet mee.
 
 ## Hoofdsleutel vervangen
 
-`secrets/secret_key` (de hoofdsleutel) versleutelt de apparaatsleutels (Hue, HomeWizard API v2 en de
-eigen sleutel van elke Gree-unit), de wachtwoordzin voor automatische back-ups en het push-adres.
-Inlogsessies en telefoon-sleutels hangen er niet van af en blijven geldig.
+Een nieuwe Custom App op lege opslag maakt een eigen hoofdsleutel. Bewaar de volledige bronexport, de originele bronopslag en het bijbehorende sleutelbestand. De hoofdsleutel en de wachtwoordzin waarmee je de export opent hebben elk een eigen functie. Voor het opnieuw versleutelen van teruggezette gegevens gebruik je het bestand met de **oude** hoofdsleutel.
 
-**Met de oude sleutel** (aanbevolen, bijvoorbeeld na een herstel op een nieuwe NAS of als je de sleutel
-wilt vervangen):
-
-1. Bewaar de oude sleutel: `sudo mv <root>/secrets/secret_key <root>/secrets/secret_key.oud`.
-2. Voer `install.sh` opnieuw uit: dat maakt een nieuwe `secret_key` met de juiste rechten. (Of zet de
-   sleutel van de server waarvan je de back-up terugzette terug als `secret_key`.)
-3. Herstart de app. Integraties waarvan de sleutel niet meer past, staan op *Sleutel past niet, koppel
-   opnieuw*; de rest werkt door.
-4. Geef de oude sleutel tijdelijk aan de API-container en zet alles om:
-
-   ```bash
-   sudo install -o 10001 -g 10001 -m 0400 <root>/secrets/secret_key.oud <root>/app/oude_sleutel
-   docker exec -it <api-container> shc-api rekey --old-key-file /data/oude_sleutel --dry-run
-   docker exec -it <api-container> shc-api rekey --old-key-file /data/oude_sleutel
-   sudo rm <root>/app/oude_sleutel
-   ```
-
-   `--dry-run` laat zien wat er zou gebeuren zonder iets op te slaan. `rekey` versleutelt de
-   apparaatsleutels, de wachtwoordzin voor back-ups en het push-adres opnieuw met de nieuwe sleutel.
-   Binnen een paar minuten gebruikt de worker de koppelingen weer.
-5. Bewaar de nieuwe `secret_key` in je wachtwoordmanager en maak een nieuwe back-up.
-
-**Zonder de oude sleutel:**
-
-- Koppel Hue, HomeWizard (API v2) en elke Gree-unit opnieuw via **Apparaten**. Opnieuw koppelen werkt de
-  bestaande koppeling bij; de historie blijft.
-- Stel de wachtwoordzin voor automatische back-ups opnieuw in (**Systeem › Back-ups en bewaren**). Tot
-  dan staat er de melding *Automatische back-up kan niet*; die verdwijnt binnen ongeveer 10 minuten nadat
-  je hem hebt ingesteld.
-- Stel het push-adres opnieuw in (**Systeem › Meldingen buiten de app**). Zolang het oude adres niet te
-  ontsleutelen is, toont de app *Opgeslagen push-adres onbruikbaar* en wordt het genegeerd.
+1. Herstel de volledige export via **Systeem › Herstellen en verhuizen**. Log daarna opnieuw in met het wachtwoord van een beheerder uit de export. Laat de veilige modus aan.
+2. Open in diezelfde sectie **Apparaatsleutels herstellen**. Kies bij **Bestand met de oude hoofdsleutel** de bewaarde kopie van `secrets/app-key` van de bron. Bij een historische meercontainerbron heet dit bestand `secrets/secret_key`. Staat de sleutel als tekst in je wachtwoordmanager, bewaar dan op je vertrouwde beheercomputer tijdelijk een UTF-8-tekstbestand met uitsluitend die waarde. Kies **Oude hoofdsleutel uploaden**. Verwijder daarna de tijdelijke kopie op de beheercomputer en bewaar het origineel in de wachtwoordmanager.
+3. De app versleutelt de leesbare apparaatsleutels, de wachtwoordzin voor automatische back-ups en het push-adres met de huidige hoofdsleutel. Controleer **Opnieuw te koppelen** en **Opnieuw in te stellen**. Blijft een aantal boven nul, controleer welk bronbestand bij de export hoort. De upload vervangt de hoofdsleutel van de doelapp niet.
+4. Ontbreekt het passende bestand, koppel de betrokken Hue-, HomeWizard- of Gree-apparaten opnieuw bij **Apparaten**. Stel de wachtwoordzin onder **Systeem › Back-ups en bewaren** en het push-adres onder **Systeem › Meldingen buiten de app** zo nodig opnieuw in. Controleer je apparaten en instellingen en maak een nieuwe volledige back-up voordat je de veilige modus opheft.
 
 ## Meldingen buiten de app
 
 Een melding in de app bereikt je niet als de app zelf stilvalt: een gestopte worker stuurt ook geen
-Android-melding. Daarom kan de API (een andere container) een kort bericht naar een adres naar keuze
+Android-melding. Daarom kan de API (een afzonderlijke dienst) een kort bericht naar een adres naar keuze
 sturen, bijvoorbeeld een [ntfy](https://ntfy.sh)-onderwerp.
 
 1. **Systeem › Meldingen buiten de app**: vul een ntfy-adres in (`https://ntfy.sh/<geheim-onderwerp>`
@@ -359,16 +246,11 @@ terug is), en één als automatische back-ups mislukken of de laatste goede back
 of er geen is (en één als dat weer in orde is). De eerste controle is 3 minuten na het starten van de
 API. Een adres met `gebruiker:wachtwoord@` wordt geweigerd.
 
-Op een Linux-server kun je ook `SHC_NOTIFY_URL` in de omgeving of `.env` zetten; een adres in de app
-gaat daar altijd voor. De TrueNAS-YAML bevat bewust geen geheimen: stel het adres daar in de app in.
-
 ## Achtergronddienst (worker)
 
 - De worker schrijft elke 30 seconden een hartslag. Het overzicht en **Systeem** tonen hoe oud die is; na
   3 minuten zonder hartslag verschijnt *Achtergronddienst reageert niet* (en het push-bericht).
-- De container heeft een healthcheck: geen hartslag in 180 seconden = *unhealthy*.
-- Blijft een van de interne lussen hangen, dan stopt de worker zichzelf (waakhond) en start Docker hem
-  opnieuw (`restart: unless-stopped`). In het logboek staat welke lus vastzat.
+- Blijft een van de interne lussen hangen, dan stopt de worker zichzelf. De bewaker in de Custom App herstart de kerndiensten. In het logboek staat welke lus vastzat.
 - Een koppeling waarvan de sleutel niet meer past, stopt alleen die koppeling; de rest blijft draaien.
 - De Hue-eventstream schrijft één regel per verandering in het logboek (*verbonden*, *verbroken …
   opnieuw verbinden*, *weer verbonden*).
@@ -420,7 +302,74 @@ instellen of diens account ontgrendelen. Na een wachtwoordreset vervallen de bes
 telefoonkoppelingen van die gebruiker. Je eigen wachtwoord wijzig je bij **Account › Wachtwoord wijzigen**
 met je huidige wachtwoord. Zonder toegankelijk beheerdersaccount is er geen zelfherstel via de webapp.
 
-## Afhankelijkheden bijwerken (voor wie de code bijhoudt)
+## Alleen voor ontwikkeling
+
+De onderstaande onderhoudsproeven gebruiken geïsoleerde testopslag. De opdrachten horen bij de historische meercontaineropstelling of een losse proefdatabase. Voor de Custom App staan de web- en formulierstappen hierboven.
+
+### Database-dump terugzetten
+
+Een `.shcdump` (database-dump) zet je met de hand terug. Hij bevat geen Zigbee2MQTT-gegevens; daarvoor
+heb je de wekelijkse volledige export.
+
+De volledige export en de database-dump bewaren het connectorbewijs met vorige stand en gekoppelde
+opdrachten. Bij herstel van een volledige export vervalt de uitvoertermijn van de bewaarde opdrachten.
+Herstel van een export wordt geweigerd als bij een oude connectoropdracht het bewijs ontbreekt of als
+bestaand open herstelbewijs verloren zou gaan. Bewaar bij handmatig terugzetten eerst een geverifieerde
+export van de huidige database. Gebruik voor vergelijking een afzonderlijke database als in het doel
+nog apparaatherstel openstaat. Bij het maken en ontsleutelen van een database-dump controleert de
+app de vorige stand en herstelstatus van elke relevante connectoropdracht in een tijdelijke
+PostgreSQL-database. Hiervoor heeft de databaserol het recht nodig om een database aan te maken.
+De app ruimt de controledatabase na afloop op. Een eerder gecontroleerd uitvoerbestand blijft bij een fout beschikbaar.
+Van een afgehandeld opdrachtpaar uit de oudste connectorversie blijven de toen gemeten voeding, modus en
+doeltemperatuur als historie beschikbaar. Evidence vermeldt `readback_incomplete` voor de ontbrekende bedienvelden.
+
+Bij een software- of schemawissel blijft een ongeclaimde connectoropdracht met haar ID, meetvelden
+en de reden `versiewissel` in de historie. Bij een ingeplande rollback verschijnt **Handmatige controle
+nodig** in de meldingen van de woning. Controleer de fysieke stand en de oorspronkelijke preview
+voordat je verder bedient. Een eerder geclaimde opdracht met een onzekere uitkomst kan een wissel
+tegenhouden. Controleer de oorspronkelijke meting en de teruglezing. Houd de oude worker op de kopie uit zolang de voorbereiding dit herstel weigert.
+
+Gebruik voor een oudere SQL-export de huidige `verify-migration-dump` bij het schrijven van de
+import-SQL. De import sluit de connectorwachtrij af binnen dezelfde transactie. Voor iedere start
+met oudere software, ook na een SQL-import of een logische export, geldt vervolgens
+[Offline terugvalkopie voorbereiden](#offline-terugvalkopie-voorbereiden). Het schema en de
+oorspronkelijke opslagkopie blijven beschikbaar voor vergelijking.
+
+Kies voor de dump een nieuwe databasenaam en gebruik de versleutelde dump rechtstreeks:
+
+```bash
+docker exec -it <api-container> shc-api restore-dump /backups/<bestand>.shcdump --new-database herstelproef
+```
+
+De opdracht controleert de versleutelde dump en importeert deze in een nieuw aangemaakte, lege database.
+Ze ruimt lokale koppelgegevens uit oudere dumps op voordat ze de database onder de gekozen naam publiceert.
+Bij een bezette naam stopt de opdracht. De oorspronkelijke installatie blijft beschikbaar.
+Verbind voor de controle alleen een afzonderlijke, afgeschermde testinstallatie met de nieuwe database.
+Laat de worker uit totdat de beheerder de vergelijking en het terugvalpad heeft gecontroleerd.
+Start de afzonderlijke API met toegang voor alleen de beheerder. Een dump zet de veilige modus niet aan.
+Was de app gekoppeld aan een Hub, bevestig dan de actuele publieke sleutelset opnieuw in my_house.
+Teruggezette opdrachten kunnen ook na herbevestiging uitsluitend als bewijs worden gelezen. Nieuwe opdrachten
+vereisen een nieuw lokaal voorstel en een nieuwe goedkeuring.
+Vergelijk de vingerafdruk met die van de Hub en registreer in de Hub de nieuwe bevestiging voor
+deze instantie. Start de worker en open de app pas na de beheercontrole en, bij een bestaande
+Hub-koppeling, na deze herbevestiging. Voor een oudere worker is bovendien exitcode 0 van de huidige
+voorbereiding op deze definitieve kopie vereist. Houd het Hub-schrijfpad afgeschermd zolang de herbevestiging
+ontbreekt. Bij een installatie zonder Hub-koppeling blijft het schrijfpad uit.
+
+### Pre-migratiedump op een lokale proefdatabase
+
+**Lokale herstelproef voor een pre-migratiedump.** Bewaar dump en controlesom in dezelfde map. `shc-api verify-migration-dump <dump> --out <nieuw.sql>` valideert de SHA-256, de gzip-integriteit en het einde van de SQL-export. Het uitvoerbestand moet nieuw zijn. Kies een ongebruikte databasenaam. Voer het aanmaken en importeren als één opdracht uit: `createdb --template=template0 herstelproef && psql -X --single-transaction -v ON_ERROR_STOP=1 -d herstelproef -f <nieuw.sql>`. Bij een bestaande naam stopt de opdracht vóór de import. Vergelijk revisie en tabelinhoud met de voorstaat en bewaar de originele geheimen voor het lezen van versleutelde gegevens. Gebruik voor oude dumps zonder opgeslagen controlesom een onafhankelijk geverifieerde snapshot of back-up. Bereid vóór een start met de vorige worker ook de geïmporteerde database voor. [Offline terugvalkopie voorbereiden](#offline-terugvalkopie-voorbereiden)
+
+### Historisch onderhoud van een bronkopie
+
+**Compose-opslag, afzonderlijke database of geïmporteerde dump.** Start alleen PostgreSQL voor de kopie. Houd API en worker gestopt. Stel in een eenmalig CLI-proces van de huidige versie `SHC_DATABASE_URL` expliciet in op die database. Draait PostgreSQL apart, koppel dan het bestand `postgres/PG_VERSION` van diezelfde opslag alleen-lezen aan `/run/shc-terugval-pgversie` in het CLI-proces. Voer daar `shc-api prepare-connector-fallback` uit. Controleer de melding **De terugvalkopie is gecontroleerd** en sluit het CLI-proces af.
+
+**Bestaande Compose-installatie.** Gebruik op de kloon de oorspronkelijke Compose-configuratie samen met [terugval.yaml](../infra/compose/terugval.yaml) uit de huidige release. Stel `SHC_ROOT` in op de kloon, `SHC_TERUGVAL_START` op het absolute pad naar het beheerde startbestand en `SHC_TERUGVAL_ID` op het afgegeven ID. Geef beide bestanden bij iedere start mee met `docker compose -f <oorspronkelijk-composebestand> -f <terugval.yaml>`. Voor een losse database of een geïmporteerde dump gelden beide alleen-lezen bestandskoppelingen en hetzelfde ID voor ieder historisch API- en workerproces.
+
+1. Zet het doel in veilige modus. Bewaar de volledige export en de doelopslag. Vergelijk de wijzigingen en bevestig het behoud. Houd de bronworker gestopt en volg [Offline terugvalkopie voorbereiden](#offline-terugvalkopie-voorbereiden) op een afzonderlijke kopie. De voorbereiding kan een afgesloten bron met een veilige connectorwachtrij controleren terwijl de schrijfpauze actief blijft. Stop de doelapp vóór hervatten. Start eerst alleen de API van de voorbereide Compose-kopie en kies na de vervaltijd **Bron hervatten**.
+2. Meldt de voorbereiding open connectorwerk of meldt **Bron hervatten** gewijzigde Zigbee2MQTT-opslag, bewaar de eindexport en beide opslagen. Laat beide workers uit. Open alleen de bron-API met haar oorspronkelijke opslag en kies na de vervaltijd **Bron hervatten**. Stop die API, maak een nieuwe kopie van de hervatte bron en bereid die offline voor. Vergelijk de gegevens opnieuw. Start de terugvalapp met het nieuwe ID zodra de vergelijking akkoord is. Bij een verschil blijven de kopieën beschikbaar voor herstel.
+
+### Afhankelijkheden bijwerken (voor wie de code bijhoudt)
 
 - De Python-pakketten van de API-image komen uitsluitend uit het lock-bestand met hashes
   `apps/api/requirements.txt`, gemaakt uit `apps/api/requirements.in`. Na het wijzigen van een

@@ -24,6 +24,7 @@ De web-app en de Android-app volgen de ontwerptaal **Peil** 1.1.1 van het TrueNA
 ## Snel starten
 
 - **TrueNAS SCALE:** de standaard Custom App met één image is de enige installatieweg. Wacht op de publicatie van de alles-in-één-image met vaste tag en digest. Vul daarna het formulier in. Bewaar vóór een update een snapshot van de hele dataset voor terugkeer naar de bijpassende versie. [Formuliervelden](deploy/truenas/CUSTOM_APP.md) · [Installatie en terugdraaien](docs/installatie-truenas.md)
+- **Herstel oefenen:** open als beheerder **Systeem › Herstellen en verhuizen**. Daar controleer je een volledige export in een tijdelijke database en kun je na herstel de bewaarde oude hoofdsleutel inlezen. [Herstelproef](docs/onderhoud.md#herstel-oefenen-aanbevolen-elk-kwartaal) · [Sleutelbestand gebruiken](docs/onderhoud.md#hoofdsleutel-vervangen)
 - **Android-app:** [apps/android/README.md](apps/android/README.md). De ondertekende APK staat bij de release zodra de Android-sleutel is ingesteld. De Android-workflow levert de testversie als artefact `huis-debug-apk`. [Releases](https://git.medialeon.nl/leon/my_house/releases) · [Forgejo Actions](https://git.medialeon.nl/leon/my_house/actions?workflow=android.yml)
 
 Open de portal op de gekozen hostpoort (voorstel 8088), maak het beheerdersaccount en de woning aan en volg de **installatiewizard** (`/installatie`). Uitleg per fabrikant staat in de app op **Help** (`/help`). Zet daarna automatische back-ups aan bij **Systeem › Back-ups en bewaren**.

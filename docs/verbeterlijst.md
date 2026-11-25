@@ -1,5 +1,7 @@
 # Verbeterlijst smart-home-app
 
+Deze historische verbeterlijst beschrijft de meercontaineropstelling. De huidige installatie- en herstelstappen staan in de [formulierhandleiding](installatie-truenas.md) en de [onderhoudshandleiding](onderhoud.md).
+
 ## Status (na verbeterronde)
 
 Stand na twee verbeterrondes, gecontroleerd in de code zelf (niet op basis van verslagen). De

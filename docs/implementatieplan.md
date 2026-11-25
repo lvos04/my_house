@@ -1,3 +1,5 @@
+Dit oorspronkelijke ontwerp beschrijft de historische meercontaineropstelling. Gebruik voor installatie en herstel de actuele [formulierhandleiding](installatie-truenas.md) en de [herstelwizard](onderhoud.md#herstellen).
+
 Versie 1.0 \| 8 november 2026 \| Smart Home Control
 
 # 0. Projectbesluit en scope

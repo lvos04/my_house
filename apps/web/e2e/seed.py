@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import secrets
 import sys
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -53,6 +54,20 @@ async def device(a: dict) -> dict:
         db.add(d)
         await db.commit()
         return {"id": str(d.id), "name": d.name}
+
+
+async def oude_koppeling(a: dict) -> dict:
+    """Een uitgeschakelde proefkoppeling uit een installatie met een andere hoofdsleutel."""
+    from shc_api.db import sessionmaker
+    from shc_api.models import Integration
+    from shc_api.security import SecretBox
+
+    sleutel = secrets.token_urlsafe(48)
+    async with sessionmaker()() as db:
+        db.add(Integration(home_id=uuid.UUID(a["home_id"]), provider="hue", name="Herstelproef",
+                           enabled=False, credentials_enc=SecretBox(sleutel).encrypt({"kenmerk": "proef"})))
+        await db.commit()
+    return {"sleutel": sleutel}
 
 
 async def mapping(a: dict) -> dict:
@@ -139,6 +154,7 @@ async def readings(a: dict) -> dict:
 
 COMMANDS = {
     "device": device,
+    "oude_koppeling": oude_koppeling,
     "mapping": mapping,
     "alert": alert,
     "resolve": resolve,

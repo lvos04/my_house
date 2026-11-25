@@ -401,7 +401,7 @@ async def test_web_migration_preserves_source_and_requires_current_comparison(tm
     from shc_api.main import create_app
     from shc_api.models import Alert, AuditLog, Device, DeviceBinding, Home, LogicalRole, SensorReading
     from shc_api.routers import system
-    from shc_api.store import ensure_server_identity
+    from shc_api.store import ensure_server_identity, get_secret_setting
 
     from .conftest import Session
     from .test_ws_backup_api import _upload
@@ -409,7 +409,8 @@ async def test_web_migration_preserves_source_and_requires_current_comparison(tm
     cfg = get_settings()
     passphrase, password = secrets.token_urlsafe(24), secrets.token_urlsafe(24)
     monkeypatch.setattr(cfg, "backup_dir", tmp_path)
-    monkeypatch.setattr(cfg, "secret_key", secrets.token_urlsafe(48))
+    source_key, target_key = secrets.token_urlsafe(48), secrets.token_urlsafe(48)
+    monkeypatch.setattr(cfg, "secret_key", source_key)
     monkeypatch.setattr(system, "MAINTENANCE_SETTLE_S", 0)
     app = create_app()
     async with temp_db() as source, temp_db() as target:
@@ -426,6 +427,10 @@ async def test_web_migration_preserves_source_and_requires_current_comparison(tm
             hid, did = uuid.UUID(home.json()["id"]), uuid.uuid4()
             async with sessionmaker()() as db:
                 source_id = await db.run_sync(ensure_server_identity)
+                db.add(Integration(home_id=hid, name="Proefbridge", provider="hue", enabled=False,
+                                   credentials_enc=SecretBox(source_key).encrypt({"kenmerk": "proef"})))
+                await set_secret_setting(db, "backup_passphrase_enc", passphrase)
+                await set_secret_setting(db, "notify_url_enc", "https://proef.invalid/melding")
                 db.add(Device(id=did, home_id=hid, provider="hue", kind="light_group", name="Proeflamp",
                               stable_identity=uuid.uuid4().hex, capabilities=["power"]))
                 await db.flush()
@@ -474,6 +479,7 @@ async def test_web_migration_preserves_source_and_requires_current_comparison(tm
                 assert (await source_admin.post("/system/restore/source/resume")).status_code == 409
             await dispose()
             monkeypatch.setattr(cfg, "database_url", target)
+            monkeypatch.setattr(cfg, "secret_key", target_key)
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
                 r = await c.post("/api/v1/auth/setup", json={"username": "doel", "password": password})
                 assert r.status_code == 200
@@ -489,6 +495,7 @@ async def test_web_migration_preserves_source_and_requires_current_comparison(tm
                 drill = (await admin.post("/system/restore/drill", upload)).json()
                 assert drill["data_ok"] and drill["source_id"] == source_id != drill["target_id"]
                 assert drill["drill_id"], drill["migration_refusal"]
+                assert drill["credentials"]["failed"] == ["Proefbridge (hue)"]
                 apply["drill_id"] = drill["drill_id"]
                 for history in (Alert(key="proef", source="systeem", title="Gelezen", severity="info",
                                       acknowledged_at=datetime.now(UTC)),
@@ -530,6 +537,21 @@ async def test_web_migration_preserves_source_and_requires_current_comparison(tm
                 r = await c.post("/api/v1/auth/login", json={"username": "bron", "password": password})
                 assert r.status_code == 200
                 admin = Session(c, r.json()["csrf_token"])
+                # Alleen de doelapp krijgt de bewaarde bronsleutel, nadat de herstelde beheerder is ingelogd.
+                query = "SELECT credentials_enc FROM integrations WHERE name='Proefbridge'"
+                original = await _scalar(source, query)
+                wrong = await admin.post("/system/restore/rekey", content=secrets.token_urlsafe(48).encode())
+                assert wrong.status_code == 200
+                assert wrong.json() == {"rekeyed": 0, "already_current": 0, "failed": 1, "settings_failed": 2}
+                assert await _scalar(target, query) == original
+                fixed = await admin.post("/system/restore/rekey", content=source_key.encode())
+                assert fixed.status_code == 200
+                assert fixed.json() == {"rekeyed": 1, "already_current": 0, "failed": 0, "settings_failed": 0}
+                assert SecretBox(target_key).decrypt(await _scalar(target, query)) == {"kenmerk": "proef"}
+                assert await _scalar(source, query) == original
+                async with sessionmaker()() as db:
+                    assert await get_secret_setting(db, "backup_passphrase_enc") == passphrase
+                    assert await get_secret_setting(db, "notify_url_enc") == "https://proef.invalid/melding"
                 assert (await admin.post("/system/safe-mode/release")).status_code == 409
                 comparison = (await admin.get("/system/restore/compare")).json()
                 assert comparison["migration"]["confirmation"] is None

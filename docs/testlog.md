@@ -110,13 +110,15 @@ API en worker als echte processen tegen PostgreSQL, met een nagebootste HomeWiza
 - **Echte apparaten:** Hue Bridge (ook de knoppen en wat de bridge er zelf mee doet), Gree-units, HomeWizard P1, Energy Socket en kWh-meter, Zigbee-dongle en -sensoren. Status in de app: *nog niet getest*. Zie [compatibility.md](compatibility.md).
 - **Gree:** of jouw modellen/firmware het lokale protocol ondersteunen (compatibiliteitsgate), ook nieuwere wifi-modules.
 - **HomeWizard API v2:** of tijden echt zonder tijdzone binnenkomen, en het gedrag van de *Switch lock* van de Energy Socket.
-- **TrueNAS:** installatie op TrueNAS 25.10, reboot, update en terugdraaien op je eigen NAS, en hoe het preset *Apps*/*SMB* (ACL's) zich gedraagt met `install.sh`.
+- **TrueNAS:** installatie met het standaard Custom App-formulier, toegangsrechten op de gekozen dataset, reboot, update en terugdraaien op een schrijfbare snapshotkloon.
 - **Storingen op echte hardware:** USB-dongle eruit en terug, Hue Bridge zonder stroom, een herstart van mosquitto of PostgreSQL op de NAS, en of TrueNAS een gestopte worker-container echt opnieuw start. De code herstelt met backoff en de storingstests dekken dit met nep-onderdelen.
 - **Uitgaand verkeer:** NTP-controle en push-berichten (ntfy) vanaf je eigen netwerk.
 - **Android op een toestel:** QR-scanner (ook als de camera bezet of uitgeschakeld is), widget, meldingen op de achtergrond, wisselen tussen wifi en mobiel, TalkBack en grote letters. De `:app`-module compileert alleen in GitHub Actions.
 - **Android-release:** de eigen release-sleutel aanmaken en als GitHub-geheim instellen, en controleren dat een nieuwe APK over de oude heen installeert (en dat de verkleinde R8-build werkt).
 - **GitHub:** echte runs van `release.yml`, `edge.yml` en `audit.yml`, cosign-ondertekening en Dependabot-PR's.
 - **Cloudflare:** een verlopen Access-sessie op een geïnstalleerde PWA, en split-horizon DNS met een eigen reverse proxy.
+
+**Afzonderlijke softwareproef.** De Android-emulatorproef voor de bedienweigering staat open. Hiervoor is een emulator met KVM nodig.
 
 ## Eerste test op je NAS (checklist)
 
@@ -126,9 +128,9 @@ API en worker als echte processen tegen PostgreSQL, met een nagebootste HomeWiza
 4. HomeWizard P1 en socket koppelen, rollen toewijzen; na een uur een kloppend uurtotaal.
 5. Gree: unit zoeken. Lukt binden en uitlezen? Dan één setpointwijziging en controleren dat de app *Bevestigd* toont.
 6. Zigbee (na aankoop dongle): sensor koppelen, uit bereik halen → na 30 min *verouderd*; dongle eruit → *Zigbee – USB-dongle* rood.
-7. Worker-container stoppen → binnen 3 minuten de melding *Achtergronddienst reageert niet* (en een push-bericht als dat is ingesteld).
-8. Telefoon koppelen via **Account › Telefoons**, thuis en via de tunnel gebruiken, daarna intrekken: de app toont *Deze telefoon is niet meer gekoppeld*.
-9. Herstel oefenen: `shc-api restore-drill` (zie [onderhoud.md](onderhoud.md#herstel-oefenen-aanbevolen-elk-kwartaal)).
+7. Controleer de hartslag van de worker onder **Systeem**. De storing- en meldingsproef voor een uitgevallen worker gebeurt op een afzonderlijke testinstallatie.
+8. Koppel de telefoon via **Account › Telefoons**, gebruik hem op het vertrouwde netwerk en trek de koppeling in. De app toont *Deze telefoon is niet meer gekoppeld*. De afzonderlijke tunnelproef vraagt een echt account.
+9. Kies in **Systeem › Herstellen en verhuizen** de volledige export en **Herstelproef uitvoeren**. Controleer de tabellen en de leesbaarheid van de sleutels. [Herstel oefenen](onderhoud.md#herstel-oefenen-aanbevolen-elk-kwartaal)
 
 ## S-P3-730 · Getypeerde vergelijking en beschikbaarheid van de bron
 
