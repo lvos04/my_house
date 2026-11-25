@@ -27,7 +27,8 @@ opruimen() {
 trap opruimen EXIT
 werk=$(docker volume inspect --format '{{.Mountpoint}}' "$volume")
 bron=/opt/shc-proef
-slotmap=/home/transcode/truenas-v2/.lokaal
+# Het gedeelde slotvolume hangt naast de proefwerkmap in de container; geen pad van de runnerhost.
+slotmap=$bron-sloten
 container=$(docker create --network host --cpus 2 --shm-size=1g \
   --label "nl.medialeon.ci.proef=$volume" -e "CI_PROEF=$volume" \
   --mount "type=volume,source=$volume,target=$werk" \
