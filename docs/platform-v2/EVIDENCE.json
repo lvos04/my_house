@@ -152,7 +152,7 @@
  {
   "id": "C1.3-MH-05",
   "status": "Bezig",
-  "validatie": "Unit-getest",
+  "validatie": "Unit-getest; NIET GEVALIDEERD (account)",
   "bewijs": "S-P3-750: apps/web/src/test/terugkeerpad.test.tsx. Herstelcommit 51bb3cd2b56bbb743b8a597a24fb4282dea9b994, CI-run 44543546558 (https://github.com/lvos04/my_house/actions/runs/44543546558). S-P3-742: test_connector_routes.py en OpenAPI-snapshot. test_connector_herstel.py toetst zichtbare redenen voor onbetrouwbare teruglezing, nevenwijziging en niet-passende goedkeuring. test_connector_toestanden.py controleert de zichtbare leesfout bij een ontbrekende ventilator- of stille stand. test_connector_versiewissels.py toetst de leesfout en HTTP 409 na een wissel van applicatieversie met een ontbrekende stille stand. De versieproeven toetsen de terugkoppeling versiewissel en de melding Handmatige controle nodig met de rollback-ID. Een ontbrekend expliciet kopiedoel of een onleesbare kopie weigert de voorbereidingsopdracht. De melding vraagt de oude worker uit te laten. Ronde 8: test_gepauzeerde_terugvalkopie_na_eindexport toetst de herstelmelding bij open voorstelrecht en bij gewijzigde Zigbee2MQTT-opslag. De gebruikers-, woning- en sessie-ID’s worden met de voorstaat vergeleken.",
   "blokkade": "",
   "opmerking": "Terugkeerpad conform: geen terugkeerpad na inloggen. Leesconnector P3-03 vervalt volgens ADR-0034. S-P3-742: nieuwe connectorroutes volgens §5/§6, met 120 seconden max_age op teruglezing.",

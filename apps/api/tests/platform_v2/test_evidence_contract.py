@@ -146,6 +146,7 @@ def test_evidence_volgt_paragraaf_11(echt: list[dict[str, Any]]) -> None:
         ("C1.3-MH-02", "account"),
         ("C1.3-MH-03", "account"),
         ("C1.3-MH-04", "account"),
+        ("C1.3-MH-05", "account"),
         ("C1.3-MH-06", "account"),
         ("REVIEW-my_house-peil-1.1.1", "account"),
         ("REVIEW-my_house-contract-1.3", "account"),
@@ -193,7 +194,7 @@ def test_p3_bewijs_dekt_verificatiekern_en_open_punten(echt: list[dict[str, Any]
     assert "S-P3-742" in kern["blokkade"] and "S-P3-745" in kern["blokkade"]
     terugkeer = per_id["C1.3-MH-05"]
     assert terugkeer["status"] == "Bezig"
-    assert terugkeer["validatie"] == "Unit-getest"
+    assert terugkeer["validatie"] == "Unit-getest; NIET GEVALIDEERD (account)"
     assert "apps/web/src/test/terugkeerpad.test.tsx" in terugkeer["bewijs"]
     assert "geen terugkeerpad" in terugkeer["opmerking"]
     assert "S-P3-742" in terugkeer["opmerking"]
