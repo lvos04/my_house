@@ -5,12 +5,12 @@ owner_repo: lvos04/my_house
 category: home
 description_nl: >-
   Lokale woningbediening en energiemeting met webinterface, API, worker, PostgreSQL en MQTT in één image.
-version: "0.2.0"
+version: "0.3.0"
 install:
   method: custom_app
 image:
   repository: ghcr.io/lvos04/my_house
-  tag: 0.2.0-release-in-afwachting
+  tag: 0.3.0-release-in-afwachting
   digest: null
 custom_app:
   storage:

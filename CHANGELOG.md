@@ -2,7 +2,9 @@
 
 Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/release-notes.md`.
 
-## Unreleased
+## 0.3.0
+
+- De git-tag `v0.3.0` bouwt voor TrueNAS één image met webinterface, API, worker, PostgreSQL en MQTT. De GitHub-release bevat `digests.json` voor het invullen van de exacte tag en digest en `sbom.spdx.json` met de pakketlijst. Buildx voegt de bouwherkomst en SBOM toe aan de image.
 
 - Veiligheid (S-P3-705): zonekoppelingen weigeren beschermde doelen en verkeerde unit-/sensorsoorten. Licht- en knoproutes (POST, PUT, PATCH) geven `409 policy_denied` voor beschermde doelen, ook bij scène- en klimaatstappen. Zonecommando's controleren bescherming vóór bereikbaarheid. De bestaande policy, workerhercontrole en HomeWizard-relaisblokkade blijven behouden. Lokale ketenproeven dekken knopdrukken, automatiseringen, herstel, rechten en WebSocket; hardware en connectorintegratie blijven NIET GEVALIDEERD.
 

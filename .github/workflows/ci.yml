@@ -1,11 +1,10 @@
 name: CI
 
-# Tests, audits, image scan, a smoke test of the whole stack and browser tests against it. Runs on
-# pull requests and on pushes to other branches; main runs it through edge.yml and every release
-# through release.yml (workflow_call), so nothing is published that did not pass exactly these jobs.
+# Test branches en pull requests. Op main roept edge.yml deze CI aan.
 on:
   push:
     branches-ignore: [main]
+    tags-ignore: ['**']
   pull_request:
   workflow_dispatch:
   workflow_call:

@@ -2,6 +2,7 @@ name: Android
 
 on:
   push:
+    branches: ['**']
     paths:
       - "apps/android/**"
       - "design/ontwerptaal/tokens.json"
@@ -51,8 +52,7 @@ jobs:
       - name: Build debug APK
         run: ./gradlew --no-daemon :app:assembleDebug
 
-      # Same minified (R8) release build as release.yml, but unsigned: catches missing keep rules
-      # on every change instead of only when a version is released.
+      # Controleer ook de R8-regels van de verkleinde releasebuild.
       - name: Build minified release APK (unsigned)
         run: ./gradlew --no-daemon :app:assembleRelease
 

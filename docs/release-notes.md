@@ -7,7 +7,8 @@ Smart Home Control: één lokale app voor Hue, Gree-airco, HomeWizard en Zigbee,
 - **Server op TrueNAS SCALE.** Gebruik het standaard Custom App-formulier zodra de alles-in-één-image met vaste tag en digest is gepubliceerd. [Installeren](installatie-truenas.md)
 - **Bijwerken:** maak eerst een back-up. Bij het starten maakt de API zelf een database-dump in `backups/pre-migrate-….sql.gz` voordat hij de database bijwerkt. Bereid bij terugdraaien eerst de afzonderlijke kopie voor. [Offline terugvalkopie voorbereiden](onderhoud.md#offline-terugvalkopie-voorbereiden)
 - **Eerst de server, dan de app.** De nieuwe Android-app herkent een oudere server niet op het thuisadres (de tunnel blijft werken).
-- **Android:** download de APK hieronder en installeer (toestaan: *installeren uit onbekende bron*). Koppel via **Account › Telefoons** in de web-app. Had je de testversie 0.1.0 met de tijdelijke sleutel? Verwijder die eerst en koppel opnieuw.
+- **GitHub-release vanaf 0.3.0.** Gebruik de releasebijlage `digests.json` voor de vaste tag en digest van de alles-in-één-image. De bijbehorende pakketlijst staat in `sbom.spdx.json`. [Custom App-formulier](../deploy/truenas/CUSTOM_APP.md)
+- **Android bij een release met APK.** Download de bijgevoegde APK en installeer die (toestaan: *installeren uit onbekende bron*). Koppel via **Account › Telefoons** in de web-app. Had je de testversie 0.1.0 met de tijdelijke sleutel? Verwijder die eerst en koppel opnieuw.
 
 ## Wat is er nieuw in 0.2.0
 

@@ -22,7 +22,7 @@ Installatie op een echte NAS en toegang tot een fysieke dongle zijn nog te toets
 
 ## Android-app: eigen release-sleutel
 
-Deze ontwikkelstappen zijn voor de beheerder die een Android-release ondertekent.
+De GitHub-releases vanaf `v0.3.0` leveren de alles-in-één-image met de digest en de pakketlijst. De onderstaande ondertekenprocedure hoort bij de vroegere GitHub-releases met APK (tot en met `v0.2.0`).
 
 Android installeert een update alleen als die met **dezelfde sleutel** is ondertekend als de geïnstalleerde app. Daarom ondertekent GitHub de APK met jouw eigen release-sleutel. Die sleutel staat nooit in de broncode, alleen in de geheimen van je GitHub-repository.
 

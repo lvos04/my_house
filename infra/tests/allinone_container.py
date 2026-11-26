@@ -1,11 +1,12 @@
 """Containerproeven voor de Custom App. Aanroep: python3 ... <lokale-image>."""
 
+import argparse
 import gzip
 import json
 import os
+import re
 import secrets
 import subprocess
-import sys
 import textwrap
 import time
 from contextlib import ExitStack
@@ -114,9 +115,10 @@ raise SystemExit(supervisor.main())
 """
 PROCESBOOM = """
 import json
+import sys
 from pathlib import Path
 
-fields = {"PPid", "Uid", "Gid", "Groups", "CapEff", "CapPrm", "CapAmb", "CapBnd", "NoNewPrivs"}
+fields = {"PPid", "Uid", "Gid", "Groups", "CapInh", "CapEff", "CapPrm", "CapAmb", "CapBnd", "NoNewPrivs"}
 tree = {}
 for proc in Path("/proc").iterdir():
     if not proc.name.isdecimal():
@@ -128,7 +130,7 @@ for proc in Path("/proc").iterdir():
         continue
     tree[proc.name] = (
         {k: status[k].split() for k in fields},
-        b"index.js" in args, b"shc_allinone.supervisor" in args, b"worker" in args,
+        b"index.js" in args, sys.argv[1].encode() in args, b"worker" in args,
     )
 selected = {"1"}
 while pending := {pid for pid, (status, *_args) in tree.items() if status["PPid"][0] in selected} - selected:
@@ -232,9 +234,10 @@ class Trial:
                 "--tmpfs", "/etc/mosquitto/conf.d:uid=568,gid=568,mode=0700",
             ])
         overrides = ["--entrypoint", entrypoint[0]] if entrypoint else []
+        user_options = ["--user", user] if user is not None else []
         try:
             created = docker(
-                "create", "--name", name, "--label", owner, "--network", network, "--user", user,
+                "create", "--name", name, "--label", owner, "--network", network, *user_options,
                 *volume_options, *options, *overrides, self.image, *entrypoint[1:], timeout=120,
             )
         except subprocess.TimeoutExpired:
@@ -305,8 +308,8 @@ class Trial:
         within(lambda: b"Proefdatabase gestart" in self.logs(name), "De socket-proefdatabase kwam niet op")
         return name
 
-    def processes(self, name):
-        return json.loads(self.exec(name, *PYTHON, "-c", PROCESBOOM).stdout)
+    def processes(self, name, module="shc_allinone.supervisor"):
+        return json.loads(self.exec(name, *PYTHON, "-c", PROCESBOOM, module).stdout)
 
     @staticmethod
     def identity(status, root, groups):
@@ -317,9 +320,9 @@ class Trial:
         if root:
             assert int(status["CapBnd"][0], 16) == 0
 
-    def service_rights(self, name, *, root, zigbee=False):
+    def service_rights(self, name, *, root, zigbee=False, module="shc_allinone.supervisor"):
         def sample():
-            tree = self.processes(name)
+            tree = self.processes(name, module)
             if zigbee and not any(is_node for _, is_node, *_ in tree.values()):
                 return None
             return tree
@@ -337,12 +340,36 @@ class Trial:
                     allowed.add("27")
                 ancestor = pstat["PPid"][0]
             self.identity(status, root, allowed if zigbee else {"568"})
+            assert int(status["CapInh"][0], 16) == 0
             if is_node:
                 assert zigbee and status["Groups"] == ["27"]
             if pid == "1":
                 assert not status["Groups"] or status["Groups"] == ["568"]
 
         self.healthcheck_rights(name, root=root)
+
+    def formulier(self):
+        versie = (Path(__file__).resolve().parents[2] / "VERSION").read_text().strip()
+        module = docker("run", "--rm", "--network", "none", "--entrypoint", PYTHON[0], self.image,
+                        PYTHON[1], "-m", "shc_allinone.startpad").stdout.decode().strip()
+        assert re.fullmatch(r"shc_allinone\.start_[0-9a-f]{64}", module)
+        volume = self.storage("appdata")
+        clusters = []
+        for stap in ("installatie", "herstart"):
+            naam = self.container(stap, volume, user=None, entrypoint=(*PYTHON, "-m", module))
+            self.healthy(naam)
+            self.service_rights(naam, root=True, module=module)
+            self.exec(naam, *PYTHON, "-c", "from shc_allinone.runtime import NGINX_HEALTH, http_status; "
+                      "assert http_status(NGINX_HEALTH.removesuffix('/healthz') + '/readyz') == 200")
+            assert self.exec(naam, "cat", "/app/VERSION").stdout.decode().strip() == versie
+            assert self.sql(naam, "SHOW data_directory;").strip() == b"/appdata/postgres/data"
+            cluster = self.sql(naam, "SELECT system_identifier FROM pg_control_system();").strip()
+            assert cluster.isdigit()
+            clusters.append(cluster)
+            print(f"{stap}: {versie}, healthy, /readyz 200, 568:568, capabilities 0, NoNewPrivs 1.", flush=True)
+            docker("stop", naam)
+        assert clusters[0] == clusters[1]
+        print("Beide containers gebruikten dezelfde PostgreSQL-database op /appdata.", flush=True)
 
     def healthcheck_rights(self, name, *, root, probe=(*HEALTH, "--toon-rechten")):
         result = self.exec(name, *probe, user="0" if root else "568")
@@ -763,8 +790,15 @@ assert http_status(base + "/readyz") == 503
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("image")
+    parser.add_argument("--formulier", action="store_true", help="Toets alleen de gedocumenteerde release-installatie.")
+    args = parser.parse_args()
     with ExitStack() as cleanup:
-        trial = Trial(sys.argv[1], cleanup)
+        trial = Trial(args.image, cleanup)
+        if args.formulier:
+            trial.formulier()
+            return
         trial.refusals()
         trial.interrupted_first_start()
         trial.incomplete_zigbee_storage()

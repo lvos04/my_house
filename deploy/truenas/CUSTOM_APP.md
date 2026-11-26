@@ -2,7 +2,7 @@
 
 Open in TrueNAS **Apps › Discover Apps › Custom App**. Eén image bevat de webinterface, API, worker, database en broker. Voor de eerste installatie heb je een lege, eigen dataset, een vrije hostpoort en de vaste tag en digest van de gepubliceerde alles-in-één-image nodig.
 
-**Wacht met installeren op de alles-in-één-release (BLOK-06).** De huidige releaseprocedure levert digests voor de afzonderlijke API- en webimages. Het manifest reserveert de imagenaam voor de alles-in-één-release en bevat nog een tagplaatshouder. [Manifest van my_house](../manifest/my_house.manifest.yaml)
+Gebruik de GitHub-release voor de alles-in-één-image (vanaf `v0.3.0`). Download de bijlage `digests.json` en controleer dat `app_id` gelijk is aan `smart-home` en `image` aan `ghcr.io/lvos04/my_house`. Zodra het GHCR-pakket publiek is, kan TrueNAS het zonder registry-login ophalen. Wacht met installeren zolang de bijlage ontbreekt of het manifest nog de tagplaatshouder en `digest: null` bevat (BLOK-06). [GitHub-releases](https://github.com/lvos04/my_house/releases) · [Manifest van my_house](../manifest/my_house.manifest.yaml)
 
 ## Naam, image en container
 
@@ -10,10 +10,11 @@ Open in TrueNAS **Apps › Discover Apps › Custom App**. Eén image bevat de w
 |---|---|
 | Application Name | `smart-home`. |
 | Image › Repository | `ghcr.io/lvos04/my_house`. |
-| Image › Tag en Pull Policy | Neem `<VERSIE>@sha256:<DIGEST>` over uit het releasebewijs van deze image. Kies ophalen als de image lokaal ontbreekt. Accepteert het formulier alleen een losse tag, gebruik dan de exacte versietag en controleer de opgehaalde digest vóór ingebruikname. |
+| Image › Tag | Vul `<tag>@<digest>` in met de velden uit `digests.json`, voor deze release in de vorm `0.3.0@sha256:<64 hextekens>`. Accepteert het formulier alleen een losse tag, gebruik dan de exacte versietag en controleer de opgehaalde digest vóór ingebruikname. |
+| Image › Pull Policy | Kies *Pull the image if it is not already present on host*. |
 | Timezone | Kies de tijdzone van je woning. |
 | Entrypoint en Command | Gebruik als Entrypoint `/opt/venv/bin/python`. Voeg als drie afzonderlijke argumenten `-IBu`, `-m` en `shc_allinone.startpad` toe. Deze eerste start toont alleen de bij deze image horende modulenaam en sluit af. |
-| Environment Variables | Laat de lijst bij een basisinstallatie leeg. De app maakt zelf haar sleutels op de eigen dataset. Voor de optionele link ‘Terug naar de Hub’ kun je hier handmatig `HUB_URL` met het webadres invullen. |
+| Environment Variables | Laat leeg bij de basisinstallatie. De app maakt zelf haar sleutels op de eigen dataset. Vul desgewenst `HUB_URL` in als webadres voor de link ‘Terug naar de Hub’. Laat `HUB_ENROLLMENT_TOKEN` en `HUB_KEY_FINGERPRINT` weg. Deze versie ondersteunt geen automatische Hub-koppeling via het formulier. |
 | Restart Policy | Kies voor het opvragen van de modulenaam **No**. Kies na het vastleggen van de naam **Unless Stopped**. |
 | Disable Builtin Healthcheck, TTY en Stdin | Laat alle drie uit. |
 
@@ -37,7 +38,8 @@ Het manifest laat de apparatenlijst leeg omdat de standaard alleen vaste hostapp
 | Networks en Custom DNS | Laat de standaardinstellingen staan. |
 | Portals | Naam `Smart Home Control`, schema `http`, gekozen hostpoort en pad `/`. |
 | Storage › Add › Host Path | Kies in de datasetkiezer je eigen, voor de eerste installatie lege dataset, bijvoorbeeld `/mnt/<POOL>/<DATASET>` (D02). Vul bij **Mount Path** `/appdata` in en laat **Read Only** uit. Hier staan onder andere de database, sleutels en back-ups. |
-| Labels en Resources | Laat eigen labels leeg, extra resourcelimieten uit en de GPU uit. |
+| Resources › CPUs / Memory | Laat de CPU- en geheugenlimieten uit, zoals in het manifest. |
+| Labels en GPU | Laat eigen labels leeg en de GPU uit. |
 
 ## Opslaan en controleren
 
