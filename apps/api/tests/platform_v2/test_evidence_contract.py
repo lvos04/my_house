@@ -124,6 +124,47 @@ def test_evidence_volgt_paragraaf_11(echt: list[dict[str, Any]]) -> None:
     assert fouten(echt, excel_ids(), conformiteitspunten()) == []
 
 
+@pytest.mark.parametrize(
+    ("regel_id", "afhankelijkheid"),
+    [
+        ("B06-001", "echte NAS"),
+        ("B06-001", "account"),
+        ("B06-002", "account"),
+        ("B06-003", "echte NAS"),
+        ("B06-003", "account"),
+        ("B06-004", "echte NAS"),
+        ("B06-004", "account"),
+        ("B06-005", "echte NAS"),
+        ("B06-005", "account"),
+        ("B06-006", "account"),
+        ("B06-007", "echte NAS"),
+        ("B06-007", "account"),
+        ("B06-008", "hardware"),
+        ("B06-008", "account"),
+        ("EX15", "account"),
+        ("C1.3-ALG-04", "account"),
+        ("C1.3-MH-02", "account"),
+        ("C1.3-MH-03", "account"),
+        ("C1.3-MH-04", "account"),
+        ("C1.3-MH-06", "account"),
+        ("REVIEW-my_house-peil-1.1.1", "account"),
+        ("REVIEW-my_house-contract-1.3", "account"),
+        ("REVIEW-my_house-grafiek-24-uur", "echte NAS"),
+        ("REVIEW-my_house-grafiek-24-uur", "account"),
+        ("EX27", "echte NAS"),
+        ("EX27", "account"),
+        ("EX29", "echte NAS"),
+        ("EX29", "account"),
+    ],
+)
+def test_praktijkproef_vermeldt_de_afhankelijkheid(
+    echt: list[dict[str, Any]], regel_id: str, afhankelijkheid: str
+) -> None:
+    """Bewaak ook de vereisten die het draaiboek of de installatiechecklist in gewone taal beschrijft."""
+    per_id = {regel["id"]: regel["validatie"] for regel in echt}
+    assert f"NIET GEVALIDEERD ({afhankelijkheid})" in per_id[regel_id].split("; ")
+
+
 def test_vaste_lijst_is_de_tabel_van_paragraaf_11() -> None:
     """De vaste lijst volgt het contract: een waarde erbij of eraf zonder contracttekst is rood (C12-6: echte Hub)."""
     tekst = (PV2 / "PLATFORM_CONTRACTEN.md").read_text(encoding="utf-8")
