@@ -88,5 +88,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          bron="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME"
+          uitleg="Vul in TrueNAS de tag en digest uit digests.json in. De pakketlijst staat in sbom.spdx.json."
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
-            --title "my_house $GITHUB_REF_NAME" --notes-file CHANGELOG.md release/digests.json release/sbom.spdx.json
+            --title "my_house $GITHUB_REF_NAME" \
+            --notes "$uitleg [Custom App-formulier]($bron/deploy/truenas/CUSTOM_APP.md) · [Wijzigingen]($bron/CHANGELOG.md)" \
+            release/digests.json release/sbom.spdx.json
