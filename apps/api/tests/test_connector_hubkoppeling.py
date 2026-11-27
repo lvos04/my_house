@@ -84,6 +84,8 @@ async def test_hub_doelcontrole_geldt_op_alle_drie_routes(koppel, proef, bescher
 
 
 async def test_schema_bytebeperking_voor_opslag_ook_bij_100_blokken(proef):
+    algemeen = await proef.admin.c.get(f"{PREFIX}/discover")
+    assert algemeen.status_code == 200 and set(algemeen.json()) == {"actions"}
     data = (await proef.admin.c.get(f"{PREFIX}/discover", params={
         "action_id": "zone.schedule.propose", "target_id": str(proef.zone_id),
     })).json()

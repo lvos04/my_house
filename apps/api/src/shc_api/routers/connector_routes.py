@@ -109,7 +109,7 @@ async def _mutation(db, principal, idem, body, operation):
     return JSONResponse(data, status, headers=headers)
 
 
-@router.get("/discover", response_model=Discovery, responses=ERRORS)
+@router.get("/discover", response_model=Discovery, response_model_exclude_none=True, responses=ERRORS)
 async def discover(
     db: DB, _p: Auth, zone_id: uuid.UUID | None = None,
     action_id: str | None = None, target_id: uuid.UUID | None = None,
