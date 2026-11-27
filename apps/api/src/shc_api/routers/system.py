@@ -820,6 +820,8 @@ async def restore_download(backup_id: uuid.UUID, db: DB, p: WebAdmin):
         raise not_found("Back-up") from exc
     except OSError as exc:
         raise api_error(409, "backup_unreadable", "Het gevraagde archief is niet leesbaar.") from exc
+    if not await migration_source.confirm_resumed_export(db, backup_id, path.parent):
+        raise api_error(409, "source_unverified", "De archiefmap heeft deze eindexport nog niet bevestigd.")
     await db.commit()
     return FileResponse(path, stat_result=info, media_type="application/octet-stream",
                         filename=f"woning-{backup_id}.shcbak")

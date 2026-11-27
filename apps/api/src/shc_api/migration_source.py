@@ -278,6 +278,23 @@ async def _finish_publication(db, proof):
     return True
 
 
+async def confirm_resumed_export(db, file_id: uuid.UUID, directory: Path) -> bool:
+    """Een na hervatten achtergebleven export vereist alsnog een duurzame mapbevestiging."""
+    from .restore_control import sync_directory
+
+    if not await db.scalar(text("SELECT to_regclass('shc_restore.unconfirmed_exports') IS NOT NULL")):
+        return True
+    params = {"id": file_id}
+    if not await db.scalar(text("SELECT 1 FROM shc_restore.unconfirmed_exports WHERE file_id=:id"), params):
+        return True
+    try:
+        sync_directory(directory)
+    except OSError:
+        return False
+    await db.execute(text("DELETE FROM shc_restore.unconfirmed_exports WHERE file_id=:id"), params)
+    return True
+
+
 async def locked_pause(db, *, shared=False, download_id=None):
     """Lever de actuele pauze onder de lock, ook na procesverlies tussen afsluiten en publiceren."""
     lock = lock_commissioning_shared if shared else lock_commissioning
@@ -365,6 +382,12 @@ async def resume(db, actor: str, *, rejected_id: str | None = None) -> None:
             await _open_journal(db)
         await _merge_logins(db)
         await db.execute(text("DROP TABLE shc_pause.attempts, shc_pause.events"))
+    if proof.get("publishing"):
+        # De lokale weigering en het vrijgeven van de bron zijn één transactie.
+        await db.execute(text("CREATE SCHEMA IF NOT EXISTS shc_restore"))
+        await db.execute(text("CREATE TABLE IF NOT EXISTS shc_restore.unconfirmed_exports (file_id uuid PRIMARY KEY)"))
+        await db.execute(text("INSERT INTO shc_restore.unconfirmed_exports VALUES (:id) ON CONFLICT DO NOTHING"),
+                         {"id": uuid.UUID(proof["publishing"])})
     await db.execute(text("DELETE FROM settings WHERE key='migration_source_pause'"))
     await set_setting(db, "maintenance", proof["maintenance_before"])
     await audit(db, actor, "migration_source_resumed")

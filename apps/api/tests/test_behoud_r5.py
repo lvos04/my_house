@@ -199,5 +199,11 @@ async def test_eerdere_download_bij_fout_in_mapbevestiging(monkeypatch, tmp_path
                 hervatten = await sessie.post("/system/restore/source/resume")
                 assert hervatten.status_code == 200 and hervatten.json()["paused"] is False
                 assert (await sessie.post("/homes", {"name": "Bron hervat"})).status_code == 200
+                onzekere_route = "/system/restore/files/" + onbevestigd.stem
+                assert (await sessie.get(onzekere_route)).status_code == 409
+                vorige = await sessie.get(route)
+                assert vorige.status_code == 200 and hashlib.sha256(vorige.content).digest() == controle
+            bevestigd = await sessie.get(onzekere_route)
+            assert bevestigd.status_code == 200 and bevestigd.content == onbevestigd.read_bytes()
             na = await sessie.get(route)
         assert na.status_code == 200 and hashlib.sha256(na.content).digest() == controle

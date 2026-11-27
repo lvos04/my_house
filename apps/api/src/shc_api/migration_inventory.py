@@ -90,6 +90,7 @@ LOCAL_JOURNALS = {
     ("shc_pause", "attempts"): "De export verwerkt de actuele vergrendelingen transactioneel in users.",
     ("shc_pause", "events"): "De export verplaatst alle gebeurtenissen transactioneel naar audit_log.",
     ("shc_restore", "jobs"): "Lokale taakcodes geven toegang tot de terugvalbestanden op deze installatie.",
+    ("shc_restore", "unconfirmed_exports"): "Onbevestigde bestanden horen bij de archiefmap van deze installatie.",
 }
 
 

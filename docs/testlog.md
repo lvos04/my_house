@@ -186,7 +186,7 @@ De eigenschapsproef geeft iedere randwaarde tijdelijk dezelfde rijsleutel en con
 | Toestand | Verwachte uitkomst | Vaste proef |
 | --- | --- | --- |
 | De nieuwe tussenexport kan zijn map niet synchroniseren | De aanvraag krijgt HTTP 409. De vorige download geeft HTTP 200 met dezelfde SHA-256. | `test_eerdere_download_bij_fout_in_mapbevestiging` |
-| De eindexport is hernoemd en de archiefmap blijft synchronisatie weigeren | Export en download van het onbevestigde bestand krijgen HTTP 409. De eerdere tussenexport blijft vindbaar en downloadbaar met dezelfde SHA-256. De bronwoning blijft leesbaar. | `test_eerdere_download_bij_fout_in_mapbevestiging`, webproef ‘biedt de eerdere tussenexport aan’ |
+| De eindexport is hernoemd en de archiefmap blijft synchronisatie weigeren | De onbevestigde download krijgt ook na hervatten HTTP 409. De eerdere export houdt dezelfde SHA-256 en de bron accepteert weer schrijfacties. Zodra de map de nieuwe publicatie bevestigt, levert de download het tweede bestand bytegelijk. | `test_eerdere_download_bij_fout_in_mapbevestiging`, webproef ‘biedt de eerdere tussenexport aan’ |
 | Dezelfde fout, met een nog geldig bronbewijs | Vroeg hervatten wordt geweigerd met HTTP 409. | `test_eerdere_download_bij_fout_in_mapbevestiging` |
 | Dezelfde fout na het verlopen van het bewijs | Hervatten en een volgende schrijfopdracht krijgen HTTP 200. De eerdere download blijft bytegelijk. | `test_eerdere_download_bij_fout_in_mapbevestiging` |
 | De hernoeming wordt geweigerd en er is geen definitief bestand | Heraanmelden en hervatten kunnen direct. De aanmeldingen blijven in het logboek. | `test_geweigerde_publicatie_houdt_bron_bereikbaar` |
