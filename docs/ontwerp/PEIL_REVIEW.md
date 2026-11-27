@@ -642,3 +642,21 @@ proefunit en kreeg bij het opslaan van het schema een 409. De nameting bevat het
 Opnieuw meten kan met `PEIL_SCRIPT=review.mjs`, `PEIL_ALLEEN=overzicht,energie,overzicht-verouderd,klimaat-verouderd`
 en `PEIL_WIDTHS=320,360,390,768,1024,1440` bij `run_shots.sh` uit de bestaande afdrukwerkwijze.
 Echte toestellen vallen onder N-P6-06, NIET GEVALIDEERD (hardware). [Afdrukwerkwijze](../screenshots/peil/werkwijze/README.md)
+
+## Onafhankelijke ontwerpreview G-20 voor S-P3-700 en S-P3-742 · 27 november 2026
+
+**S-P3-700, starten met een nieuwere database.** De kaart heeft een stippelrand en een
+leesbare reden voor de startweigering. De tekst noemt twee manieren waarop de beheerder verder
+kan met behoud van de gegevens. De kop ‘De server is niet bereikbaar’ is algemener dan de uitleg
+eronder. ‘Opnieuw proberen’ staat als afzonderlijke knop onder de herstelkeuzes. In deze uitsnede
+zijn de reden, beide keuzes en de knop volledig leesbaar. [Schermafdruk van de startkaart](https://git.medialeon.nl/leon/ai-server-manager/src/commit/d8e6ec3752ad569d105b5853d627e579acdb0d2a/docs/ontwerp/review/s-p3-700-startkaart.png)
+
+**S-P3-742, terugval na de definitieve bronexport.** De opengeklapte kaart toont de sluitingstijd,
+vervaltijd en het aantal te bewaren metingen. Bij een leeg wachtzinveld is de exportknop zichtbaar
+uitgeschakeld. De instructie bij ‘Bron hervatten’ noemt in volgorde het veiligstellen van beide
+opslagen, het stilzetten van de doelapp en het hervatten op de voorbereide kopie na exitcode 0
+en het verstrijken van de bronpauze. De lange instructie is in deze uitsnede volledig leesbaar.
+[Schermafdruk van de terugvalkaart](https://git.medialeon.nl/leon/ai-server-manager/src/commit/d8e6ec3752ad569d105b5853d627e579acdb0d2a/docs/ontwerp/review/s-p3-742-terugval.png)
+
+De beoordeling omvat de zichtbare inhoud en volgorde in deze twee bewaarde kaartuitsneden.
+Toetsenbordbediening, schermlezer en andere schermbreedtes zijn in deze review niet gemeten.
