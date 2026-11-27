@@ -6,6 +6,7 @@ import ssl
 
 import httpx
 import pytest
+from proefadressen import STEKKER_HOST
 from test_tls import make_cert
 
 from shc_integrations.base import AdapterError
@@ -118,11 +119,11 @@ async def test_fetch_fingerprint_accepts_host_with_port(tmp_path):
 async def test_plain_http_client_ignores_environment_proxy(monkeypatch):
     monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")
     monkeypatch.setenv("NO_PROXY", "")
-    async with client_for("http://192.168.1.10", None) as c:
+    async with client_for(f"http://{STEKKER_HOST}", None) as c:
         assert c._mounts == {}  # no proxy transport mounted for LAN devices
 
 
 def test_pinned_transport_rejects_without_fingerprint():
     with pytest.raises(AdapterError):
-        client_for("https://10.0.0.1", "")
+        client_for(f"https://{STEKKER_HOST}", "")
     assert isinstance(PinnedTransport("AB:CD"), httpx.AsyncHTTPTransport)

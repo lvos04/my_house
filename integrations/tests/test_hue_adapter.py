@@ -8,12 +8,12 @@ import pytest
 import respx
 from conftest import no_sleep
 from hue_inventory import B1, D_DIMMER, G_LIVING, L1, L2, S_EVENING, V1_RULES, full_resources
+from proefadressen import HUE_HOST as HOST
 
 from shc_integrations.base import AdapterError, ButtonEvent, Command, DeviceInfo, StateUpdate
 from shc_integrations.hue import HueAdapter
 from shc_integrations.hue import adapter as hue_adapter_mod
 
-HOST = "192.168.1.30"
 BASE = f"https://{HOST}"
 CREDS = {"application_key": "k", "cert_fingerprint": "ab" * 32, "bridge_id": "ecb5fafffe000001"}
 

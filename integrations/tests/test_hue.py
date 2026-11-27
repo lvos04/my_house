@@ -5,6 +5,7 @@ import pytest
 import respx
 from conftest import load, no_sleep
 from hue_inventory import G_LIVING, L1, L2, S_EVENING, full_resources
+from proefadressen import HUE_HOST as HOST
 
 from shc_integrations.base import (
     ButtonEvent,
@@ -17,7 +18,6 @@ from shc_integrations.base import (
 from shc_integrations.hue import HueAdapter, parse_sse
 from shc_integrations.hue.adapter import events_from_containers
 
-HOST = "192.168.1.30"
 BASE = f"https://{HOST}"
 LIGHT = "1d6c6a4c-0000-4000-8000-000000000001"
 

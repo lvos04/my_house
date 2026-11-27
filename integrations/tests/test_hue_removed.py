@@ -7,11 +7,11 @@ restart, with what the worker seeded) and emits ``DeviceInfo(removed=True)`` for
 import respx
 from conftest import no_sleep
 from hue_inventory import D3, D_DIMMER, G_BED, L1, L3, S_NIGHT, full_resources
+from proefadressen import HUE_HOST as HOST
 
 from shc_integrations.base import DeviceInfo, StateUpdate
 from shc_integrations.hue import HueAdapter
 
-HOST = "192.168.1.30"
 BASE = f"https://{HOST}"
 CREDS = {"application_key": "k", "cert_fingerprint": "ab" * 32, "bridge_id": "ecb5fafffe000001"}
 

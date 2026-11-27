@@ -8,6 +8,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
+from proefadressen import STEKKER_HOST
 
 from shc_integrations.base import AdapterError
 from shc_integrations.tls import CertificateMismatch, client_for, fetch_fingerprint
@@ -77,4 +78,4 @@ async def test_pin_mismatch_rejected(server):
 
 def test_https_without_pin_refused():
     with pytest.raises(AdapterError):
-        client_for("https://10.0.0.1", None)
+        client_for(f"https://{STEKKER_HOST}", None)

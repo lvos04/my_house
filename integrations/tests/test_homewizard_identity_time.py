@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 import respx
 from conftest import load
+from proefadressen import P1_HOST, STEKKER_HOST
 
 from shc_integrations.base import IdentityMismatch, StateUpdate
 from shc_integrations.homewizard import HomeWizardAdapter, normalize_v1, normalize_v2
@@ -97,14 +98,14 @@ def test_resolve_without_receive_time_keeps_old_behaviour():
 
 def p1(plain_factory, **cfg):
     return HomeWizardAdapter(
-        {"host": "10.0.0.4", "serial": "3c39e7000001", "product_type": "HWE-P1", **cfg}, http_factory=plain_factory
+        {"host": P1_HOST, "serial": "3c39e7000001", "product_type": "HWE-P1", **cfg}, http_factory=plain_factory
     )
 
 
 @respx.mock
 async def test_other_device_on_the_address_raises_identity_mismatch(plain_factory):
-    respx.get("http://10.0.0.4/api").respond(json={"product_type": "HWE-SKT", "serial": "3c39e70000ff"})
-    data = respx.get("http://10.0.0.4/api/v1/data").respond(json=load("homewizard/v1_data_p1.json"))
+    respx.get(f"http://{P1_HOST}/api").respond(json={"product_type": "HWE-SKT", "serial": "3c39e70000ff"})
+    data = respx.get(f"http://{P1_HOST}/api/v1/data").respond(json=load("homewizard/v1_data_p1.json"))
     a = p1(plain_factory)
     with pytest.raises(IdentityMismatch) as ei:
         await a.poll()
@@ -119,8 +120,8 @@ async def test_other_device_on_the_address_raises_identity_mismatch(plain_factor
 
 @respx.mock
 async def test_serial_checked_every_poll_by_default(plain_factory):
-    api = respx.get("http://10.0.0.4/api").respond(json=load("homewizard/v1_api_p1.json"))
-    respx.get("http://10.0.0.4/api/v1/data").respond(json=load("homewizard/v1_data_p1.json"))
+    api = respx.get(f"http://{P1_HOST}/api").respond(json=load("homewizard/v1_api_p1.json"))
+    respx.get(f"http://{P1_HOST}/api/v1/data").respond(json=load("homewizard/v1_data_p1.json"))
     a = p1(plain_factory, min_poll_interval_s=0)
     await a.poll()
     await a.poll()
@@ -131,8 +132,8 @@ async def test_serial_checked_every_poll_by_default(plain_factory):
 
 @respx.mock
 async def test_serial_check_interval_is_configurable(plain_factory):
-    api = respx.get("http://10.0.0.4/api").respond(json=load("homewizard/v1_api_p1.json"))
-    respx.get("http://10.0.0.4/api/v1/data").respond(json=load("homewizard/v1_data_p1.json"))
+    api = respx.get(f"http://{P1_HOST}/api").respond(json=load("homewizard/v1_api_p1.json"))
+    respx.get(f"http://{P1_HOST}/api/v1/data").respond(json=load("homewizard/v1_data_p1.json"))
     a = p1(plain_factory, min_poll_interval_s=0, identity_check_interval_s=300)
     await a.poll()
     await a.poll()
@@ -141,16 +142,16 @@ async def test_serial_check_interval_is_configurable(plain_factory):
 
 @respx.mock
 async def test_repair_with_expected_serial_detects_other_device(plain_factory):
-    respx.get("http://10.0.0.5/api").respond(json=load("homewizard/v1_api_socket.json"))
+    respx.get(f"http://{STEKKER_HOST}/api").respond(json=load("homewizard/v1_api_socket.json"))
     with pytest.raises(IdentityMismatch):
-        await HomeWizardAdapter({}, http_factory=plain_factory).pair("10.0.0.5", expected_serial="3c39e7000001")
+        await HomeWizardAdapter({}, http_factory=plain_factory).pair(STEKKER_HOST, expected_serial="3c39e7000001")
 
 
 @respx.mock
 async def test_legacy_config_without_serial_is_not_rejected(plain_factory):
-    respx.get("http://10.0.0.4/api").respond(json=load("homewizard/v1_api_p1.json"))
-    respx.get("http://10.0.0.4/api/v1/data").respond(json=load("homewizard/v1_data_p1.json"))
-    a = HomeWizardAdapter({"host": "10.0.0.4", "product_type": "HWE-P1"}, http_factory=plain_factory)
+    respx.get(f"http://{P1_HOST}/api").respond(json=load("homewizard/v1_api_p1.json"))
+    respx.get(f"http://{P1_HOST}/api/v1/data").respond(json=load("homewizard/v1_data_p1.json"))
+    a = HomeWizardAdapter({"host": P1_HOST, "product_type": "HWE-P1"}, http_factory=plain_factory)
     assert await a.poll()
     assert (await a.health()).extra["identity_verified"] is None
 
@@ -160,11 +161,13 @@ async def test_legacy_config_without_serial_is_not_rejected(plain_factory):
 
 @respx.mock
 async def test_socket_reports_relay_off_and_switch_lock(plain_factory):
-    respx.get("http://10.0.0.5/api").respond(json=load("homewizard/v1_api_socket.json"))
-    respx.get("http://10.0.0.5/api/v1/data").respond(json=load("homewizard/v1_data_socket.json"))
-    respx.get("http://10.0.0.5/api/v1/state").respond(json={"power_on": False, "switch_lock": True, "brightness": 255})
+    respx.get(f"http://{STEKKER_HOST}/api").respond(json=load("homewizard/v1_api_socket.json"))
+    respx.get(f"http://{STEKKER_HOST}/api/v1/data").respond(json=load("homewizard/v1_data_socket.json"))
+    respx.get(f"http://{STEKKER_HOST}/api/v1/state").respond(
+        json={"power_on": False, "switch_lock": True, "brightness": 255}
+    )
     a = HomeWizardAdapter(
-        {"host": "10.0.0.5", "serial": "3c39e7000002", "product_type": "HWE-SKT"}, http_factory=plain_factory
+        {"host": STEKKER_HOST, "serial": "3c39e7000002", "product_type": "HWE-SKT"}, http_factory=plain_factory
     )
     st = next(e for e in await a.poll() if isinstance(e, StateUpdate))
     assert st.device_identity == "3c39e7000002"
@@ -173,21 +176,21 @@ async def test_socket_reports_relay_off_and_switch_lock(plain_factory):
 
 @respx.mock
 async def test_meter_without_relay_has_no_relay_state(plain_factory):
-    respx.get("http://10.0.0.4/api").respond(json=load("homewizard/v1_api_p1.json"))
-    respx.get("http://10.0.0.4/api/v1/data").respond(json=load("homewizard/v1_data_p1.json"))
+    respx.get(f"http://{P1_HOST}/api").respond(json=load("homewizard/v1_api_p1.json"))
+    respx.get(f"http://{P1_HOST}/api/v1/data").respond(json=load("homewizard/v1_data_p1.json"))
     assert not any(isinstance(e, StateUpdate) for e in await p1(plain_factory).poll())
 
 
 @respx.mock
 @pytest.mark.parametrize("v1_status", [200, 404])
 async def test_v2_socket_reads_relay_via_v1_without_token_or_reports_unsupported(plain_factory, v1_status):
-    respx.get("https://10.0.0.6/api").respond(json={"product_type": "HWE-SKT", "serial": "s6"})
-    respx.get("https://10.0.0.6/api/measurement").respond(json={"power_w": 5.0, "energy_import_kwh": 1.0})
-    state = respx.get("http://10.0.0.6/api/v1/state").respond(
+    respx.get(f"https://{STEKKER_HOST}/api").respond(json={"product_type": "HWE-SKT", "serial": "s6"})
+    respx.get(f"https://{STEKKER_HOST}/api/measurement").respond(json={"power_w": 5.0, "energy_import_kwh": 1.0})
+    state = respx.get(f"http://{STEKKER_HOST}/api/v1/state").respond(
         v1_status, json={"power_on": True, "switch_lock": True} if v1_status == 200 else {}
     )
     a = HomeWizardAdapter(
-        {"host": "10.0.0.6", "serial": "s6", "product_type": "HWE-SKT", "api_version": "v2"},
+        {"host": STEKKER_HOST, "serial": "s6", "product_type": "HWE-SKT", "api_version": "v2"},
         {"token": "SECRETTOKEN", "cert_fingerprint": "ab" * 32},
         http_factory=plain_factory,
     )
