@@ -154,6 +154,13 @@ async def _locked_pin(db: AsyncSession, *, read: bool = False) -> ConnectorHubPi
     return await db.get(ConnectorHubPin, 1, with_for_update={"read": read}, populate_existing=True)
 
 
+async def lock_verified_pin(db: AsyncSession) -> tuple[ConnectorHubPin, HubKeyset]:
+    pin = await _locked_pin(db, read=True)
+    if pin is None:
+        raise _unavailable()
+    return pin, _stored_keyset(pin)
+
+
 async def _save_pin(
     db: AsyncSession,
     keyset: HubKeyset,
@@ -466,10 +473,8 @@ async def process_request(
     De route commit vóór het antwoorden. De derde retourwaarde markeert een idempotente herhaling.
     """
     async with db.begin_nested():
-        pin = await _locked_pin(db, read=True)
-        if pin is None:
-            raise _unavailable()
-        body, digest, issued, expires, nonce = _signed_content(request, _stored_keyset(pin))
+        pin, keyset = await lock_verified_pin(db)
+        body, digest, issued, expires, nonce = _signed_content(request, keyset)
         if len(_canonical(body["proposal"]["parameters"])) > MAX_PARAMETER_BYTES:
             raise contract_error(
                 422, "parameters_ongeldig", "Doel of parameters voldoen niet aan het schema.",

@@ -23,6 +23,7 @@ from .contract_http import contract_error
 from .errors import require_secret_box
 from .hub_keys import utc_seconds
 from .models import (
+    ApiClient,
     ClimateZone,
     CommandRecord,
     ConnectorChange,
@@ -33,6 +34,7 @@ from .models import (
     Integration,
     ScheduleBlock,
     Setting,
+    User,
     utcnow,
 )
 from .policy import PolicyDenied
@@ -61,6 +63,7 @@ def _stale():
 def _unavailable():
     return contract_error(
         501, "capability_unavailable", "Voor deze actie is veilig apparaatherstel niet beschikbaar.",
+        reason="rollback_unavailable",
     )
 
 
@@ -202,12 +205,31 @@ async def _read_current(
         await _close(adapter)
 
 
-async def _recoverable(db: AsyncSession, target: Target, *, exclude_id=None) -> bool:
+def _recovery_owner(client):
+    """De lokale beheerder die deze Hub koppelde en nu het herstel kan bevestigen."""
+    return select(User.id).join(ApiClient, ApiClient.user_id == User.id).where(
+        "client:" + cast(ApiClient.id, Text) == client, ApiClient.purpose == "hub", ApiClient.role == "viewer",
+        User.role == "admin", User.disabled.is_(False), or_(User.locked_until.is_(None), User.locked_until <= utcnow()),
+    )
+
+
+async def _has_recovery_owner(db: AsyncSession, client: str) -> bool:
+    return client.startswith("user:") or await db.scalar(_recovery_owner(client)) is not None
+
+
+async def check_replayed_target(db: AsyncSession, proposal: dict, risk: str, client: str) -> None:
+    await resolve_target(db, proposal, risk)
+    if proposal["action_id"] == SETPOINT and not await _has_recovery_owner(db, client):
+        raise _unavailable()
+
+
+async def _recoverable(db: AsyncSession, target: Target, client: str, *, exclude_id=None) -> bool:
     zone, device = target.zone, target.device
     return bool(
         zone and device and device.provider == "gree" and device.kind == "ac_unit"
         and zone.control == "manual" and zone.override_until and zone.override_until > utcnow()
         and set(target.params) == {"target_c"}
+        and await _has_recovery_owner(db, client)
         and not await pending_command(db, device.id, exclude_id=exclude_id, with_mode=False)
     )
 
@@ -232,12 +254,14 @@ async def propose(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[
     if action == CONCEPT:
         before = {"schedule": await _schedule(db, target.zone)}
         observed_at = utcnow()
-    elif action == SETPOINT and await _recoverable(db, target):
+    elif action == SETPOINT and await _recoverable(db, target, client):
         required = await _unattributed_fields(db, target)
         before = await _read_current(db, target.device, remember_fields=True, required_fields=required)
         observed_at = utcnow() if before is not None else None
         if before is None or not _compatible(target, before):
             reason = "readback_unavailable"
+    elif action == SETPOINT and client.startswith("client:"):
+        raise _unavailable()
     elif action != SOCKET_PROPOSAL:
         reason = "capability_unavailable"
 
@@ -305,9 +329,9 @@ async def _approval(
     return min(req.expires_at, expires)
 
 
-async def _queue(db: AsyncSession, target: Target, temperature: float) -> CommandRecord:
+async def _queue(db: AsyncSession, target: Target, temperature: float, *, actor: str = "Hub") -> CommandRecord:
     try:
-        return await queue_zone_setpoint(db, target.zone, target.device, temperature, source=SOURCE, actor="Hub")
+        return await queue_zone_setpoint(db, target.zone, target.device, temperature, source=SOURCE, actor=actor)
     except PolicyDenied as exc:
         raise contract_error(409, exc.code, exc.message) from None
 
@@ -358,7 +382,7 @@ async def apply(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[in
         raise contract_error(
             409, "proposal_unavailable", "Het voorstel is verwerkt, verlopen of zonder betrouwbare stand.",
         )
-    if not await _recoverable(db, target):
+    if not await _recoverable(db, target, client):
         raise _unavailable()
 
     expires = await _approval(db, req, change, change.preview_hash, change.parameters)
@@ -429,6 +453,42 @@ def _remember_rollback(change: ConnectorChange, command_id: uuid.UUID, current: 
 
 async def rollback(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[int, dict]:
     target, change = await _change_for_request(db, req, client)
+    preview = await _checked_rollback(db, change, target)
+    expires = await _approval(db, req, change, preview["preview_hash"], preview["parameters"])
+    return await _queue_rollback(db, change, target, preview, expires, actor="Hub")
+
+
+async def owned_hub_change(
+    db: AsyncSession, identity: uuid.UUID, owner_id: uuid.UUID, *, lock: bool = False,
+) -> ConnectorChange:
+    query = select(ConnectorChange).where(
+        ConnectorChange.id == identity, ConnectorChange.action_id == SETPOINT,
+        _recovery_owner(ConnectorChange.client).where(User.id == owner_id).exists(),
+    )
+    if lock:
+        query = query.with_for_update().execution_options(populate_existing=True)
+    change = await db.scalar(query)
+    if change is None:
+        raise not_found()
+    return change
+
+
+async def local_rollback(db: AsyncSession, change: ConnectorChange, preview_hash: str, admin: User) -> tuple[int, dict]:
+    expires = utcnow() + TTL
+    target = await resolve_target(db, {
+        "action_id": change.action_id, "target": change.target, "parameters": change.parameters,
+    }, ACTIONS[change.action_id].risk)
+    # De worker en de getekende routes nemen eerst de woninglock en vergrendelen daarna het voorstel.
+    change = await owned_hub_change(db, change.id, admin.id, lock=True)
+    if not await _active_binding(db, change):
+        raise contract_error(409, "proposal_unavailable", "Dit voorstel hoort bij een eerdere Hub-koppeling.")
+    preview = await _checked_rollback(db, change, target)
+    if preview["preview_hash"] != preview_hash:
+        raise contract_error(409, "approval_mismatch", "De bevestiging hoort niet bij dit herstelvoorstel.")
+    return await _queue_rollback(db, change, target, preview, expires, actor=admin.username)
+
+
+async def _checked_rollback(db: AsyncSession, change: ConnectorChange, target: Target) -> dict:
     if change.action_id == CONCEPT or change.before is None or change.command_id is None:
         raise _unavailable()
     preview, reason = await _rollback_preview(db, change)
@@ -438,11 +498,16 @@ async def rollback(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple
         raise _stale()
     if preview is None:
         raise contract_error(409, "conflict", "Herstel is nu niet beschikbaar of is al ingepland.")
-    if not await _recoverable(db, target):
+    if not await _recoverable(db, target, change.client):
         raise _unavailable()
     if await _superseded(db, change, exclude_id=change.rollback_command_id):
         raise _stale()
-    expires = await _approval(db, req, change, preview["preview_hash"], preview["parameters"])
+    return preview
+
+
+async def _queue_rollback(
+    db: AsyncSession, change: ConnectorChange, target: Target, preview: dict, expires: datetime, *, actor: str,
+) -> tuple[int, dict]:
     current = await _read_current(db, target.device)
     if current is None:
         raise contract_error(409, "readback_unavailable", "De actuele stand is niet betrouwbaar leesbaar.")
@@ -450,7 +515,7 @@ async def rollback(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple
         raise _stale()
     if utcnow() >= expires:
         raise contract_error(409, "proposal_unavailable", "Het herstelverzoek is verlopen.")
-    cmd = await _queue(db, target, change.before["target_c"])
+    cmd = await _queue(db, target, change.before["target_c"], actor=actor)
     _remember_rollback(change, cmd.id, current, expires)
     return 202, {"command_id": str(cmd.id), "evidence_id": str(change.id), "status": "queued"}
 
@@ -507,7 +572,7 @@ async def worker_target(db, cmd, dev, change) -> Target | None:
         await check_target_policy(db, dev, target.action, zone.home_id)
     except HTTPException:
         return None
-    return target if await _recoverable(db, target, exclude_id=cmd.id) else None
+    return target if await _recoverable(db, target, change.client, exclude_id=cmd.id) else None
 
 
 async def guarded_send(db, cmd, dev, adapter, send) -> tuple[str, str, dict | None]:

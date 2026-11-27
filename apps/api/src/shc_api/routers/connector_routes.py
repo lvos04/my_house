@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict
 
 from .. import connector_changes as changes
 from ..connector import process_request
-from ..connector_actions import ACTIONS, SOCKET_PROPOSAL, checked_resource, discovery, not_found, resolve_target
+from ..connector_actions import ACTIONS, SOCKET_PROPOSAL, checked_resource, discovery, not_found
 from ..contract_http import ConnectorContractRoute, ContractProblem, contract_error
 from ..deps import DB, Auth, ConnectorWriter, Principal
 from ..models import ClimateZone, Device
@@ -101,7 +101,7 @@ async def _mutation(db, principal, idem, body, operation):
     if replay and (principal.client_purpose == "hub" or
                    operation is changes.propose and body["proposal"]["action_id"] == SOCKET_PROPOSAL):
         # Ook bij herhaling gelden de huidige beschermde rollen en inbedrijfstellingsstatus.
-        await resolve_target(db, body["proposal"], body["policy_decision"]["risk_class"])
+        await changes.check_replayed_target(db, body["proposal"], body["policy_decision"]["risk_class"], client)
     await db.commit()
     headers = {"Idempotent-Replay": "true"} if replay else {}
     if status == 200 and "resource_etag" in data:

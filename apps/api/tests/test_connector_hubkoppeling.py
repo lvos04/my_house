@@ -1,18 +1,20 @@
 """Schrijfbereik van de gekoppelde Hub en de gezamenlijke parametergrens."""
 
 import uuid
+from datetime import timedelta
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from sqlalchemy import func, select
 
 from shc_api.db import sessionmaker
-from shc_api.models import ConnectorChange, Device, DeviceBinding, LogicalRole
+from shc_api.models import ApiClient, ConnectorChange, Device, DeviceBinding, LogicalRole, User, utcnow
 
 from .conftest import ADMIN_PW
 from .test_connector_routes import proef as proef
 from .test_connector_verificatie import b64, canonical
 from .test_hub_alleen_lezen import koppel as koppel
+from .test_ws_security_accounts import _login, _user
 from .test_ws_security_pairing import _code, _redeem
 
 PREFIX = "/connector/v1"
@@ -63,6 +65,114 @@ async def test_gekoppelde_hub_alleen_met_gepinde_handtekening(koppel, proef, app
     data = (await client.get(bewijs, headers=hub)).json()
     assert (data["status"], data["before"]["target_c"], data["after"]["target_c"]) == ("confirmed", 20, 22)
     assert len(proef.unit.commands) == 1
+
+
+async def test_lokaal_herstel_oorspronkelijk_hubvoorstel(koppel, proef):
+    client, nieuw = koppel
+    hub, _ = await nieuw(client)
+    headers = {**hub, "Idempotency-Key": str(uuid.uuid4())}
+    r = await client.post(f"{PREFIX}/propose", json=proef.request(), headers=headers)
+    assert r.status_code == 200
+    plan = r.json()
+    headers["Idempotency-Key"] = str(uuid.uuid4())
+    r = await client.post(f"{PREFIX}/apply", json=proef.request(preview=plan), headers=headers)
+    assert r.status_code == 202
+    await proef.work()
+    assert proef.unit.state["SetTem"] == 22
+
+    pad = f"/api/v1/system/hub-recovery/{plan['proposal_id']}"
+    eigenaar = proef.admin
+    gelezen = await eigenaar.c.get(pad)
+    assert gelezen.status_code == 200
+    bewijs = gelezen.json()
+    herstel = bewijs["rollback_preview"]
+    assert bewijs["id"] == plan["proposal_id"] and bewijs["target"] == {"zone_id": str(proef.zone_id)}
+    assert herstel["parameters"] == {"target_c": 20}
+    assert (await client.get(pad, headers=hub)).status_code == 403
+    assert (await client.post(pad, json={}, headers=hub)).status_code == 403
+    naam = f"beheer-{uuid.uuid4().hex[:8]}"
+    await _user(eigenaar, naam, role="admin")
+    andere = await _login(client, naam)
+    assert (await andere.c.get(pad)).status_code == 404
+    kop = {**eigenaar.h(), "Idempotency-Key": str(uuid.uuid4())}
+    akkoord = {"preview_hash": herstel["preview_hash"], "password": ADMIN_PW}
+    r = await andere.c.post(pad, headers={**andere.h(), "Idempotency-Key": str(uuid.uuid4())}, json=akkoord)
+    assert r.status_code == 404
+    assert (await eigenaar.c.post(pad, headers=kop, json={"preview_hash": herstel["preview_hash"]})).status_code == 422
+    assert (await eigenaar.c.post(pad, headers=kop, json={**akkoord, "password": naam})).status_code == 403
+    r = await eigenaar.c.post(pad, headers=kop, json={**akkoord, "preview_hash": plan["preview_hash"]})
+    assert r.status_code == 409
+    assert await proef.count() == 1
+
+    eerste = await eigenaar.c.post(pad, headers=kop, json=akkoord)
+    herhaald = await eigenaar.c.post(pad, headers=kop, json=akkoord)
+    assert eerste.status_code == herhaald.status_code == 202
+    assert eerste.json() == herhaald.json() and eerste.json()["evidence_id"] == plan["proposal_id"]
+    await proef.work()
+    data = (await eigenaar.c.get(pad)).json()
+    for veld in (
+        "id", "command_id", "before", "before_hash", "before_observed_at", "after", "after_hash", "after_observed_at",
+    ):
+        assert data[veld] == bewijs[veld]
+    assert data["rollback_status"] == "confirmed" and data["rollback_command_id"] == eerste.json()["command_id"]
+    assert data["rollback_after"] == data["before"] and data["rollback_after_hash"] == data["before_hash"]
+    assert proef.unit.state["SetTem"] == 20 and len(proef.unit.commands) == await proef.count() == 2
+
+
+async def test_hub_setpoint_zonder_bevoegde_herstelbeheerder_geeft_501(koppel, proef):
+    client, nieuw = koppel
+    hub, client_id = await nieuw(client)
+    kop = {**hub, "Idempotency-Key": str(uuid.uuid4())}
+    voorstel = proef.request()
+    r = await client.post(f"{PREFIX}/propose", json=voorstel, headers=kop)
+    assert r.status_code == 200
+    uitvoering = proef.request(preview=r.json())
+    async with sessionmaker()() as db:
+        koppeling = await db.get(ApiClient, client_id)
+        beheerder = await db.get(User, koppeling.user_id)
+        beheerder.role = "viewer"
+        await db.commit()
+        try:
+            proef.key_id = str(uuid.uuid4())
+            for route, body, headers in (
+                ("propose", proef.request(), {**hub, "Idempotency-Key": str(uuid.uuid4())}),
+                ("propose", voorstel, kop),
+                ("apply", uitvoering, {**hub, "Idempotency-Key": str(uuid.uuid4())}),
+            ):
+                r = await client.post(f"{PREFIX}/{route}", json=body, headers=headers)
+                assert (r.status_code, r.json().get("code")) == (501, "capability_unavailable")
+                assert r.json()["details"]["reason"] == "rollback_unavailable"
+            assert await proef.count() == 0 and not proef.unit.commands
+        finally:
+            beheerder.role = "admin"
+            await db.commit()
+
+
+async def test_worker_verzendt_geen_hub_setpoint_zonder_herstelbeheerder(koppel, proef):
+    client, nieuw = koppel
+    hub, client_id = await nieuw(client)
+    kop = {**hub, "Idempotency-Key": str(uuid.uuid4())}
+    r = await client.post(f"{PREFIX}/propose", json=proef.request(), headers=kop)
+    assert r.status_code == 200
+    aanvraag = proef.request(preview=r.json())
+    kop["Idempotency-Key"] = str(uuid.uuid4())
+    r = await client.post(f"{PREFIX}/apply", json=aanvraag, headers=kop)
+    assert r.status_code == 202
+    pad = f"{PREFIX}/evidence/{r.json()['evidence_id']}"
+    async with sessionmaker()() as db:
+        koppeling = await db.get(ApiClient, client_id)
+        beheerder = await db.get(User, koppeling.user_id)
+        beheerder.locked_until = utcnow() + timedelta(minutes=5)
+        await db.commit()
+        try:
+            herhaald = await client.post(f"{PREFIX}/apply", json=aanvraag, headers=kop)
+            assert (herhaald.status_code, herhaald.json().get("code")) == (501, "capability_unavailable")
+            await proef.work()
+            assert (await client.get(pad, headers=hub)).json()["status"] == "failed"
+            assert not proef.unit.commands and proef.unit.state["SetTem"] == 20
+        finally:
+            beheerder.locked_until = None
+            await db.commit()
 
 
 @pytest.mark.parametrize("beschermd", [True, False])

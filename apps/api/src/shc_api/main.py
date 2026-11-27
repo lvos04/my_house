@@ -33,6 +33,7 @@ from .routers import (
     energy,
     homes,
     hub_key_management,
+    hub_recovery,
     lights,
     optimization,
     pairing,
@@ -50,7 +51,9 @@ API_PREFIX = "/api/v1"
 UPLOAD_PREFIX = f"{API_PREFIX}/system/restore"
 COMMISSIONING_PREFIX = f"{API_PREFIX}{commissioning.router.prefix}"
 HUB_KEYS_PREFIX = f"{API_PREFIX}{hub_key_management.router.prefix}"
-CONTRACT_PREFIXES = (COMMISSIONING_PREFIX, HUB_KEYS_PREFIX, connector_routes.router.prefix)
+CONTRACT_PREFIXES = (
+    COMMISSIONING_PREFIX, HUB_KEYS_PREFIX, f"{API_PREFIX}{hub_recovery.router.prefix}", connector_routes.router.prefix,
+)
 CONTRACT_BODY_LIMIT = 1 << 20
 log = logging.getLogger(__name__)
 
@@ -325,7 +328,7 @@ class AuditMiddleware:
 # Every router, included under API_PREFIX (tests enumerate routes through this, not app.routes).
 ROUTERS = (
     auth, users, pairing, homes, zones, profiles, lights, energy, devices, commissioning, optimization, system,
-    hub_key_management, ws,
+    hub_key_management, hub_recovery, ws,
 )
 
 

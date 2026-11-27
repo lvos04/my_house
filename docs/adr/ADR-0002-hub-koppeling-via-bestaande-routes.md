@@ -74,6 +74,19 @@ ondertekende verzoeken en de lokale replaycontrole vast.
    is. Gewijzigde configuratie of een onleesbare stand blokkeert verdere bediening. De applicatie
    bewaart de actieve handmatige override en wijzigt de configuratie van het apparaat of schema niet.
 
+   Een temperatuurvoorstel van de Hub vereist een lokale beheerder die het oorspronkelijke voorstel
+   kan herstellen. Dat is de webbeheerder die de koppeling heeft gemaakt. Zonder die bevoegdheid
+   geven voorstel en uitvoering HTTP 501 `capability_unavailable` met reden `rollback_unavailable`.
+   De worker controleert de bevoegdheid opnieuw vóór verzending.
+
+   Voor expliciet herstel opent de beheerder in de lokale API
+   `GET /api/v1/system/hub-recovery/{proposal_id}` met het bewijs-ID uit het Hub-journaal.
+   Het antwoord toont de zone, de metingen en de herstelpreview. Een `POST` op hetzelfde adres
+   bevestigt de `preview_hash` van die herstelpreview met het eigen wachtwoord (`password`),
+   de CSRF-header van de websessie en een nieuwe `Idempotency-Key`. Bij herhalen hoort dezelfde
+   sleutel. De worker leest de volledige vorige stand terug en legt het resultaat vast bij
+   hetzelfde bewijs-ID. De Hub-koppeling houdt alleen de schrijfroutes `propose` en `apply`.
+
 ## Afgewezen alternatieven
 
 - **Hub krijgt een `control`-token** voor de bestaande routes: dan kan de Hub zonder goedkeuring/TTL/nonce schakelen
@@ -99,7 +112,8 @@ ondertekende verzoeken en de lokale replaycontrole vast.
   bestaande bedienroutes behouden `{"detail":{…}}` (ADR-0003).
 - Bij uitvoerbaar klimaatwerk bindt de goedkeuring de exacte preview, ETag, actie, doel,
   parameters, risicoklasse en beleidshash. Apply en rollback verbruiken elk een eigen nonce.
-- Bewijs is zichtbaar voor dezelfde aangemelde aanroeper. Een logische export bewaart vorige stand,
+- Connectorbewijs is zichtbaar voor dezelfde aangemelde aanroeper. De lokale herstelroute geeft de
+  webbeheerder ook toegang tot het setpointbewijs van de eigen Hub-koppeling. Een logische export bewaart vorige stand,
   opdrachtkoppelingen en herstelstatus. De lokale uitvoerrechten vervallen bij herstel.
   Voor vrijgave van een database-dump controleert de applicatie de opgeslagen koppelingen in
   een afzonderlijke PostgreSQL-database. De vorige stand moet de oorspronkelijke previewhash opleveren.
