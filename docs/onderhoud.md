@@ -302,6 +302,13 @@ instellen of diens account ontgrendelen. Na een wachtwoordreset vervallen de bes
 telefoonkoppelingen van die gebruiker. Je eigen wachtwoord wijzig je bij **Account › Wachtwoord wijzigen**
 met je huidige wachtwoord. Zonder toegankelijk beheerdersaccount is er geen zelfherstel via de webapp.
 
+Kun je met geen van beide beheerders meer inloggen, kies dan een volledige `.shcbak` waarvoor je de
+wachtwoordzin én een beheerderswachtwoord uit die back-up nog kent. Stop de oorspronkelijke app en
+bewaar haar dataset. Installeer een afzonderlijke Custom App op lege opslag, maak daar een tijdelijke
+beheerder aan en doorloop de herstelwizard voor **Zelfde woning**. Meld je daarna aan met het
+beheerderswachtwoord uit de back-up en controleer de gegevens op de kopie. Die bevat de stand van
+het back-upmoment. [Volledige back-up terugzetten](#in-de-app-aanbevolen)
+
 ## Alleen voor ontwikkeling
 
 De onderstaande onderhoudsproeven gebruiken geïsoleerde testopslag. De opdrachten horen bij de historische meercontaineropstelling of een losse proefdatabase. Voor de Custom App staan de web- en formulierstappen hierboven.

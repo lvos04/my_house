@@ -16,6 +16,17 @@ FORMULIER = ROOT / "deploy/truenas/CUSTOM_APP.md"
 
 
 class Installatie(unittest.TestCase):
+    def test_eerste_installatie_borgt_beheerderstoegang(self):
+        for pad in (FORMULIER, ROOT / "docs/installatie-truenas.md"):
+            with self.subTest(pad=pad.name):
+                uitleg = pad.read_text().split("## Updaten en terugdraaien", 1)[0]
+                self.assertIn("tweede beheerder", uitleg)
+                self.assertIn("Account › Gebruikers", uitleg)
+                self.assertIn("onderhoud.md#wachtwoord-vergeten)", uitleg)
+        herstel = (ROOT / "docs/onderhoud.md").read_text().split("## Wachtwoord vergeten\n")[1].split("\n## ")[0]
+        for vereist in (".shcbak", "afzonderlijke", "wachtwoordzin", "beheerderswachtwoord", "(#in-de-app-aanbevolen)"):
+            self.assertIn(vereist, herstel)
+
     def test_terugvalroutes_verwijzen_naar_de_offline_voorbereiding(self):
         anker = "#offline-terugvalkopie-voorbereiden"
         routes = {

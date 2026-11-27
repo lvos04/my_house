@@ -6,6 +6,10 @@ Gebruik **Apps › Discover Apps › Custom App**. De vaste image voor de standa
 
 Kies voor de eerste installatie een lege dataset voor `/appdata`. De voorgestelde hostpoort is 8088. Kies een vrije poort en leg de startmodule vast die de image voor deze versie in het logboek toont. De formulierhandleiding geeft de invulvolgorde, de optionele Zigbee-stick en de controles vóór ingebruikname. [Velden van de standaard Custom App](../deploy/truenas/CUSTOM_APP.md)
 
+## Beheerderstoegang
+
+Maak direct na de eerste aanmelding een tweede beheerder aan bij **Account › Gebruikers › Gebruiker toevoegen**. Kies de rol **Beheerder** en test deze aanmelding in een apart browservenster. Maak vervolgens een volledige versleutelde back-up. Bewaar de wachtwoordzin en de aanmeldgegevens afzonderlijk. [Toegang herstellen bij een vergeten wachtwoord](onderhoud.md#wachtwoord-vergeten)
+
 ## Updaten en terugdraaien
 
 Maak vóór de update een volledige, gecontroleerde back-up. Stop de app en maak een snapshot van de gehele dataset, inclusief `secrets` en de Zigbee-map. Kies de nieuwe vaste tag in het formulier en leg tegelijk de bijbehorende startmodule uit **Opslag en formulier** vast, ook bij een bestaande installatie. Controleer vóór ingebruikname de opgehaalde digest tegen die van dezelfde release. Laat deze configuratie bij een terugval staan en gebruik voor de kloon de afzonderlijke terugvalapp. De bewaker controleert de pre-migratiedump voordat hij de transactie met de schemawijzigingen start.

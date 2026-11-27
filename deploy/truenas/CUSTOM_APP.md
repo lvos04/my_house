@@ -45,7 +45,8 @@ Het manifest laat de apparatenlijst leeg omdat de standaard alleen vaste hostapp
 
 1. Sla het formulier op. Lees in het logboek de ene naam die begint met `shc_allinone.start_`. Open **Edit**, vervang het laatste argument `shc_allinone.startpad` door die volledige naam, zet **Restart Policy** op **Unless Stopped** en sla opnieuw op. Leg de modulenaam bij de tag en digest vast. Zo blijft de worker aan de bedoelde softwareversie gebonden.
 2. Vergelijk de opgehaalde digest voor deze repository met het releasebewijs (teruglezing via `app.image.query`, veld `repo_digests`). Wacht bij een ontbrekende of afwijkende digest met ingebruikname. Controleer de ingebouwde healthcheck en open de portal. De HTTP-monitor verwacht op `/readyz` status 200, met een time-out van 8 seconden en een interval van 60 seconden. Bij een fout open je het opstartlog.
-3. Maak op het vertrouwde netwerk direct de eerste beheerder en woning aan. Controleer dat je opnieuw kunt aanmelden. Open **Systeem › Installatiewizard** en stel onder **Systeem › Back-ups en bewaren** de volledige versleutelde back-up in. Leg met de beheerder vast hoeveel gegevensverlies (RPO) en hersteltijd (RTO) aanvaardbaar zijn (D16).
+3. Maak op het vertrouwde netwerk de eerste beheerder en woning aan. Maak direct een tweede beheerder via **Account › Gebruikers › Gebruiker toevoegen**. Kies de rol **Beheerder** en controleer de tweede aanmelding in een apart browservenster.
+4. Open **Systeem › Installatiewizard** en stel onder **Systeem › Back-ups en bewaren** de volledige versleutelde back-up in. Leg vast hoeveel gegevensverlies (RPO) en hersteltijd (RTO) aanvaardbaar zijn (D16). Bewaar de wachtwoordzin apart van de back-up. [Toegang herstellen bij een vergeten wachtwoord](../../docs/onderhoud.md#wachtwoord-vergeten)
 
 ## Updaten en terugdraaien
 
