@@ -78,14 +78,17 @@ ondertekende verzoeken en de lokale replaycontrole vast.
    kan herstellen. Dat is de webbeheerder die de koppeling heeft gemaakt. Zonder die bevoegdheid
    geven voorstel en uitvoering HTTP 501 `capability_unavailable` met reden `rollback_unavailable`.
    De worker controleert de bevoegdheid opnieuw vóór verzending van het nieuwe setpoint.
+   Verliest de beheerder die rol na het inplannen, dan eindigt de apparaatopdracht zonder verzending.
 
    Voor expliciet herstel opent de beheerder in de lokale API
    `GET /api/v1/system/hub-recovery/{proposal_id}` met het bewijs-ID uit het Hub-journaal.
    Het antwoord toont de zone, de metingen en de herstelpreview. Een `POST` op hetzelfde adres
    bevestigt de `preview_hash` van die herstelpreview met het eigen wachtwoord (`password`),
    de CSRF-header van de websessie en een nieuwe `Idempotency-Key`. Bij herhalen hoort dezelfde
-   sleutel. De worker leest de volledige vorige stand terug en legt het resultaat vast bij
-   hetzelfde bewijs-ID. De Hub-koppeling houdt alleen de schrijfroutes `propose` en `apply`.
+   sleutel. Een nieuwe bevestiging na rolverlies krijgt HTTP 403. Een herstel dat de beheerder
+   vóór het rolverlies al heeft bevestigd, kan de worker nog uitvoeren. Daarbij controleert hij
+   de oorspronkelijke apparaatbinding, geldigheid en actuele stand. De worker leest de volledige
+   vorige stand terug en legt het resultaat vast bij hetzelfde bewijs-ID. De Hub-koppeling houdt alleen de schrijfroutes `propose` en `apply`.
 
 ## Afgewezen alternatieven
 

@@ -69,7 +69,7 @@ async def test_gekoppelde_hub_alleen_met_gepinde_handtekening(koppel, proef, app
 
 async def test_lokaal_herstel_oorspronkelijk_hubvoorstel(koppel, proef):
     client, nieuw = koppel
-    hub, _ = await nieuw(client)
+    hub, client_id = await nieuw(client)
     headers = {**hub, "Idempotency-Key": str(uuid.uuid4())}
     r = await client.post(f"{PREFIX}/propose", json=proef.request(), headers=headers)
     assert r.status_code == 200
@@ -110,7 +110,21 @@ async def test_lokaal_herstel_oorspronkelijk_hubvoorstel(koppel, proef):
     herhaald = await eigenaar.c.post(pad, headers=kop, json=akkoord)
     assert eerste.status_code == herhaald.status_code == 202
     assert eerste.json() == herhaald.json() and eerste.json()["evidence_id"] == plan["proposal_id"]
-    await proef.work()
+    async with sessionmaker()() as db:
+        koppeling = await db.get(ApiClient, client_id)
+        beheerder = await db.get(User, koppeling.user_id)
+        beheerder.role = "viewer"
+        await db.commit()
+        try:
+            nieuw_verzoek = {**eigenaar.h(), "Idempotency-Key": str(uuid.uuid4())}
+            geweigerd = await eigenaar.c.post(pad, headers=nieuw_verzoek, json=akkoord)
+            assert (geweigerd.status_code, geweigerd.json()["code"]) == (403, "forbidden")
+            assert await proef.count() == 2 and len(proef.unit.commands) == 1
+            await proef.work()
+            assert proef.unit.state["SetTem"] == 20 and len(proef.unit.commands) == 2
+        finally:
+            beheerder.role = "admin"
+            await db.commit()
     data = (await eigenaar.c.get(pad)).json()
     for veld in (
         "id", "command_id", "before", "before_hash", "before_observed_at", "after", "after_hash", "after_observed_at",
@@ -150,7 +164,8 @@ async def test_hub_setpoint_zonder_bevoegde_herstelbeheerder_geeft_501(koppel, p
             await db.commit()
 
 
-async def test_worker_verzendt_geen_hub_setpoint_zonder_herstelbeheerder(koppel, proef):
+@pytest.mark.parametrize("recht_verloren", ["vergrendeling", "rolverlies"])
+async def test_worker_verzendt_geen_hub_setpoint_zonder_herstelbeheerder(koppel, proef, recht_verloren):
     client, nieuw = koppel
     hub, client_id = await nieuw(client)
     kop = {**hub, "Idempotency-Key": str(uuid.uuid4())}
@@ -164,7 +179,10 @@ async def test_worker_verzendt_geen_hub_setpoint_zonder_herstelbeheerder(koppel,
     async with sessionmaker()() as db:
         koppeling = await db.get(ApiClient, client_id)
         beheerder = await db.get(User, koppeling.user_id)
-        beheerder.locked_until = utcnow() + timedelta(minutes=5)
+        if recht_verloren == "rolverlies":
+            beheerder.role = "viewer"
+        else:
+            beheerder.locked_until = utcnow() + timedelta(minutes=5)
         await db.commit()
         try:
             herhaald = await client.post(f"{PREFIX}/apply", json=aanvraag, headers=kop)
@@ -174,6 +192,7 @@ async def test_worker_verzendt_geen_hub_setpoint_zonder_herstelbeheerder(koppel,
             assert not proef.unit.commands and proef.unit.state["SetTem"] == 20
         finally:
             beheerder.locked_until = None
+            beheerder.role = "admin"
             await db.commit()
 
 
