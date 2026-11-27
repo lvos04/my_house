@@ -73,6 +73,20 @@ s = json.load(sys.stdin)["services"]
 assert all(s[name]["image"] == "shc-api:ci" for name in ("api", "worker", "fake-gree"))
 assert s["web"]["image"] == "shc-web:ci"'
 
+render_images() {
+  docker compose --env-file /dev/null -f "$1" config --format json |
+    python3 -c 'import json, sys
+services = json.load(sys.stdin)["services"]
+for name in ("api", "worker", "web"):
+    print(services[name]["image"])'
+}
+source_images=$(unset SHC_VERSION SHC_IMAGE_PREFIX; SHC_ROOT="$ROOT" render_images "$COMPOSE")
+rendered_images=$(render_images "$WORK/truenas-basis.yaml")
+check "standaardrender gebruikt per dienst dezelfde gepinde image als Compose" test "$rendered_images" = "$source_images"
+python3 "$HERE/scripts/render_truenas.py" --root "$ROOT" --image-prefix shc --version ci > "$WORK/ci.yaml"
+ci_images=$(render_images "$WORK/ci.yaml")
+check "render met expliciete CI-versie gebruikt de lokale API, worker en web" test "$ci_images" = $'shc-api:ci\nshc-api:ci\nshc-web:ci'
+
 # The push-address fallback (verbeterlijst 28) reaches api and worker from the environment; the
 # TrueNAS render leaves it empty (set it in the app there: it is stored encrypted, not in the YAML).
 check "SHC_NOTIFY_URL naar api en worker" sh -c \
@@ -108,4 +122,9 @@ check "render met --net-prefix 10.77" sh -c \
   'python3 "$1" --root "$2" --net-prefix 10.77 > "$3" && grep -q "10.77.251.2" "$3" && ! grep -v "^ *#" "$3" | grep -q "172\.30\."' \
   _ "$HERE/scripts/render_truenas.py" "$ROOT" "$WORK/prefix.yaml"
 
+if (( fail )); then
+  echo "Afwijking gevonden in de Compose-controles."
+else
+  echo "Alle Compose-controles akkoord."
+fi
 exit "$fail"

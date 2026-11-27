@@ -17,19 +17,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SRC = HERE.parent / "compose" / "compose.yaml"
-VERSION_FILE = HERE.parent.parent / "VERSION"
 VAR = re.compile(r"\$\{([A-Z_]+)(?::-([^}]*))?\}")
 PROFILES = {"zigbee", "tunnel"}
 CLOUDFLARED_UID = 65532
-
-
-def default_version() -> str | None:
-    """The app version from the repository's VERSION file (single source, contract C9)."""
-    try:
-        v = VERSION_FILE.read_text(encoding="utf-8").strip()
-    except OSError:
-        return None
-    return v or None
 
 
 def render(text: str, values: dict[str, str], enable: set[str]) -> str:
@@ -147,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--root", required=True, help="dataset path, e.g. /mnt/tank/apps/smart-home")
     ap.add_argument("--with", dest="with_", default="", help="comma list: zigbee,tunnel")
     ap.add_argument("--port", default="8088")
-    ap.add_argument("--version", default=default_version(), help="image version (default: the VERSION file)")
+    ap.add_argument("--version", help="expliciete imagetag voor API en web (standaard de digests uit Compose)")
     ap.add_argument("--image-prefix", default="ghcr.io/lvos04/my_house")
     ap.add_argument("--lan-url", default="", help="address at home, e.g. http://192.168.1.20:8088")
     ap.add_argument("--remote-url", default="", help="tunnel address, e.g. https://huis.jouwdomein.nl")
@@ -171,8 +161,8 @@ def main(argv: list[str] | None = None) -> int:
         help="first two parts of the internal networks (default 172.30); change only on a clash",
     )
     a = ap.parse_args(argv)
-    if not a.version:
-        ap.error("--version is verplicht (geen VERSION-bestand gevonden)")
+    if a.version == "":
+        ap.error("--version mag niet leeg zijn")
     enable = {x.strip() for x in a.with_.split(",") if x.strip()}
     unknown = enable - PROFILES
     if unknown:
@@ -202,7 +192,6 @@ def main(argv: list[str] | None = None) -> int:
     values = {
         "SHC_ROOT": root,
         "SHC_HTTP_PORT": a.port,
-        "SHC_VERSION": a.version,
         "SHC_IMAGE_PREFIX": a.image_prefix,
         "SHC_LAN_URL": a.lan_url,
         "SHC_REMOTE_URL": a.remote_url,
@@ -211,6 +200,8 @@ def main(argv: list[str] | None = None) -> int:
         "SHC_NTP_SERVER": a.ntp_server,
         "TZ": a.tz,
     }
+    if a.version is not None:
+        values["SHC_VERSION"] = a.version
     try:
         text = render(SRC.read_text(encoding="utf-8"), values, enable)
     except ValueError as exc:
@@ -218,7 +209,7 @@ def main(argv: list[str] | None = None) -> int:
     for w in warnings:
         print(f"LET OP: {w}", file=sys.stderr)
     header = (
-        f"# Smart Home Control {a.version}, gemaakt met render_truenas.py"
+        f"# Smart Home Control ({a.version or 'gepinde images uit Compose'}), gemaakt met render_truenas.py"
         f" (onderdelen: {', '.join(sorted(enable)) or 'basis'}). Bevat geen geheimen.\n"
     )
     sys.stdout.write(header + text)
