@@ -31,6 +31,7 @@ GREE_CAPS = {
 
 def _dev(Device, home_id, now, **kw):
     online = kw.pop("online", True)
+    compatibility = kw.pop("compatibility", "untested")
     return Device(
         home_id=home_id,
         provider=kw.pop("provider"),
@@ -40,7 +41,8 @@ def _dev(Device, home_id, now, **kw):
         model=kw.pop("model", None),
         firmware=kw.pop("firmware", None),
         capabilities=kw.pop("capabilities", []),
-        compatibility=kw.pop("compatibility", "untested"),
+        compatibility=compatibility,
+        tested_at=now if compatibility == "tested" else None,
         lifecycle="active",
         online=online,
         last_seen=now if online else now - timedelta(hours=3),
@@ -71,6 +73,8 @@ async def all_(a: dict) -> dict:
             kind="ac_unit",
             name="Airco woonkamer",
             model="Gree (fictief)",
+            # Alleen deze proefunit krijgt straks een actief weekschema.
+            compatibility="tested",
             capabilities=["mode", "target_c", "fan", "swing"],
             state={"power": True, "mode": "heat", "target_c": 21, "fan": "auto", "indoor_c": 20.5, "caps": GREE_CAPS},
         )

@@ -831,6 +831,11 @@ zien. In de regel eronder heeft de luchtvochtigheid alleen een percentage, ook w
 laatste meting een andere ouderdom heeft dan de temperatuur. De draaiknop gebruikt voor een
 ontbrekende temperatuur hetzelfde woord ‘nu’ met een streepje.
 
+De nulmeting op de webbouw van `c014d76` bevestigde ‘nu 20,6°’, ‘Sensor verouderd
+(3 uur geleden)’ en ‘48% RV’ samen op elk van de drie breedtes. De proef omvatte
+13 schermen en toestanden in licht en donker (78 metingen). De maximale horizontale
+overloop was 0 px en axe vond geen overtredingen.
+
 | Toestand | Weergave volgens Peil 1.1.1, §4.4 |
 |---|---|
 | Verse temperatuur | De draaiknop toont ‘nu’ met de gemeten waarde. Het instelpunt houdt het label ‘Doel’. |

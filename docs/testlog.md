@@ -7,6 +7,22 @@ kamertemperatuur weergeeft. De meting van de luchtvochtigheid heeft haar eigen t
 De browserproef gebruikt de gebouwde web-app, de lokale API en een tijdelijke PostgreSQL-database
 met fictieve apparaten. Echte toestellen vallen onder N-P6-06, NIET GEVALIDEERD (hardware).
 
+| Proef | Gemeten uitkomst |
+|---|---|
+| `npx tsc --noEmit` en `npx tsc -p e2e/tsconfig.json` in `apps/web` | Beide exit 0 |
+| `npm test -- --maxWorkers=2 --minWorkers=1` | 390 van 390 tests in 36 bestanden |
+| `npm run build` en `npm audit --omit=dev --audit-level=high` | Build exit 0, audit 0 kwetsbaarheden |
+| `apps/web/e2e/run-stack.sh` met `e2e/ci-lettertype.conf` | 46 van 46 tests in Chromium, met één werker |
+
+Bij de tegenproef op de oorspronkelijke webbouw vond Chromium op 390 px ‘nu’ bij een
+ontbrekende temperatuur. Na het herstel verschijnt ‘nu’ pas bij een verse temperatuur.
+Een oude waarde behoudt haar meettijd, ook als de andere sensorwaarde inmiddels vers is.
+Overzicht en Klimaat pasten bij alle drie de breedtes zonder horizontaal schuiven.
+Klimaat paste ook toen de browser de regel-, woord-, letter- en alinea-afstand vergrootte.
+
+Schermafdrukken uit de lokale proefwoning tonen [Klimaat op de telefoon, 390 px](screenshots/p3/klimaat-verouderd-licht-390.png),
+[Energie op de tablet, 768 px](screenshots/p3/energie-donker-768.png) en [Overzicht op desktop, 1440 px](screenshots/p3/overzicht-licht-1440.png).
+
 ## Automatische metingen van versie 0.1.0 · 9 november 2026
 
 ### Uitkomst van die run

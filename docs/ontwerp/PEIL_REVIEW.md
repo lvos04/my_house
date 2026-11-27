@@ -614,3 +614,31 @@ De onafhankelijke herreview vergeleek `098732a` en `d9ec105` met 276 schermmetin
 De aanvullende sluitproef vond op `d9ec105` een apart probleem. Op 390 px sloot Escape de individuele apparaatbevestiging terwijl het antwoord uitbleef. De openknop stond uit, de focus viel op de pagina en na 15 seconden ontbrak de herstelmelding bij het apparaat.
 
 De tweede herstelronde herhaalde die proef. Bij sluiten komt de focus op de actiegroep met de apparaatnaam zolang de openknop uitstaat. Bij een onzekere uitkomst kondigt de pagina de fout aan en verschijnt ‘Toestand opnieuw ophalen’. Ook bij heropenen vraagt de dialoog om herlezing. De browserproef controleert een mislukte herlezing, de daarna opgehaalde teststatus en het aantal bevestigingsverzoeken. De metingen van de onafhankelijke review staan in het ketendossier S-P3-710 bij RAPPORT-R-ONTWERP-b2.
+
+## S-P3-765 · schermbreedtes en versheid · 27 november 2026
+
+Op de webbouw van `c014d76` stond in de thermostaat ‘nu 20,6°’ bij een drie uur oude sensorwaarde.
+Alle drie de gevraagde breedtes toonden dezelfde tegenstrijdigheid. De 78 schermmetingen
+(13 schermen en toestanden in twee thema’s) hadden toen al 0 px horizontale overloop en nul
+axe-overtredingen. De gerichte browserproef op 390 px vond ook ‘nu’ bij een ontbrekende meting.
+
+Op bouwcommit `de740a0` houdt de draaiknop het instelpunt. De oude temperatuur staat eronder,
+samen met de gearceerde pil ‘Verouderd’ en de eigen meettijd. De luchtvochtigheid toont haar
+laatste meettijd ook wanneer er alweer een verse temperatuur is. Op de telefoon heeft deze regel
+de volle kaartbreedte. De tablet houdt de onderbalk en op desktop is de zijbalk zichtbaar.
+
+| Controle op de gebouwde web-app | Uitkomst |
+|---|---|
+| Overzicht en Klimaat met oude metingen, Overzicht met verse metingen en Energie | 4 toestanden × 6 breedtes (320, 360, 390, 768, 1024 en 1440 px) × 2 thema’s = 48 schermmetingen, plus één proef met systeemkleuren |
+| Paginabreedte, tekst en doelen | Maximaal 0 px horizontale overloop, 0 afgekorte labels en 0 bedienbare doelen kleiner dan 44 px. Kleinste tekst 14 px, laagste gemeten tekstcontrast 6,67:1 |
+| Toegankelijkheid | 0 axe-overtredingen. In 16 Tab-doorlopen op 390 en 1440 px ontbrak geen focusring en was geen focusstop bedekt |
+| Browserproef met CI-lettertypeconfiguratie | 46 tests. Op 390, 768 en 1440 px paste ook de verouderde klimaatkaart met vergrote tekstafstand |
+
+De afdrukken komen uit een tijdelijke proefwoning. Daarin heeft de fictieve woonkamerairco de
+geteste status die de app voor een actief weekschema vereist. De nulmeting gebruikte een ongeteste
+proefunit en kreeg bij het opslaan van het schema een 409. De nameting bevat het weekschema.
+[Telefoon](../screenshots/p3/klimaat-verouderd-licht-390.png) · [Tablet](../screenshots/p3/energie-donker-768.png) · [Desktop](../screenshots/p3/overzicht-licht-1440.png)
+
+Opnieuw meten kan met `PEIL_SCRIPT=review.mjs`, `PEIL_ALLEEN=overzicht,energie,overzicht-verouderd,klimaat-verouderd`
+en `PEIL_WIDTHS=320,360,390,768,1024,1440` bij `run_shots.sh` uit de bestaande afdrukwerkwijze.
+Echte toestellen vallen onder N-P6-06, NIET GEVALIDEERD (hardware). [Afdrukwerkwijze](../screenshots/peil/werkwijze/README.md)
