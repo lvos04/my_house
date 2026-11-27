@@ -90,7 +90,7 @@ def snapshot(trial, name, *, live_target=False):
     for line in trial.sql(name, query.replace("CONDITION", condition)).decode().splitlines():
         table, count, digest = line.split("|")
         result[table] = (int(count), digest)
-    assert set("public." + name for name in EXPECTED) <= result.keys()
+    assert {"public." + name for name in EXPECTED} <= result.keys()
     return result
 
 

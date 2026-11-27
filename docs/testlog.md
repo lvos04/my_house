@@ -202,8 +202,10 @@ Sim-getest op twee lokale Custom Apps met een proefmeter en lege Zigbee-bronopsl
 | Start | A en B gezond op afzonderlijke volumes en verschillende interne adressen. |
 | Bronexport | 2 gebruikers, 1 woning, 2 zones, 1 meter, 1 rolbinding en 4 metingen in A. |
 | Verkeerde wachtwoordzin | HTTP 422 met backup_invalid. Alleen de tijdelijke beheerder staat op B. |
+| Beschadigde bundel | Bij de juiste wachtwoordzin gaf de beschadigde export HTTP 422. Alle gemeten doelrijen bleven gelijk. |
 | Verkeerde wachtwoordzin bij toepassen | De bevestigde vergelijking leidde tot HTTP 422. B bleef leeg. |
 | Herstel | Archief en doelback-up op SHA-256 gecontroleerd. De bevestigde webtaak bereikte done. |
+| Sleutelomzetting | Vóór omzetting kon B de gevulde koppeling en back-upinstelling niet bevestigen. Na omzetting las de proefmeter beide oorspronkelijke waarden met de doelsleutel. |
 | Herstart B | Beide bronaccounts ingelogd. restore/compare bevestigde de broninhoud in alle 24 overdraagbare tabellen, ook na een nieuwe doelmeting. De vier bronmetingen zijn binair gelijk. |
 | Bron na herstel | Alle 33 brontabellen hebben hetzelfde aantal en dezelfde binaire rijinhoud. |
 | Terugval | De geverifieerde doelback-up is teruggezet. De oorspronkelijke doelbeheerder kan inloggen en B bevat de oorspronkelijke gebruikersrij en geen bronwoning. De brontabellen op A bleven gelijk. |

@@ -2,7 +2,12 @@
 
 import unittest
 
-from allinone_herstelproef import EXPECTED, Proeffout, check_inventory, check_restore_stages
+from allinone_herstelproef import (
+    EXPECTED,
+    Proeffout,
+    check_inventory,
+    check_restore_stages,
+)
 
 
 class Herstelbewijs(unittest.TestCase):
