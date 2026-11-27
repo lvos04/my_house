@@ -271,8 +271,9 @@ class Trial:
         return docker("exec", "-i", "--user", user, name, *cmd, content=content, check=check, timeout=timeout)
 
     @staticmethod
-    def logs(name):
-        result = docker("logs", name)
+    def logs(name, *, since=None):
+        options = ["--since", since] if since else []
+        result = docker("logs", *options, name)
         return result.stdout + result.stderr
 
     def state(self, name):
@@ -285,13 +286,19 @@ class Trial:
         def status():
             state = self.state(name)
             if not state.startswith("running "):
-                # Alleen vaste foutcategorieën mogen het CI-log in.
-                logs = self.logs(name)
+                # Een herstart bewaart ook eerdere logregels; die horen bij een andere proefstap.
+                start = docker("inspect", "--format", "{{.State.StartedAt}}", name).stdout.decode().strip()
+                logs = self.logs(name, since=start)
                 markers = (
                     b"Unable to open config file", b"Unable to open pwfile", b"Unable to open acl_file",
                     b"Address already in use",
                     b"PostgreSQL is niet beschikbaar", b"API is niet beschikbaar", b"MQTT-broker is niet beschikbaar",
                     b"Database-update geweigerd", b"De eerste database-initialisatie kan niet veilig doorgaan",
+                    b"Deze opslag is in gebruik door een andere app-instantie",
+                    b"De bestaande applicatiedatabase ontbreekt of is onleesbaar", b"De bestaande database ontbreekt",
+                    "De database kon niet worden geïnitialiseerd".encode(),
+                    b"De applicatiedatabase kon niet worden geopend",
+                    b"Bestaande opslag mist", b"De Zigbee-opslag is onvolledig",
                     b"Opstarten geweigerd", b"Opstarten mislukt",
                 )
                 reason = next((marker.decode() for marker in markers if marker in logs), "geen bekende opstartmelding")
