@@ -638,6 +638,11 @@ export const api = {
     form.append('file', file, opts.filename ?? (file instanceof File ? file.name : 'backup.shcbak'));
     return uploadWithProgress<T.RestoreVerify | T.VerifiedDatabaseDump>('/system/restore/verify', form, opts);
   },
+  restoreZigbeeFiles: (files: File[]) => {
+    const form = new FormData();
+    for (const file of files) form.append('file', file, file.name);
+    return uploadWithProgress<{ map: string; bestanden: string[] }>('/system/restore/zigbee-files', form);
+  },
   restoreDiscard: (uploadId: string) => del<void>(`/system/restore/uploads/${enc(uploadId)}`),
   restoreDrill: (upload_id: string, passphrase: string) => post<T.RestoreDrill>('/system/restore/drill', { upload_id, passphrase }),
   restoreRekey: (file: File) => post<T.RestoreRekey>('/system/restore/rekey', file),

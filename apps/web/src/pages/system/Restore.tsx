@@ -8,6 +8,7 @@ import { ActionButton, ErrorNote, Loading, ProgressBar, yesNo } from '../../comp
 import { ago, bytes, dateTime } from '../../format';
 import { COMPARE_STATUS_LABEL, KIND_LABEL, PROVIDER_LABEL, RESTORE_MODE_LABEL, SCHEMA_RELATION_LABEL, t } from '../../i18n';
 import { clearRestore, loadRestore, saveRestore, useRestoreJob, type StoredRestore } from './restoreState';
+import { ZigbeeHerstelkopie } from './ZigbeeHerstelkopie';
 
 const MODE_HELP: Record<RestoreMode, string> = {
   same_home:
@@ -587,6 +588,7 @@ export function RestoreSection({ safeMode }: { safeMode: boolean }) {
       {cmp && (cmp.safe_mode || step.kind === 'running') && (
         <CompareView data={cmp} onReleased={() => setStep({ kind: 'upload' })} />
       )}
+      {step.kind === 'upload' && <ZigbeeHerstelkopie />}
       <SourcePauseForm />
       <RekeyForm />
     </section>

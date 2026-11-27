@@ -10,6 +10,7 @@ import os
 import re
 import secrets
 import shutil
+import tempfile
 import time
 import uuid
 from collections import defaultdict
@@ -558,14 +559,16 @@ class _Limit(Exception):
     pass
 
 
-async def _stream_upload(request: Request, dest: Path, max_bytes: int) -> dict[str, str]:
+async def _stream_upload(request: Request, dest: Path, max_bytes: int, *,
+                         losse_namen: frozenset[str] | None = None) -> dict[str, str]:
     """Stream the request body to `dest` without buffering it. Accepts multipart/form-data with a
     `file` part (and optional small text fields such as `passphrase`), or a raw
     application/octet-stream body. Returns the text fields."""
     ctype = request.headers.get("content-type", "")
     fields: dict[str, str] = {}
     total = 0
-    with open(dest, "wb") as out:  # noqa: ASYNC230 - small writes per received chunk
+    with contextlib.ExitStack() as ontvangen:
+        out = ontvangen.enter_context(open(dest, "wb")) if losse_namen is None else None  # noqa: ASYNC230, SIM115
         if ctype.startswith("multipart/form-data"):
             m = re.search(r'boundary="?([^";]+)"?', ctype)
             if not m:
@@ -577,6 +580,7 @@ async def _stream_upload(request: Request, dest: Path, max_bytes: int) -> dict[s
             current: str | None = None
             field_buf = b""
             got_file = False
+            is_file = False
             async for chunk in request.stream():
                 total += len(chunk)
                 if total > max_bytes:
@@ -605,8 +609,19 @@ async def _stream_upload(request: Request, dest: Path, max_bytes: int) -> dict[s
                         is_file = "filename=" in head
                         if is_file:
                             fn = re.search(r'filename="([^"]*)"', head)
-                            fields["filename"] = (fn.group(1) if fn else "")[:200]
-                        current = "__file__" if is_file else (nm.group(1) if nm else "")
+                            naam = fn.group(1) if fn else ""
+                            if losse_namen is not None:
+                                if naam not in losse_namen:
+                                    raise api_error(422, "validation_error", "Onbekend Zigbee2MQTT-bestand.")
+                                try:
+                                    out = ontvangen.enter_context((dest / naam).open("xb"))
+                                except FileExistsError as exc:
+                                    raise api_error(422, "validation_error", "Bestandsnaam komt dubbel voor.") from exc
+                                os.fchmod(out.fileno(), 0o600)
+                            fields["filename"] = naam[:200]
+                        elif losse_namen is not None:
+                            raise api_error(422, "validation_error", "Kies uitsluitend losse bestanden.")
+                        current = None if is_file else (nm.group(1) if nm else "")
                         field_buf = b""
                         state = "body"
                     elif state == "body":
@@ -615,7 +630,7 @@ async def _stream_upload(request: Request, dest: Path, max_bytes: int) -> dict[s
                             keep = len(body_delim) - 1
                             if len(buf) > keep:
                                 data, buf = buf[:-keep], buf[-keep:]
-                                if current == "__file__":
+                                if is_file:
                                     out.write(data)
                                     got_file = True
                                 else:
@@ -624,9 +639,13 @@ async def _stream_upload(request: Request, dest: Path, max_bytes: int) -> dict[s
                                         raise api_error(422, "validation_error", "Ongeldige upload (veld te groot).")
                             break
                         data = buf[:i]
-                        if current == "__file__":
+                        if is_file:
                             out.write(data)
                             got_file = True
+                            if losse_namen is not None:
+                                out.flush()
+                                await asyncio.to_thread(os.fsync, out.fileno())
+                                out.close()
                         else:
                             field_buf += data
                             if current:
@@ -654,6 +673,8 @@ async def _stream_upload(request: Request, dest: Path, max_bytes: int) -> dict[s
             if state != "end" or not got_file:
                 raise api_error(422, "validation_error", "Upload onvolledig of zonder bestand (veld 'file').")
         else:
+            if losse_namen is not None:
+                raise api_error(422, "validation_error", "Kies losse bestanden via het formulier.")
             async for chunk in request.stream():
                 total += len(chunk)
                 if total > max_bytes:
@@ -794,6 +815,28 @@ async def restore_verify(request: Request, db: DB, p: WebAdmin) -> dict:
 def _remove_upload(path: Path) -> None:
     path.unlink(missing_ok=True)
     path.with_suffix(".json").unlink(missing_ok=True)
+
+
+@router.post("/system/restore/zigbee-files")
+async def restore_zigbee_files(request: Request, db: DB, p: WebAdmin) -> dict:
+    """Schrijf losse Zigbee2MQTT-bestanden naar een nieuwe, afgeschermde herstelmap in de appopslag."""
+    from .. import zigbee_herstel
+
+    cfg = get_settings()
+    try:
+        root = zigbee_herstel.herstelmap(cfg.data_dir, cfg.zigbee2mqtt_dir)
+        with tempfile.TemporaryDirectory(dir=root) as werk:
+            ontvangen = Path(werk) / "ontvangen"
+            ontvangen.mkdir(mode=0o700)
+            await _stream_upload(request, ontvangen, cfg.max_upload_bytes, losse_namen=zigbee_herstel.BESTANDEN)
+            resultaat = await asyncio.to_thread(zigbee_herstel.publiceer, ontvangen, root)
+    except _Limit as exc:
+        raise api_error(413, "payload_too_large", "De geselecteerde bestanden zijn samen te groot.") from exc
+    except bk.BackupError as exc:
+        raise api_error(409, "restore_refused", str(exc)) from exc
+    await audit(db, p.actor, "zigbee_recovery_copy", count=len(resultaat["bestanden"]))
+    await db.commit()
+    return resultaat
 
 
 @router.delete("/system/restore/uploads/{upload_id}", status_code=204)

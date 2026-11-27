@@ -201,7 +201,12 @@ Gebruik de verhuisassistent: **Systeem › Herstellen en verhuizen**.
 Kies **Zelfde woning** voor herstel op dezelfde installatie. Volg de stappen onder **In de app**.
 Gebruik voor een overstap naar een nieuwe server het afzonderlijke doel en de definitieve bronexport uit
 **Overstappen van een bestaande Compose-installatie**. De app toont welke apparaatsleutels opnieuw
-moeten worden ingelezen. Voor Zigbee2MQTT-bestanden ontbreekt een beproefde terugzetweg in de webapp.
+moeten worden ingelezen. Losse Zigbee2MQTT-bestanden zet je afzonderlijk terug met **Losse Zigbee2MQTT-bestanden herstellen**.
+Selecteer de bestanden samen en kies **Herstelkopie maken**. De getoonde map staat onder de appopslag,
+in de alles-in-één-app onder `/appdata/app`. De bestanden zijn alleen leesbaar voor de appgebruiker.
+Controleer de bestandsset op een gestopte kopie van de installatie. Bewaar de oorspronkelijke Zigbee-opslag
+ook na deze stap. De kopie bevat alleen de geselecteerde bestanden. De wizard start de coördinator niet.
+Na afronding kan de beheerder de afzonderlijke herstelmap van de appopslag verwijderen.
 
 **B. Nieuwe woning (verhuisd):**
 

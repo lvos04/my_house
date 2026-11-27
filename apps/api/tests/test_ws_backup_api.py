@@ -223,6 +223,26 @@ async def test_losse_dump_controleert_bewijs_en_bewaart_de_actieve_woning(admin,
     assert (await admin.get("/homes")).json() == voor
 
 
+async def test_zigbeebestanden_alleen_voor_webbeheerder(admin, client, tmp_path, monkeypatch):
+    from .test_ws_security_accounts import _login, _user
+
+    pad = "/api/v1/system/restore/zigbee-files"
+    opslag = tmp_path / "app"
+    monkeypatch.setattr(get_settings(), "data_dir", opslag)
+    bestanden = [("file", ("state.json", b"{}")), ("file", ("database.db", b"proef"))]
+    zonder_csrf = await admin.c.post(pad, files=bestanden)
+    assert zonder_csrf.status_code == 403 and not opslag.exists()
+    goed = await admin.c.post(pad, files=bestanden, headers=admin.h())
+    assert goed.status_code == 200 and goed.json()["bestanden"] == ["database.db", "state.json"]
+    map_ = opslag / goed.json()["map"]
+    naam = f"kijker-{uuid.uuid4().hex[:8]}"
+    await _user(admin, naam)
+    kijker = await _login(client, naam)
+    geweigerd = await kijker.c.post(pad, files=[("file", ("database.db", b"andere proef"))], headers=kijker.h())
+    assert geweigerd.status_code == 403
+    assert list(map_.parent.iterdir()) == [map_] and (map_ / "database.db").read_bytes() == b"proef"
+
+
 async def test_upload_too_large_is_refused(admin, monkeypatch):
     monkeypatch.setattr(get_settings(), "max_upload_bytes", 1000)
     r = await _upload(admin, b"x" * 5000, PW)

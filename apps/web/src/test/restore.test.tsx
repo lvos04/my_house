@@ -120,6 +120,23 @@ const compare: RestoreCompare = {
 };
 
 describe('restore / verhuisassistent (item 43)', () => {
+  it('zet gekozen Zigbee-bestanden gezamenlijk terug in een afzonderlijke herstelmap', async () => {
+    vi.stubGlobal('XMLHttpRequest', FakeXhr);
+    FakeXhr.next = { status: 200, body: { map: 'zigbee-herstel/proefkopie', bestanden: ['configuration.yaml', 'database.db'] } };
+    mockApi(() => undefined);
+    render(<Providers><RestoreSection safeMode={false} /></Providers>);
+    const user = userEvent.setup();
+    await user.click(screen.getByText('Losse Zigbee2MQTT-bestanden herstellen'));
+    await user.upload(screen.getByLabelText('Zigbee2MQTT-bestanden'), [
+      new File(['proef'], 'configuration.yaml'), new File(['regel'], 'database.db'),
+    ]);
+    await user.click(screen.getByRole('button', { name: 'Herstelkopie maken' }));
+    expect(await screen.findByText('zigbee-herstel/proefkopie')).toBeInTheDocument();
+    expect(screen.getByText('database.db')).toBeInTheDocument();
+    expect(FakeXhr.last!.url).toMatch(/\/system\/restore\/zigbee-files$/);
+    expect((FakeXhr.last!.body as FormData).getAll('file').map(f => (f as File).name)).toEqual(['configuration.yaml', 'database.db']);
+  });
+
   it('controleert een losse database-dump en houdt de actieve woning buiten de herstelkeuze', async () => {
     vi.stubGlobal('XMLHttpRequest', FakeXhr);
     const user = userEvent.setup();

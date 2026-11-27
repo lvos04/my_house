@@ -8496,6 +8496,30 @@
         ]
       }
     },
+    "/api/v1/system/restore/zigbee-files": {
+      "post": {
+        "description": "Schrijf losse Zigbee2MQTT-bestanden naar een nieuwe, afgeschermde herstelmap in de appopslag.",
+        "operationId": "restore_zigbee_files_api_v1_system_restore_zigbee_files_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Restore Zigbee Files Api V1 System Restore Zigbee Files Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Restore Zigbee Files",
+        "tags": [
+          "system"
+        ]
+      }
+    },
     "/api/v1/system/retention": {
       "get": {
         "operationId": "get_retention_api_v1_system_retention_get",
