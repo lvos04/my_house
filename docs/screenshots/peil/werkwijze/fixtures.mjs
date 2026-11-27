@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { ADMIN } from './testaccounts.mjs';
+import { proefwoningUrl } from './proefwoning.mjs';
 
 // Playwright: pad uit PEIL_PLAYWRIGHT (run_shots.sh kiest standaard die van apps/web); zonder die variabele
 // het pakket 'playwright' dat Node vanaf deze map vindt.
@@ -22,7 +23,7 @@ const csrf = decodeURIComponent(st.cookies.find((c) => c.name === 'shc_csrf').va
 const send = async (m, p, d) => { const x = await api.fetch(`/api/v1${p}`, { method: m, data: d, headers: { 'X-CSRF-Token': csrf } }); if (!x.ok()) console.error(m, p, x.status(), await x.text()); return x.ok() && x.status() !== 204 ? x.json() : null; };
 const get = async (p) => (await api.get(`/api/v1${p}`)).json();
 const home = await send('POST', '/homes', { name: 'Thuis', timezone: 'Europe/Amsterdam' });
-await send('PUT', '/system/settings', { lan_url: 'http://192.168.1.20:8088', remote_url: null });
+await send('PUT', '/system/settings', { lan_url: proefwoningUrl, remote_url: null });
 const ids = seed('all', { home_id: home.id });
 const zones = await get(`/homes/${home.id}/zones`);
 const wk = zones.find((z) => z.name === 'Woonkamer'), sk = zones.find((z) => z.name === 'Slaapkamer');

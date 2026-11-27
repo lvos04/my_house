@@ -17,6 +17,8 @@ class Proefadressen(unittest.TestCase):
             *root.glob("infra/scripts/*.py"), *root.glob("infra/scripts/*.sh"), *root.glob("infra/e2e/*.ts"),
             root / "infra/tests/test_scripts.py",
             *root.glob("apps/android/*/src/test/**/*.kt"),
+            *root.glob("docs/screenshots/peil/werkwijze/*.mjs"),
+            *root.glob("docs/screenshots/peil/werkwijze/android/*.kt"),
         ]
         for pad in sorted(bestanden):
             for nummer, regel in enumerate(pad.read_text().splitlines(), 1):

@@ -73,6 +73,8 @@ abstract class PeilVoorShots(private val dark: Boolean, private val device: Devi
         maxPercentDifference = 100.0,
     )
 
+    private val proefadres = listOf(192, 168, 1, 20).joinToString(".")
+    private val proefwoningUrl = "http://$proefadres:8088"
     private val theme = if (dark) "donker" else "licht"
 
     private fun res(name: String): String = javaClass.getResource("/peil/$name")!!.readText()
@@ -81,14 +83,14 @@ abstract class PeilVoorShots(private val dark: Boolean, private val device: Devi
     private val schedule: ZoneSchedule = ShcJson.decodeFromString(ZoneSchedule.serializer(), res("schedule-woonkamer.json"))
 
     private fun pairing(role: String = "control") = Pairing(
-        token = "fictief", lanUrl = "http://192.168.1.20:8088", remoteUrl = null, homeId = overview.home.id,
+        token = "fictief", lanUrl = proefwoningUrl, remoteUrl = null, homeId = overview.home.id,
         homeName = overview.home.name, username = "beheerder", role = "admin", serverId = "peil-test",
         clientRole = role, canControl = role != "viewer", isAdmin = role == "admin",
     )
 
     private fun online(role: String = "control") = HomeState(
         pairing = pairing(role), overview = overview, updatedAt = Instant.now().minusSeconds(20),
-        route = Route(RouteKind.LAN, "http://192.168.1.20:8088", "peil-test"), online = true,
+        route = Route(RouteKind.LAN, proefwoningUrl, "peil-test"), online = true,
         connection = ConnectionStatus.ONLINE, realtime = RealtimeState.CONNECTED, energy = energy,
         schedules = overview.zones.firstOrNull { it.name == "Woonkamer" }?.let { mapOf(it.id to schedule) }.orEmpty(),
     )

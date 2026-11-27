@@ -10,6 +10,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { ADMIN, VIEWER } from './testaccounts.mjs';
+import { maskLan, proefwoningUrl } from './proefwoning.mjs';
 
 // Playwright en axe-core: paden uit PEIL_PLAYWRIGHT en PEIL_AXE (run_shots.sh kiest standaard die van apps/web);
 // zonder die variabelen de pakketten 'playwright' en 'axe-core' die Node vanaf deze map vindt.
@@ -227,14 +228,6 @@ async function settle(page) {
   await page.waitForFunction(() => ![...document.querySelectorAll('[role=status]')].some((e) => /^(Laden|Controleren)…$/.test(e.textContent.trim())), null, { timeout: 8000 }).catch(() => {});
   await page.waitForTimeout(350);
 }
-async function maskLan(page) {
-  return page.evaluate(() => {
-    const re = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g, allow = new Set(['192.168.1.20', '127.0.0.1']);
-    const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); let n = 0, t;
-    while ((t = w.nextNode())) { const m = t.textContent.match(re); if (m && m.some((ip) => !allow.has(ip))) { t.parentElement.setAttribute('data-peil-mask', ''); n++; } }
-    return n;
-  });
-}
 async function shot(page, name, theme, width, full = true) {
   if (GEEN_SHOTS || !SHOT_WIDTHS.has(width)) return null;
   const file = `${name}-${theme}-${width}.png`; const vp = page.viewportSize();
@@ -315,7 +308,7 @@ await capture('inloggen', '/', undefined, { note: 'Uitgelogd' });
 await capture('woning-aanmaken', '/', adminState, { note: 'Nog geen woning' });
 
 const home = await send('POST', '/homes', { name: 'Thuis', timezone: 'Europe/Amsterdam' });
-await send('PUT', '/system/settings', { lan_url: 'http://192.168.1.20:8088', remote_url: null });
+await send('PUT', '/system/settings', { lan_url: proefwoningUrl, remote_url: null });
 const ids = seed('all', { home_id: home.id });
 const zones = await (await api.get(`/api/v1/homes/${home.id}/zones`)).json();
 const wk = zones.find((z) => z.name === 'Woonkamer'); const sk = zones.find((z) => z.name === 'Slaapkamer');

@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { ADMIN, VIEWER } from './testaccounts.mjs';
+import { maskLan, proefwoningUrl } from './proefwoning.mjs';
 
 // Playwright: pad uit PEIL_PLAYWRIGHT (run_shots.sh kiest standaard die van apps/web); zonder die variabele
 // het pakket 'playwright' dat Node vanaf deze map vindt.
@@ -67,18 +68,7 @@ async function snap(page, name, theme, width, note = '', full = true) {
       await page.waitForTimeout(250);
     }
   }
-  // Echte LAN-adressen van de testmachine (bijv. het antwoord van de netwerkdetectie) worden afgedekt;
-  // het fictieve thuisadres 192.168.1.20 en loopback blijven zichtbaar.
-  const masked = await page.evaluate(() => {
-    const re = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g, allow = new Set(['192.168.1.20', '127.0.0.1']);
-    const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    let n = 0, t;
-    while ((t = w.nextNode())) {
-      const m = t.textContent.match(re);
-      if (m && m.some((ip) => !allow.has(ip))) { t.parentElement.setAttribute('data-peil-mask', ''); n++; }
-    }
-    return n;
-  });
+  const masked = await maskLan(page);
   await page.screenshot({ path: `${OUT}/${file}`, animations: 'disabled', caret: 'hide', mask: masked ? [page.locator('[data-peil-mask]')] : [] });
   if (masked) note = `${note}${note ? ' · ' : ''}${masked} echt LAN-adres afgedekt (magenta)`;
   const h1 = await page.locator('h1').first().textContent({ timeout: 1000 }).catch(() => null);
@@ -122,7 +112,7 @@ await capture('woning-aanmaken', '/', adminState, { note: 'Ingelogd, nog geen wo
 
 // ---------------------------------------------------------------- 3. testgegevens
 const home = await send('POST', '/homes', { name: 'Thuis', timezone: 'Europe/Amsterdam' });
-await send('PUT', '/system/settings', { lan_url: 'http://192.168.1.20:8088', remote_url: null });
+await send('PUT', '/system/settings', { lan_url: proefwoningUrl, remote_url: null });
 const ids = seed('all', { home_id: home.id });
 log('seed', JSON.stringify(ids));
 const zones = await (await api.get(`/api/v1/homes/${home.id}/zones`)).json();
