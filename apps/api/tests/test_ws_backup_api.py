@@ -253,6 +253,17 @@ async def test_dump_naar_nieuwe_database_houdt_bron_en_bestaand_doel_intact(admi
             query = "SELECT id, name, timezone, currency, active_from FROM public.homes ORDER BY id"
             voor = await db.fetch(query)
             assert len(voor) == 1
+            # Synthetische gegevens van andere diensten in uitsluitend deze proefdatabase.
+            await db.execute("""
+                CREATE TABLE proef_kijkgeschiedenis (item text PRIMARY KEY, positie integer NOT NULL);
+                CREATE TABLE proef_mediaguard_voortgang (taak text PRIMARY KEY, percentage integer NOT NULL);
+                INSERT INTO proef_kijkgeschiedenis VALUES ('proeffilm', 1234);
+                INSERT INTO proef_mediaguard_voortgang VALUES ('proeftaak', 37);
+            """)
+            mediaquery = ("SELECT item, positie, taak, percentage FROM proef_kijkgeschiedenis "
+                          "CROSS JOIN proef_mediaguard_voortgang")
+            media_voor = await db.fetch(mediaquery)
+            assert [tuple(rij) for rij in media_voor] == [("proeffilm", 1234, "proeftaak", 37)]
             monkeypatch.setattr(cfg, "database_url", bronurl)
             gemaakt = await bk.run_db_dump(PW, auto=False, url=bronurl, backup_dir=tmp_path)
             assert gemaakt["status"] == "ok"
@@ -269,6 +280,7 @@ async def test_dump_naar_nieuwe_database_houdt_bron_en_bestaand_doel_intact(admi
             kopie = await asyncpg.connect(dsn, password=wachtwoord, database=doel)
             try:
                 assert await kopie.fetch(query) == voor == await db.fetch(query)
+                assert await kopie.fetch(mediaquery) == media_voor == await db.fetch(mediaquery)
             finally:
                 await kopie.close()
         finally:

@@ -1251,7 +1251,7 @@ def dump_filename(auto: bool) -> str:
 
 
 def _pg_dump_sync(url: str, target: Path, passphrase: str, created_at: str, *, snapshot: str | None = None) -> dict:
-    """Stream ``pg_dump --format=custom`` through the backup encryption into ``target``."""
+    """Bereken de herkomst over de volledige pg_dump en versleutel de dump in blokken."""
     import shutil
     import subprocess  # noqa: S404 - fixed executable, no shell
 

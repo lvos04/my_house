@@ -69,7 +69,7 @@ Hoe het werkt:
 ### Handmatig
 
 **Systeem › Back-ups en bewaren › Nu een back-up maken**, met een wachtwoordzin en de keuze om geheimen
-weg te laten. Kies voor webherstel een volledige export met geheimen. Download het bestand bij **Gemaakte back-ups**.
+weg te laten. Kies voor herstel van de volledige woning een export met geheimen. Download het bestand bij **Gemaakte back-ups**.
 
 ### Wat erin zit
 
@@ -78,6 +78,7 @@ weg te laten. Kies voor webherstel een volledige export met geheimen. Download h
   je *geheimen weglaten* kiest, de versleutelde apparaatsleutels en wachtwoord-hashes. Inlogsessies en
   koppelcodes zitten er nooit in.
 - **Database-dump (`.shcdump`):** alleen de database (pg_dump), versleuteld. Geen Zigbee2MQTT-gegevens.
+  Tijdens het maken heeft de back-upmap ruimte nodig voor de tijdelijke pg_dump en het versleutelde bestand samen.
   In **Systeem › Herstellen en verhuizen** kun je de losse dump met de wachtwoordzin controleren.
   De wizard controleert de versleutelde stroom en het connectorherstelbewijs. Bij een nieuwe dump met
   herkomstbewijs van dezelfde installatiesleutel vul je een vrije databasenaam in. Kies **In nieuwe database
@@ -141,8 +142,9 @@ weg te laten. Kies voor webherstel een volledige export met geheimen. Download h
 2. Kies **Bron pauzeren voor overstap**. De app blokkeert wijzigingen in de database, ook binnenkomende
    metingen. Kijkers kunnen blijven lezen en opnieuw aanmelden. Het scherm toont het laatste meetrecord,
    het aantal metingen en de vervaltijd. De pauze overleeft een herstart. De Zigbee-opslag moet leeg zijn
-   en gedurende de overstap tegen schrijven beschermd zijn. Voor bestaande Zigbee-bestanden of een
-   gekoppelde Zigbee-integratie ontbreekt een beproefd webherstel. Gebruik in dat geval de broninstallatie verder.
+   en gedurende de overstap tegen schrijven beschermd zijn. Bij bestaande Zigbee-bestanden of een
+   gekoppelde Zigbee-integratie blijft de broninstallatie in gebruik. De wizard kan de bestanden in een
+   aparte herstelmap plaatsen. Voor ingebruikname van de gekoppelde installatie op het doel ontbreekt een beproefd webherstel.
    Als de Zigbee-dienst in een lege Compose-map kan schrijven, weigert de app de pauze. Controleer in
    het opslagbeheer het eigendom en de rechten. Een andere eigenaar dan de Zigbee-dienst en alleen
    lees- en zoekrechten voor groep en overige gebruikers beschermen de lege map. Bewaar map en inhoud.
