@@ -65,3 +65,24 @@ PEIL_VOLLEDIG=1 ./gradlew :app:testDebugUnitTest --tests 'nl.huis.smarthome.peil
 python android/verzamel.py ../../apps/android/app/build/reports/paparazzi/debug <ruwe map>
 python nabewerk.py <ruwe map> ../android                                   # inkorten en verkleinen
 ```
+
+## Nulmeting S-P3-765 herhalen
+
+De bewaarde bouwproef telde 13 toestanden op 390, 768 en 1440 px in licht en donker. De toenmalige
+lijst van schermnamen is niet bewaard. Voor de herhaling liggen de volgende dertien vast:
+Overzicht, Klimaat-bediening, Klimaat-uit-conflict, Klimaat-weekschema, Verlichting, Energie,
+Optimalisatie, Apparaten, Systeem, Mijn account, Installatie, Overzicht met oude metingen en
+Klimaat met oude metingen. De systeemkleurproef op Verlichting telt afzonderlijk mee.
+
+Gebruik een schone proefkloon op web- en API-bron `c014d76a660f15d9dff094bacf2064e8dc36c455`.
+Installeer daarin de webafhankelijkheden uit het lockbestand en gebruik een lokale PostgreSQL-proefinstantie.
+Voer het script uit vanuit de versie van de documentatie die deze werkwijze bevat:
+
+```sh
+PEIL_REPO="$PROEFKLOON" PEIL_PYTHON="$PROEFPYTHON" PEIL_PG="$PROEFDATABASE" \
+  python3 docs/screenshots/peil/werkwijze/nulmeting_765.py "$UITVOERMAP"
+```
+
+Het script haalt de afdrukwerkwijze en de bijbehorende lezer van testaccounts uit commit
+`4a97255cab9eb6445c8461747b2be8f2ee027cd1` in dezelfde gitgeschiedenis. Na de meting controleert
+het alle combinaties in `review.json`. Met `--controleer` kan die telling achteraf worden herhaald.
