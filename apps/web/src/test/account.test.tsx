@@ -1,3 +1,4 @@
+import { proefadres } from './proefadressen';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -117,7 +118,7 @@ describe('own password', () => {
 
 describe('phones', () => {
   it('pairing defaults to "Bedienen"; admin needs the password', async () => {
-    const qr = JSON.stringify({ v: 1, type: 'shc-pair', code: 'K7Q4-9XPM', lan: 'http://192.168.1.20:8088', remote: null, home: 'Thuis', server_id: 's', role: 'admin' });
+    const qr = JSON.stringify({ v: 1, type: 'shc-pair', code: 'K7Q4-9XPM', lan: `http://${proefadres(20)}:8088`, remote: null, home: 'Thuis', server_id: 's', role: 'admin' });
     const calls = mockApi(() => ({ body: { code: 'K7Q4-9XPM', expires_at: '2026-11-08T14:50:00Z', role: 'admin', server_id: 's', qr_payload: qr } }));
     render(<Providers><PairPhone /></Providers>);
     expect(screen.getByRole('radio', { name: /Bedienen/ })).toBeChecked();

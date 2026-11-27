@@ -1,3 +1,4 @@
+import { proefadres } from './proefadressen';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -25,7 +26,7 @@ const sensor2 = device({ id: 's2', name: 'Sensor slaapkamer', allowed_roles: ['o
 const all = [p1, socketA, socketB, boiler, sensor, sensor2];
 
 const hue: Integration = {
-  id: 'i1', provider: 'hue', label: 'Hue Bridge', provider_label: 'Philips Hue', home_id: 'h1', enabled: true, identity: 'ecb5fa', host: '192.168.1.20',
+  id: 'i1', provider: 'hue', label: 'Hue Bridge', provider_label: 'Philips Hue', home_id: 'h1', enabled: true, identity: 'ecb5fa', host: proefadres(20),
   state: 'warn', detail: 'Niet bereikbaar sinds 2 min', last_ok_at: new Date(Date.now() - 300_000).toISOString(), code: 'device_offline',
   connected_since: new Date(Date.now() - 3 * 3600_000).toISOString(), missed_polls: 2, checked_at: new Date().toISOString(), has_diagnostics: false,
 };
@@ -213,11 +214,11 @@ describe('integrations (item 24, 26, 28)', () => {
       if (url.endsWith('/integrations/i1') && m === 'PATCH') {
         patches++;
         return patches === 1
-          ? { status: 502, body: { detail: { code: 'device_offline', message: 'Hue Bridge op 192.168.1.30 reageert niet. Het adres is niet gewijzigd. Staat het apparaat uit? Sla dan op zonder controle.' } } }
-          : { body: { ...hue, host: '192.168.1.30', health: { health_state: null, health_detail: null, checked_at: null, extra: {} }, config: {}, diagnostics: {}, devices: [] } };
+          ? { status: 502, body: { detail: { code: 'device_offline', message: `Hue Bridge op ${proefadres(30)} reageert niet. Het adres is niet gewijzigd. Staat het apparaat uit? Sla dan op zonder controle.` } } }
+          : { body: { ...hue, host: proefadres(30), health: { health_state: null, health_detail: null, checked_at: null, extra: {} }, config: {}, diagnostics: {}, devices: [] } };
       }
       if (url.endsWith('/integrations/i1'))
-        return { body: { ...hue, health: { health_state: 'warn', health_detail: 'Bridge reageert niet', checked_at: null, extra: { eventstream_connected: false, bridge_id: 'ecb5fa' } }, config: { host: '192.168.1.20' }, diagnostics: {}, devices: [{ id: 'l1', name: 'Spot', kind: 'light', online: true, lifecycle: 'active' }] } };
+        return { body: { ...hue, health: { health_state: 'warn', health_detail: 'Bridge reageert niet', checked_at: null, extra: { eventstream_connected: false, bridge_id: 'ecb5fa' } }, config: { host: proefadres(20) }, diagnostics: {}, devices: [{ id: 'l1', name: 'Spot', kind: 'light', online: true, lifecycle: 'active' }] } };
       return undefined;
     }));
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -239,13 +240,13 @@ describe('integrations (item 24, 26, 28)', () => {
     await user.click(within(card).getByRole('button', { name: 'Adres wijzigen: Hue Bridge' }));
     const host = within(card).getByLabelText('Nieuw IP-adres');
     await user.clear(host);
-    await user.type(host, '192.168.1.30');
+    await user.type(host, proefadres(30));
     await user.click(within(card).getByRole('button', { name: 'Controleren en opslaan' }));
-    expect(await within(card).findByText(/op 192.168.1.30 reageert niet/)).toBeInTheDocument();
-    expect(calls.filter((c) => c.method === 'PATCH')[0].body).toEqual({ host: '192.168.1.30', verify: true });
+    expect(await within(card).findByText(`op ${proefadres(30)} reageert niet`, { exact: false })).toBeInTheDocument();
+    expect(calls.filter((c) => c.method === 'PATCH')[0].body).toEqual({ host: proefadres(30), verify: true });
     await user.click(within(card).getByRole('button', { name: 'Toch opslaan zonder controle' }));
     expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/zonder controle/));
-    await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH')[1]?.body).toEqual({ host: '192.168.1.30', verify: false }));
+    await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH')[1]?.body).toEqual({ host: proefadres(30), verify: false }));
   });
 
   it('formats health lines', () => {

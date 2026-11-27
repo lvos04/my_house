@@ -1,3 +1,4 @@
+import { proefadres } from './proefadressen';
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -57,13 +58,13 @@ describe('api bodies (backend contract)', () => {
   it('discover sends home_id; pair sends home_id/host/name; backup sends passphrase + include_secrets', async () => {
     const calls = mockApi(() => ({ body: {} }));
     await api.discover('hue', 'h1');
-    await api.pair('hue', { home_id: 'h1', host: '192.168.1.2', name: 'Bridge' });
+    await api.pair('hue', { home_id: 'h1', host: proefadres(2), name: 'Bridge' });
     await api.createBackup({ passphrase: 'lange-wachtwoordzin', include_secrets: false });
     await api.bindDevice('d1', 'airco');
     await api.putZonePolicy('z1', { band_c: 0.5, min_interval_s: 900, max_step_c: 1, max_starts_per_hour: 3, stale_after_s: 1800 });
     expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
       ['POST', '/api/v1/integrations/hue/discover', { home_id: 'h1' }],
-      ['POST', '/api/v1/integrations/hue/pair', { home_id: 'h1', host: '192.168.1.2', name: 'Bridge' }],
+      ['POST', '/api/v1/integrations/hue/pair', { home_id: 'h1', host: proefadres(2), name: 'Bridge' }],
       ['POST', '/api/v1/system/backups', { passphrase: 'lange-wachtwoordzin', include_secrets: false }],
       ['POST', '/api/v1/devices/d1/bind', { role: 'airco' }],
       ['PUT', '/api/v1/zones/z1/policy', { band_c: 0.5, min_interval_s: 900, max_step_c: 1, max_starts_per_hour: 3, stale_after_s: 1800 }],
@@ -95,7 +96,7 @@ describe('Apparaten', () => {
 
     const user = userEvent.setup();
     const hostInput = screen.getByLabelText('IP-adres Hue Bridge');
-    await user.type(hostInput, '192.168.1.2');
+    await user.type(hostInput, proefadres(2));
     const hueCard = hostInput.closest('article')!;
     await user.click(Array.from(hueCard.querySelectorAll('button')).find((b) => b.textContent === 'Koppelen' && b.getAttribute('type') === 'submit')!);
     expect(await screen.findByText('Druk op de link-knop van de Hue Bridge')).toBeInTheDocument();
@@ -103,7 +104,7 @@ describe('Apparaten', () => {
     expect(await screen.findByText('Gekoppeld: Hue Bridge')).toBeInTheDocument();
     const pairCalls = calls.filter((c) => c.url.endsWith('/hue/pair'));
     expect(pairCalls).toHaveLength(2);
-    expect(pairCalls[1].body).toEqual({ home_id: 'h1', host: '192.168.1.2' });
+    expect(pairCalls[1].body).toEqual({ home_id: 'h1', host: proefadres(2) });
 
     // role binding: choosing a role alone does nothing; it binds only after "Koppelen" and confirmation
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -119,7 +120,7 @@ describe('Systeem', () => {
   it('shows safe-mode card and releases it', async () => {
     const calls = mockApi((_m, url) => {
       if (url.endsWith('/system/status')) return { body: { checks: [{ key: 'safe_mode', label: 'Veilige modus', state: 'warn', detail: 'Actief na herstel' }] } };
-      if (url.endsWith('/system/settings')) return { body: { lan_url: 'http://192.168.1.20:8080', remote_url: null, safe_mode: true } };
+      if (url.endsWith('/system/settings')) return { body: { lan_url: `http://${proefadres(20)}:8080`, remote_url: null, safe_mode: true } };
       if (url.endsWith('/safe-mode/release')) return { body: { safe_mode: false } };
       if (url.endsWith('/homes')) return { body: [{ id: 'h1', name: 'Thuis', timezone: 'Europe/Amsterdam', currency: 'EUR', active: true }] };
       return { body: [] };
@@ -129,7 +130,7 @@ describe('Systeem', () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole('button', { name: 'Apparaten kloppen — veilige modus opheffen' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/system/safe-mode/release'))).toBe(true));
-    expect(await screen.findByDisplayValue('http://192.168.1.20:8080')).toBeInTheDocument();
+    expect(await screen.findByDisplayValue(`http://${proefadres(20)}:8080`)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Archiveren (verhuisd)' })).toBeInTheDocument();
     expect(screen.getByLabelText('Geheimen meenemen')).toBeChecked();
   });

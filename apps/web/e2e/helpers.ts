@@ -1,3 +1,4 @@
+import { proefadres } from '../src/test/proefadressen';
 // Shared pieces for the browser tests: accounts, API calls with the browser's own session, test data
 // (e2e/seed.py) and stopping/starting the API of the running stack.
 import { execFileSync } from 'node:child_process';
@@ -7,7 +8,7 @@ import { expect, test as base, type APIResponse, type BrowserContext, type Page 
 export const ADMIN = { username: 'beheerder', password: 'lang-genoeg-wachtwoord-2026' }; // gitleaks:allow - gedeelde aanmeldfixture voor de lokale browserproef
 export const VIEWER = { username: 'meekijker', password: 'kijken-mag-altijd-2026' }; // gitleaks:allow - gedeelde aanmeldfixture voor de lokale browserproef
 export const HOME_NAME = 'Thuis';
-export const LAN_URL = 'http://192.168.1.20:8088';
+export const LAN_URL = `http://${proefadres(20)}:8088`;
 
 const SEED = fileURLToPath(new URL('./seed.py', import.meta.url));
 

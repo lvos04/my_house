@@ -1,4 +1,4 @@
-"""Adresfixtures in de integratieproeven blijven lokaal en bevatten geen letterlijke netwerkadressen."""
+"""Testdubbels gebruiken adressen uit eigen fixtures."""
 
 import re
 import unittest
@@ -11,7 +11,10 @@ class Proefadressen(unittest.TestCase):
         root = Path(__file__).resolve().parents[2]
         letterlijk = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])")
         locaties = []
-        bestanden = [*root.glob("integrations/tests/*.py"), *root.glob("apps/api/tests/*.py")]
+        bestanden = [
+            *root.glob("integrations/tests/*.py"), *root.glob("apps/api/tests/*.py"),
+            *root.glob("apps/web/src/test/*.ts*"), *root.glob("apps/web/e2e/*.ts"),
+        ]
         for pad in sorted(bestanden):
             for nummer, regel in enumerate(pad.read_text().splitlines(), 1):
                 for waarde in letterlijk.findall(regel):

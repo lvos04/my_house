@@ -1,3 +1,4 @@
+import { proefadres, linkLokaalProefadres } from './proefadressen';
 // Toegestane toevoegingen bij de Peil-omzetting (BESLUITEN_GEBRUIKER, docs/ontwerp/PEIL_MIGRATIE.md §9): de
 // themaknop Systeem / Licht / Donker (O-09) en de link "Terug naar de Hub" (O-11).
 import { readFileSync } from 'node:fs';
@@ -122,7 +123,7 @@ describe('Terug naar de Hub (O-11)', () => {
   it('accepteert alleen http(s)://host[:poort] zonder pad, query, fragment of inloggegevens, en geen loopback/link-local', () => {
     expect(geldigHubAdres('https://hub.thuis:8443')).toBe('https://hub.thuis:8443');
     expect(geldigHubAdres('https://hub.thuis:8443/')).toBe('https://hub.thuis:8443');
-    expect(geldigHubAdres('http://192.168.1.5')).toBe('http://192.168.1.5');
+    expect(geldigHubAdres(`http://${proefadres(5)}`)).toBe(`http://${proefadres(5)}`);
     expect(geldigHubAdres('https://[2001:db8::1]:8443')).toBe('https://[2001:db8::1]:8443');
     for (const bad of [
       undefined,
@@ -144,7 +145,7 @@ describe('Terug naar de Hub (O-11)', () => {
       'http://127.0.0.1',
       'http://127.8.9.1:80',
       'http://0.0.0.0',
-      'http://169.254.169.254',
+      `http://${linkLokaalProefadres}`,
       'http://[::1]',
       'http://[::]',
       'http://[fe80::1]',

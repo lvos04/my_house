@@ -1,3 +1,4 @@
+import { proefadres } from './proefadressen';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -22,7 +23,7 @@ const status: SystemStatus = {
     { key: 'backup', label: 'Back-up', state: 'warn', detail: 'Laatste back-up 2 uur geleden', age_h: 2, app_version: '0.2.0', schema_revision: '0003_followups', zigbee2mqtt_included: false, auto_failures: 0, auto_last_error: null },
     {
       key: 'integration:i1', label: 'Gree airco', state: 'warn', detail: 'Antwoordt traag', integration_id: 'i1', provider: 'gree', code: null,
-      details: { code: null, since: null, health_state: 'warn', health_detail: 'Antwoordt traag', checked_at: null, connected_since: null, missed_polls: 2, consecutive_failures: 1, extra: { host: '192.168.1.40', encryption: 'v2' } },
+      details: { code: null, since: null, health_state: 'warn', health_detail: 'Antwoordt traag', checked_at: null, connected_since: null, missed_polls: 2, consecutive_failures: 1, extra: { host: proefadres(40), encryption: 'v2' } },
     },
     { key: 'integration:i2:mqtt', label: 'Zigbee – MQTT-verbinding', state: 'ok', detail: 'Verbonden' },
   ],
@@ -310,14 +311,14 @@ describe('installation wizard (item 43)', () => {
     expect(screen.getByText('Zet de unit in koppelmodus')).toBeInTheDocument();
     expect(screen.queryByLabelText('IP-adres van de airco-unit')).not.toBeInTheDocument();
     await user.click(screen.getByRole('checkbox', { name: /met de Gree\+-app aan mijn 2,4 GHz-wifi gekoppeld/ }));
-    await user.type(screen.getByLabelText('IP-adres van de airco-unit'), '192.168.1.40');
+    await user.type(screen.getByLabelText('IP-adres van de airco-unit'), proefadres(40));
     await user.click(screen.getByRole('button', { name: 'Koppelen' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('deze module wordt niet ondersteund');
     expect(screen.getByText(/"bind_attempts"/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Diagnose kopiëren' }));
     expect(await navigator.clipboard.readText()).toContain('"mac": "aa:bb"');
     expect(screen.getByText('Gekopieerd.')).toBeInTheDocument();
-    expect(calls.find((c) => c.url.endsWith('/gree/pair'))?.body).toEqual({ home_id: 'h1', host: '192.168.1.40' });
+    expect(calls.find((c) => c.url.endsWith('/gree/pair'))?.body).toEqual({ home_id: 'h1', host: proefadres(40) });
   });
 
   it('restores saved progress', async () => {
