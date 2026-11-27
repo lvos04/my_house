@@ -3,10 +3,10 @@
 import asyncio
 import hashlib
 import json
+import os
 import uuid
 from unittest.mock import patch
 
-import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
@@ -22,15 +22,11 @@ from tests.test_ws_backup_format import PW, temp_db
 
 METING = """
     SELECT cmd.status, cmd.attempts, cmd.detail, c.rollback_after IS NULL, jsonb_typeof(c.rollback_after),
-           EXISTS (SELECT FROM alerts WHERE key='connector:rollback:' || cmd.id AND title='Handmatige controle nodig'),
+           (SELECT count(*) FROM alerts WHERE key='connector:rollback:' || cmd.id AND title='Handmatige controle nodig'),
            EXISTS (SELECT FROM idempotency_keys WHERE key=c.id)
     FROM connector_changes c JOIN commands cmd ON c.rollback_command_id=cmd.id WHERE c.id=:id
 """
 BEWIJS = 'SELECT "before", preview_hash, command_id::text, rollback_command_id::text FROM connector_changes WHERE id=:id'
-
-
-class SqlNullGewijzigd(AssertionError):
-    """Uitsluitend de gemeten afwijking uit R-HARDE-EIS-16."""
 
 
 def archiefbewijs(pad, voorstel, formaat):
@@ -71,16 +67,16 @@ async def import_en_herstart(pad, url, voorstel):
     return {"geweigerd": None, "meting": list((await sql(url, METING, sleutel))[0])}
 
 
-@pytest.mark.xfail(not hasattr(backup, "TYPED_ROWS_VERSION"), raises=SqlNullGewijzigd,
-                   reason="R-HARDE-EIS-16 / S-P3-730: SQL NULL uit de ongetypeerde export wordt JSON null")
 async def test_versiewissel_met_logische_export(proef, tmp_path, monkeypatch):
     bron = get_settings().database_url
     schema = cli.current_revision(bron)
     assert schema in {"0008", EINDSCHEMA}
-    if schema == EINDSCHEMA:
+    wissel = os.environ["PROEF_LOGISCHE_WISSEL"]
+    if wissel == "versienummer":
+        monkeypatch.setattr(backup, "VERSION", backup.VERSION + "+andere-versie")
+    if wissel == "bouw":
         from shc_api import connector_changes, connector_transition
         ander = connector_changes.LOCAL_PROPOSAL + "-andere-versie"
-        monkeypatch.setattr(backup, "VERSION", backup.VERSION + "+andere-versie")
         monkeypatch.setattr(connector_changes, "LOCAL_PROPOSAL", ander)
         monkeypatch.setattr(connector_transition, "LOCAL_PROPOSAL", ander)
     plan, opdracht = await _apply(proef)
@@ -95,7 +91,7 @@ async def test_versiewissel_met_logische_export(proef, tmp_path, monkeypatch):
     try:
         async with engine.connect() as conn:
             manifest = await backup.write_backup(conn, pad, PW, include_secrets=True)
-            if schema == EINDSCHEMA:
+            if wissel == "versienummer":
                 assert manifest["app_version"].endswith("+andere-versie")
     finally:
         await engine.dispose()
@@ -124,9 +120,8 @@ async def test_versiewissel_met_logische_export(proef, tmp_path, monkeypatch):
     assert status == "cancelled" and claims == 0 and not recht
     print(f"LOGISCHE_EXPORT {schema}->{EINDSCHEMA} geweigerd={geweigerd} SQL_NULL={sqlnull} json_type={jsontype} "
           f"reden={reden} melding={melding} claims={claims} extra_verzendingen=0")
-    if geweigerd and not sqlnull and jsontype == "null":
-        raise SqlNullGewijzigd(f"{schema}->{EINDSCHEMA}: {geweigerd} geweigerd na omzetting van SQL NULL naar JSON null")
     assert geweigerd is None and sqlnull and jsontype is None
-    if schema == EINDSCHEMA and reden == RESTORED_COMMAND_DETAIL and not melding:
-        pytest.xfail("R-HARDE-EIS-16 na S-P3-730: reden versiewissel en beheermelding ontbreken op gelijk schema")
-    assert reden == "versiewissel" and melding
+    if wissel == "ongewijzigd":
+        assert reden == RESTORED_COMMAND_DETAIL and melding == 0
+    else:
+        assert reden == "versiewissel" and melding == 1

@@ -81,17 +81,15 @@ def draai_proef(versies, versie, bestand, extra, omgeving):
     ], cwd=bron / "apps/api", env=env, check=True)
 
 
-@pytest.mark.parametrize("versie", ["direct_vorig", "nieuw"])
-def test_logische_meting(versies, tmp_path, versie):
+@pytest.mark.parametrize(("versie", "wissel"), [
+    ("direct_vorig", "schema"), ("nieuw", "versienummer"), ("nieuw", "bouw"), ("nieuw", "ongewijzigd"),
+], ids=["direct_vorig", "nieuw", "andere_bouw", "zelfde_bouw"])
+def test_logische_meting(versies, tmp_path, versie, wissel):
     rapport = tmp_path / "logische_meting.xml"
-    draai_proef(versies, versie, "logische_meting.py", ["--junitxml", str(rapport)], os.environ)
-    # Geef de uitkomst van de historische pytest door aan de bovenliggende CI-run.
+    draai_proef(versies, versie, "logische_meting.py", ["--junitxml", str(rapport)],
+                dict(os.environ, PROEF_LOGISCHE_WISSEL=wissel))
     geval, = ElementTree.parse(rapport).findall(".//testcase")  # noqa: S314 - eigen lokale pytest-uitvoer
-    overgeslagen = geval.find("skipped")
-    if overgeslagen is not None:
-        reden = overgeslagen.get("message", "")
-        assert overgeslagen.get("type") == "pytest.xfail" and "S-P3-730" in reden
-        pytest.xfail(reden)
+    assert geval.find("skipped") is None
 
 
 class TestOpslagkopie:

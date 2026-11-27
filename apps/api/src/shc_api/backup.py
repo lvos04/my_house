@@ -62,6 +62,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from . import connector_transition
 from .config import VERSION, get_settings
 from .connector import RESTORED_COMMAND_DETAIL
 from .connector_proof import (
@@ -1039,6 +1040,7 @@ async def write_backup(
         "format": FORMAT,
         "format_version": TYPED_ROWS_VERSION,
         "app_version": VERSION,
+        "connector_software": connector_transition.LOCAL_PROPOSAL,
         "schema_revision": rev,
         "created_at": created_at,
         "secrets_included": include_secrets,
@@ -1546,7 +1548,7 @@ def _hold_connector_recovery(conn) -> None:
     """))  # noqa: S608 - beide SQL-fragmenten zijn vaste broncode
 
 
-def _restore_connector_proof(conn, held_recovery: bool) -> None:
+def _restore_connector_proof(conn, held_recovery: bool, *, version_changed: bool) -> None:
     conn.execute(text(RESTORE_HISTORY))
     if held_recovery and conn.execute(text(f"""
         SELECT EXISTS (
@@ -1573,6 +1575,8 @@ def _restore_connector_proof(conn, held_recovery: bool) -> None:
           AND rollback_command_id IN (SELECT id FROM commands WHERE status IN ('sending', 'sent'))
     """))
     conn.execute(text("UPDATE connector_changes SET execution_expires_at = NULL, rollback_expires_at = NULL"))
+    if version_changed:
+        conn.execute(text(connector_transition.CANCEL_PENDING))
     conn.execute(text("""
         UPDATE commands SET status = 'cancelled', updated_at = now(), detail = :detail
         WHERE source = 'connector' AND status IN ('queued', 'sending', 'sent')
@@ -1768,7 +1772,11 @@ def _restore_sync(
         for name in ("commands", "connector_changes"):
             if inventory[name] != fingerprint(conn, target[name]):
                 raise BackupError("De geïmporteerde opdrachten of het connectorbewijs wijken af van de bron.")
-    _restore_connector_proof(conn, held_recovery)
+    # Ook twee builds met hetzelfde versienummer kunnen een andere worker hebben.
+    # Archieven van vóór deze bouwidentiteit komen uit eerdere software.
+    version_changed = (rev != head or manifest.get("app_version") != VERSION
+                       or manifest.get("connector_software") != connector_transition.LOCAL_PROPOSAL)
+    _restore_connector_proof(conn, held_recovery, version_changed=version_changed)
     for name, table in final.items():
         pk = list(table.primary_key)
         if name in report.counts and len(pk) == 1 and isinstance(pk[0].type, sqltypes.Integer):
@@ -1862,6 +1870,12 @@ def _flush(conn, table, batch: list[dict], report: RestoreReport, *, typed=False
     if typed:
         insert = insert.values({c: _typed_bind(conn, c, batch, temporary) for c in table.columns
                                 if c.name in batch[0] and _pg_text(c)})
+    elif key == "connector_changes":
+        # De oude schrijver legde een ontbrekende teruglezing als SQL NULL vast.
+        # Schema-reflectie verliest de schrijfregel none_as_null van deze bewijsvelden.
+        for col in Base.metadata.tables[key].columns:
+            if col.name in batch[0] and isinstance(col.type, JSONB) and col.type.none_as_null:
+                insert = insert.values({col.name: bindparam(col.name, type_=col.type)})
     conn.execute(insert, batch)
     for lookup in temporary:
         lookup.drop(conn)
