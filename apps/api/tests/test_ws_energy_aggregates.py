@@ -550,6 +550,9 @@ async def test_hub_krijgt_bij_uitsluitend_verlopen_meters_de_brontijden(koppel, 
         await put_readings(meter, "power_w", [(tijd, 15)], unit="W")
     gewoon = await admin.get(pad)
     assert gewoon.status_code == 200 and gewoon.json() is None
+    telefoon, _ = await koppel_lezer(client, "viewer", "phone")
+    mobiel = await client.get("/api/v1" + pad, headers=telefoon)
+    assert mobiel.status_code == 200 and mobiel.json() is None
     antwoord = await client.get("/api/v1" + pad, headers=headers)
     assert antwoord.status_code == 200
     live = antwoord.json()
