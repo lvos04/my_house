@@ -32,5 +32,15 @@ export default defineConfig({
     // The first admin and the home are made through the UI; every other test builds on them.
     { name: 'onboarding', testMatch: /01-onboarding\.e2e\.ts$/ },
     { name: 'flows', testMatch: /(0[2-9]|[1-9]\d)-.+\.e2e\.ts$/, dependencies: ['onboarding'] },
+    ...[
+      { width: 390, height: 844, isMobile: true },
+      { width: 768, height: 1024, isMobile: true },
+      { width: 1440, height: 900, isMobile: false },
+    ].map(({ width, height, isMobile }) => ({
+      name: `scherm-${width}`,
+      testMatch: /schermbreedtes\.e2e\.ts$/,
+      dependencies: ['onboarding'],
+      use: { viewport: { width, height }, isMobile, hasTouch: isMobile },
+    })),
   ],
 });

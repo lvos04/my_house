@@ -2,6 +2,10 @@
 
 Wat er per versie verandert. De uitgebreide uitleg per release staat in `docs/release-notes.md`.
 
+## Sinds de uitgave van 0.3.0
+
+- Klimaat en Overzicht vermelden de meettijd bij oude sensorwaarden. De thermostaat toont een oude kamertemperatuur als ‘Laatst bekend’. Een nieuwe temperatuurmeting ververst alleen de temperatuur. De browserproef controleert deze overgang op 390, 768 en 1440 px. [Testlog en schermafdrukken](docs/testlog.md)
+
 ## 0.3.0
 
 - De git-tag `v0.3.0` bouwt voor TrueNAS één image met webinterface, API, worker, PostgreSQL en MQTT. De GitHub-release bevat `digests.json` voor het invullen van de exacte tag en digest en `sbom.spdx.json` met de pakketlijst. Buildx voegt de bouwherkomst en SBOM toe aan de image.

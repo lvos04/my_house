@@ -10,7 +10,7 @@ const HELPERS = resolve(REPO, 'apps/web/e2e/helpers.ts');
 const BRON = readFileSync(HELPERS, 'utf8');
 
 function account(naam) {
-  const m = BRON.match(new RegExp(`^export const ${naam} = \\{ username: '([^']+)', password: '([^']+)' \\};$`, 'm'));
+  const m = BRON.match(new RegExp(`^export const ${naam} = \\{ username: '([^']+)', password: '([^']+)' \\};(?:[ \\t]*//.*)?$`, 'm'));
   if (!m) throw new Error(`${naam} niet gevonden in ${HELPERS}: verwacht "export const ${naam} = { username: '…', password: '…' };".`);
   return { username: m[1], password: m[2] };
 }

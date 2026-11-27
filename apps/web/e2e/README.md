@@ -59,5 +59,11 @@ alleen het lettertype na, niet de rest van de CI-machine: de CI-run zelf blijft 
 `01-onboarding` draait als eerste (project `onboarding`); de andere tests bouwen voort op die
 beheerder en woning en draaien na elkaar (één stack, en `08-offline` stopt de API).
 
+De projecten `scherm-390`, `scherm-768` en `scherm-1440` gebruiken dezelfde woning voor
+`schermbreedtes.e2e.ts`. De proef opent Klimaat via de zichtbare navigatie, controleert de
+paginabreedte en volgt een proefsensor vanaf de eerste meting. Zij toetst ook dat een verse
+temperatuur kan samengaan met een oude luchtvochtigheidsmeting. Draai de drie breedtes afzonderlijk
+van de overige flows met `apps/web/e2e/run-stack.sh schermbreedtes.e2e.ts`.
+
 `peil-metingen.ts` is geen testbestand: het bevat de metingen die `11-peil` en `12-grafiek-24-uur` delen (axe-core,
 tekst < 14 px, doelen < 44 px, inhoud buiten zijn kaart of element, focusring).

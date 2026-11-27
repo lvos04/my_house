@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { ConnectionProvider, PendingProvider } from '../state';
 import { OfflineBanner } from '../components/OfflineBanner';
+import { ZoneControlPanel } from '../components/zone';
 import { OverviewView } from '../pages/Overview';
-import { overview } from './fixtures';
+import { overview, zone } from './fixtures';
 
 function wrap(children: ReactNode, online: boolean) {
   const lastSeen = new Date(2026, 10, 8, 14, 5);
@@ -25,6 +26,17 @@ function wrap(children: ReactNode, online: boolean) {
 }
 
 describe('offline rule', () => {
+  it('toont een eerder verse temperatuur zonder verbinding als laatst bekende meting', () => {
+    const kamer = zone();
+    render(wrap(<ZoneControlPanel zone={kamer} tz="Europe/Amsterdam" />, false));
+    const bediening = within(screen.getByRole('region', { name: 'Bediening' }));
+    expect(bediening.queryByText(/^nu\s/i)).not.toBeInTheDocument();
+    expect(bediening.getByText('Verouderd')).toBeVisible();
+    const meting = bediening.getByText(/Laatst bekend.*20,6°/i);
+    expect(meting).toBeVisible();
+    expect(meting.querySelector('time')).toHaveAttribute('datetime', kamer.temperature.at);
+  });
+
   it('shows last-known banner and disables all action buttons when offline', () => {
     render(wrap(<OverviewView data={overview} />, false));
     expect(screen.getByRole('status')).toHaveTextContent('laatst bekend 14:05');

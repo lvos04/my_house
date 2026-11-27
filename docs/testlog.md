@@ -1,11 +1,15 @@
 # Testlog
 
-Wat is getest, hoe, en wat (nog) niet. Bijgewerkt: 9 november 2026, na de verbeterronde (versie 0.1.0
-in `VERSION`).
+## Werkbranch met VERSION 0.3.0 · 27 november 2026
 
-## Automatisch
+S-P3-765 controleert op 390, 768 en 1440 px hoe Klimaat een ontbrekende, oude en verse
+kamertemperatuur weergeeft. De meting van de luchtvochtigheid heeft haar eigen tijdstempel.
+De browserproef gebruikt de gebouwde web-app, de lokale API en een tijdelijke PostgreSQL-database
+met fictieve apparaten. Echte toestellen vallen onder N-P6-06, NIET GEVALIDEERD (hardware).
 
-### Uitkomst van de laatste run (deze omgeving)
+## Automatische metingen van versie 0.1.0 · 9 november 2026
+
+### Uitkomst van die run
 
 | Suite | Uitkomst | Hoe gedraaid |
 |---|---|---|

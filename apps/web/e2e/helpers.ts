@@ -126,8 +126,8 @@ export const test = base.extend<Fixtures>({
 
 export { expect };
 
-/** Fails when the page scrolls sideways (phones, 360 px). */
+/** De pagina moet op de gekozen schermbreedte passen. */
 export async function expectNoHorizontalScroll(page: Page) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-  expect(overflow, 'horizontale scroll in pixels').toBeLessThanOrEqual(1);
+  expect(overflow, 'horizontale scroll in pixels').toBe(0);
 }
