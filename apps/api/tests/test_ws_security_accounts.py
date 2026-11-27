@@ -17,6 +17,7 @@ from shc_api.routers.users import ensure_other_admin
 from shc_api.store import set_setting
 
 from .conftest import Session
+from .proefadressen import lan
 
 PW = "een-lang-wachtwoord-456"
 
@@ -43,7 +44,7 @@ async def _patch(s: Session, url, body):
 
 async def _pair(s: Session, app, name, role="control", password=None) -> tuple[str, str]:
     async with sessionmaker()() as db:
-        await set_setting(db, "lan_url", "http://192.168.1.20:8088")
+        await set_setting(db, "lan_url", f"http://{lan(1)}:8088")
         await db.commit()
     body = {"label": name, "role": role}
     if password:

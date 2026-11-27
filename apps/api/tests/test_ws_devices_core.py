@@ -15,6 +15,7 @@ from shc_api.db import sessionmaker
 from shc_api.models import Alert, Device, Home, Integration
 from shc_api.store import get_setting, set_setting
 
+from .proefadressen import lan
 from .ws_devices_support import add_device, add_integration, attach, fetch, make_worker, new_home
 
 
@@ -84,8 +85,8 @@ async def test_key_mismatch_marks_only_that_integration_and_reload_follows_db(ad
     _fake_registry(monkeypatch)
     home_id = await new_home(admin)
     bad = await add_integration(home_id, "gree", "Airco slaapkamer", raw_credentials=b"\x01" + b"x" * 40)
-    ok = await add_integration(home_id, "hue", "Hue Bridge", config={"host": "192.168.1.2"}, creds={"k": "v"})
-    other = await add_integration(home_id, "homewizard", "P1", config={"host": "192.168.1.3"})
+    ok = await add_integration(home_id, "hue", "Hue Bridge", config={"host": lan(7)}, creds={"k": "v"})
+    other = await add_integration(home_id, "homewizard", "P1", config={"host": lan(3)})
     w = make_worker()
     try:
         await w.load_integrations({home_id})
@@ -105,7 +106,7 @@ async def test_key_mismatch_marks_only_that_integration_and_reload_follows_db(ad
         async with sessionmaker()() as db:
             await db.execute(update(Integration).where(Integration.id == ok.id).values(enabled=False))
             await db.execute(
-                update(Integration).where(Integration.id == other.id).values(config={"host": "192.168.1.33"})
+                update(Integration).where(Integration.id == other.id).values(config={"host": lan(15)})
             )
             from shc_api.config import get_settings
             from shc_api.security import SecretBox
@@ -117,7 +118,7 @@ async def test_key_mismatch_marks_only_that_integration_and_reload_follows_db(ad
         await w.load_integrations({home_id})
         assert ok.id not in w.adapters and hue_adapter.closed
         assert first_hw.closed and w.adapters[other.id] is not first_hw
-        assert w.adapters[other.id].config["host"] == "192.168.1.33"
+        assert w.adapters[other.id].config["host"] == lan(15)
         assert bad.id in w.adapters and w.adapters[bad.id].credentials == {"key": "abc"}
         assert not await _open_alerts(f"integration:{bad.id}")
 
@@ -148,7 +149,7 @@ async def test_status_debounce_identity_mismatch_and_status_updated(admin, monke
 
     monkeypatch.setattr(events, "publish", spy)
     home_id = await new_home(admin)
-    integ = await add_integration(home_id, "homewizard", "P1-meter", config={"host": "192.168.1.3"})
+    integ = await add_integration(home_id, "homewizard", "P1-meter", config={"host": lan(3)})
     meter = await add_device(home_id, "p1_meter", "P1", provider="homewizard", integration_id=integ.id)
     w = make_worker()
     fake = FakeAdapter({}, {})
@@ -186,7 +187,7 @@ async def test_status_debounce_identity_mismatch_and_status_updated(admin, monke
     async with sessionmaker()() as db:
         await db.execute(update(Device).where(Device.id == meter.id).values(online=True))
         await db.commit()
-    fake.poll_error = IdentityMismatch("Op 192.168.1.3 antwoordt een ander HomeWizard-apparaat")
+    fake.poll_error = IdentityMismatch(f"Op {lan(3)} antwoordt een ander HomeWizard-apparaat")
     await w.poll(integ.id)
     row = await fetch(Integration, integ.id)
     assert row.state == "error" and row.diagnostics["status"]["code"] == "identity_mismatch"
@@ -334,7 +335,7 @@ async def test_health_round_eventstream_alert_and_zigbee_parts(admin):
     from shc_integrations.base import Health, HealthState
 
     home_id = await new_home(admin)
-    hue = await add_integration(home_id, "hue", "Hue Bridge", config={"host": "192.168.1.2"})
+    hue = await add_integration(home_id, "hue", "Hue Bridge", config={"host": lan(7)})
     zb = await add_integration(home_id, "zigbee", "Zigbee", config={"host": "mqtt"})
     w = make_worker()
     fh, fz = FakeAdapter({}, {}), FakeAdapter({}, {})

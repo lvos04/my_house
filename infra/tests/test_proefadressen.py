@@ -7,11 +7,12 @@ from pathlib import Path
 
 
 class Proefadressen(unittest.TestCase):
-    def test_integraties_gebruiken_eigen_proefadressen(self):
+    def test_proeven_gebruiken_eigen_adressen(self):
         root = Path(__file__).resolve().parents[2]
         letterlijk = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])")
         locaties = []
-        for pad in sorted((root / "integrations/tests").glob("*.py")):
+        bestanden = [*root.glob("integrations/tests/*.py"), *root.glob("apps/api/tests/*.py")]
+        for pad in sorted(bestanden):
             for nummer, regel in enumerate(pad.read_text().splitlines(), 1):
                 for waarde in letterlijk.findall(regel):
                     try:

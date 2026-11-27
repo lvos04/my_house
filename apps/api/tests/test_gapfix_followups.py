@@ -8,6 +8,8 @@ from sqlalchemy.pool import NullPool
 from shc_api import backup as bk
 from shc_api.config import get_settings
 
+from .proefadressen import lan, stack
+
 PW = "gap-wachtwoordzin-456"
 
 
@@ -55,10 +57,10 @@ async def test_restoring_a_redacted_backup_keeps_the_existing_zigbee2mqtt_secret
 
 
 async def test_pairing_options_cannot_carry_the_address(admin, home):
-    for host in ("172.30.251.3", "postgres", "192.168.1.20"):
+    for host in (stack(251, 3), "postgres", lan(1)):
         r = await admin.post(
             "/integrations/hue/pair",
-            json={"home_id": str(home["id"]), "host": "192.168.1.20", "options": {"host": host}},
+            json={"home_id": str(home["id"]), "host": lan(1), "options": {"host": host}},
         )
         assert r.status_code == 422, r.text
         assert "veld 'host'" in r.text
@@ -84,7 +86,7 @@ async def test_hue_devices_deleted_while_the_worker_was_down_are_archived(admin)
         """The real adapter with its full reload served from a list (no bridge, no HTTP)."""
 
         def __init__(self, resources):
-            super().__init__({"host": "192.168.1.30"}, {"application_key": "k"})
+            super().__init__({"host": lan(6)}, {"application_key": "k"})
             self.items = resources
 
         async def load_resources(self):
@@ -97,7 +99,7 @@ async def test_hue_devices_deleted_while_the_worker_was_down_are_archived(admin)
             return {d.stable_identity: d for d in rows}
 
     home_id = await new_home(admin)
-    integ = await add_integration(home_id, "hue", config={"host": "192.168.1.30"}, identity="ecb5fafffe000001")
+    integ = await add_integration(home_id, "hue", config={"host": lan(6)}, identity="ecb5fafffe000001")
     w = make_worker()
     await w.handle_events(integ, await OfflineHue(inv.full_resources()).full_reload_events())
     before = await devices(home_id)

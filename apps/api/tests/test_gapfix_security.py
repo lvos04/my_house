@@ -16,9 +16,10 @@ from shc_api.models import AuditLog, ClimateZone
 from shc_api.store import raise_alert, set_setting
 
 from .conftest import ADMIN_PW, VIEWER_PW
+from .proefadressen import lan
 from .ws_devices_support import add_device, new_home
 
-LAN = "http://192.168.1.20:8088"
+LAN = f"http://{lan(1)}:8088"
 
 
 def _client(app):

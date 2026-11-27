@@ -14,7 +14,9 @@ from shc_api.models import ApiClient, PairingCode, Setting
 from shc_api.routers import pairing
 from shc_api.store import get_setting, set_setting
 
-LAN = "http://192.168.1.20:8088"
+from .proefadressen import bezoeker, lan
+
+LAN = f"http://{lan(1)}:8088"
 
 
 def _client(app, ip="127.0.0.1"):
@@ -207,14 +209,14 @@ async def test_token_expiry_refresh_and_unpair(admin, home, app, lan):
 async def test_redeem_is_rate_limited_per_address(admin, home, app, lan):
     pairing._redeem_attempts.clear()
     good = await _code(admin, label="sec-rl")
-    ip = "198.51.100.77"
+    ip = bezoeker(77)
     for _ in range(10):
         r = await _redeem(app, "ZZZZ-ZZZZ", "raden", ip)
         assert r.status_code == 400 and r.json()["detail"]["code"] == "invalid_code"
     r = await _redeem(app, good["code"], "sec-rl", ip)
     assert r.status_code == 429 and r.json()["detail"]["code"] == "rate_limited" and "retry-after" in r.headers
     # The code itself is still unused: another address can redeem it.
-    r = await _redeem(app, good["code"], "sec-rl", "198.51.100.78")
+    r = await _redeem(app, good["code"], "sec-rl", bezoeker(78))
     assert r.status_code == 200
     pairing._redeem_attempts.clear()
 

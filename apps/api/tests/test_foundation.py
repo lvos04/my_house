@@ -12,13 +12,14 @@ from shc_api.db import sessionmaker
 from shc_api.models import ApiClient
 
 from .conftest import VIEWER_PW, Session
+from .proefadressen import lan
 
 
 async def _pair_phone(admin, app, name: str) -> tuple[str, uuid.UUID]:
     from shc_api.store import set_setting
 
     async with sessionmaker()() as db:  # pairing needs a configured home address (verbeterlijst 17)
-        await set_setting(db, "lan_url", "http://192.168.1.20:8088")
+        await set_setting(db, "lan_url", f"http://{lan(1)}:8088")
         await db.commit()
     code = json.loads((await admin.post("/pairing/codes", json={"label": name})).json()["qr_payload"])["code"]
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as phone:

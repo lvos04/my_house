@@ -19,6 +19,7 @@ from shc_api.store import get_setting, set_setting
 from shc_api.worker import backup_job as bj
 
 from .conftest import ADMIN_PW, Session
+from .proefadressen import lan
 from .restore_approval import reviewed
 
 PW = "een lange wachtwoordzin"
@@ -167,15 +168,15 @@ async def test_manual_backup_answers_202_when_it_takes_longer(admin, monkeypatch
 @pytest.mark.parametrize(
     ("body", "ok"),
     [
-        ({"lan_url": "http://192.168.1.20:8088"}, True),
+        ({"lan_url": f"http://{lan(1)}:8088"}, True),
         ({"lan_url": "http://nas.local:8088/"}, True),
-        ({"lan_url": "https://10.0.0.5"}, True),
+        ({"lan_url": f"https://{lan(8)}"}, True),
         ({"lan_url": "http://huis.voorbeeld.nl"}, False),
         ({"lan_url": "http://127.0.0.1:8088"}, False),
-        ({"lan_url": "ftp://192.168.1.2"}, False),
+        ({"lan_url": f"ftp://{lan(7)}"}, False),
         ({"remote_url": "https://huis.voorbeeld.nl"}, True),
         ({"remote_url": "http://huis.voorbeeld.nl"}, False),
-        ({"remote_url": "https://192.168.1.20"}, False),
+        ({"remote_url": f"https://{lan(1)}"}, False),
         ({"remote_url": "https://user:pw@huis.voorbeeld.nl"}, False),
     ],
 )

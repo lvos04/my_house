@@ -10,6 +10,7 @@ from sqlalchemy import func, select, update
 from shc_api.db import sessionmaker
 from shc_api.models import ButtonMapping, ClimateZone, CommandRecord, Device, DeviceBinding, Integration
 
+from .proefadressen import LINK_LOKAAL, PUBLIEK, lan
 from .ws_devices_support import add_device, add_integration, fetch, hue_id, new_home
 
 BRIDGE = "ecb5fafffe000001"
@@ -55,19 +56,19 @@ async def test_repair_reuses_integration_and_moves_devices(admin, monkeypatch):
 
     _use(monkeypatch, hue=_info(FakeHue, "Philips Hue"))
     home_id = await new_home(admin)
-    old_a = await add_integration(home_id, "hue", "Hue oud", config={"host": "192.168.1.2"})
-    old_b = await add_integration(home_id, "hue", "Hue dubbel", config={"host": "192.168.1.2"}, identity=BRIDGE)
+    old_a = await add_integration(home_id, "hue", "Hue oud", config={"host": lan(7)})
+    old_b = await add_integration(home_id, "hue", "Hue dubbel", config={"host": lan(7)}, identity=BRIDGE)
     bridge_dev = await add_device(home_id, "hue_bridge", "Hue Bridge", provider="hue", stable_identity=BRIDGE)
     lamp = await add_device(home_id, "light", "Plafond", provider="hue", integration_id=old_a.id)
     async with sessionmaker()() as db:
         await db.execute(update(Device).where(Device.id == bridge_dev.id).values(integration_id=old_a.id))
         await db.commit()
 
-    r = await admin.post("/integrations/hue/pair", json={"home_id": str(home_id), "host": "192.168.1.20"})
+    r = await admin.post("/integrations/hue/pair", json={"home_id": str(home_id), "host": lan(1)})
     assert r.status_code == 200, r.text
     assert r.json()["repaired"] is True and r.json()["integration_id"] == str(old_b.id)
     kept = await fetch(Integration, old_b.id)
-    assert kept.enabled and kept.config["host"] == "192.168.1.20" and kept.identity == BRIDGE
+    assert kept.enabled and kept.config["host"] == lan(1) and kept.identity == BRIDGE
     gone = await fetch(Integration, old_a.id)
     assert not gone.enabled and gone.credentials_enc is None and gone.identity is None
     assert (await fetch(Device, lamp.id)).integration_id == old_b.id
@@ -75,7 +76,7 @@ async def test_repair_reuses_integration_and_moves_devices(admin, monkeypatch):
     assert (await fetch(Device, lamp.id)).compatibility == "untested"
     assert (await fetch(Device, bridge_dev.id)).compatibility == "untested"
     # Pairing again changes nothing in the number of integrations.
-    r = await admin.post("/integrations/hue/pair", json={"home_id": str(home_id), "host": "192.168.1.20"})
+    r = await admin.post("/integrations/hue/pair", json={"home_id": str(home_id), "host": lan(1)})
     assert r.status_code == 200
     async with sessionmaker()() as db:
         n = (
@@ -88,7 +89,7 @@ async def test_repair_reuses_integration_and_moves_devices(admin, monkeypatch):
     assert n == 1
     listed = (await admin.get(f"/integrations?home_id={home_id}")).json()
     mine = [i for i in listed if i["id"] == str(old_b.id)][0]
-    assert mine["host"] == "192.168.1.20" and mine["identity"] == BRIDGE and mine["enabled"] is True
+    assert mine["host"] == lan(1) and mine["identity"] == BRIDGE and mine["enabled"] is True
 
 
 async def test_pair_failure_keeps_diagnostics_and_maps_errors(admin, monkeypatch):
@@ -96,7 +97,7 @@ async def test_pair_failure_keeps_diagnostics_and_maps_errors(admin, monkeypatch
 
     diag = {
         "stage": "bind_failed",
-        "host": "192.168.1.70",
+        "host": lan(9),
         "mac": "aabbcc112233",
         "scan": {"mac": "aabbcc112233", "model": "GWH09", "ver": "V1.2.1", "name": "Gree"},
         "bind_attempts": [
@@ -110,8 +111,8 @@ async def test_pair_failure_keeps_diagnostics_and_maps_errors(admin, monkeypatch
             self.config = dict(config)
 
         async def pair(self, host, **kw):
-            if host == "192.168.1.71":
-                raise OSError("[Errno 111] Connection refused by 192.168.1.71")
+            if host == lan(10):
+                raise OSError(f"[Errno 111] Connection refused by {lan(10)}")
             raise Unsupported("Binden mislukt met de oude én de nieuwe versleuteling.", diagnostics=diag)
 
         async def close(self):
@@ -119,7 +120,7 @@ async def test_pair_failure_keeps_diagnostics_and_maps_errors(admin, monkeypatch
 
     _use(monkeypatch, gree=_info(FakeGree, "Gree airco"))
     home_id = await new_home(admin)
-    r = await admin.post("/integrations/gree/pair", json={"home_id": str(home_id), "host": "192.168.1.70"})
+    r = await admin.post("/integrations/gree/pair", json={"home_id": str(home_id), "host": lan(9)})
     assert r.status_code == 502
     body = r.json()["detail"]
     assert body["code"] == "unsupported" and body["message"].startswith("Koppelen mislukt: Binden mislukt")
@@ -133,23 +134,23 @@ async def test_pair_failure_keeps_diagnostics_and_maps_errors(admin, monkeypatch
     assert d["diagnostics"]["device"]["diagnostics"]["pair"]["code"] == "unsupported"
     assert "bind_attempts" in d["text"] and "credentials" not in d["text"]
     # A second failed attempt updates the same record.
-    r = await admin.post("/integrations/gree/pair", json={"home_id": str(home_id), "host": "192.168.1.70"})
+    r = await admin.post("/integrations/gree/pair", json={"home_id": str(home_id), "host": lan(9)})
     assert r.json()["detail"]["integration_id"] == body["integration_id"]
     # Raw exception text is never echoed.
-    r = await admin.post("/integrations/gree/pair", json={"home_id": str(home_id), "host": "192.168.1.71"})
+    r = await admin.post("/integrations/gree/pair", json={"home_id": str(home_id), "host": lan(10)})
     assert r.status_code == 502
     msg = r.json()["detail"]["message"]
     assert "Errno" not in msg and "Geen verbinding" in msg
 
 
 async def test_pair_host_validation(admin, monkeypatch, home):
-    for host in ("127.0.0.1", "169.254.10.1", "localhost", "db", "mosquitto", "8.8.8.8", "::1", "0.0.0.0", "a b"):  # noqa: S104
+    for host in ("127.0.0.1", LINK_LOKAAL, "localhost", "db", "mosquitto", PUBLIEK, "::1", "0.0.0.0", "a b"):  # noqa: S104
         r = await admin.post("/integrations/hue/pair", json={"home_id": home["id"], "host": host})
         assert r.status_code == 422, host
         assert "Traceback" not in r.text
     from shc_api.routers.devices import validate_host
 
-    assert validate_host("192.168.1.5") == "192.168.1.5"
+    assert validate_host(lan(5)) == lan(5)
     assert validate_host("Hue-Bridge.local") == "hue-bridge.local"
     assert validate_host("meter.home.arpa") == "meter.home.arpa"
     from shc_api.config import Settings, get_settings
@@ -157,14 +158,14 @@ async def test_pair_host_validation(admin, monkeypatch, home):
     monkeypatch.setattr(get_settings(), "pairing_allowed_hosts", "Mosquitto, test-bridge")
     assert validate_host("mosquitto") == "mosquitto"
     assert validate_host("test-bridge") == "test-bridge"
-    monkeypatch.setenv("SHC_PAIRING_ALLOWED_HOSTS", "a.example, 10.9.9.9 ,")
-    assert Settings().pairing_allowed_host_set() == {"a.example", "10.9.9.9"}
+    monkeypatch.setenv("SHC_PAIRING_ALLOWED_HOSTS", f"a.example, {lan(11)} ,")
+    assert Settings().pairing_allowed_host_set() == {"a.example", lan(11)}
 
 
 async def test_patch_integration_address_checks_identity(admin, monkeypatch):
     from shc_integrations.base import DiscoveredDevice
 
-    answers = {"192.168.1.40": "SER-OTHER", "192.168.1.41": "SER1"}
+    answers = {lan(12): "SER-OTHER", lan(13): "SER1"}
 
     class FakeHW:
         def __init__(self, config, credentials, **kw):
@@ -191,23 +192,23 @@ async def test_patch_integration_address_checks_identity(admin, monkeypatch):
     monkeypatch.setattr(events, "publish", spy)
     home_id = await new_home(admin)
     integ = await add_integration(
-        home_id, "homewizard", "P1", config={"host": "192.168.1.30", "serial": "SER1"}, identity="SER1"
+        home_id, "homewizard", "P1", config={"host": lan(6), "serial": "SER1"}, identity="SER1"
     )
-    r = await _patch(admin, f"/integrations/{integ.id}", {"host": "192.168.1.40"})
+    r = await _patch(admin, f"/integrations/{integ.id}", {"host": lan(12)})
     assert r.status_code == 409 and r.json()["detail"]["code"] == "identity_mismatch"
-    assert (await fetch(Integration, integ.id)).config["host"] == "192.168.1.30"
-    r = await _patch(admin, f"/integrations/{integ.id}", {"host": "192.168.1.99"})
+    assert (await fetch(Integration, integ.id)).config["host"] == lan(6)
+    r = await _patch(admin, f"/integrations/{integ.id}", {"host": lan(14)})
     assert r.status_code == 502 and "niet gewijzigd" in r.json()["detail"]["message"]
     assert not [p for p in published if p[0] == "integration.changed"]
-    r = await _patch(admin, f"/integrations/{integ.id}", {"host": "192.168.1.41"})
-    assert r.status_code == 200 and r.json()["host"] == "192.168.1.41"
+    r = await _patch(admin, f"/integrations/{integ.id}", {"host": lan(13)})
+    assert r.status_code == 200 and r.json()["host"] == lan(13)
     assert ("integration.changed", {"id": integ.id}) in published  # wakes the worker's reload loop
-    assert (await fetch(Integration, integ.id)).config == {"host": "192.168.1.41", "serial": "SER1"}
-    r = await _patch(admin, f"/integrations/{integ.id}", {"host": "192.168.1.99", "verify": False})
-    assert r.status_code == 200 and r.json()["host"] == "192.168.1.99"
+    assert (await fetch(Integration, integ.id)).config == {"host": lan(13), "serial": "SER1"}
+    r = await _patch(admin, f"/integrations/{integ.id}", {"host": lan(14), "verify": False})
+    assert r.status_code == 200 and r.json()["host"] == lan(14)
     assert (await _patch(admin, f"/integrations/{integ.id}", {"host": "127.0.0.1"})).status_code == 422
     zb = await add_integration(home_id, "zigbee", config={"host": "mqtt"})
-    assert (await _patch(admin, f"/integrations/{zb.id}", {"host": "192.168.1.50"})).status_code == 409
+    assert (await _patch(admin, f"/integrations/{zb.id}", {"host": lan(2)})).status_code == 409
 
 
 # --- roles (small item "De rolkeuze op Apparaten") ----------------------------------------------------
@@ -292,7 +293,7 @@ async def test_device_test_probe_tested_and_diagnostics(admin, monkeypatch):
     _use(monkeypatch, hue=_info(FakeHue, "Philips Hue"))
     home_id = await new_home(admin)
     integ = await add_integration(
-        home_id, "hue", "Hue", config={"host": "192.168.1.2"}, creds={"application_key": "geheim"}
+        home_id, "hue", "Hue", config={"host": lan(7)}, creds={"application_key": "geheim"}
     )
     lamp = await add_device(home_id, "light", "Plafond", provider="hue", integration_id=integ.id, state={"on": True})
     r = await admin.post(f"/devices/{lamp.id}/test")
@@ -305,7 +306,7 @@ async def test_device_test_probe_tested_and_diagnostics(admin, monkeypatch):
     assert (await admin.get(f"/commissioning/devices/{lamp.id}/history")).json()["items"] == []
 
     broken = await add_integration(
-        home_id, "hue", "Hue kapot", config={"host": "192.168.1.3"}, raw_credentials=b"\x01zzz"
+        home_id, "hue", "Hue kapot", config={"host": lan(3)}, raw_credentials=b"\x01zzz"
     )
     lamp2 = await add_device(home_id, "light", "Lamp 2", provider="hue", integration_id=broken.id)
     res = (await admin.post(f"/devices/{lamp2.id}/test")).json()
@@ -316,7 +317,7 @@ async def test_device_test_probe_tested_and_diagnostics(admin, monkeypatch):
     assert r.status_code == 200 and r.json()["compatibility"] == "tested" and r.json()["tested_at"]
     d = (await admin.get(f"/devices/{lamp.id}/diagnostics")).json()
     assert d["diagnostics"]["device"]["diagnostics"]["tested"]["note"] == "Werkt met de Hue-app uit"
-    assert d["diagnostics"]["integration"]["config"] == {"host": "192.168.1.2"}
+    assert d["diagnostics"]["integration"]["config"] == {"host": lan(7)}
     assert "geheim" not in d["text"] and "Plafond" in d["text"]
 
 

@@ -21,6 +21,7 @@ from shc_api.models import (
 )
 
 from .boiler_support import mapping
+from .proefadressen import lan
 from .ws_devices_support import add_device, add_integration, attach, fetch, hue_inventory, make_worker, new_home
 
 NEW = "0x00158d0009f1e2d3"
@@ -232,7 +233,7 @@ async def test_hue_inventory_groups_scenes_buttons(admin):
 
     inv = hue_inventory()
     home_id = await new_home(admin)
-    integ = await add_integration(home_id, "hue", "Hue Bridge", config={"host": "192.168.1.2"})
+    integ = await add_integration(home_id, "hue", "Hue Bridge", config={"host": lan(7)})
     model = HueModel()
     model.load(inv.full_resources())
     model.set_v1_rules(inv.V1_RULES)
@@ -308,7 +309,7 @@ async def test_protected_socket_relay_and_switch_lock_alerts(admin):
     from shc_integrations.base import StateUpdate
 
     home_id = await new_home(admin)
-    integ = await add_integration(home_id, "homewizard", config={"host": "192.168.1.60", "product_type": "HWE-SKT"})
+    integ = await add_integration(home_id, "homewizard", config={"host": lan(16), "product_type": "HWE-SKT"})
     sock = await add_device(home_id, "energy_socket", "Boilerstekker", provider="homewizard", stable_identity="SKT01")
     other = await add_device(home_id, "energy_socket", "Wasmachine", provider="homewizard", stable_identity="SKT02")
     async with sessionmaker()() as db:
@@ -389,7 +390,7 @@ async def test_button_press_dedupe_age_and_climate_step_via_zone_command(admin):
     from shc_integrations.base import ButtonEvent, DeviceInfo
 
     home_id = await new_home(admin)
-    integ = await add_integration(home_id, "hue", config={"host": "192.168.1.2"})
+    integ = await add_integration(home_id, "hue", config={"host": lan(7)})
     btn_rid, b1, b2 = (
         "9" * 8 + "-0000-4000-8000-000000000001",
         "1" * 8 + "-0000-4000-8000-000000000001",
@@ -499,7 +500,7 @@ async def test_unknown_button_device_from_press_is_kind_button(admin):
     from shc_integrations.base import ButtonEvent
 
     home_id = await new_home(admin)
-    integ = await add_integration(home_id, "hue", config={"host": "192.168.1.2"})
+    integ = await add_integration(home_id, "hue", config={"host": lan(7)})
     w = make_worker()
     attach(w, integ, SimpleNamespace())
     rid = "7" * 8 + "-0000-4000-8000-000000000001"

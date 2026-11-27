@@ -18,6 +18,7 @@ from shc_api.security import token_hash
 from shc_api.store import set_setting
 
 from .conftest import ADMIN_PW, Session
+from .proefadressen import lan
 
 PW = "een-lang-wachtwoord-ws1"
 
@@ -110,7 +111,7 @@ async def _login(c, username) -> tuple[Session, str]:
 
 async def _phone(admin, app, name) -> tuple[str, str]:
     async with sessionmaker()() as db:
-        await set_setting(db, "lan_url", "http://192.168.1.20:8088")
+        await set_setting(db, "lan_url", f"http://{lan(1)}:8088")
         await db.commit()
     r = await admin.post("/pairing/codes", json={"label": name})
     code = json.loads(r.json()["qr_payload"])["code"]
@@ -150,13 +151,13 @@ def _ws_obj(headers, scheme="ws"):
 @pytest.mark.parametrize(
     ("origin", "headers", "scheme", "ok"),
     [
-        ("http://192.168.1.20:8088", {"host": "192.168.1.20:8088"}, "ws", True),
+        (f"http://{lan(1)}:8088", {"host": f"{lan(1)}:8088"}, "ws", True),
         ("http://nas.local:8088", {"host": "NAS.local:8088"}, "ws", True),
         # nginx used to drop the port (Host $host): now a mismatch is a mismatch.
-        ("http://192.168.1.20:8088", {"host": "192.168.1.20"}, "ws", False),
-        ("http://192.168.1.20:9999", {"host": "192.168.1.20:8088"}, "ws", False),
-        ("https://evil.example", {"host": "192.168.1.20:8088"}, "ws", False),
-        ("null", {"host": "192.168.1.20:8088"}, "ws", False),
+        (f"http://{lan(1)}:8088", {"host": lan(1)}, "ws", False),
+        (f"http://{lan(1)}:9999", {"host": f"{lan(1)}:8088"}, "ws", False),
+        ("https://evil.example", {"host": f"{lan(1)}:8088"}, "ws", False),
+        ("null", {"host": f"{lan(1)}:8088"}, "ws", False),
         # Through the tunnel: uvicorn turned X-Forwarded-Proto https into wss.
         ("https://huis.voorbeeld.nl", {"host": "huis.voorbeeld.nl"}, "wss", True),
         ("https://huis.voorbeeld.nl", {"host": "huis.voorbeeld.nl:443"}, "wss", True),
@@ -164,8 +165,8 @@ def _ws_obj(headers, scheme="ws"):
         # Default ports on both sides, scheme not passed on by a proxy: tolerated.
         ("https://huis.voorbeeld.nl", {"host": "huis.voorbeeld.nl"}, "ws", True),
         # A proxy that rewrites Host but passes X-Forwarded-Host.
-        ("http://192.168.1.20:8088", {"host": "api:8000", "x-forwarded-host": "192.168.1.20:8088"}, "ws", True),
-        ("http://192.168.1.20:8088", {"host": "api:8000", "x-forwarded-host": "192.168.1.20"}, "ws", False),
+        (f"http://{lan(1)}:8088", {"host": "api:8000", "x-forwarded-host": f"{lan(1)}:8088"}, "ws", True),
+        (f"http://{lan(1)}:8088", {"host": "api:8000", "x-forwarded-host": lan(1)}, "ws", False),
     ],
 )
 def test_origin_check_compares_host_and_port(origin, headers, scheme, ok):
@@ -173,7 +174,7 @@ def test_origin_check_compares_host_and_port(origin, headers, scheme, ok):
 
 
 def test_no_origin_header_is_not_a_browser():
-    assert origin_allowed(_ws_obj({"host": "192.168.1.20:8088"})) is True
+    assert origin_allowed(_ws_obj({"host": f"{lan(1)}:8088"})) is True
 
 
 # --- connection auth and close codes ------------------------------------------------------------
@@ -184,7 +185,7 @@ async def test_cookie_ws_with_matching_origin_and_port(app, admin, home):
     async with _client(app) as c:
         _s, cookie = await _login(c, "sec_ws_cookie")
     ws = await _cookie_ws(
-        app, cookie, "http://192.168.1.20:8088", "192.168.1.20:8088", query=f"home_id={home['id']}"
+        app, cookie, f"http://{lan(1)}:8088", f"{lan(1)}:8088", query=f"home_id={home['id']}"
     ).connect()
     hello = await ws.json()
     assert hello["type"] == "hello" and hello["data"]["user"]["username"] == "sec_ws_cookie"
@@ -201,7 +202,7 @@ async def test_origin_mismatch_and_missing_auth_close_4401_with_error_first(app,
     await _user(admin, "sec_ws_origin", role="viewer")
     async with _client(app) as c:
         _s, cookie = await _login(c, "sec_ws_origin")
-    ws = await _cookie_ws(app, cookie, "http://192.168.1.20:8088", "192.168.1.20").connect()
+    ws = await _cookie_ws(app, cookie, f"http://{lan(1)}:8088", lan(1)).connect()
     first = await ws.json()
     assert first == {"type": "error", "data": {"code": "auth_required", "reason": "origin_mismatch"}}
     await ws.expect_close(4401)

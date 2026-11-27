@@ -19,6 +19,7 @@ from shc_api.security import AttemptLimiter, lockout_seconds
 from shc_api.store import set_setting
 
 from .conftest import Session
+from .proefadressen import PUBLIEK, bezoeker, lan, stack
 
 PW = "een-lang-wachtwoord-123"
 
@@ -76,9 +77,9 @@ async def test_login_over_http_with_remote_url_configured(app, admin, monkeypatc
 async def test_https_from_trusted_proxy_sets_secure_cookie_and_real_ip(app, admin, monkeypatch):
     monkeypatch.setattr(get_settings(), "cookie_secure", "auto")
     await _user(admin, "sec_proxy")
-    nginx = "172.30.251.2"
+    nginx = stack(251, 2)
     wrapped = ProxyHeadersMiddleware(app, trusted_hosts=nginx)  # what uvicorn does with forwarded_allow_ips
-    headers = {"X-Forwarded-Proto": "https", "X-Forwarded-For": "203.0.113.7"}
+    headers = {"X-Forwarded-Proto": "https", "X-Forwarded-For": bezoeker(7)}
     async with _client(app, ip=nginx, base_url="http://huis.voorbeeld.nl", wrap=wrapped) as c:
         r = await c.post("/api/v1/auth/login", json={"username": "sec_proxy", "password": PW}, headers=headers)
         assert r.status_code == 200, r.text
@@ -96,9 +97,9 @@ async def test_https_from_trusted_proxy_sets_secure_cookie_and_real_ip(app, admi
             .scalars()
             .first()
         )
-    assert row.detail["ip"] == "203.0.113.7"
+    assert row.detail["ip"] == bezoeker(7)
     # The same headers from an untrusted peer are ignored: plain http, peer address.
-    async with _client(app, ip="10.0.0.9", wrap=wrapped) as c:
+    async with _client(app, ip=lan(20), wrap=wrapped) as c:
         r = await c.post("/api/v1/auth/login", json={"username": "sec_proxy", "password": PW}, headers=headers)
         assert r.status_code == 200
         assert "secure" not in _cookie_flags(r, "shc_session")
@@ -128,7 +129,7 @@ def test_attempt_limiter_is_bounded_lru():
 async def test_per_username_lockout_in_database(app, admin):
     await _user(admin, "sec_lock")
     creds = {"username": "sec_lock", "password": "fout-wachtwoord"}
-    async with _client(app, ip="198.51.100.10") as c:
+    async with _client(app, ip=bezoeker(10)) as c:
         codes = [(await c.post("/api/v1/auth/login", json=creds)).status_code for _ in range(5)]
         assert codes == [401] * 5
         r = await c.post("/api/v1/auth/login", json={"username": "sec_lock", "password": PW})
@@ -137,7 +138,7 @@ async def test_per_username_lockout_in_database(app, admin):
     u = await _db_user("sec_lock")
     assert u.failed_logins == 5 and u.locked_until > datetime.now(UTC) + timedelta(seconds=50)
     # Another address does not help: the lock is per username.
-    async with _client(app, ip="198.51.100.11") as c:
+    async with _client(app, ip=bezoeker(11)) as c:
         assert (await c.post("/api/v1/auth/login", json={"username": "sec_lock", "password": PW})).status_code == 429
         async with sessionmaker()() as db:
             await db.execute(
@@ -177,21 +178,21 @@ async def test_admin_can_unlock_a_user(app, admin):
     assert listed["locked"] is True and listed["failed_logins"] == 9
     r = await admin.c.patch(f"/api/v1/users/{u['id']}", json={"unlock": True}, headers=admin.h())
     assert r.status_code == 200 and r.json()["locked"] is False and r.json()["failed_logins"] == 0
-    async with _client(app, ip="198.51.100.12") as c:
+    async with _client(app, ip=bezoeker(12)) as c:
         assert (await c.post("/api/v1/auth/login", json={"username": "sec_unlock", "password": PW})).status_code == 200
 
 
 async def test_per_ip_limit_covers_unknown_usernames(app):
     auth._attempts.clear()
     limit = get_settings().login_max_attempts * auth.IP_ATTEMPT_FACTOR
-    async with _client(app, ip="198.51.100.50") as c:
+    async with _client(app, ip=bezoeker(50)) as c:
         for i in range(limit):
             r = await c.post("/api/v1/auth/login", json={"username": f"onbekend{i}", "password": "x"})
             assert r.status_code == 401
         r = await c.post("/api/v1/auth/login", json={"username": "onbekend-extra", "password": "x"})
         assert r.status_code == 429 and "retry-after" in r.headers
     # Other addresses are not affected.
-    async with _client(app, ip="198.51.100.51") as c:
+    async with _client(app, ip=bezoeker(51)) as c:
         assert (await c.post("/api/v1/auth/login", json={"username": "onbekend", "password": "x"})).status_code == 401
     auth._attempts.clear()
 
@@ -209,7 +210,7 @@ async def test_argon2_runs_in_thread_and_saturation_gives_429(app, admin, monkey
     monkeypatch.setattr(security, "verify_password", slow_verify)
 
     async def attempt(i):
-        async with _client(app, ip=f"198.51.100.{60 + i}") as c:
+        async with _client(app, ip=bezoeker(60 + i)) as c:
             return await c.post("/api/v1/auth/login", json={"username": "sec_busy", "password": PW})
 
     started = time.monotonic()
@@ -277,16 +278,16 @@ async def test_api_docs_only_for_admins(app, admin):
 @pytest.mark.parametrize(
     ("url", "ok"),
     [
-        ("http://192.168.1.20:8088", True),
+        (f"http://{lan(1)}:8088", True),
         ("http://nas.local:8088", True),
         ("https://nas:8443", True),
-        ("http://10.0.0.5", True),
+        (f"http://{lan(8)}", True),
         ("http://huis.voorbeeld.nl:8088", False),
         ("http://127.0.0.1:8088", False),
-        ("http://8.8.8.8", False),
-        ("ftp://192.168.1.20", False),
-        ("http://192.168.1.20:8088/pad", False),
-        ("http://user:pw@192.168.1.20", False),
+        (f"http://{PUBLIEK}", False),
+        (f"ftp://{lan(1)}", False),
+        (f"http://{lan(1)}:8088/pad", False),
+        (f"http://user:pw@{lan(1)}", False),
     ],
 )
 def test_lan_url_rules(url, ok):
@@ -298,7 +299,7 @@ def test_lan_url_rules(url, ok):
     [
         ("https://huis.voorbeeld.nl", True),
         ("http://huis.voorbeeld.nl", False),
-        ("https://192.168.1.20", False),
+        (f"https://{lan(1)}", False),
         ("https://nas.local", False),
         ("https://localhost", False),
     ],

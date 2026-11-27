@@ -17,6 +17,7 @@ from shc_api.models import (
 from shc_api.store import ingest_reading, set_setting
 
 from .conftest import ADMIN_PW, VIEWER_PW, Session
+from .proefadressen import lan
 
 
 async def add_device(home_id, kind, name, role=None, provider="test", state=None, online=True):
@@ -107,7 +108,7 @@ async def test_phone_pairing_flow(admin, home, app):
     import httpx
 
     async with sessionmaker()() as db:  # pairing needs a configured home address (verbeterlijst 17)
-        await set_setting(db, "lan_url", "http://192.168.1.20:8088")
+        await set_setting(db, "lan_url", f"http://{lan(1)}:8088")
         await db.commit()
     r = await admin.post("/pairing/codes", json={"label": "Pixel"})
     assert r.status_code == 200
@@ -424,13 +425,13 @@ async def test_pair_persists_adapter_learned_config(admin, home, monkeypatch):
         label = "HomeWizard"
 
     monkeypatch.setattr(devmod, "providers", lambda: {"homewizard": Info})
-    r = await admin.post("/integrations/homewizard/pair", json={"home_id": home["id"], "host": "192.168.1.50"})
+    r = await admin.post("/integrations/homewizard/pair", json={"home_id": home["id"], "host": lan(2)})
     assert r.status_code == 200 and r.json()["stable_identity"] == "SER123"
     async with sessionmaker()() as db:
         integ = (
             await db.execute(select(Integration).where(Integration.config["serial"].astext == "SER123"))
         ).scalar_one()
-        assert integ.config["api_version"] == "v1" and integ.config["host"] == "192.168.1.50"
+        assert integ.config["api_version"] == "v1" and integ.config["host"] == lan(2)
 
 
 async def test_adaptive_and_experiment_endpoints(admin, home):

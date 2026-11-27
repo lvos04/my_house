@@ -25,6 +25,7 @@ from shc_api.db import sessionmaker
 from shc_api.models import Alert, BackupRecord, ClimateZone, Device, Experiment, Integration, ScheduleBlock, ZoneLog
 from shc_api.store import get_setting, ingest_reading, set_setting
 
+from .proefadressen import lan, stack
 from .ws_devices_support import add_device, add_integration, fetch, new_home
 
 PW = "gap-wachtwoordzin-123"
@@ -115,19 +116,19 @@ async def test_repair_disables_unidentified_duplicate_holding_the_lights(admin, 
     # Before the upgrade the bridge was paired twice. The newest integration got the bridge device (and
     # so an identity in migration 0002); the old one still holds the lights and runs in the worker.
     holder = await add_integration(
-        home_id, "hue", "Hue (oud)", config={"host": "192.168.1.2"}, creds={"application_key": "k", "bridge_id": BRIDGE}
+        home_id, "hue", "Hue (oud)", config={"host": lan(7)}, creds={"application_key": "k", "bridge_id": BRIDGE}
     )
-    newer = await add_integration(home_id, "hue", "Hue", config={"host": "192.168.1.2"}, identity=BRIDGE)
+    newer = await add_integration(home_id, "hue", "Hue", config={"host": lan(7)}, identity=BRIDGE)
     other_bridge = await add_integration(
-        home_id, "hue", "Hue zolder", config={"host": "192.168.1.3"}, creds={"bridge_id": "ecb5fafffe00ffff"}
+        home_id, "hue", "Hue zolder", config={"host": lan(3)}, creds={"bridge_id": "ecb5fafffe00ffff"}
     )
-    no_creds_same_host = await add_integration(home_id, "hue", "Hue mislukt", config={"host": "192.168.1.20"})
+    no_creds_same_host = await add_integration(home_id, "hue", "Hue mislukt", config={"host": lan(1)})
     await add_device(
         home_id, "hue_bridge", "Hue Bridge", provider="hue", stable_identity=BRIDGE, integration_id=newer.id
     )
     lamp = await add_device(home_id, "light", "Plafond", provider="hue", integration_id=holder.id)
 
-    r = await admin.post("/integrations/hue/pair", json={"home_id": str(home_id), "host": "192.168.1.20"})
+    r = await admin.post("/integrations/hue/pair", json={"home_id": str(home_id), "host": lan(1)})
     assert r.status_code == 200, r.text
     assert r.json()["integration_id"] == str(newer.id)
     old = await fetch(Integration, holder.id)
@@ -421,22 +422,22 @@ def test_validate_host_refuses_the_stacks_own_subnets(monkeypatch):
 
     s = get_settings()
     monkeypatch.setattr(s, "net_prefix", None)
-    monkeypatch.setattr(s, "forwarded_allow_ips", "172.30.251.2")
-    for ip in ("172.30.250.2", "172.30.251.3", "172.30.252.10", "172.30.252.31"):
+    monkeypatch.setattr(s, "forwarded_allow_ips", stack(251, 2))
+    for ip in (stack(250, 2), stack(251, 3), stack(252, 10), stack(252, 31)):
         with pytest.raises(ValueError, match="hoort bij de app zelf"):
             validate_host(ip)
-    assert validate_host("172.30.253.1") == "172.30.253.1"
-    assert validate_host("172.30.252.32") == "172.30.252.32"  # just outside .252.0/27
-    monkeypatch.setattr(s, "pairing_allowed_hosts", "172.30.251.3")
-    assert validate_host("172.30.251.3") == "172.30.251.3"  # explicitly allowed (test setup)
+    assert validate_host(stack(253, 1)) == stack(253, 1)
+    assert validate_host(stack(252, 32)) == stack(252, 32)  # just outside .252.0/27
+    monkeypatch.setattr(s, "pairing_allowed_hosts", stack(251, 3))
+    assert validate_host(stack(251, 3)) == stack(251, 3)  # explicitly allowed (test setup)
     monkeypatch.setattr(s, "pairing_allowed_hosts", "")
-    monkeypatch.setattr(s, "forwarded_allow_ips", "10.20.251.2")  # SHC_NET_PREFIX=10.20
+    monkeypatch.setattr(s, "forwarded_allow_ips", stack(251, 2, (10, 52)))  # Een aangepaste prefix uit de proxyconfiguratie.
     with pytest.raises(ValueError):
-        validate_host("10.20.250.3")
-    assert validate_host("172.30.251.3") == "172.30.251.3"
-    monkeypatch.setattr(s, "net_prefix", "172.31")
+        validate_host(stack(250, 3, (10, 52)))
+    assert validate_host(stack(251, 3)) == stack(251, 3)
+    monkeypatch.setattr(s, "net_prefix", "172.28")
     with pytest.raises(ValueError):
-        validate_host("172.31.252.5")
+        validate_host(stack(252, 5, (172, 28)))
 
 
 # --- Kleine punten: the zone log is kept as long as set in the app -----------------------------------

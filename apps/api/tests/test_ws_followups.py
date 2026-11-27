@@ -28,6 +28,7 @@ from shc_api.security import lan_url_problem, remote_url_problem
 from shc_api.store import get_setting, raise_alert, set_setting
 
 from .conftest import Session
+from .proefadressen import lan
 from .ws_devices_support import add_device, add_integration, attach, make_worker, new_home
 
 PW = "follow-up-wachtwoord-1"
@@ -133,7 +134,7 @@ async def test_bridge_error_result_is_stored_as_failed(admin, flagged):
     from shc_integrations.base import CommandResult
 
     home_id = await new_home(admin)
-    integ = await add_integration(home_id, "hue", "Hue Bridge", config={"host": "192.168.1.9"})
+    integ = await add_integration(home_id, "hue", "Hue Bridge", config={"host": lan(17)})
     group = await add_device(home_id, "light_group", "Woonkamer", provider="hue", integration_id=integ.id)
     detail = "Hue Bridge meldt: device (Plafond) has communication issues"
     # flagged=False: an adapter without the `rejected` flag; the message prefix is the fallback.
@@ -168,7 +169,7 @@ async def test_unconfirmed_without_error_stays_sent(admin):
     assert not device_reported_error(CommandResult(ok=True, confirmed=False, detail="readback wijkt af"))
     assert device_reported_error(CommandResult(ok=True, confirmed=False, detail="x", rejected=True))
     home_id = await new_home(admin)
-    integ = await add_integration(home_id, "hue", "Hue Bridge", config={"host": "192.168.1.9"})
+    integ = await add_integration(home_id, "hue", "Hue Bridge", config={"host": lan(17)})
     group = await add_device(home_id, "light_group", "Keuken", provider="hue", integration_id=integ.id)
     w = make_worker()
     attach(w, integ, FakeHue(CommandResult(ok=True, confirmed=False, detail="Hue Bridge bevestigt niet")))
@@ -252,12 +253,12 @@ async def test_alert_ack_needs_control(admin, app, home):
 @pytest.mark.parametrize(
     "url",
     [
-        "http://192.168.1.20:8088",
+        f"http://{lan(1)}:8088",
         "http://nas.local/",
         "http://huis.voorbeeld.nl",
         "http://127.0.0.1",
-        "http://192.168.1.20/pad",
-        "ftp://192.168.1.2",
+        f"http://{lan(1)}/pad",
+        f"ftp://{lan(7)}",
         "https://huis.voorbeeld.nl",
         "https://user:pw@huis.voorbeeld.nl",
     ],
@@ -275,7 +276,7 @@ async def test_settings_and_pairing_use_the_same_address_rules(admin, url):
 
 
 async def test_address_with_a_path_gets_a_specific_message(admin):
-    r = await admin.put("/system/settings", {"lan_url": "http://192.168.1.20:8088/app"})
+    r = await admin.put("/system/settings", {"lan_url": f"http://{lan(1)}:8088/app"})
     assert r.status_code == 422 and "zonder pad" in r.json()["detail"]["message"]
     r = await admin.put("/system/settings", {"remote_url": "https://huis.voorbeeld.nl/?x=1"})
     assert r.status_code == 422 and "Adres buiten huis" in r.json()["detail"]["message"]
@@ -338,8 +339,8 @@ async def test_archive_home_stops_its_integrations_at_once(admin, monkeypatch):
     monkeypatch.setitem(registry.ADAPTERS, "homewizard", Fake)
     monkeypatch.setitem(core.POLL_INTERVAL, "homewizard", 3600)
     home_id = await new_home(admin)
-    i1 = await add_integration(home_id, "homewizard", "Meter 1", config={"host": "192.168.1.31"})
-    i2 = await add_integration(home_id, "homewizard", "Meter 2", config={"host": "192.168.1.32"})
+    i1 = await add_integration(home_id, "homewizard", "Meter 1", config={"host": lan(18)})
+    i2 = await add_integration(home_id, "homewizard", "Meter 2", config={"host": lan(19)})
     w = make_worker()
     await w.load_integrations({home_id})
     adapters = {i1.id: w.adapters[i1.id], i2.id: w.adapters[i2.id]}

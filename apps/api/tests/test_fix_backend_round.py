@@ -18,6 +18,7 @@ from shc_api.worker import aggregates as agg
 from shc_api.worker import backup_job as bj
 from shc_api.worker.core import fingerprint
 
+from .proefadressen import lan
 from .test_ws_backup_format import PW, temp_db
 from .ws_devices_support import add_device, add_integration, make_worker, new_home
 
@@ -389,11 +390,11 @@ async def test_homewizard_integration_gets_the_home_time_zone(admin, monkeypatch
     r = await admin.post("/homes", json={"name": f"New York {uuid.uuid4().hex[:6]}", "timezone": "America/New_York"})
     assert r.status_code == 200, r.text
     home_id = uuid.UUID(r.json()["id"])
-    p1 = await add_integration(home_id, "homewizard", "P1", config={"host": "192.168.1.3"})
+    p1 = await add_integration(home_id, "homewizard", "P1", config={"host": lan(3)})
     own = await add_integration(
-        home_id, "homewizard", "Stopcontact", config={"host": "192.168.1.4", "timezone": "Europe/London"}
+        home_id, "homewizard", "Stopcontact", config={"host": lan(4), "timezone": "Europe/London"}
     )
-    hue = await add_integration(home_id, "hue", "Hue", config={"host": "192.168.1.5"})
+    hue = await add_integration(home_id, "hue", "Hue", config={"host": lan(5)})
     w = make_worker()
     try:
         await w.load_integrations({home_id})

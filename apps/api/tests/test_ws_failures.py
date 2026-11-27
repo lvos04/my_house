@@ -23,6 +23,7 @@ from shc_api.db import sessionmaker
 from shc_api.models import Alert, ClimateZone, CommandRecord, Device, Integration, ZoneLog
 from shc_api.store import get_setting, set_setting
 
+from .proefadressen import lan
 from .ws_devices_support import INTEGRATION_TESTS, add_device, add_integration, attach, fetch, make_worker, new_home
 
 
@@ -425,8 +426,8 @@ async def test_button_climate_action_goes_through_request_zone_command(admin, mo
 
     monkeypatch.setattr(ingest, "request_zone_command", spy)
     home_id = await new_home(admin)
-    hue = await add_integration(home_id, "hue", "Hue Bridge", config={"host": "192.168.1.2"})
-    gree = await add_integration(home_id, "gree", "Gree", config={"host": "192.168.1.70"})
+    hue = await add_integration(home_id, "hue", "Hue Bridge", config={"host": lan(7)})
+    gree = await add_integration(home_id, "gree", "Gree", config={"host": lan(9)})
     living_unit = await add_device(
         home_id, "ac_unit", "Airco woonkamer", provider="gree", integration_id=gree.id,
         state={"caps": CAPS, "power": True, "mode": "heat", "target_c": 20.0},
