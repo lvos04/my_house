@@ -636,7 +636,7 @@ export const api = {
     const form = new FormData();
     form.append('passphrase', passphrase);
     form.append('file', file, opts.filename ?? (file instanceof File ? file.name : 'backup.shcbak'));
-    return uploadWithProgress<T.RestoreVerify>('/system/restore/verify', form, opts);
+    return uploadWithProgress<T.RestoreVerify | T.VerifiedDatabaseDump>('/system/restore/verify', form, opts);
   },
   restoreDiscard: (uploadId: string) => del<void>(`/system/restore/uploads/${enc(uploadId)}`),
   restoreDrill: (upload_id: string, passphrase: string) => post<T.RestoreDrill>('/system/restore/drill', { upload_id, passphrase }),

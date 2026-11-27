@@ -128,6 +128,10 @@ class BackupError(Exception):
     pass
 
 
+class DatabaseDump(BackupError):
+    """De versleutelde envelop bevat een afzonderlijk PostgreSQL-archief."""
+
+
 # --- helpers ----------------------------------------------------------------------------------
 
 
@@ -438,7 +442,7 @@ def open_plaintext(path: Path, passphrase: str) -> tuple[int, io.IOBase]:
         if magic == MAGIC:
             reader = DecryptingReader(f, passphrase)
             if reader.header.get("content") == DUMP_CONTENT:
-                raise BackupError(
+                raise DatabaseDump(
                     "Dit bestand is een database-dump (pg_dump), geen volledige export. Zet hem terug met "
                     "'shc-api restore-dump' met een nieuwe databasenaam (zie docs/onderhoud.md)."
                 )

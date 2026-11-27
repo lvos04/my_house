@@ -1228,6 +1228,10 @@ export interface RetentionSettings {
 /** Omitted fields stay; null goes back to the default. */
 export type RetentionIn = Partial<Record<RetentionField, number | null>>;
 export type SchemaRelation = 'same' | 'older' | 'newer' | 'unknown';
+export interface VerifiedDatabaseDump {
+  kind: 'database_dump';
+  plain_bytes: number;
+}
 /** POST /system/restore/verify: nothing is changed yet. */
 export interface RestoreVerify {
   upload_id: string;

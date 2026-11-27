@@ -8471,7 +8471,7 @@
     },
     "/api/v1/system/restore/verify": {
       "post": {
-        "description": "Upload a backup (multipart: `file` + `passphrase`, streamed to disk), decrypt and verify it.\nNothing is changed. Returns versions, counts, homes and devices, and an `upload_id` for apply.",
+        "description": "Controleer een geüpload bestand met de wachtwoordzin. Een volledige export krijgt een herstel-ID.\nEen losse database-dump geeft na de controle van het connectorherstelbewijs alleen het aantal ontsleutelde bytes.",
         "operationId": "restore_verify_api_v1_system_restore_verify_post",
         "responses": {
           "200": {

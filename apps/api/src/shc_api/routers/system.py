@@ -743,8 +743,8 @@ def _verify(path: Path, passphrase: str) -> bk.Verified:
 
 @router.post("/system/restore/verify", responses=SECRET_KEY_INVALID_RESPONSE)
 async def restore_verify(request: Request, db: DB, p: WebAdmin) -> dict:
-    """Upload a backup (multipart: `file` + `passphrase`, streamed to disk), decrypt and verify it.
-    Nothing is changed. Returns versions, counts, homes and devices, and an `upload_id` for apply."""
+    """Controleer een geüpload bestand met de wachtwoordzin. Een volledige export krijgt een herstel-ID.
+    Een losse database-dump geeft na de controle van het connectorherstelbewijs alleen het aantal ontsleutelde bytes."""
     s = get_settings()
     _cleanup_uploads()
     length = int(request.headers.get("content-length") or 0)
@@ -766,6 +766,16 @@ async def restore_verify(request: Request, db: DB, p: WebAdmin) -> dict:
     passphrase = fields.get("passphrase") or request.headers.get("x-backup-passphrase") or ""
     try:
         v = await asyncio.to_thread(_verify, path, passphrase)
+    except bk.DatabaseDump:
+        try:
+            size = await asyncio.to_thread(bk.verify_dump, path, passphrase)
+        except bk.BackupError as exc:
+            raise api_error(422, "backup_invalid", str(exc)) from exc
+        finally:
+            path.unlink(missing_ok=True)
+        await audit(db, p.actor, "restore_dump_verified", upload_id, plain_bytes=size)
+        await db.commit()
+        return {"kind": "database_dump", "plain_bytes": size}
     except bk.BackupError as e:
         path.unlink(missing_ok=True)
         raise api_error(422, "backup_invalid", str(e)) from e

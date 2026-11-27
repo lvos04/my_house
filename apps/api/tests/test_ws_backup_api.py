@@ -204,6 +204,25 @@ async def _upload(admin, blob: bytes, passphrase: str):
     )
 
 
+async def test_losse_dump_controleert_bewijs_en_bewaart_de_actieve_woning(admin, home):
+    instellingen = get_settings()
+    voor = (await admin.get("/homes")).json()
+    gemaakt = await bk.run_db_dump(PW, auto=False)
+    assert gemaakt["status"] == "ok"
+    archief = (instellingen.backup_dir / gemaakt["filename"]).read_bytes()
+    uploads = instellingen.backup_dir / "uploads"
+    aanwezig = set(uploads.glob("*"))
+    for inhoud, zin in ((archief, "verkeerde wachtwoordzin"), (archief[:-20], PW)):
+        fout = await _upload(admin, inhoud, zin)
+        assert (fout.status_code, fout.json()["detail"]["code"]) == (422, "backup_invalid")
+        assert set(uploads.glob("*")) == aanwezig
+    antwoord = await _upload(admin, archief, PW)
+    assert antwoord.status_code == 200
+    assert antwoord.json() == {"kind": "database_dump", "plain_bytes": gemaakt["detail"]["plain_bytes"]}
+    assert set(uploads.glob("*")) == aanwezig
+    assert (await admin.get("/homes")).json() == voor
+
+
 async def test_upload_too_large_is_refused(admin, monkeypatch):
     monkeypatch.setattr(get_settings(), "max_upload_bytes", 1000)
     r = await _upload(admin, b"x" * 5000, PW)

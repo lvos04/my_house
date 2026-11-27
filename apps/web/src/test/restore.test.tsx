@@ -120,6 +120,23 @@ const compare: RestoreCompare = {
 };
 
 describe('restore / verhuisassistent (item 43)', () => {
+  it('controleert een losse database-dump en houdt de actieve woning buiten de herstelkeuze', async () => {
+    vi.stubGlobal('XMLHttpRequest', FakeXhr);
+    const user = userEvent.setup();
+    FakeXhr.next = { status: 200, body: { kind: 'database_dump', plain_bytes: 1720 } };
+    mockApi(() => undefined);
+    render(<Providers><RestoreSection safeMode={false} /></Providers>);
+    const invoer = screen.getByLabelText(/Back-upbestand/);
+    expect(invoer).toHaveAttribute('accept', expect.stringContaining('.shcdump'));
+    await user.upload(invoer, new File(['proef'], 'los.shcdump'));
+    await user.type(screen.getByLabelText('Wachtwoordzin van de back-up'), 'synthetische proefzin');
+    await user.click(screen.getByRole('button', { name: /controleren/i }));
+    expect(await screen.findByText('Database-dump gecontroleerd')).toBeInTheDocument();
+    expect(screen.getByText('shc-api restore-dump')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /Controleren en kiezen/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /herstel starten/i })).toBeNull();
+  });
+
   it('upload with progress → verify summary → choose B → apply → poll job → compare → release safe mode', async () => {
     vi.stubGlobal('XMLHttpRequest', FakeXhr);
     FakeXhr.next = { status: 200, body: verify };
@@ -142,7 +159,7 @@ describe('restore / verhuisassistent (item 43)', () => {
     const user = userEvent.setup();
 
     // 1: upload + verify
-    await user.upload(screen.getByLabelText('Back-upbestand (.shcbak)'), new File(['SHCBAK2\n...'], 'huis-2026-11-01.shcbak'));
+    await user.upload(screen.getByLabelText(/Back-upbestand/), new File(['SHCBAK2\n...'], 'huis-2026-11-01.shcbak'));
     await user.type(screen.getByLabelText('Wachtwoordzin van de back-up'), 'mijn-lange-zin');
     await user.click(screen.getByRole('button', { name: 'Uploaden en controleren' }));
     expect(await screen.findByText('2 · Controleren en kiezen')).toBeInTheDocument();
@@ -217,7 +234,7 @@ describe('restore / verhuisassistent (item 43)', () => {
     mockApi(() => undefined);
     render(<Providers><RestoreSection safeMode={false} /></Providers>);
     const user = userEvent.setup();
-    await user.upload(screen.getByLabelText('Back-upbestand (.shcbak)'), new File(['x'], 'b.shcbak'));
+    await user.upload(screen.getByLabelText(/Back-upbestand/), new File(['x'], 'b.shcbak'));
     await user.type(screen.getByLabelText('Wachtwoordzin van de back-up'), 'fout');
     await user.click(screen.getByRole('button', { name: 'Uploaden en controleren' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Wachtwoordzin klopt niet');
@@ -230,7 +247,7 @@ describe('restore / verhuisassistent (item 43)', () => {
     mockApi(() => undefined);
     render(<Providers><RestoreSection safeMode={false} /></Providers>);
     const user = userEvent.setup();
-    await user.upload(screen.getByLabelText('Back-upbestand (.shcbak)'), new File(['x'], 'b.shcbak'));
+    await user.upload(screen.getByLabelText(/Back-upbestand/), new File(['x'], 'b.shcbak'));
     await user.type(screen.getByLabelText('Wachtwoordzin van de back-up'), 'zin');
     await user.click(screen.getByRole('button', { name: 'Uploaden en controleren' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('kan hier niet worden teruggezet');

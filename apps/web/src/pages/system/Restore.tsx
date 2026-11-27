@@ -34,7 +34,10 @@ function UploadStep({ onVerified }: { onVerified: (v: RestoreVerify, passphrase:
       setProgress({ loaded: 0, total: file!.size, fraction: 0 });
       return api.restoreVerify(file!, passphrase, { onProgress: setProgress, signal: abort.current.signal });
     },
-    onSuccess: (v) => onVerified(v, passphrase),
+    onSuccess: (v) => {
+      if ('upload_id' in v) onVerified(v, passphrase);
+      else setPassphrase('');
+    },
     onSettled: () => {
       abort.current = null;
     },
@@ -52,8 +55,8 @@ function UploadStep({ onVerified }: { onVerified: (v: RestoreVerify, passphrase:
       </p>
       <div className="form-grid">
         <label className="field">
-          Back-upbestand (.shcbak)
-          <input type="file" accept=".shcbak,application/octet-stream" aria-required="true" onChange={(e) => setFile(e.target.files?.[0] ?? null)} disabled={upload.isPending} />
+          Back-upbestand (.shcbak of .shcdump)
+          <input type="file" accept=".shcbak,.shcdump,application/octet-stream" aria-required="true" onChange={(e) => { upload.reset(); setFile(e.target.files?.[0] ?? null); }} disabled={upload.isPending} />
         </label>
         <label className="field">
           Wachtwoordzin van de back-up
@@ -78,6 +81,12 @@ function UploadStep({ onVerified }: { onVerified: (v: RestoreVerify, passphrase:
       )}
       {aborted && <div className="note info" role="status">Upload afgebroken.</div>}
       {upload.error && !aborted && <ErrorNote error={upload.error} />}
+      {upload.data && 'kind' in upload.data && <div className="note info stack" role="status">
+        <strong>Database-dump gecontroleerd</strong>
+        <span>De versleutelde dump is volledig gelezen en het connectorherstelbewijs is gecontroleerd.
+          Zet de dump met <code>shc-api restore-dump</code> terug in een nieuwe database.
+          Bewaar de oorspronkelijke database tot je de gegevens op de kopie hebt gecontroleerd.</span>
+      </div>}
     </form>
   );
 }

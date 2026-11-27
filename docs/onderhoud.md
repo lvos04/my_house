@@ -78,7 +78,9 @@ weg te laten. Kies voor webherstel een volledige export met geheimen. Download h
   je *geheimen weglaten* kiest, de versleutelde apparaatsleutels en wachtwoord-hashes. Inlogsessies en
   koppelcodes zitten er nooit in.
 - **Database-dump (`.shcdump`):** alleen de database (pg_dump), versleuteld. Geen Zigbee2MQTT-gegevens.
-  De herstelwizard leest volledige exports. Kies daarvoor de bijbehorende `.shcbak`. Bewaar een losse dump voor afzonderlijk onderzoek.
+  In **Systeem › Herstellen en verhuizen** kun je de losse dump met de wachtwoordzin controleren.
+  De wizard controleert de versleutelde stroom en het connectorherstelbewijs. Na de controle verwijdert
+  de app de upload. Zet de dump terug volgens [Database-dump terugzetten](#database-dump-terugzetten).
 - **Hub-koppeling:** de gepinde sleutelset, gebruikte nonces en opgeslagen idempotentieantwoorden
   blijven buiten nieuwe exports en database-dumps. Bevestig een bestaande Hub-koppeling opnieuw na herstel.
 - **Zonder geheimen** (geredigeerd): de export bewaart bekende gewone Zigbee-instellingen en lege
