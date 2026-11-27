@@ -9,17 +9,24 @@ from sqlalchemy import func, select
 from shc_api.db import sessionmaker
 from shc_api.models import ConnectorChange, Device, DeviceBinding, LogicalRole
 
+from .conftest import ADMIN_PW
 from .test_connector_routes import proef as proef
 from .test_connector_verificatie import b64, canonical
 from .test_hub_alleen_lezen import koppel as koppel
+from .test_ws_security_pairing import _code, _redeem
 
 PREFIX = "/connector/v1"
 
 
-async def test_gekoppelde_hub_alleen_met_gepinde_handtekening(koppel, proef):
+async def test_gekoppelde_hub_alleen_met_gepinde_handtekening(koppel, proef, app):
     client, koppel_client = koppel
     hub, _ = await koppel_client(client)
-    telefoon, _ = await koppel_client(client, "admin", "phone")
+    code = await _code(proef.admin, role="admin", password=ADMIN_PW)
+    koppeling = await _redeem(app, code["code"], "Lokale beheertelefoon")
+    assert koppeling.status_code == 200
+    gegevens = koppeling.json()
+    assert (gegevens["client"]["role"], gegevens["client"]["purpose"]) == ("admin", "phone")
+    telefoon = {"Authorization": f"Bearer {gegevens['token']}"}
     andere_hub, _ = await koppel_client(client)
 
     async def post(route, body, headers, idem=None):
