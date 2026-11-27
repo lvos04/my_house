@@ -223,13 +223,13 @@ async def check_replayed_target(db: AsyncSession, proposal: dict, risk: str, cli
         raise _unavailable()
 
 
-async def _recoverable(db: AsyncSession, target: Target, client: str, *, exclude_id=None) -> bool:
+async def _recoverable(db: AsyncSession, target: Target, *, applying_for: str | None = None, exclude_id=None) -> bool:
     zone, device = target.zone, target.device
     return bool(
         zone and device and device.provider == "gree" and device.kind == "ac_unit"
         and zone.control == "manual" and zone.override_until and zone.override_until > utcnow()
         and set(target.params) == {"target_c"}
-        and await _has_recovery_owner(db, client)
+        and (applying_for is None or await _has_recovery_owner(db, applying_for))
         and not await pending_command(db, device.id, exclude_id=exclude_id, with_mode=False)
     )
 
@@ -254,7 +254,7 @@ async def propose(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[
     if action == CONCEPT:
         before = {"schedule": await _schedule(db, target.zone)}
         observed_at = utcnow()
-    elif action == SETPOINT and await _recoverable(db, target, client):
+    elif action == SETPOINT and await _recoverable(db, target, applying_for=client):
         required = await _unattributed_fields(db, target)
         before = await _read_current(db, target.device, remember_fields=True, required_fields=required)
         observed_at = utcnow() if before is not None else None
@@ -382,7 +382,7 @@ async def apply(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[in
         raise contract_error(
             409, "proposal_unavailable", "Het voorstel is verwerkt, verlopen of zonder betrouwbare stand.",
         )
-    if not await _recoverable(db, target, client):
+    if not await _recoverable(db, target, applying_for=client):
         raise _unavailable()
 
     expires = await _approval(db, req, change, change.preview_hash, change.parameters)
@@ -498,7 +498,7 @@ async def _checked_rollback(db: AsyncSession, change: ConnectorChange, target: T
         raise _stale()
     if preview is None:
         raise contract_error(409, "conflict", "Herstel is nu niet beschikbaar of is al ingepland.")
-    if not await _recoverable(db, target, change.client):
+    if not await _recoverable(db, target):
         raise _unavailable()
     if await _superseded(db, change, exclude_id=change.rollback_command_id):
         raise _stale()
@@ -572,7 +572,9 @@ async def worker_target(db, cmd, dev, change) -> Target | None:
         await check_target_policy(db, dev, target.action, zone.home_id)
     except HTTPException:
         return None
-    return target if await _recoverable(db, target, change.client, exclude_id=cmd.id) else None
+    # Een al geautoriseerde terugzetopdracht gebruikt de oorspronkelijke binding en de bewaarde herstelstand.
+    applying_for = None if cmd.id == change.rollback_command_id else change.client
+    return target if await _recoverable(db, target, applying_for=applying_for, exclude_id=cmd.id) else None
 
 
 async def guarded_send(db, cmd, dev, adapter, send) -> tuple[str, str, dict | None]:

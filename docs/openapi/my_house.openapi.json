@@ -7660,16 +7660,6 @@
             },
             "description": "Successful Response"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ContractProblem"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
           "401": {
             "content": {
               "application/json": {
@@ -7700,16 +7690,6 @@
             },
             "description": "Not Found"
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ContractProblem"
-                }
-              }
-            },
-            "description": "Conflict"
-          },
           "422": {
             "content": {
               "application/json": {
@@ -7720,26 +7700,6 @@
             },
             "description": "Unprocessable Entity"
           },
-          "429": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ContractProblem"
-                }
-              }
-            },
-            "description": "Too Many Requests"
-          },
-          "501": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ContractProblem"
-                }
-              }
-            },
-            "description": "Not Implemented"
-          },
           "503": {
             "content": {
               "application/json": {
@@ -7748,7 +7708,14 @@
                 }
               }
             },
-            "description": "Service Unavailable"
+            "description": "`dependency_unavailable`: de database is tijdelijk niet beschikbaar.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Hub Recovery Preview",
@@ -7858,6 +7825,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractProblem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -7896,7 +7873,15 @@
                 }
               }
             },
-            "description": "Service Unavailable"
+            "description": "dependency_unavailable of connector_pins_unavailable",
+            "headers": {
+              "Retry-After": {
+                "description": "Wachttijd in seconden.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Confirm Hub Recovery",

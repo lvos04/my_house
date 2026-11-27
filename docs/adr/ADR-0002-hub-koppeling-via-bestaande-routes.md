@@ -77,7 +77,7 @@ ondertekende verzoeken en de lokale replaycontrole vast.
    Een temperatuurvoorstel van de Hub vereist een lokale beheerder die het oorspronkelijke voorstel
    kan herstellen. Dat is de webbeheerder die de koppeling heeft gemaakt. Zonder die bevoegdheid
    geven voorstel en uitvoering HTTP 501 `capability_unavailable` met reden `rollback_unavailable`.
-   De worker controleert de bevoegdheid opnieuw vóór verzending.
+   De worker controleert de bevoegdheid opnieuw vóór verzending van het nieuwe setpoint.
 
    Voor expliciet herstel opent de beheerder in de lokale API
    `GET /api/v1/system/hub-recovery/{proposal_id}` met het bewijs-ID uit het Hub-journaal.

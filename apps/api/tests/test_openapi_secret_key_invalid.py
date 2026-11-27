@@ -44,6 +44,8 @@ def test_alleen_deze_routes_noemen_503(spec: dict) -> None:
         ("get", "/api/v1/system/hub-keys"),
         ("put", "/api/v1/system/hub-keys"),
         ("post", "/api/v1/system/hub-keys/verify"),
+        ("get", "/api/v1/system/hub-recovery/{proposal_id}"),
+        ("post", "/api/v1/system/hub-recovery/{proposal_id}"),
     }
     connector_routes = {
         ("get", "/connector/v1/discover"),
@@ -62,3 +64,5 @@ def test_alleen_deze_routes_noemen_503(spec: dict) -> None:
         assert "secret_key_invalid" not in response["description"]
         assert "dependency_unavailable" in response["description"]
         assert "Retry-After" in response["headers"]
+    herstel = spec["paths"]["/api/v1/system/hub-recovery/{proposal_id}"]
+    assert "connector_pins_unavailable" in herstel["post"]["responses"]["503"]["description"]

@@ -12,11 +12,13 @@ from .. import connector_changes as changes
 from ..contract_http import AdminContractRoute, ContractProblem, contract_error
 from ..deps import DB, WebAdmin
 from .auth import client_ip, password_matches
+from .connector_routes import ERRORS as CONNECTOR_ERRORS
 from .connector_routes import Receipt
+from .hub_key_management import AUTH_ERRORS
 
 router = APIRouter(
     prefix="/system/hub-recovery", tags=["system"], route_class=AdminContractRoute,
-    responses={s: {"model": ContractProblem} for s in (400, 401, 403, 404, 409, 422, 429, 501, 503)},
+    responses={**AUTH_ERRORS, 404: {"model": ContractProblem}, 422: {"model": ContractProblem}},
 )
 
 
@@ -36,7 +38,10 @@ async def hub_recovery_preview(proposal_id: uuid.UUID, db: DB, p: WebAdmin, resp
     return {**proof, "target": change.target}
 
 
-@router.post("/{proposal_id}", status_code=202, response_model=Receipt)
+@router.post(
+    "/{proposal_id}", status_code=202, response_model=Receipt,
+    responses={**CONNECTOR_ERRORS, 429: {"model": ContractProblem}},
+)
 async def confirm_hub_recovery(
     proposal_id: uuid.UUID, body: RecoveryConfirmation, request: Request, response: Response, db: DB, p: WebAdmin,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,

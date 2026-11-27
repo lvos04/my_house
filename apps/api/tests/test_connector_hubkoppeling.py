@@ -175,6 +175,34 @@ async def test_worker_verzendt_geen_hub_setpoint_zonder_herstelbeheerder(koppel,
             await db.commit()
 
 
+async def test_eerder_telefoonvoorstel_houdt_eigen_ondertekend_herstel(koppel, proef):
+    client, nieuw = koppel
+    telefoon, client_id = await nieuw(client, doel="phone")
+    andere, _ = await nieuw(client, doel="phone")
+    plan = await proef.propose()
+    assert (await proef.post("apply", proef.request(preview=plan))).status_code == 202
+    await proef.work()
+    # Eerdere versies registreerden een ondertekend telefoonvoorstel op dezelfde manier onder de eigen client.
+    async with sessionmaker()() as db:
+        wijziging = await db.get(ConnectorChange, uuid.UUID(plan["proposal_id"]))
+        wijziging.client = f"client:{client_id}"
+        await db.commit()
+    pad = f"{PREFIX}/evidence/{plan['proposal_id']}"
+    assert (await proef.admin.c.get(f"/api/v1/system/hub-recovery/{plan['proposal_id']}")).status_code == 404
+    bewijs = (await client.get(pad, headers=telefoon)).json()
+    assert bewijs["status"] == "confirmed" and proef.unit.state["SetTem"] == 22
+    herstel = proef.request(preview=plan, rollback=bewijs["rollback_preview"])
+    assert (await client.get(pad, headers=andere)).status_code == 404
+    r = await client.post(f"{PREFIX}/rollback", json=herstel, headers={**andere, "Idempotency-Key": str(uuid.uuid4())})
+    assert r.status_code == 409
+    r = await client.post(f"{PREFIX}/rollback", json=herstel, headers={**telefoon, "Idempotency-Key": str(uuid.uuid4())})
+    assert r.status_code == 202
+    await proef.work()
+    na = (await client.get(pad, headers=telefoon)).json()
+    assert na["rollback_status"] == "confirmed" and na["rollback_after"] == bewijs["before"]
+    assert proef.unit.state["SetTem"] == 20 and len(proef.unit.commands) == 2
+
+
 @pytest.mark.parametrize("beschermd", [True, False])
 async def test_hub_doelcontrole_geldt_op_alle_drie_routes(koppel, proef, beschermd):
     client, nieuw = koppel
