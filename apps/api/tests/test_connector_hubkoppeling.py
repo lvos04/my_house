@@ -96,6 +96,8 @@ async def test_lokaal_herstel_oorspronkelijk_hubvoorstel(koppel, proef):
     assert (await andere.c.get(pad)).status_code == 404
     kop = {**eigenaar.h(), "Idempotency-Key": str(uuid.uuid4())}
     akkoord = {"preview_hash": herstel["preview_hash"], "password": ADMIN_PW}
+    zonder_sleutel = await eigenaar.c.post(pad, headers=eigenaar.h(), json=akkoord)
+    assert (zonder_sleutel.status_code, zonder_sleutel.json()["code"]) == (400, "idempotency_key_required")
     r = await andere.c.post(pad, headers={**andere.h(), "Idempotency-Key": str(uuid.uuid4())}, json=akkoord)
     assert r.status_code == 404
     assert (await eigenaar.c.post(pad, headers=kop, json={"preview_hash": herstel["preview_hash"]})).status_code == 422

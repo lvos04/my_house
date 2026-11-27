@@ -35,3 +35,13 @@ def test_openapi_export_matches_snapshot() -> None:
             "verder verschillen in schema's of beschrijvingen). Werk de momentopname alleen bij voor een bewuste "
             "API-wijziging."
         )
+
+
+def test_hubherstel_vereist_idempotentiesleutel() -> None:
+    schema = create_app().openapi()
+    route = schema["paths"]["/api/v1/system/hub-recovery/{proposal_id}"]["post"]
+    headers = [p for p in route["parameters"] if p["in"] == "header" and p["name"] == "Idempotency-Key"]
+    assert len(headers) == 1
+    assert headers[0]["required"] is True
+    assert headers[0]["schema"]["format"] == "uuid"
+    assert "400" in route["responses"]

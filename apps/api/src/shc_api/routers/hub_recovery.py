@@ -2,9 +2,8 @@
 
 import hashlib
 import uuid
-from typing import Annotated
 
-from fastapi import APIRouter, Header, Request, Response
+from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from .. import connector
@@ -14,7 +13,7 @@ from ..deps import DB, WebAdmin
 from .auth import client_ip, password_matches
 from .connector_routes import ERRORS as CONNECTOR_ERRORS
 from .connector_routes import Receipt
-from .hub_key_management import AUTH_ERRORS
+from .hub_key_management import AUTH_ERRORS, IDEMPOTENCY
 
 router = APIRouter(
     prefix="/system/hub-recovery", tags=["system"], route_class=AdminContractRoute,
@@ -41,10 +40,10 @@ async def hub_recovery_preview(proposal_id: uuid.UUID, db: DB, p: WebAdmin, resp
 @router.post(
     "/{proposal_id}", status_code=202, response_model=Receipt,
     responses={**CONNECTOR_ERRORS, 429: {"model": ContractProblem}},
+    openapi_extra={"parameters": [IDEMPOTENCY]},
 )
 async def confirm_hub_recovery(
     proposal_id: uuid.UUID, body: RecoveryConfirmation, request: Request, response: Response, db: DB, p: WebAdmin,
-    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> dict:
     """Bevestig de getoonde terugzetstand met het eigen beheerderswachtwoord."""
     await connector.lock_verified_pin(db)
@@ -55,6 +54,7 @@ async def confirm_hub_recovery(
 
     scope = f"POST /system/hub-recovery web:{p.user.id}"
     digest = hashlib.sha256(f"{change.id}/{body.preview_hash}".encode()).digest()
+    idempotency_key = request.headers.get("Idempotency-Key")
     key, stored = await connector.bounded_reservation(
         db, lambda: connector.reserve_idempotency(db, scope, idempotency_key, digest),
     )
