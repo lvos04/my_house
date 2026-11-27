@@ -775,7 +775,9 @@ back-ups mislukken of de laatste goede back-up is ouder dan 36 uur (en weer in o
 
 | Methode | Pad | Toegang | Body / antwoord |
 |---|---|---|---|
-| POST | `/system/restore/verify` | `web-admin` | Upload: multipart met `file` en `passphrase` (of een binaire body met header `X-Backup-Passphrase`) → `RestoreCheck`. Wijzigt niets. 422 `backup_invalid`, 413, 503 `secret_key_invalid`, 507 `disk_full` |
+| POST | `/system/restore/verify` | `web-admin` | Controleert het bestand en de wachtwoordzin. Een volledige export geeft een `upload_id`. Een losse dump geeft `kind=database_dump` en `plain_bytes`. Bij een geldig herkomstbewijs van de installatie krijgt de beheerder ook een `dump_upload_id`. Upload via multipart met `file` en `passphrase`, of via een binaire body met `X-Backup-Passphrase`. Mogelijke fouten zijn 422 `backup_invalid`, 413, 503 `secret_key_invalid` en 507 `disk_full`. |
+| POST | `/system/restore/dump` | `web-admin` | Herstelt de gecontroleerde dump in een afzonderlijke database. Stuur de ontvangen dump-ID als `upload_id`, de wachtwoordzin als `passphrase` en een vrije naam als `new_database`. De API controleert op het moment van terugzetten opnieuw de herkomst. Een bestaande naam geeft 409. |
+| POST | `/system/restore/zigbee-files` | `web-admin` | Ontvangt losse Zigbee2MQTT-bestanden als multipart-bestandsdelen. Geeft de relatieve herstelmap en bestandsnamen terug. Dezelfde selectie met dezelfde inhoud geeft weer dezelfde kopie. |
 | POST | `/system/restore/drill` | `web-admin` | `{upload_id, passphrase}` → tabelvergelijking uit een tijdelijke database, status van apparaatsleutels, bron- en doel-ID en zo mogelijk `drill_id` |
 | DELETE | `/system/restore/uploads/{upload_id}` | `web-admin` | 204: upload weggooien (anders na 24 uur) |
 | POST | `/system/restore/source/pause` | `web-admin` | Pauzeert de bron na opslagcontrole. Geeft vervaltijd, aantal metingen en laatste meetrecord |

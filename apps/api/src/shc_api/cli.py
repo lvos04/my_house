@@ -20,6 +20,7 @@ import tempfile
 import threading
 import uuid
 import zlib
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import unquote, urlsplit, urlunsplit
@@ -514,17 +515,17 @@ async def _decrypt_dump(args) -> int:
     return 0
 
 
-async def _restore_dump(args) -> int:
-    """Publiceer de gecontroleerde dump uitsluitend onder een nieuwe databasenaam."""
+async def restore_dump_database(
+    archive: Path, passphrase: str | Callable[[], str], name: str, *, web: bool = False,
+) -> None:
+    """Publiceer een gecontroleerde dump uitsluitend onder een nieuwe databasenaam."""
     import asyncpg
 
     from . import backup as bk
     from .config import get_settings
 
-    name = args.new_database
     if not re.fullmatch(r"[a-z][a-z0-9_]{0,62}", name):
-        print("Kies een nieuwe databasenaam met maximaal 63 kleine letters, cijfers en underscores.", file=sys.stderr)
-        return 2
+        raise bk.BackupError("Kies een nieuwe databasenaam met maximaal 63 kleine letters, cijfers en underscores.")
     cfg = get_settings()
     dsn, password = _libpq(cfg.database_url)
     parts = urlsplit(dsn)
@@ -537,10 +538,10 @@ async def _restore_dump(args) -> int:
     try:
         if await admin.fetchval("SELECT EXISTS (SELECT FROM pg_database WHERE datname=$1)", name):
             raise bk.BackupError("De doelnaam bestaat al. Kies een nieuwe database.")
-        archive = Path(args.file)
-        with tempfile.TemporaryDirectory(prefix="shc-dump-") as work:
+        with tempfile.TemporaryDirectory(prefix="shc-dump-", dir=archive.parent if web else None) as work:
             dump = Path(work) / "herstel.pgdump"
-            await asyncio.to_thread(bk.decrypt_dump, archive, _passphrase(args), dump)
+            wachtzin = passphrase() if callable(passphrase) else passphrase
+            await asyncio.to_thread(bk.decrypt_dump, archive, wachtzin, dump, vereis_herkomst=web)
             await admin.execute(f'CREATE DATABASE "{staging}" TEMPLATE template0')
             try:
                 proc = await asyncio.create_subprocess_exec(
@@ -569,13 +570,21 @@ async def _restore_dump(args) -> int:
             except BaseException:
                 await admin.execute(f'DROP DATABASE "{staging}"')
                 raise
-    except (bk.BackupError, MigrationError, asyncpg.DuplicateDatabaseError) as exc:
-        message = "De doelnaam bestaat al." if isinstance(exc, asyncpg.DuplicateDatabaseError) else str(exc)
-        print(message, file=sys.stderr)
-        return 2
+    except asyncpg.DuplicateDatabaseError as exc:
+        raise bk.BackupError("De doelnaam bestaat al. Kies een nieuwe database.") from exc
     finally:
         await admin.close()
-    print(f"Dump teruggezet in de nieuwe database {name}. Controleer de inhoud vóór ingebruikname.")
+
+
+async def _restore_dump(args) -> int:
+    from . import backup as bk
+
+    try:
+        await restore_dump_database(Path(args.file), lambda: _passphrase(args), args.new_database)
+    except (bk.BackupError, MigrationError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    print(f"Dump teruggezet in de nieuwe database {args.new_database}. Controleer de inhoud vóór ingebruikname.")
     return 0
 
 

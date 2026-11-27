@@ -638,6 +638,8 @@ export const api = {
     form.append('file', file, opts.filename ?? (file instanceof File ? file.name : 'backup.shcbak'));
     return uploadWithProgress<T.RestoreVerify | T.VerifiedDatabaseDump>('/system/restore/verify', form, opts);
   },
+  restoreDump: (upload_id: string, passphrase: string, new_database: string) =>
+    post<{ database: string }>('/system/restore/dump', { upload_id, passphrase, new_database }),
   restoreZigbeeFiles: (files: File[]) => {
     const form = new FormData();
     for (const file of files) form.append('file', file, file.name);

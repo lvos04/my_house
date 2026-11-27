@@ -1231,6 +1231,7 @@ export type SchemaRelation = 'same' | 'older' | 'newer' | 'unknown';
 export interface VerifiedDatabaseDump {
   kind: 'database_dump';
   plain_bytes: number;
+  dump_upload_id?: string;
 }
 /** POST /system/restore/verify: nothing is changed yet. */
 export interface RestoreVerify {

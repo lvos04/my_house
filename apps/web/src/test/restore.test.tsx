@@ -137,6 +137,26 @@ describe('restore / verhuisassistent (item 43)', () => {
     expect((FakeXhr.last!.body as FormData).getAll('file').map(f => (f as File).name)).toEqual(['configuration.yaml', 'database.db']);
   });
 
+  it('herstelt een dump met bevestigde herkomst pas na het opgeven van een nieuwe databasenaam', async () => {
+    vi.stubGlobal('XMLHttpRequest', FakeXhr);
+    FakeXhr.next = { status: 200, body: { kind: 'database_dump', plain_bytes: 1720, dump_upload_id: 'proefdump' } };
+    const calls = mockApi((_method, url) => url.endsWith('/restore/dump') ? { body: { database: 'proefkopie' } } : undefined);
+    render(<Providers><RestoreSection safeMode={false} /></Providers>);
+    const user = userEvent.setup();
+    await user.upload(screen.getByLabelText(/Back-upbestand/), new File(['proef'], 'los.shcdump'));
+    await user.type(screen.getByLabelText('Wachtwoordzin van de back-up'), 'synthetische proefzin');
+    await user.click(screen.getByRole('button', { name: /uploaden en controleren/i }));
+    const naam = await screen.findByLabelText('Naam van de nieuwe database');
+    const bevestig = screen.getByRole('button', { name: 'In nieuwe database herstellen' });
+    expect(bevestig).toBeDisabled();
+    await user.type(naam, 'proefkopie');
+    await user.click(bevestig);
+    expect(await screen.findByText('proefkopie')).toBeInTheDocument();
+    expect(calls.filter(c => c.url.endsWith('/restore/dump')).map(c => c.body)).toEqual([
+      { upload_id: 'proefdump', passphrase: 'synthetische proefzin', new_database: 'proefkopie' },
+    ]);
+  });
+
   it('controleert een losse database-dump en houdt de actieve woning buiten de herstelkeuze', async () => {
     vi.stubGlobal('XMLHttpRequest', FakeXhr);
     const user = userEvent.setup();

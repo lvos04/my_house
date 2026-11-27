@@ -66,7 +66,7 @@ test('back-up maken, herstel oefenen, terugzetten en de oude hoofdsleutel inleze
   // Restore step 1: upload and verify. A wrong passphrase first.
   const restore = page.getByRole('region', { name: 'Herstellen en verhuizen' });
   const upload = restore.getByRole('form', { name: 'Back-up uploaden' });
-  await upload.getByLabel('Back-upbestand (.shcbak)').setInputFiles(file);
+  await upload.getByLabel(/^Back-upbestand/).setInputFiles(file);
   await upload.getByLabel('Wachtwoordzin van de back-up').fill('dit is niet de goede zin');
   await upload.getByRole('button', { name: 'Uploaden en controleren' }).click();
   await expect(upload.locator('.note.error')).toBeVisible({ timeout: 30_000 });
@@ -108,7 +108,7 @@ test('back-up maken, herstel oefenen, terugzetten en de oude hoofdsleutel inleze
   await restore.getByRole('button', { name: 'Annuleren' }).click();
   await expect(restore.getByRole('form', { name: 'Back-up uploaden' })).toBeVisible();
   // Nu dezelfde export werkelijk terugzetten. De beheerder bewaart eerst de geverifieerde doelkopie.
-  await upload.getByLabel('Back-upbestand (.shcbak)').setInputFiles(file);
+  await upload.getByLabel(/^Back-upbestand/).setInputFiles(file);
   await upload.getByLabel('Wachtwoordzin van de back-up').fill(PASSPHRASE);
   await upload.getByRole('button', { name: 'Uploaden en controleren' }).click();
   await restore.getByRole('button', { name: 'Doelback-up maken en vergelijken' }).click();

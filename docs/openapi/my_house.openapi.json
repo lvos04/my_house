@@ -719,6 +719,33 @@
         "title": "Discovery",
         "type": "object"
       },
+      "DumpHerstelIn": {
+        "properties": {
+          "new_database": {
+            "pattern": "^[a-z][a-z0-9_]{0,62}$",
+            "title": "New Database",
+            "type": "string"
+          },
+          "passphrase": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Passphrase",
+            "type": "string"
+          },
+          "upload_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Upload Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_id",
+          "passphrase",
+          "new_database"
+        ],
+        "title": "DumpHerstelIn",
+        "type": "object"
+      },
       "ExecutionEnvelope": {
         "additionalProperties": false,
         "properties": {
@@ -8189,6 +8216,50 @@
         ]
       }
     },
+    "/api/v1/system/restore/dump": {
+      "post": {
+        "description": "Herstel een door deze installatie bekrachtigde dump uitsluitend in een nieuwe, ongekoppelde database.",
+        "operationId": "web_restore_dump_api_v1_system_restore_dump_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DumpHerstelIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Web Restore Dump Api V1 System Restore Dump Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Web Restore Dump",
+        "tags": [
+          "system"
+        ]
+      }
+    },
     "/api/v1/system/restore/files/{backup_id}": {
       "get": {
         "operationId": "restore_download_api_v1_system_restore_files__backup_id__get",
@@ -8471,7 +8542,7 @@
     },
     "/api/v1/system/restore/verify": {
       "post": {
-        "description": "Controleer een geüpload bestand met de wachtwoordzin. Een volledige export krijgt een herstel-ID.\nEen losse database-dump geeft na de controle van het connectorherstelbewijs alleen het aantal ontsleutelde bytes.",
+        "description": "Controleer een geüpload bestand met de wachtwoordzin. Een volledige export krijgt een herstel-ID.\nVoor een losse dump met bevestigde lokale herkomst is een afzonderlijke database beschikbaar als hersteldoel.",
         "operationId": "restore_verify_api_v1_system_restore_verify_post",
         "responses": {
           "200": {

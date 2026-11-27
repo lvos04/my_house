@@ -3,11 +3,12 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type UploadProgress } from '../../api/client';
 import { qk } from '../../api/keys';
-import type { CompareStatus, RestoreCompare, RestoreDrill, RestoreJob, RestoreMode, RestorePreview, RestoreRekey, RestoreReport, RestoreVerify } from '../../api/types';
+import type { CompareStatus, RestoreCompare, RestoreDrill, RestoreJob, RestoreMode, RestorePreview, RestoreRekey, RestoreReport, RestoreVerify, VerifiedDatabaseDump } from '../../api/types';
 import { ActionButton, ErrorNote, Loading, ProgressBar, yesNo } from '../../components/bits';
 import { ago, bytes, dateTime } from '../../format';
 import { COMPARE_STATUS_LABEL, KIND_LABEL, PROVIDER_LABEL, RESTORE_MODE_LABEL, SCHEMA_RELATION_LABEL, t } from '../../i18n';
 import { clearRestore, loadRestore, saveRestore, useRestoreJob, type StoredRestore } from './restoreState';
+import { DatabaseDumpHerstel } from './DatabaseDumpHerstel';
 import { ZigbeeHerstelkopie } from './ZigbeeHerstelkopie';
 
 const MODE_HELP: Record<RestoreMode, string> = {
@@ -24,7 +25,7 @@ function statusClass(s: CompareStatus | 'new'): string {
 
 /* ---------- step 1: upload + verify ---------- */
 
-function UploadStep({ onVerified }: { onVerified: (v: RestoreVerify, passphrase: string) => void }) {
+function UploadStep({ onVerified }: { onVerified: (v: RestoreVerify | VerifiedDatabaseDump, passphrase: string) => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [passphrase, setPassphrase] = useState('');
   const [progress, setProgress] = useState<UploadProgress | null>(null);
@@ -35,10 +36,7 @@ function UploadStep({ onVerified }: { onVerified: (v: RestoreVerify, passphrase:
       setProgress({ loaded: 0, total: file!.size, fraction: 0 });
       return api.restoreVerify(file!, passphrase, { onProgress: setProgress, signal: abort.current.signal });
     },
-    onSuccess: (v) => {
-      if ('upload_id' in v) onVerified(v, passphrase);
-      else setPassphrase('');
-    },
+    onSuccess: (v) => onVerified(v, passphrase),
     onSettled: () => {
       abort.current = null;
     },
@@ -57,7 +55,7 @@ function UploadStep({ onVerified }: { onVerified: (v: RestoreVerify, passphrase:
       <div className="form-grid">
         <label className="field">
           Back-upbestand (.shcbak of .shcdump)
-          <input type="file" accept=".shcbak,.shcdump,application/octet-stream" aria-required="true" onChange={(e) => { upload.reset(); setFile(e.target.files?.[0] ?? null); }} disabled={upload.isPending} />
+          <input type="file" accept=".shcbak,.shcdump,application/octet-stream" aria-required="true" onChange={(e) => setFile(e.target.files?.[0] ?? null)} disabled={upload.isPending} />
         </label>
         <label className="field">
           Wachtwoordzin van de back-up
@@ -82,12 +80,6 @@ function UploadStep({ onVerified }: { onVerified: (v: RestoreVerify, passphrase:
       )}
       {aborted && <div className="note info" role="status">Upload afgebroken.</div>}
       {upload.error && !aborted && <ErrorNote error={upload.error} />}
-      {upload.data && 'kind' in upload.data && <div className="note info stack" role="status">
-        <strong>Database-dump gecontroleerd</strong>
-        <span>De versleutelde dump is volledig gelezen en het connectorherstelbewijs is gecontroleerd.
-          Zet de dump met <code>shc-api restore-dump</code> terug in een nieuwe database.
-          Bewaar de oorspronkelijke database tot je de gegevens op de kopie hebt gecontroleerd.</span>
-      </div>}
     </form>
   );
 }
@@ -557,7 +549,13 @@ export function CompareView({ data, onReleased }: { data: RestoreCompare; onRele
 
 /* ---------- section ---------- */
 
-type Step = { kind: 'upload' } | { kind: 'verified'; v: RestoreVerify; passphrase: string } | { kind: 'running'; stored: StoredRestore };
+type Step =
+  | { kind: 'upload' }
+  | { kind: 'verified'; v: RestoreVerify; passphrase: string }
+  | { kind: 'running'; stored: StoredRestore }
+  | { kind: 'dump'; v: VerifiedDatabaseDump; passphrase: string }
+  | { kind: 'dump-teruggezet'; database: string };
+
 
 /** "Herstellen en verhuizen" on Systeem (the verhuisassistent, verbeterlijst 43). id="herstel". */
 export function RestoreSection({ safeMode }: { safeMode: boolean }) {
@@ -578,7 +576,17 @@ export function RestoreSection({ safeMode }: { safeMode: boolean }) {
         Controleer een back-up en kies hoe je die wilt terugzetten. Kies bij een overstap een afzonderlijke Custom App.
         De vergelijking toont welke apparaten na herstel beschikbaar zijn.
       </p>
-      {step.kind === 'upload' && <UploadStep onVerified={(v, passphrase) => setStep({ kind: 'verified', v, passphrase })} />}
+      {step.kind === 'upload' && <UploadStep onVerified={(v, passphrase) => {
+        if ('kind' in v) setStep({ kind: 'dump', v, passphrase: v.dump_upload_id ? passphrase : '' });
+        else setStep({ kind: 'verified', v, passphrase });
+      }} />}
+      {step.kind === 'dump' && <DatabaseDumpHerstel dump={step.v} passphrase={step.passphrase}
+        onBack={() => setStep({ kind: 'upload' })} onDone={database => setStep({ kind: 'dump-teruggezet', database })} />}
+      {step.kind === 'dump-teruggezet' && <div className="note info stack" role="status">
+        <strong>Afzonderlijke database hersteld</strong>
+        <span>De gegevens staan in <code>{step.database}</code>. Controleer de kopie vóór ingebruikname.</span>
+        <div><button className="btn" onClick={() => setStep({ kind: 'upload' })}>Ander bestand kiezen</button></div>
+      </div>}
       {step.kind === 'verified' && (
         <ChooseStep v={step.v} passphrase={step.passphrase} onStarted={(stored) => setStep({ kind: 'running', stored })} onCancel={() => setStep({ kind: 'upload' })} />
       )}

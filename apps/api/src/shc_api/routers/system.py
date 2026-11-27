@@ -765,7 +765,7 @@ def _verify(path: Path, passphrase: str) -> bk.Verified:
 @router.post("/system/restore/verify", responses=SECRET_KEY_INVALID_RESPONSE)
 async def restore_verify(request: Request, db: DB, p: WebAdmin) -> dict:
     """Controleer een geüpload bestand met de wachtwoordzin. Een volledige export krijgt een herstel-ID.
-    Een losse database-dump geeft na de controle van het connectorherstelbewijs alleen het aantal ontsleutelde bytes."""
+    Voor een losse dump met bevestigde lokale herkomst is een afzonderlijke database beschikbaar als hersteldoel."""
     s = get_settings()
     _cleanup_uploads()
     length = int(request.headers.get("content-length") or 0)
@@ -789,14 +789,23 @@ async def restore_verify(request: Request, db: DB, p: WebAdmin) -> dict:
         v = await asyncio.to_thread(_verify, path, passphrase)
     except bk.DatabaseDump:
         try:
-            size = await asyncio.to_thread(bk.verify_dump, path, passphrase)
+            size, lokaal = await asyncio.to_thread(bk.controleer_webdump, path, passphrase)
+            resultaat = {"kind": "database_dump", "plain_bytes": size}
+            if lokaal:
+                meta = {"kind": "database_dump", "owner": str(p.user.id), "restorable": False}
+                path.with_suffix(".json").write_text(json.dumps(meta))
+                resultaat["dump_upload_id"] = upload_id
+            else:
+                path.unlink(missing_ok=True)
+            await audit(db, p.actor, "restore_dump_verified", upload_id, plain_bytes=size, local_origin=lokaal)
+            await db.commit()
+            return resultaat
         except bk.BackupError as exc:
+            _remove_upload(path)
             raise api_error(422, "backup_invalid", str(exc)) from exc
-        finally:
-            path.unlink(missing_ok=True)
-        await audit(db, p.actor, "restore_dump_verified", upload_id, plain_bytes=size)
-        await db.commit()
-        return {"kind": "database_dump", "plain_bytes": size}
+        except BaseException:
+            _remove_upload(path)
+            raise
     except bk.BackupError as e:
         path.unlink(missing_ok=True)
         raise api_error(422, "backup_invalid", str(e)) from e
@@ -848,6 +857,33 @@ async def restore_discard(upload_id: str, p: WebAdmin) -> Response:
 class RestoreUploadIn(BaseModel):
     upload_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     passphrase: str = Field(min_length=1, max_length=256)
+
+
+class DumpHerstelIn(RestoreUploadIn):
+    new_database: str = Field(pattern=r"^[a-z][a-z0-9_]{0,62}$")
+
+
+@router.post("/system/restore/dump")
+async def web_restore_dump(body: DumpHerstelIn, db: DB, p: WebAdmin) -> dict:
+    """Herstel een door deze installatie bekrachtigde dump uitsluitend in een nieuwe, ongekoppelde database."""
+    import asyncpg
+
+    from ..cli import MigrationError, restore_dump_database
+
+    path = _upload_path(body.upload_id)
+    meta = _verified_upload(path)
+    if meta.get("kind") != "database_dump" or meta.get("owner") != str(p.user.id):
+        raise not_found("Gecontroleerde database-dump")
+    try:
+        await restore_dump_database(path, body.passphrase, body.new_database, web=True)
+    except (bk.BackupError, MigrationError) as exc:
+        raise api_error(409, "restore_refused", str(exc)) from exc
+    except asyncpg.PostgresError as exc:
+        raise api_error(503, "database_unavailable", "De afzonderlijke database kon niet worden gepubliceerd.") from exc
+    await audit(db, p.actor, "database_dump_restored", body.upload_id)
+    await db.commit()
+    _remove_upload(path)
+    return {"database": body.new_database}
 
 
 class PreviewIn(RestoreUploadIn):

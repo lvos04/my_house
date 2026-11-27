@@ -128,8 +128,8 @@ export function BackupSettingsForm() {
       </form>
       <p id="bk-schedule-help" className="small muted" style={{ margin: 0 }}>
         Een <strong>volledige export</strong> (.shcbak) bevat alles, ook de Zigbee2MQTT-gegevens, en zet je terug bij <a href="#herstel">Herstellen en verhuizen</a>.
-        Een <strong>database-dump</strong> (.shcdump) is sneller en kleiner, maar bevat alleen de database; die zet je terug op de NAS via de
-        opdrachtregel (<code>shc-api restore-dump</code> naar een nieuwe database), niet in de app. Met dagelijks een dump komt er minstens
+        Een <strong>database-dump</strong> (.shcdump) bevat de database. Je herstelt een dump met bevestigd herkomstbewijs onder
+        een vrije databasenaam in de herstelwizard. Voor oudere dumps gebruik je <code>shc-api restore-dump</code>. Met dagelijks een dump komt er minstens
         elke 7 dagen ook een volledige export. Exports en dumps worden apart opgeruimd.
       </p>
       <p className="small muted" style={{ margin: 0 }}>
@@ -231,7 +231,7 @@ export function BackupList() {
                   <td data-label="Versie" className="small">app {b.app_version ?? '?'}<br />schema {b.schema_revision ?? '?'}</td>
                   <td data-label="Inhoud" className="small">
                     {isDump(b) ? (
-                      <>alleen de database<br /><span className="muted">terugzetten via de opdrachtregel</span></>
+                      <>alleen de database<br /><span className="muted">herstel naar een nieuwe database</span></>
                     ) : (
                       <>geheimen {yesNo(b.secrets_included)}<br />Zigbee {yesNo(b.zigbee2mqtt_included)}</>
                     )}

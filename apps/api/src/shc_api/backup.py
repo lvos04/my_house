@@ -35,6 +35,7 @@ import base64
 import contextlib
 import datetime as dt
 import hashlib
+import hmac
 import io
 import json
 import logging
@@ -313,7 +314,8 @@ def _nonce(prefix: bytes, counter: int, last: bool) -> bytes:
 class EncryptingWriter:
     """File-like sink: buffers plaintext and writes authenticated chunks to `raw`."""
 
-    def __init__(self, raw, passphrase: str, created_at: str, chunk_size: int = CHUNK_SIZE, content: str | None = None):
+    def __init__(self, raw, passphrase: str, created_at: str, chunk_size: int = CHUNK_SIZE, content: str | None = None,
+                 *, dumpzegel: str | None = None):
         _check_passphrase(passphrase)
         salt = os.urandom(16)
         self._prefix = os.urandom(7)
@@ -330,6 +332,8 @@ class EncryptingWriter:
         }
         if content:
             header["content"] = content  # e.g. DUMP_CONTENT; absent = a full export (tar.gz)
+        if dumpzegel is not None:
+            header["dump_origin_v1"] = dumpzegel
         header_raw = json.dumps(header, separators=(",", ":")).encode() + b"\n"
         self._aad = MAGIC + header_raw
         self._aead = AESGCM(_key(passphrase, salt))
@@ -443,8 +447,8 @@ def open_plaintext(path: Path, passphrase: str) -> tuple[int, io.IOBase]:
             reader = DecryptingReader(f, passphrase)
             if reader.header.get("content") == DUMP_CONTENT:
                 raise DatabaseDump(
-                    "Dit bestand is een database-dump (pg_dump), geen volledige export. Zet hem terug met "
-                    "'shc-api restore-dump' met een nieuwe databasenaam (zie docs/onderhoud.md)."
+                    "Dit bestand is een database-dump (pg_dump). Kies een nieuwe database in de herstelwizard "
+                    "of gebruik 'shc-api restore-dump' (zie docs/onderhoud.md)."
                 )
             buffered = io.BufferedReader(reader, buffer_size=CHUNK_SIZE)
             return 2, _Closing(buffered, f)
@@ -1262,37 +1266,56 @@ def _pg_dump_sync(url: str, target: Path, passphrase: str, created_at: str, *, s
         env["PGPASSWORD"] = pw
     connector_excludes = [f"--exclude-table-data=public.{table}" for table in sorted(CONNECTOR_LOCAL_TABLES)]
     source_snapshot = [f"--snapshot={snapshot}"] if snapshot else []
-    with open(target, "wb") as raw:
-        enc = EncryptingWriter(raw, passphrase, created_at, content=DUMP_CONTENT)
-        proc = subprocess.Popen(  # noqa: S603 - fixed executable, no shell
+    # Een naamloos privébestand verdwijnt ook als het back-upproces stopt. De herkomst geldt voor
+    # precies de door pg_dump geproduceerde bytes. De bestaande versleutelde bestandsindeling blijft leesbaar.
+    with tempfile.TemporaryFile(dir=target.parent) as bron:
+        with subprocess.Popen(  # noqa: S603 - vaste PostgreSQL-client
             [exe, "--format=custom", "--no-owner", "--no-privileges", *source_snapshot, *connector_excludes,
-             f"--dbname={dsn}"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=env,
-        )
-        assert proc.stdout is not None
-        plain = 0
-        while block := proc.stdout.read(CHUNK_SIZE):
-            enc.write(block)
-            plain += len(block)
-        err = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
-        code = proc.wait()
-        if code != 0:
-            raise BackupError(f"pg_dump mislukt: {err.strip()[:300] or code}")
-        enc.finish()
-        raw.flush()
-        os.fsync(raw.fileno())
+             f"--dbname={dsn}"], stdout=bron, stderr=subprocess.PIPE, env=env,
+        ) as proc:
+            _, err = proc.communicate()
+            if proc.returncode:
+                raise BackupError(f"pg_dump mislukt: {err.decode(errors='replace').strip()[:300] or proc.returncode}")
+        plain = bron.tell()
+        bron.seek(0)
+        zegel = dumpzegel(hashlib.file_digest(bron, "sha256").digest())
+        bron.seek(0)
+        with open(target, "wb") as raw:
+            enc = EncryptingWriter(raw, passphrase, created_at, content=DUMP_CONTENT, dumpzegel=zegel)
+            while block := bron.read(CHUNK_SIZE):
+                enc.write(block)
+            enc.finish()
+            raw.flush()
+            os.fsync(raw.fileno())
     return {"file_sha256": enc.sha256.hexdigest(), "file_size": enc.size, "plain_bytes": plain}
+
+
+def dumpzegel(vingerafdruk: bytes) -> str | None:
+    try:
+        sleutel = get_settings().resolved_secret_key()
+    except (OSError, RuntimeError):
+        return None
+    if len(sleutel) < 32:
+        return None
+    return hmac.digest(sleutel.encode(), b"shc:pg-dump:origin:v1\0" + vingerafdruk, "sha256").hex()
+
+
+def controleer_webdump(path: Path, passphrase: str, *, url: str | None = None) -> tuple[int, bool]:
+    with tempfile.TemporaryDirectory(dir=path.parent) as work:
+        return _lees_dump(path, passphrase, Path(work) / "controle.pgdump", url=url, vereis_herkomst=False)
 
 
 def verify_dump(path: Path, passphrase: str, *, url: str | None = None) -> int:
     """Ontsleutel en controleer de opdrachtkoppelingen voordat de versleutelde dump wordt vrijgegeven."""
-    with tempfile.TemporaryDirectory(dir=path.parent) as work:
-        return decrypt_dump(path, passphrase, Path(work) / "controle.pgdump", url=url)
+    return controleer_webdump(path, passphrase, url=url)[0]
 
 
-def decrypt_dump(path: Path, passphrase: str, out: Path, *, url: str | None = None) -> int:
+def decrypt_dump(path: Path, passphrase: str, out: Path, *, url: str | None = None,
+                 vereis_herkomst: bool = False) -> int:
+    return _lees_dump(path, passphrase, out, url=url, vereis_herkomst=vereis_herkomst)[0]
+
+
+def _lees_dump(path: Path, passphrase: str, out: Path, *, url: str | None, vereis_herkomst: bool) -> tuple[int, bool]:
     """Geef de ontsleutelde dump pas na de geïsoleerde terugzetproef atomair vrij."""
     import asyncpg
 
@@ -1309,16 +1332,24 @@ def decrypt_dump(path: Path, passphrase: str, out: Path, *, url: str | None = No
             stream = io.BufferedReader(reader, buffer_size=CHUNK_SIZE)
             if stream.read(len(PGDMP_MAGIC)) != PGDMP_MAGIC:
                 raise BackupError("Database-dump beschadigd (geen pg_dump-archief).")
+            vingerafdruk = hashlib.sha256(PGDMP_MAGIC)
             dst.write(PGDMP_MAGIC)
             while block := stream.read(CHUNK_SIZE):
                 dst.write(block)
+                vingerafdruk.update(block)
             size = dst.tell()
+            verwacht = dumpzegel(vingerafdruk.digest())
+            gevonden = reader.header.get("dump_origin_v1")
+            lokaal = (verwacht is not None and isinstance(gevonden, str) and gevonden.isascii()
+                      and hmac.compare_digest(gevonden, verwacht))
+            if vereis_herkomst and not lokaal:
+                raise BackupError("De herkomst van de dump is niet bevestigd met de installatiesleutel.")
         try:
             _in_thread(lambda: asyncio.run(check_archive(tmp, url or get_settings().database_url)))
         except (OSError, ValueError, IndexError, asyncpg.PostgresError) as exc:
             raise BackupError("De terugzetproef van het connectorherstelbewijs is mislukt.") from exc
         tmp.replace(out)
-        return size
+        return size, lokaal
 
 
 async def _connector_dump_snapshot(source) -> str:
@@ -1351,7 +1382,7 @@ async def run_db_dump(
     backup_dir: Path | None = None,
 ) -> dict:
     """Make an encrypted database dump + its ``backups`` row (kind "db_dump"). Lighter than a full
-    export (no Zigbee2MQTT files, restored with pg_restore instead of the app). Verified after writing."""
+    export (no Zigbee2MQTT files, restored to a separate database). Verified after writing."""
     from .models import BackupRecord
 
     _check_passphrase(passphrase)

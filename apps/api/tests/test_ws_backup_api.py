@@ -204,12 +204,20 @@ async def _upload(admin, blob: bytes, passphrase: str):
     )
 
 
-async def test_losse_dump_controleert_bewijs_en_bewaart_de_actieve_woning(admin, home):
+async def test_losse_dump_controleert_bewijs_en_bewaart_de_actieve_woning(admin, home, tmp_path):
     instellingen = get_settings()
     voor = (await admin.get("/homes")).json()
     gemaakt = await bk.run_db_dump(PW, auto=False)
     assert gemaakt["status"] == "ok"
-    archief = (instellingen.backup_dir / gemaakt["filename"]).read_bytes()
+    # Herpak de echte pg_dump als een historische envelop, zonder herkomstkenmerk.
+    origineel = instellingen.backup_dir / gemaakt["filename"]
+    plain = tmp_path / "proef.pgdump"
+    await asyncio.to_thread(bk.decrypt_dump, origineel, PW, plain)
+    with (tmp_path / "historisch.shcdump").open("wb") as raw:
+        schrijver = bk.EncryptingWriter(raw, PW, "2026-01-02", content=bk.DUMP_CONTENT)
+        schrijver.write(plain.read_bytes())
+        schrijver.finish()
+    archief = (tmp_path / "historisch.shcdump").read_bytes()
     uploads = instellingen.backup_dir / "uploads"
     aanwezig = set(uploads.glob("*"))
     for inhoud, zin in ((archief, "verkeerde wachtwoordzin"), (archief[:-20], PW)):
@@ -221,6 +229,54 @@ async def test_losse_dump_controleert_bewijs_en_bewaart_de_actieve_woning(admin,
     assert antwoord.json() == {"kind": "database_dump", "plain_bytes": gemaakt["detail"]["plain_bytes"]}
     assert set(uploads.glob("*")) == aanwezig
     assert (await admin.get("/homes")).json() == voor
+
+
+async def test_dump_naar_nieuwe_database_houdt_bron_en_bestaand_doel_intact(admin, monkeypatch, tmp_path):
+    from urllib.parse import urlsplit, urlunsplit
+
+    import asyncpg
+
+    from shc_api.cli import _libpq, migrate
+
+    cfg = get_settings()
+    dsn, wachtwoord = _libpq(cfg.database_url)
+    beheer = await asyncpg.connect(dsn, password=wachtwoord, database="postgres")
+    bron, doel = (f"shc_proef_{uuid.uuid4().hex}" for _ in range(2))
+    bronurl = urlunsplit(urlsplit(cfg.database_url)._replace(path="/" + bron))
+    await beheer.execute(f'CREATE DATABASE "{bron}" TEMPLATE template0')
+    try:
+        await asyncio.to_thread(migrate, bronurl, pre_dump=False)
+        db = await asyncpg.connect(dsn, password=wachtwoord, database=bron)
+        try:
+            await db.execute("INSERT INTO homes (id, name, timezone, currency, active_from) "
+                             "VALUES ($1, 'Herstelwoning', 'UTC', 'EUR', now())", uuid.uuid4())
+            query = "SELECT id, name, timezone, currency, active_from FROM public.homes ORDER BY id"
+            voor = await db.fetch(query)
+            assert len(voor) == 1
+            monkeypatch.setattr(cfg, "database_url", bronurl)
+            gemaakt = await bk.run_db_dump(PW, auto=False, url=bronurl, backup_dir=tmp_path)
+            assert gemaakt["status"] == "ok"
+            antwoord = await _upload(admin, (tmp_path / gemaakt["filename"]).read_bytes(), PW)
+            assert antwoord.status_code == 200 and antwoord.json()["kind"] == "database_dump"
+            gegevens = {"upload_id": antwoord.json()["dump_upload_id"], "passphrase": PW}
+            pad = "/system/restore/dump"
+            geweigerd = await admin.post(pad, json={**gegevens, "new_database": bron})
+            assert geweigerd.status_code == 409
+            gelukt = await admin.post(pad, json={**gegevens, "new_database": doel})
+            assert (gelukt.status_code, gelukt.json()) == (200, {"database": doel})
+            herhaling = await admin.post(pad, json={**gegevens, "new_database": doel})
+            assert herhaling.status_code == 404
+            kopie = await asyncpg.connect(dsn, password=wachtwoord, database=doel)
+            try:
+                assert await kopie.fetch(query) == voor == await db.fetch(query)
+            finally:
+                await kopie.close()
+        finally:
+            await db.close()
+    finally:
+        for naam in (bron, doel):
+            await beheer.execute(f'DROP DATABASE IF EXISTS "{naam}"')
+        await beheer.close()
 
 
 async def test_zigbeebestanden_alleen_voor_webbeheerder(admin, client, tmp_path, monkeypatch):
