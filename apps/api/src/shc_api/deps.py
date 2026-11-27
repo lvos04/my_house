@@ -24,6 +24,7 @@ UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
 CLIENT_TTL = timedelta(days=180)
 CLIENT_ROLES = ("admin", "control", "viewer")
 HUB_WRITES = {("POST", "/api/v1/clients/self/refresh"), ("DELETE", "/api/v1/clients/self")}
+SIGNED_HUB_WRITES = {("POST", "/connector/v1/propose"), ("POST", "/connector/v1/apply")}
 
 DB = Annotated[AsyncSession, Depends(get_session)]
 
@@ -129,7 +130,7 @@ def _bearer(request: HTTPConnection) -> str | None:
 async def restrict_hub_writes(request: HTTPConnection, db: DB) -> None:
     """Blokkeer Hub-tokens ook op routes die zelf geen aanmelding vragen."""
     method = request.scope.get("method")
-    if method not in UNSAFE or (method, request.url.path) in HUB_WRITES:
+    if method not in UNSAFE or (method, request.url.path) in HUB_WRITES | SIGNED_HUB_WRITES:
         return
     bearer = _bearer(request)
     if not bearer or not bearer.startswith(TOKEN_PREFIX):
@@ -157,6 +158,16 @@ async def current_principal(request: Request, db: DB) -> Principal:
 
 
 Auth = Annotated[Principal, Depends(current_principal)]
+
+
+async def require_connector_writer(p: Auth) -> Principal:
+    paired = p.via == "token" and p.client_purpose == "hub" and p.client_role == "viewer"
+    if paired or (p.via == "cookie" and p.can_control):
+        return p
+    raise api_error(403, "forbidden", "Deze schrijfroutes zijn voor de gekoppelde Hub of de lokale beheerder.")
+
+
+ConnectorWriter = Annotated[Principal, Depends(require_connector_writer)]
 
 
 async def require_admin(p: Auth) -> Principal:

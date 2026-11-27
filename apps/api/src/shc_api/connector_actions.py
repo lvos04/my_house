@@ -12,6 +12,7 @@ from starlette.exceptions import HTTPException
 from . import climate
 from .commanding import check_active_target, check_scene_group_policy
 from .commissioning import command_facts, lock_home_commands
+from .connector import MAX_PARAMETER_BYTES
 from .contract_http import contract_error
 from .models import ClimateZone, Device, Home
 from .policy import MEASURE_ONLY_KINDS, PolicyDenied, check_command
@@ -69,6 +70,7 @@ def discovery(zone_unit: Device | None) -> list[dict]:
     actions = []
     for action_id, action in ACTIONS.items():
         schema = action.schema.model_json_schema()
+        schema["x-max-canonical-bytes"] = MAX_PARAMETER_BYTES
         if action.schema is ZoneParameters:
             schema["properties"]["mode"] = {"enum": [*caps.modes, None]}
             schema["properties"]["target_c"] = {
@@ -76,12 +78,15 @@ def discovery(zone_unit: Device | None) -> list[dict]:
             }
             if caps.fan is False:
                 schema["properties"].pop("fan")
-            schema["anyOf"] = [{"required": [field]} for field in ("mode", "target_c", "fan")
-                               if field in schema["properties"]]
-        if action.schema is GroupParameters:
-            schema["anyOf"] = [{"required": ["on"]}, {"required": ["brightness"]}]
+        if action.schema in (ZoneParameters, GroupParameters):
+            schema["anyOf"] = [
+                {"required": [field], "properties": {field: {"not": {"type": "null"}}}}
+                for field in schema["properties"] if field != "override_minutes"
+            ]
         if action.schema is ScheduleParameters:
             block = schema["$defs"]["ScheduleBlockParameters"]["properties"]
+            block["days"]["uniqueItems"] = True
+            block["days"]["items"].update(minimum=0, maximum=6)
             block["mode"] = {"enum": [*caps.modes, None]}
             block["target_c"] = {
                 "type": "integer", "minimum": max(10, caps.min_c), "maximum": min(30, caps.max_c),
@@ -105,21 +110,10 @@ def not_found():
     return contract_error(404, "not_found", "Connectordoel of bewijs niet gevonden.")
 
 
-async def resolve_target(db: AsyncSession, proposal: dict, risk: str) -> Target:
-    action = ACTIONS.get(proposal["action_id"])
-    if action is None:
-        raise contract_error(422, "action_not_allowed", "Deze actie staat niet op de lijst toegestane acties.")
-
-    target = proposal["target"]
-    try:
-        if set(target) != {action.target_field}:
-            raise ValueError
-        target_id = uuid.UUID(target[action.target_field])
-        if str(target_id) != target[action.target_field]:
-            raise ValueError
-    except (ValueError, TypeError, AttributeError):
-        raise contract_error(422, "validation_error", "Geef precies één geldig doel op.") from None
-
+async def checked_resource(
+    db: AsyncSession, action: Action, target_id: uuid.UUID,
+) -> tuple[ClimateZone | None, Device | None]:
+    """Dezelfde doel- en inbedrijfstellingscontrole voor discover, propose en apply."""
     zone = await db.get(ClimateZone, target_id) if action.target_type == "zone" else None
     device = await db.get(Device, target_id) if zone is None else None
     resource = zone or device
@@ -140,6 +134,25 @@ async def resolve_target(db: AsyncSession, proposal: dict, risk: str) -> Target:
             raise not_found()
     elif device is None or device.kind != action.target_type:
         raise not_found()
+    if action.command == "set_hvac" and action.schema is not ScheduleParameters and device is None:
+        raise contract_error(409, "device_not_tested", "Aan deze zone is geen geteste klimaatunit gekoppeld.")
+    return zone, device
+
+
+async def resolve_target(db: AsyncSession, proposal: dict, risk: str) -> Target:
+    action = ACTIONS.get(proposal["action_id"])
+    if action is None:
+        raise contract_error(422, "action_not_allowed", "Deze actie staat niet op de lijst toegestane acties.")
+    target = proposal["target"]
+    try:
+        if set(target) != {action.target_field}:
+            raise ValueError
+        target_id = uuid.UUID(target[action.target_field])
+        if str(target_id) != target[action.target_field]:
+            raise ValueError
+    except (ValueError, TypeError, AttributeError):
+        raise contract_error(422, "validation_error", "Geef precies één geldig doel op.") from None
+    zone, device = await checked_resource(db, action, target_id)
     if risk < action.risk:
         raise contract_error(403, "risk_class_too_low", "De ondertekende risicoklasse is te laag voor deze actie.")
 
@@ -159,7 +172,7 @@ async def resolve_target(db: AsyncSession, proposal: dict, risk: str) -> Target:
         if not {"mode", "target_c", "fan"} & params.keys():
             raise contract_error(422, "validation_error", "Geen wijziging opgegeven.")
         caps = caps_of(device)
-        if "fan" in params and caps.fan is False:
+        if "fan" in proposal["parameters"] and caps.fan is False:
             raise contract_error(422, "validation_error", "Deze unit heeft geen instelbare ventilator.")
         reason = climate.validate_request(caps, await other_zone_modes(db, zone, now=None),
                                           params.get("mode"), params.get("target_c"))

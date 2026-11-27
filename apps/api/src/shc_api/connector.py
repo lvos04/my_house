@@ -50,6 +50,7 @@ _APPROVAL_FIELDS = {
     "action_scope",
 }
 _RISK_CLASSES = ("R0", "R1", "R2", "R3")
+MAX_PARAMETER_BYTES = 16_384
 RESTORED_COMMAND_DETAIL = "Connectoropdracht teruggezet als bewijs, zonder uitvoerrechten"
 
 
@@ -107,7 +108,9 @@ async def pinned_status(db: AsyncSession) -> PinStatus | None:
 
 
 def _unavailable():
-    return contract_error(501, "capability_unavailable", "Er is geen Hub-sleutelset bevestigd.")
+    return contract_error(
+        501, "capability_unavailable", "Er is geen Hub-sleutelset bevestigd.", reason="hub_keyset_missing",
+    )
 
 
 def _validated_stored_keyset(pin: ConnectorHubPin) -> HubKeyset:
@@ -414,7 +417,6 @@ def _validate_envelope(request: Any) -> None:
 def _signed_content(request: Any, keyset: HubKeyset) -> tuple[dict[str, Any], bytes, datetime, datetime, uuid.UUID]:
     try:
         _validate_envelope(request)
-        sig = decode_b64url(request["signature"], length=64)
         message = _canonical({field: value for field, value in request.items() if field != "signature"})
         issued = utc_seconds(request["issued_at"])
         expires = utc_seconds(request["expires_at"])
@@ -423,7 +425,11 @@ def _signed_content(request: Any, keyset: HubKeyset) -> tuple[dict[str, Any], by
         raise contract_error(
             422, "execution_request_ongeldig", "Het uitvoeringsverzoek heeft niet de juiste vorm."
         ) from None
-    if not any(key.verifies(sig, message) for key in keyset.policy):
+    try:
+        sig = decode_b64url(request["signature"], length=64)
+    except ValueError:
+        sig = b""
+    if not sig or not any(key.verifies(sig, message) for key in keyset.policy):
         raise contract_error(
             403, "handtekening_ongeldig", "Het verzoek is niet ondertekend met een gepinde policy-sleutel."
         )
@@ -464,6 +470,11 @@ async def process_request(
         if pin is None:
             raise _unavailable()
         body, digest, issued, expires, nonce = _signed_content(request, _stored_keyset(pin))
+        if len(_canonical(body["proposal"]["parameters"])) > MAX_PARAMETER_BYTES:
+            raise contract_error(
+                422, "parameters_ongeldig", "Doel of parameters voldoen niet aan het schema.",
+                fouten=[{"veld": "parameters", "code": "te_groot", "fout": f"hooguit {MAX_PARAMETER_BYTES} bytes"}],
+            )
         key, stored = await bounded_reservation(db, lambda: reserve_idempotency(db, scope, idempotency_key, digest))
         if stored is not None:
             status, response = stored

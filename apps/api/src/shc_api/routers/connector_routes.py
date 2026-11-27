@@ -10,12 +10,15 @@ from pydantic import BaseModel, ConfigDict
 
 from .. import connector_changes as changes
 from ..connector import process_request
-from ..connector_actions import SOCKET_PROPOSAL, discovery, not_found, resolve_target
-from ..contract_http import ConnectorContractRoute, ContractProblem
-from ..deps import DB, Auth, Principal
+from ..connector_actions import ACTIONS, SOCKET_PROPOSAL, checked_resource, discovery, not_found, resolve_target
+from ..contract_http import ConnectorContractRoute, ContractProblem, contract_error
+from ..deps import DB, Auth, ConnectorWriter, Principal
 from ..models import ClimateZone, Device
 
 router = APIRouter(prefix="/connector/v1", tags=["connector"], route_class=ConnectorContractRoute)
+HUB_ACTIES = frozenset({
+    "light.group.set", "light.scene.recall", "zone.command", "zone.resume", "zone.schedule.propose",
+})
 ERRORS = {status: {"model": ContractProblem} for status in (400, 401, 403, 404, 409, 413, 422, 501)}
 ERRORS[503] = {
     "model": ContractProblem,
@@ -48,6 +51,7 @@ class DiscoveredAction(BaseModel):
 
 class Discovery(BaseModel):
     actions: list[DiscoveredAction]
+    checked_target: dict[str, uuid.UUID] | None = None
 
 
 class Preview(BaseModel):
@@ -79,6 +83,10 @@ def _client(principal: Principal) -> str:
 
 async def _mutation(db, principal, idem, body, operation):
     client = _client(principal)
+    if principal.client_purpose == "hub":
+        action_id = body["proposal"].get("action_id")
+        if not isinstance(action_id, str) or action_id not in HUB_ACTIES:
+            raise contract_error(403, "forbidden", "Deze actie valt buiten de gekoppelde Hub-bediening.")
 
     async def execute(session, verified):
         return await operation(session, verified, client)
@@ -90,8 +98,9 @@ async def _mutation(db, principal, idem, body, operation):
         request=body,
         operation=execute,
     )
-    if replay and operation is changes.propose and body["proposal"]["action_id"] == SOCKET_PROPOSAL:
-        # Een eerder voorstel mag na toewijzing van de boilerrol niet opnieuw worden afgegeven.
+    if replay and (principal.client_purpose == "hub" or
+                   operation is changes.propose and body["proposal"]["action_id"] == SOCKET_PROPOSAL):
+        # Ook bij herhaling gelden de huidige beschermde rollen en inbedrijfstellingsstatus.
         await resolve_target(db, body["proposal"], body["policy_decision"]["risk_class"])
     await db.commit()
     headers = {"Idempotent-Replay": "true"} if replay else {}
@@ -101,24 +110,35 @@ async def _mutation(db, principal, idem, body, operation):
 
 
 @router.get("/discover", response_model=Discovery, responses=ERRORS)
-async def discover(db: DB, _p: Auth, zone_id: uuid.UUID | None = None) -> dict:
+async def discover(
+    db: DB, _p: Auth, zone_id: uuid.UUID | None = None,
+    action_id: str | None = None, target_id: uuid.UUID | None = None,
+) -> dict:
     device = None
-    if zone_id is not None:
+    checked = None
+    if action_id is not None or target_id is not None:
+        action = ACTIONS.get(action_id)
+        if action is None or target_id is None or zone_id is not None:
+            raise contract_error(422, "validation_error", "Geef één bekende actie en haar doel op.")
+        _, device = await checked_resource(db, action, target_id)
+        checked = {action.target_field: target_id}
+    elif zone_id is not None:
         zone = await db.get(ClimateZone, zone_id)
         if zone is None:
             raise not_found()
         if zone.unit_device_id:
             device = await db.get(Device, zone.unit_device_id)
-    return {"actions": [{**action, "max_age_s": changes.MAX_AGE_S} for action in discovery(device)]}
+    return {"actions": [{**a, "max_age_s": changes.MAX_AGE_S} for a in discovery(device)
+                        if action_id is None or a["action_id"] == action_id], "checked_target": checked}
 
 
 @router.post("/propose", response_model=Preview, responses=ERRORS)
-async def propose(db: DB, p: Auth, body: ExecutionEnvelope, idempotency_key: Idem = None) -> Response:
+async def propose(db: DB, p: ConnectorWriter, body: ExecutionEnvelope, idempotency_key: Idem = None) -> Response:
     return await _mutation(db, p, idempotency_key, body.model_dump(), changes.propose)
 
 
 @router.post("/apply", status_code=202, response_model=Receipt, responses=ERRORS)
-async def apply(db: DB, p: Auth, body: ExecutionEnvelope, idempotency_key: Idem = None) -> Response:
+async def apply(db: DB, p: ConnectorWriter, body: ExecutionEnvelope, idempotency_key: Idem = None) -> Response:
     return await _mutation(db, p, idempotency_key, body.model_dump(), changes.apply)
 
 

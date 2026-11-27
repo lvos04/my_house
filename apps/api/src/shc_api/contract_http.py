@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from starlette.exceptions import HTTPException
 
 from .db import sessionmaker
-from .deps import current_principal, require_admin
+from .deps import SIGNED_HUB_WRITES, current_principal, require_admin, require_connector_writer
 
 
 class ContractProblem(BaseModel):
@@ -43,6 +43,7 @@ def _http_error(exc: HTTPException) -> JSONResponse:
 
 
 async def _validation_error(request: Request, errors: list[dict], *, admin: bool = True) -> JSONResponse:
+    signed = (request.method, request.url.path) in SIGNED_HUB_WRITES
     if not getattr(request.state, "principal", None):
         # Een JSON-leesfout kan vóór FastAPI's dependencycontrole optreden.
         try:
@@ -50,8 +51,12 @@ async def _validation_error(request: Request, errors: list[dict], *, admin: bool
                 principal = await current_principal(request, db)
                 if admin:
                     await require_admin(principal)
+                elif signed:
+                    await require_connector_writer(principal)
         except HTTPException as auth_error:
             return _http_error(auth_error)
+    if signed and any(error["loc"] == ["body", "signature"] for error in errors):
+        return _http_error(contract_error(403, "handtekening_ongeldig", "Een geldige Hub-handtekening is verplicht."))
     return JSONResponse(problem("validation_error", "Controleer de invoer.", fouten=errors), status_code=422)
 
 
