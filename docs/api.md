@@ -509,7 +509,7 @@ Tariff = {id, valid_from: date, import_per_kwh, export_per_kwh, fixed_per_day,
 | Methode | Pad | Toegang | Body / antwoord |
 |---|---|---|---|
 | GET | `/homes/{home_id}/energy/summary?period=day&date=2026-11-08` | `auth` | → `EnergySummary` (`date` in de tijdzone van de woning; standaard vandaag) |
-| GET | `/homes/{home_id}/energy/live` | `auth` | → `LivePower` of `null` (geen actuele meting) |
+| GET | `/homes/{home_id}/energy/live` | `auth` | Geeft `LivePower` of `null` bij ontbrekende actuele metingen. Een gekoppelde Hub-lezer krijgt bij verlopen metingen de laatste brontijd per meter, met lege wattwaarden. |
 | GET | `/homes/{home_id}/tariffs` | `auth` | → `[Tariff]`, nieuwste eerst |
 | POST | `/homes/{home_id}/tariffs` | `admin` | `TariffIn` → `Tariff`; 409 `tariff_exists` |
 | PUT | `/tariffs/{id}` | `admin` | `TariffIn` → `Tariff` |

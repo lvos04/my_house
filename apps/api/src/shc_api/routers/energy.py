@@ -45,7 +45,7 @@ async def summary(
 @router.get("/homes/{home_id}/energy/live")
 async def live(home_id: uuid.UUID, db: DB, p: Auth) -> dict | None:
     await get_home(db, home_id)
-    return await views.live_power(db, home_id)
+    return await views.live_power(db, home_id, include_stale=p.client_purpose == "hub")
 
 
 # --- tariffs -------------------------------------------------------------------------------

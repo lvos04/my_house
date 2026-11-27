@@ -535,6 +535,33 @@ async def test_bronkwaliteit(admin, qualities):
     assert datetime.fromisoformat(parts["airco"]["at"]) == now
 
 
+async def test_hub_krijgt_bij_uitsluitend_verlopen_meters_de_brontijden(koppel, admin):
+    client, koppel_lezer = koppel
+    headers, _ = await koppel_lezer(client)
+    woning = await new_home(admin)
+    pad = f"/homes/{woning}/energy/live"
+    leeg = await client.get("/api/v1" + pad, headers=headers)
+    assert leeg.status_code == 200 and leeg.json() is None
+    nu = datetime.now(UTC).replace(microsecond=0)
+    tijden = {rol: nu - timedelta(seconds=oud) for rol, oud in (("grid", 390), ("boiler", 370), ("airco", 350))}
+    for rol, tijd in tijden.items():
+        soort = "p1_meter" if rol == "grid" else "energy_socket"
+        meter = await add_meter(woning, soort, rol, rol)
+        await put_readings(meter, "power_w", [(tijd, 15)], unit="W")
+    gewoon = await admin.get(pad)
+    assert gewoon.status_code == 200 and gewoon.json() is None
+    antwoord = await client.get("/api/v1" + pad, headers=headers)
+    assert antwoord.status_code == 200
+    live = antwoord.json()
+    assert live is not None and live["total_w"] is None and live["complete"] is False
+    assert datetime.fromisoformat(live["total_observed_at"]) == tijden["grid"]
+    assert datetime.fromisoformat(live["at"]) == max(tijden.values())
+    delen = {p["role"]: p for p in live["parts"]}
+    assert delen.keys() == {"boiler", "airco"}
+    for rol, deel in delen.items():
+        assert deel["stale"] and deel["watts"] is None and datetime.fromisoformat(deel["at"]) == tijden[rol]
+
+
 async def test_verouderde_p1_houdt_eigen_meettijd(admin):
     hid = await new_home(admin)
     grid = await add_meter(hid, "p1_meter", "P1", "grid")

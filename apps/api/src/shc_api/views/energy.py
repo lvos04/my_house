@@ -609,7 +609,7 @@ async def energy_summary(db: AsyncSession, home: Home, period: str, day: date) -
 # --- live power ----------------------------------------------------------------------------
 
 
-async def live_power(db: AsyncSession, home_id: uuid.UUID) -> dict | None:
+async def live_power(db: AsyncSession, home_id: uuid.UUID, *, include_stale: bool = False) -> dict | None:
     """Current power per role. A stale sub-meter is shown as missing (not dropped), and makes
     "rest" an estimate instead of hiding the gap."""
     now = datetime.now(UTC)
@@ -656,8 +656,16 @@ async def live_power(db: AsyncSession, home_id: uuid.UUID) -> dict | None:
                 }
             )
             missing.append(label)
-    if total is None and not any(p["watts"] is not None for p in parts):
-        return None
+    at = total_at or max((p["at"] for p in parts if not p["stale"]), default=None)
+    if at is None:
+        if not include_stale:
+            return None
+        observed = [p["at"] for p in parts if p["at"] is not None]
+        if grid_reading is not None:
+            observed.append(grid_reading.observed_at)
+        if not observed:
+            return None
+        at = max(observed)
     note = None
     if total is not None:
         raw_rest = total - sum(p["watts"] or 0 for p in parts)
@@ -681,9 +689,8 @@ async def live_power(db: AsyncSession, home_id: uuid.UUID) -> dict | None:
         )
     elif grid_bound:
         note = "Geen actuele meting van de P1-meter."
-    times = [p["at"] for p in parts if p["at"] is not None and not p["stale"]]
     return {
-        "at": total_at or (max(times) if times else now),
+        "at": at,
         "total_w": total,
         "total_observed_at": grid_reading.observed_at if grid_reading else None,
         "total_source_quality": grid_reading.quality if grid_reading else None,
