@@ -3,7 +3,7 @@
 **Rol:** Eén eigen klimaat-, verlichting- en energieapp.  
 **Aanpak:** Gebruik de standaard Custom App. Controleer de inbedrijfstelling per apparaat.
 **Bron:** https://github.com/lvos04/my_house.  
-**Versiebeleid:** gebruik de alles-in-één-image zodra de vaste releasetag en registerdigest zijn gepubliceerd. [Formuliervelden](../../../deploy/truenas/CUSTOM_APP.md)
+Gebruik voor versie 0.3.0 de vaste alles-in-één-image `ghcr.io/lvos04/my_house:0.3.0@sha256:cf3ad1227e57cf70a5f21577e71a79b64c77f6446652ac1bf6bff27e994e1047`. [Formuliervelden](../../../deploy/truenas/CUSTOM_APP.md)
 
 ## 1. Vooraf controleren
 TrueNAS versie; Hue bridge, Gree modellen, HomeWizard lokale API, Zigbee dongle indien gekocht.

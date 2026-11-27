@@ -1,6 +1,6 @@
 # Installatie op TrueNAS SCALE
 
-Gebruik **Apps › Discover Apps › Custom App**. De standaard Custom App met één alles-in-één-image is de enige installatieweg. Wacht op de eerste publicatie van deze image met vaste versietag en registerdigest (BLOK-06). Voorbereiden kan met de [formulierhandleiding](../deploy/truenas/CUSTOM_APP.md).
+Gebruik **Apps › Discover Apps › Custom App**. De vaste image voor de standaard Custom App is `ghcr.io/lvos04/my_house:0.3.0@sha256:cf3ad1227e57cf70a5f21577e71a79b64c77f6446652ac1bf6bff27e994e1047`. De formulierhandleiding geeft de invulwaarden voor **Repository** en **Tag**. [Formulierhandleiding](../deploy/truenas/CUSTOM_APP.md)
 
 ## Opslag en formulier
 
@@ -8,7 +8,7 @@ Kies voor de eerste installatie een lege dataset voor `/appdata`. De voorgesteld
 
 ## Updaten en terugdraaien
 
-Maak vóór de update een volledige, gecontroleerde back-up. Stop de app en maak een snapshot van de gehele dataset, inclusief `secrets` en de Zigbee-map. Kies de nieuwe vaste tag in het formulier en leg tegelijk de bijbehorende startmodule uit **Opslag en formulier** vast, ook bij een bestaande installatie. Laat deze configuratie bij een terugval staan en gebruik voor de kloon de afzonderlijke terugvalapp. De bewaker controleert de pre-migratiedump voordat hij de transactie met de schemawijzigingen start.
+Maak vóór de update een volledige, gecontroleerde back-up. Stop de app en maak een snapshot van de gehele dataset, inclusief `secrets` en de Zigbee-map. Kies de nieuwe vaste tag in het formulier en leg tegelijk de bijbehorende startmodule uit **Opslag en formulier** vast, ook bij een bestaande installatie. Controleer vóór ingebruikname de opgehaalde digest tegen die van dezelfde release. Laat deze configuratie bij een terugval staan en gebruik voor de kloon de afzonderlijke terugvalapp. De bewaker controleert de pre-migratiedump voordat hij de transactie met de schemawijzigingen start.
 
 Bij een ontbrekende sleutel of onherkende indeling stopt de app. Bewaar de dataset en de snapshot. Maak op aparte opslag een schrijfbare kloon van de snapshot. Laat de oude app gestopt. Kies voor die kloon in het formulier de **huidige** image en het eenmalige startprogramma voor terugval. Dat voert intern `shc-api prepare-connector-fallback` uit. De stappen voor het formulier staan onder [Offline terugvalkopie voorbereiden](onderhoud.md#offline-terugvalkopie-voorbereiden).
 

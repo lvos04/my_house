@@ -10,8 +10,8 @@ install:
   method: custom_app
 image:
   repository: ghcr.io/lvos04/my_house
-  tag: 0.3.0-release-in-afwachting
-  digest: null
+  tag: "0.3.0"
+  digest: sha256:cf3ad1227e57cf70a5f21577e71a79b64c77f6446652ac1bf6bff27e994e1047
 custom_app:
   storage:
     - name: appdata
@@ -118,8 +118,3 @@ accounts:
     aanmaak: eerste_gebruik
     controle: beheerder_ingesteld
     beschrijving_nl: De gebruiker maakt het eigen beheerdersaccount aan in de webapp.
-accepted_findings:
-  - code: digest_pending_release
-    reden_nl: >-
-      De alles-in-één-image wacht op de eerste publicatie (BLOK-06). De tag is een plaatshouder.
-      Vul de vaste tag en registerdigest uit dezelfde release in voordat dit manifest voor installatie wordt gebruikt.
