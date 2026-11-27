@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
@@ -24,6 +24,37 @@ function wrap(children: ReactNode, online: boolean) {
     </QueryClientProvider>
   );
 }
+
+describe('brontijd van een sensormeting', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('toont een temperatuur met een toekomstige brontijd niet als actueel', () => {
+    const kamer = zone();
+    kamer.temperature.at = new Date(Date.now() + 86_400_000).toISOString();
+    render(wrap(<ZoneControlPanel zone={kamer} />, true));
+    expect(screen.queryByText(/^nu\s/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Laatst bekend.*20,6°/i)).toBeVisible();
+  });
+
+  it('laat elke meting op haar eigen termijn verlopen zonder nieuwe zonegegevens', () => {
+    vi.useFakeTimers();
+    const nu = Date.now();
+    const kamer = zone();
+    kamer.policy = { ...kamer.policy, stale_after_s: 300 };
+    kamer.temperature = { ...kamer.temperature, at: new Date(nu - 295_000).toISOString() };
+    kamer.humidity = { ...kamer.humidity, at: new Date(nu - 285_000).toISOString() };
+    render(wrap(<ZoneControlPanel zone={kamer} />, true));
+    expect(screen.getByText('nu 20,6°')).toBeVisible();
+    act(() => vi.advanceTimersByTime(5000));
+    expect(screen.getByText('nu 20,6°')).toBeVisible();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.queryByText(/^nu\s/i)).not.toBeInTheDocument();
+    const vocht = screen.getByText(/% RV/);
+    expect(vocht).not.toHaveTextContent('laatst bekend');
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(vocht).toHaveTextContent('laatst bekend');
+  });
+});
 
 describe('offline rule', () => {
   it('toont een eerder verse temperatuur zonder verbinding als laatst bekende meting', () => {

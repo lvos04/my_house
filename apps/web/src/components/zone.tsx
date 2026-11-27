@@ -6,7 +6,7 @@
 // commands show the server's Dutch reason. Item 13: +/−, fan and "Handmatig 2 uur" are disabled while
 // the unit is off or offline (setpoint_adjustable=false) with "Kies eerst een modus". Item 11:
 // "Terug naar schema" follows can_resume (also from "uit"). Item 31: a zone without airco is neutral.
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useReducer, useState, type ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, isApiError } from '../api/client';
 import type { FanSpeed, HvacMode, Measurement, Zone, ZoneCommand } from '../api/types';
@@ -51,18 +51,39 @@ export function ModePill({ zone }: { zone: Zone }) {
   return <span className="pill neutral">{MODE_LABEL[zone.mode] ?? zone.mode}</span>;
 }
 
-function isActueel(meting: Measurement, offline: boolean) {
-  return meting.value != null && Boolean(meting.at) && !meting.stale && !offline;
+type Meetversheid = { temperatuur: boolean; vochtigheid: boolean };
+
+function useMeetversheid(zone: Zone): Meetversheid {
+  const { offline } = useConnection();
+  const [, ververs] = useReducer((teller: number) => teller + 1, 0);
+  const nu = Date.now();
+  function vervaltOp(meting: Measurement) {
+    if (offline || meting.stale || meting.value == null || !meting.at) return null;
+    const bron = Date.parse(meting.at);
+    // De API houdt de meting op de grens nog actueel.
+    const einde = bron + zone.policy.stale_after_s * 1000 + 1;
+    return bron <= nu && nu < einde ? einde : null;
+  }
+  const temperatuur = vervaltOp(zone.temperature);
+  const vochtigheid = vervaltOp(zone.humidity);
+  const volgende = Math.min(temperatuur ?? Infinity, vochtigheid ?? Infinity);
+  useEffect(() => {
+    if (!Number.isFinite(volgende)) return;
+    const timer = window.setTimeout(ververs, Math.max(0, volgende - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [volgende]);
+  return { temperatuur: temperatuur !== null, vochtigheid: vochtigheid !== null };
 }
 
 function Meettijd({ at, tz }: { at: Measurement['at']; tz?: string }) {
   return at ? <> <time dateTime={at}>{dateTime(at, tz)}</time></> : null;
 }
 
-function Meetinformatie({ zone, tz, metWaarde = false }: { zone: Zone; tz?: string; metWaarde?: boolean }) {
-  const { offline } = useConnection();
+function Meetinformatie({ zone, versheid, tz, metWaarde = false }: {
+  zone: Zone; versheid: Meetversheid; tz?: string; metWaarde?: boolean;
+}) {
   const { temperature, humidity } = zone;
-  const actueel = isActueel(temperature, offline);
+  const actueel = versheid.temperatuur;
   return (
     <>
       {temperature.value !== null && !actueel && (
@@ -79,7 +100,7 @@ function Meetinformatie({ zone, tz, metWaarde = false }: { zone: Zone; tz?: stri
       {humidity.value !== null && (
         <span className="muted">
           {Math.round(humidity.value)}% RV
-          {!isActueel(humidity, offline) && <> (laatst bekend<Meettijd at={humidity.at} tz={tz} />)</>}
+          {!versheid.vochtigheid && <> (laatst bekend<Meettijd at={humidity.at} tz={tz} />)</>}
         </span>
       )}
     </>
@@ -215,6 +236,7 @@ export function ZoneNotice({ zone }: { zone: Zone }) {
 /** Neutral block for a zone without airco (never red). Shows the sensor values when there is one. */
 export function UnitNotLinked({ zone, tz, onLink }: { zone: Zone; tz?: string; onLink?: () => void }) {
   const { admin } = useClimateCan();
+  const versheid = useMeetversheid(zone);
   const tm = zone.temperature;
   const hasSensor = Boolean(zone.sensor_device_id) || tm.value !== null;
   return (
@@ -222,9 +244,9 @@ export function UnitNotLinked({ zone, tz, onLink }: { zone: Zone; tz?: string; o
       <strong className="inline-flex items-center gap-1.5"><UnlinkedIcon />Nog geen airco gekoppeld</strong>
       {hasSensor && (
         <div className="c-readings">
-          <span className={`big-num${tm.stale || tm.value === null ? ' stale' : ''}`} style={{ fontSize: 40 }}>{temp(tm.value)}</span>
+          <span className={`big-num${!versheid.temperatuur ? ' stale' : ''}`} style={{ fontSize: 40 }}>{temp(tm.value)}</span>
           <span className="small row" style={{ gap: 8 }}>
-            <Meetinformatie zone={zone} tz={tz} />
+            <Meetinformatie zone={zone} versheid={versheid} tz={tz} />
           </span>
         </div>
       )}
@@ -320,6 +342,7 @@ function ResumeButton({ zone, small }: { zone: Zone; small?: boolean }) {
 export function ZoneCard({ zone, tz }: { zone: Zone; tz?: string }) {
   const { control } = useClimateCan();
   const ctl = useZoneControl(zone);
+  const versheid = useMeetversheid(zone);
   const tm = zone.temperature;
   const reason = disabledReason(zone);
   const hintId = `zc-hint-${zone.id}`;
@@ -349,9 +372,9 @@ export function ZoneCard({ zone, tz }: { zone: Zone; tz?: string }) {
         <>
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span className={`big-num${tm.stale || tm.value === null ? ' stale' : ''}`} style={{ fontSize: 56 }}>{temp(tm.value)}</span>
-              <span className="small" style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', color: tm.stale ? 'var(--stale-ink)' : 'var(--muted-foreground)' }}>
-                <Meetinformatie zone={zone} tz={tz} />
+              <span className={`big-num${!versheid.temperatuur ? ' stale' : ''}`} style={{ fontSize: 56 }}>{temp(tm.value)}</span>
+              <span className="small" style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', color: !versheid.temperatuur ? 'var(--stale-ink)' : 'var(--muted-foreground)' }}>
+                <Meetinformatie zone={zone} versheid={versheid} tz={tz} />
               </span>
             </div>
             <div className="c-setpoint">
@@ -392,8 +415,8 @@ export function ZoneCard({ zone, tz }: { zone: Zone; tz?: string }) {
 
 export function ZoneControlPanel({ zone, tz, onLink }: { zone: Zone; tz?: string; onLink?: () => void }) {
   const { control } = useClimateCan();
-  const { offline } = useConnection();
   const ctl = useZoneControl(zone);
+  const versheid = useMeetversheid(zone);
   const tm = zone.temperature;
   const reason = disabledReason(zone);
   const hintId = `zp-hint-${zone.id}`;
@@ -417,14 +440,14 @@ export function ZoneControlPanel({ zone, tz, onLink }: { zone: Zone; tz?: string
             <div className={`c-dial ${zone.mode}`}>
               <span className="small muted">Doel</span>
               <span className={`big-num${draft ? ' draft' : ''}`} aria-live="polite">{temp(shown)}</span>
-              {isActueel(tm, offline) && <span className="small muted">nu {temp(tm.value)}</span>}
+              {versheid.temperatuur && <span className="small muted">nu {temp(tm.value)}</span>}
             </div>
             {control && (
               <button type="button" className="sp-btn" aria-label="Doeltemperatuur hoger" aria-describedby={reason ? hintId : undefined} disabled={!ctl.adjustable} onClick={() => ctl.bump(1)}>+</button>
             )}
           </div>
           <span className="small row" style={{ justifyContent: 'center', gap: 8 }}>
-            <Meetinformatie zone={zone} tz={tz} metWaarde />
+            <Meetinformatie zone={zone} versheid={versheid} tz={tz} metWaarde />
           </span>
           <CommandLine ctl={ctl} />
           {control && reason && <p id={hintId} className="c-hint" style={{ margin: 0 }}>{reason}</p>}
