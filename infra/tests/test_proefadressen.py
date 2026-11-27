@@ -15,7 +15,7 @@ class Proefadressen(unittest.TestCase):
             *root.glob("integrations/tests/*.py"), *root.glob("apps/api/tests/*.py"),
             *root.glob("apps/web/src/test/*.ts*"), *root.glob("apps/web/e2e/*.ts"),
             *root.glob("infra/scripts/*.py"), *root.glob("infra/scripts/*.sh"), *root.glob("infra/e2e/*.ts"),
-            root / "infra/tests/test_scripts.py",
+            root / "infra/tests/test_scripts.py", root / "infra/tests/hub_url_gevallen.json",
             *root.glob("apps/android/*/src/test/**/*.kt"),
             *root.glob("docs/screenshots/peil/werkwijze/*.mjs"),
             *root.glob("docs/screenshots/peil/werkwijze/android/*.kt"),

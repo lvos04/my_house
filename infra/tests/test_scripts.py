@@ -191,7 +191,16 @@ HUB_URL_CASES = SCRIPTS.parent / "tests" / "hub_url_gevallen.json"
 
 
 def _hub_url_cases() -> dict[str, list]:
-    return json.loads(HUB_URL_CASES.read_text(encoding="utf-8"))
+    def proef_url(waarde):
+        if isinstance(waarde, str):
+            return waarde
+        begin, octetten, einde = waarde
+        return begin + ".".join(map(str, octetten)) + einde
+
+    bron = json.loads(HUB_URL_CASES.read_text(encoding="utf-8"))
+    bron["geldig"] = [[proef_url(invoer), proef_url(verwacht)] for invoer, verwacht in bron["geldig"]]
+    bron["ongeldig"] = [proef_url(invoer) for invoer in bron["ongeldig"]]
+    return bron
 
 
 @unittest.skipUnless(shutil.which("sh"), "geen sh")

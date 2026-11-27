@@ -167,9 +167,19 @@ describe('Terug naar de Hub (O-11)', () => {
 
   // Contract 1.3 §3.2: dezelfde gevallen als het startscript van de webcontainer (infra/tests/test_scripts.py), zodat
   // de tweede controle in de browser nooit iets doorlaat dat het script weigert, en andersom.
-  const gevallen = JSON.parse(readFileSync(join(__dirname, '../../../../infra/tests/hub_url_gevallen.json'), 'utf8')) as {
-    geldig: [string, string][];
-    ongeldig: string[];
+  type ProefUrl = string | [string, number[], string];
+  function proefUrl(waarde: ProefUrl): string {
+    if (typeof waarde === 'string') return waarde;
+    const [begin, octetten, einde] = waarde;
+    return begin + octetten.join('.') + einde;
+  }
+  const bron = JSON.parse(readFileSync(join(__dirname, '../../../../infra/tests/hub_url_gevallen.json'), 'utf8')) as {
+    geldig: [ProefUrl, ProefUrl][];
+    ongeldig: ProefUrl[];
+  };
+  const gevallen = {
+    geldig: bron.geldig.map(([invoer, verwacht]): [string, string] => [proefUrl(invoer), proefUrl(verwacht)]),
+    ongeldig: bron.ongeldig.map(proefUrl),
   };
 
   it.each(gevallen.geldig)('contract 1.3 §3.2: %s is geldig', (invoer, origin) => {
