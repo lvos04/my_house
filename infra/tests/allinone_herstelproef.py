@@ -94,8 +94,8 @@ def snapshot(trial, name, *, live_target=False):
     return result
 
 
-def simulate(trial, name, side):
-    trial.exec(name, *PYTHON, "-", side, content=METER.read_bytes())
+def simulate(trial, name, side, values):
+    trial.exec(name, *PYTHON, "-c", METER.read_text(), side, content=json.dumps(values).encode())
 
 
 def archive_inventory(trial, name, upload, phrase):
@@ -189,7 +189,9 @@ def measure(trial, record):
     assert source_viewer.request("GET", "/homes") == [home]
     home_path = "/homes/" + home["id"]
     zones = {z["id"] for z in source.request("GET", home_path + "/zones")}
-    simulate(trial, a, "bron")
+    values = {key: secrets.token_urlsafe(32) for key in ("meter", "backup")}
+    source.request("PUT", "/system/backup-settings", {"enabled": False, "passphrase": values["backup"]})
+    simulate(trial, a, "bron", values)
     device, = source.request("GET", home_path + "/devices")
     assert device["stable_identity"] == "proefmeter-735"
     source.request("POST", "/devices/" + device["id"] + "/bind", {"role": "grid"})
@@ -215,6 +217,13 @@ def measure(trial, record):
     assert snapshot(trial, b, live_target=True) == empty
     trial.exec(b, *PYTHON, "-c", "from pathlib import Path; assert not any(Path('/appdata/backups/uploads').glob('*'))")
     record("Verkeerde wachtwoordzin", "HTTP 422 met backup_invalid. Alleen de tijdelijke beheerder staat op B.")
+
+    damaged = archive[:-1] + bytes([archive[-1] ^ 1])
+    refused = target.request("POST", RESTORE + "/verify", archive=damaged, phrase=phrase, expected=422)
+    assert refused["detail"]["code"] == "backup_invalid"
+    assert snapshot(trial, b, live_target=True) == empty
+    record("Beschadigde bundel", "Bij de juiste wachtwoordzin gaf de beschadigde export HTTP 422. "
+           "Alle gemeten doelrijen bleven gelijk.")
 
     upload = target.request("POST", RESTORE + "/verify", archive=archive, phrase=phrase)
     assert upload["restorable"] and upload["secrets_included"] and not upload["redacted"]
@@ -246,6 +255,14 @@ def measure(trial, record):
     # Herstel mag de meter niet zelf als opnieuw waargenomen aanmerken. Pas na controle van de
     # herstelde identiteit en bronhistorie levert de simulator een nieuwe waarneming aan de worker.
     first = target.request("GET", RESTORE + "/compare")
+    assert not first["migration"]["confirmation"]
+    assert all(first["inventory"][t]["same"] is False for t in ("integrations", "settings"))
+    read_key = ("from pathlib import Path; from shc_allinone.supervisor import service_env; "
+                "import sys; sys.stdout.buffer.write(Path(service_env()['SHC_SECRET_KEY_FILE']).read_bytes())")
+    old_key = trial.exec(a, *PYTHON, "-c", read_key).stdout
+    counts = target.request("POST", RESTORE + "/rekey", archive=old_key, phrase="")
+    assert counts["rekeyed"] == 1 and counts["failed"] == counts["settings_failed"] == 0
+    first = target.request("GET", RESTORE + "/compare")
     check_inventory(first, expected_inventory)
     assert target.request("GET", "/homes") == [home]
     assert {z["id"] for z in target.request("GET", home_path + "/zones")} == zones
@@ -255,7 +272,9 @@ def measure(trial, record):
     assert trial.sql(b, READINGS).strip() == b"1|1|1|1"
     for table in ("users", "homes", "rooms", "logical_roles", "device_bindings", "sensor_readings"):
         assert restored["public." + table] == before["public." + table], f"Bronrijen verschillen in {table}"
-    simulate(trial, b, "doel")
+    simulate(trial, b, "doel", values)
+    record("Sleutelomzetting", "Vóór omzetting kon B de gevulde koppeling en back-upinstelling niet bevestigen. "
+           "Na omzetting las de proefmeter beide oorspronkelijke waarden met de doelsleutel.")
     result = target.request("GET", RESTORE + "/compare")
     check_inventory(result, expected_inventory)
     assert result["source_homes"] == result["homes"] == {home["id"]: home["name"]}
@@ -301,6 +320,13 @@ def measure(trial, record):
            "tekens uit de twee taakcodes.")
 
 
+def check_restore_stages(rows):
+    required = {"Beschadigde bundel", "Sleutelomzetting", "Terugval", "Taakrapporten"}
+    missing = required.difference(stage for stage, _ in rows)
+    if missing:
+        raise Proeffout("Herstelbewijs mist de volgende proeven: " + ", ".join(sorted(missing)))
+
+
 def write_report(rows, outcome):
     original = TESTLOG.read_text()
     header = "## S-P3-735 — back-up A naar herstel B"
@@ -337,6 +363,7 @@ def main():
     try:
         with ExitStack() as cleanup:
             measure(Trial(sys.argv[1], cleanup, step="735"), record)
+        check_restore_stages(rows)
     except BaseException as exc:
         location = traceback.extract_tb(exc.__traceback__)[-1].name
         reason = str(exc) if isinstance(exc, Proeffout) else f"{type(exc).__name__} in {location}"

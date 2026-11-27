@@ -1,29 +1,37 @@
 """Lever synthetische meterstanden aan de normale gegevensinvoer in een proefcontainer."""
 
 import asyncio
+import json
 import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
 
-async def report_reading(source):
+async def report_reading(source, values):
+    from shc_api.config import get_settings
     from shc_api.db import dispose, sessionmaker
     from shc_api.models import Home, Integration, SensorReading
+    from shc_api.security import SecretBox
+    from shc_api.store import get_secret_setting
     from shc_api.worker import Worker
     from shc_integrations.base import DeviceInfo, Reading
     from sqlalchemy import JSON, null, select, update
 
     identity = "proefmeter-735"
+    box = SecretBox(get_settings().resolved_secret_key())
     async with sessionmaker()() as db:
         if source:
             integration = Integration(home_id=(await db.scalars(select(Home.id))).one(),
                                       provider="homewizard", identity=identity, name="Proefmeter",
-                                      enabled=False, config={"product_type": "HWE-P1"})
+                                      enabled=False, config={"product_type": "HWE-P1"},
+                                      credentials_enc=box.encrypt({"token": values["meter"]}))
             db.add(integration)
             await db.commit()
         else:
             integration = (await db.scalars(select(Integration).where(Integration.identity == identity))).one()
+        assert box.decrypt(integration.credentials_enc) == {"token": values["meter"]}
+        assert await get_secret_setting(db, "backup_passphrase_enc") == values["backup"]
 
     at = datetime.now(UTC)
     worker = Worker()
@@ -51,4 +59,4 @@ if __name__ == "__main__":
     if source:
         # Een aantoonbaar lege bronmap is een voorwaarde van de verhuiswizard.
         Path(os.environ["SHC_ZIGBEE2MQTT_DIR"]).mkdir(mode=0o700, exist_ok=True)
-    asyncio.run(report_reading(source))
+    asyncio.run(report_reading(source, json.load(sys.stdin)))

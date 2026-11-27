@@ -2,7 +2,16 @@
 
 import unittest
 
-from allinone_herstelproef import EXPECTED, Proeffout, check_inventory
+from allinone_herstelproef import EXPECTED, Proeffout, check_inventory, check_restore_stages
+
+
+class Herstelbewijs(unittest.TestCase):
+    def test_herstelbewijs_weigert_elke_ontbrekende_proef(self):
+        stappen = ["Beschadigde bundel", "Sleutelomzetting", "Terugval", "Taakrapporten"]
+        check_restore_stages([(stap, "gemeten") for stap in stappen])
+        for ontbrekend in stappen:
+            with self.subTest(ontbrekend=ontbrekend), self.assertRaisesRegex(Proeffout, ontbrekend):
+                check_restore_stages([(stap, "gemeten") for stap in stappen if stap != ontbrekend])
 
 
 class Inventaris(unittest.TestCase):
