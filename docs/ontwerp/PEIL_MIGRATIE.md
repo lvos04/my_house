@@ -822,3 +822,24 @@ proefinstanties. Gebruik alleen fictieve gegevens en per test gegenereerde sleut
 
 **Uitgesteld, keuze gebruiker.** Voor herstel van het enige beheerdersaccount is een geverifieerd
 herstelkanaal nodig. De uitgifte, route en knop blijven buiten deze bouwronde. De gebruiker kiest het kanaal.
+
+## 20. Sensorwaarden op telefoon, tablet en desktop (S-P3-765)
+
+De Peil-afdrukken van Klimaat op 390, 768 en 1440 px laten bij dezelfde drie uur oude
+kamertemperatuur zowel ‘nu 20,6°’ in de thermostaat als ‘Sensor verouderd’ onder de thermostaat
+zien. In de regel eronder heeft de luchtvochtigheid alleen een percentage, ook wanneer haar
+laatste meting een andere ouderdom heeft dan de temperatuur. De draaiknop gebruikt voor een
+ontbrekende temperatuur hetzelfde woord ‘nu’ met een streepje.
+
+| Toestand | Weergave volgens Peil 1.1.1, §4.4 |
+|---|---|
+| Verse temperatuur | De draaiknop toont ‘nu’ met de gemeten waarde. Het instelpunt houdt het label ‘Doel’. |
+| Laatst bekende temperatuur | Onder de draaiknop staan de bestaande gearceerde statuspil ‘Verouderd’, de waarde en ‘Laatst bekend’ met de meettijd in de tijdzone van de woning. Zo heeft de tekst op een smalle telefoon de volle kaartbreedte. Dit geldt ook voor de laatst bekende stand bij verbindingsverlies. |
+| Geen temperatuur | Bij de meetinformatie staat ‘Geen meting’. Er verschijnt geen getal voor de kamertemperatuur. |
+| Oude luchtvochtigheid | Bij het percentage staat de eigen meettijd als ‘laatst bekend’. De temperatuur en luchtvochtigheid volgen elk de versheid van hun eigen bron. |
+
+Op 390 en 768 px bereikt de gebruiker Klimaat via de onderbalk, op 1440 px via de zijbalk.
+De browserproef doorloopt de toestanden met fictieve sensorwaarden en controleert de paginabreedte.
+De opleverbeelden tonen de web-app op een telefoon, tablet en desktop. De bestaande Peil-review
+beschrijft de overname van ‘Verzonden’, de 320px-navigatie, de keuzerand en het contrast van
+schemabanden. Deze vier bronpunten vallen buiten deze bouwstap. [Peil-review §11](PEIL_REVIEW.md#11-peil-111-10-november-2026-conformiteitsronde-contract-13)
