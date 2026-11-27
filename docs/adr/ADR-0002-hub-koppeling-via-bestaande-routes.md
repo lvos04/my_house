@@ -41,12 +41,15 @@ ondertekende verzoeken en de lokale replaycontrole vast.
    "kies eerst een modus" ongewijzigd gelden. Het resultaat is `202` + `command_id`; "uitgevoerd" pas na `confirmed`
    (readback) via `GET /connector/v1/evidence/{command_id}`.
 4. **Allowlist v1:** `light.group.set`, `light.scene.recall`, `zone.command`, `zone.resume`,
-   `zone.schedule.propose` (alleen een concept-schema, geen directe toepassing). **Nooit** in de allowlist: alles wat
+   `zone.schedule.propose` (conceptschema) en `socket.relay.propose` (concept voor een stekkerstand, EX27). **Nooit** in de allowlist: alles wat
    een energiemeter/stekker schakelt (`set_relay`, `switch`, …), bewerkingen op rollen/apparaten/gebruikers,
    back-up/herstel, veilige modus opheffen. De risicoklasse bepaalt de Hub-policy (R1 licht; R2 klimaat); my_house
    negeert `risk_claim`.
-5. **Boiler:** elk propose/apply-verzoek waarvan het doel een apparaat met beschermde rol is, of een meter, geeft
-   **altijd** `409 {code:"policy_denied"}` — ook met geldige handtekening en goedkeuring. Bestaande routes die een
+5. **Boiler.** Een beschermde rol blokkeert ieder voorstel en ieder bedienverzoek met
+   `409 policy_denied`, ook met een geldige handtekening en goedkeuring. Voor meters geldt dezelfde blokkade.
+   Alleen een actieve, geteste HomeWizard Energy Socket zonder beschermde rol kan een ondertekend
+   `socket.relay.propose` met één booleaanse stand als concept krijgen. Bij herhaling van het voorstel
+   controleert de connector de actuele rol opnieuw. Bestaande routes die een
    beschermd apparaat als doel krijgen, antwoorden voortaan ook `409 policy_denied` in plaats van 404/422.
 6. **Apparaatherstel (S-P3-742, bouwpunt 4, besluit 19 november 2026).** Apply vereist een duurzaam
    voorstel met betrouwbaar herstelrecept. De API leest bij het voorstel rechtstreeks terug, bewaart
@@ -61,6 +64,7 @@ ondertekende verzoeken en de lokale replaycontrole vast.
    | `light.scene.recall` | Apply en rollback geven 501. Het vorige lichtbeeld en alle toestand die een scène kan wijzigen zijn niet betrouwbaar terug te zetten via deze actie. |
    | `zone.resume` | Apply en rollback geven 501. Het schema hervatten kan later andere fysieke opdrachten veroorzaken. |
    | `zone.schedule.propose` | Het voorstel is een concept. Apply en rollback geven 501. Het actieve schema wordt niet aangepast. |
+   | `socket.relay.propose` | Een concept bevat de gewenste stand en het apparaat-ID. Apply en rollback geven 501 voor de gewone stekker en 409 zodra de stekker beschermd is. Er komt geen relaisopdracht in de wachtrij. |
 
    Een onbekende vorige stand blokkeert apply. Een afwijkende teruglezing geeft `failed`. Als de
    gedeeltelijke verandering betrouwbaar leesbaar is en de context gelijk blijft, plant de worker

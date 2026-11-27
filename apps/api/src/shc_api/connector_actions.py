@@ -28,6 +28,10 @@ class GroupParameters(Empty):
     brightness: int | None = Field(default=None, ge=1, le=100)
 
 
+class SocketParameters(Empty):
+    on: bool
+
+
 class ZoneParameters(ZoneCommand):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -49,12 +53,14 @@ class Action:
     risk: str
 
 
+SOCKET_PROPOSAL = "socket.relay.propose"
 ACTIONS = {
     "light.group.set": Action("light_group", "group_id", "set_group", GroupParameters, "R1"),
     "light.scene.recall": Action("scene", "scene_id", "recall_scene", Empty, "R1"),
     "zone.command": Action("zone", "zone_id", "set_hvac", ZoneParameters, "R2"),
     "zone.resume": Action("zone", "zone_id", "set_hvac", Empty, "R2"),
     "zone.schedule.propose": Action("zone", "zone_id", "set_hvac", ScheduleParameters, "R2"),
+    SOCKET_PROPOSAL: Action("energy_socket", "device_id", SOCKET_PROPOSAL, SocketParameters, "R1"),
 }
 
 
@@ -170,7 +176,9 @@ async def check_target_policy(db: AsyncSession, device: Device, action: Action, 
         facts = await command_facts(db, device, safe_mode=True)
         # Voor connectorbediening geldt de geteste status ook voor eerder geïnstalleerde apparaten.
         check_command(replace(facts, commissioning_gate=False), action.command, {})
-        if facts.kind in MEASURE_ONLY_KINDS:
+        socket_concept = (action.command == SOCKET_PROPOSAL and facts.kind == "energy_socket"
+                          and device.provider == "homewizard")
+        if facts.kind in MEASURE_ONLY_KINDS and not socket_concept:
             raise PolicyDenied("Dit doel wordt alleen gebruikt om te meten.")
         check_command(replace(facts, commissioning_gate=True), action.command, {})
         await check_active_target(db, home_id, device, climate=action.command == "set_hvac")

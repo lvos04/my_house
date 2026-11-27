@@ -50,6 +50,7 @@ async def test_discover_geeft_precies_de_toegestane_acties(admin):
     assert antwoord.status_code == 200
     assert [actie["action_id"] for actie in antwoord.json()["actions"]] == [
         "light.group.set", "light.scene.recall", "zone.command", "zone.resume", "zone.schedule.propose",
+        "socket.relay.propose",
     ]
 
 
@@ -232,6 +233,75 @@ async def test_boiler_ook_voor_geldig_ondertekende_ai_geweigerd(proef, target_ki
     assert answer.status_code == 409
     assert answer.json()["code"] == "policy_denied"
     assert await proef.count() == 0
+
+
+@pytest.fixture
+async def stekker(proef):
+    async with sessionmaker()() as db:
+        device = Device(home_id=proef.home_id, provider="homewizard", kind="energy_socket",
+                        name="Proefstekker", stable_identity=uuid.uuid4().hex, compatibility="tested")
+        db.add(device)
+        await db.commit()
+        device_id = device.id
+    yield device_id
+    async with sessionmaker()() as db:
+        await db.execute(delete(ConnectorChange).where(ConnectorChange.target["device_id"].astext == str(device_id)))
+        await db.commit()
+
+
+@pytest.mark.parametrize(("role", "protected"), [("boiler", False), ("boiler_energy", False), ("meetpunt", True)])
+async def test_stekkervoorstel_blijft_concept_en_volgt_de_actuele_rol(proef, stekker, role, protected):
+    target = {"device_id": str(stekker)}
+    options = {"action": "socket.relay.propose", "target": target, "params": {"on": False}, "risk": "R1"}
+    body, idem = proef.request(**options), str(uuid.uuid4())
+    antwoord = await proef.post("propose", body, idem)
+    assert antwoord.status_code == 200
+    preview = antwoord.json()
+    assert preview["status"] == "proposed" and preview["concept_only"] is True
+    assert preview["blast_radius"] == [target] and preview["diff"]["proposed"] == {"on": False}
+    assert preview["rollback_recipe"] is None
+    assert (await proef.post("propose", body, idem)).json() == preview
+    licht = proef.request(action="light.group.set", target={"group_id": str(stekker)}, params={"on": False})
+    denied = await proef.post("propose", licht)
+    assert denied.status_code == 409 and denied.json()["code"] == "policy_denied"
+    for route in ("apply", "rollback"):
+        denied = await proef.post(route, proef.request(**options, preview=preview))
+        assert denied.status_code == 501 and denied.json()["code"] == "capability_unavailable"
+
+    async with sessionmaker()() as db:
+        binding = LogicalRole(home_id=proef.home_id, key=role, label="Meetrol", protected=protected)
+        db.add(binding)
+        await db.flush()
+        db.add(DeviceBinding(role_id=binding.id, device_id=stekker))
+        await db.commit()
+    replay = await proef.post("propose", body, idem)
+    assert replay.status_code == 409 and replay.json()["code"] == "policy_denied"
+    for route in ("propose", "apply", "rollback"):
+        denied = await proef.post(route, proef.request(**options, preview=preview))
+        assert denied.status_code == 409 and denied.json()["code"] == "policy_denied"
+    bewijs = await proef.evidence(preview["proposal_id"])
+    assert bewijs["command_id"] is None and bewijs["rollback_command_id"] is None
+    async with sessionmaker()() as db:
+        opdrachten = select(func.count()).select_from(CommandRecord).where(CommandRecord.home_id == proef.home_id)
+        assert await db.scalar(opdrachten) == 0
+
+
+@pytest.mark.parametrize(("kind", "provider", "tested", "code"), [
+    ("p1_meter", "homewizard", True, "policy_denied"),
+    ("kwh_meter", "homewizard", True, "policy_denied"),
+    ("zigbee_sensor", "zigbee", True, "policy_denied"),
+    ("energy_socket", "test", True, "policy_denied"),
+    ("energy_socket", "homewizard", False, "device_not_tested"),
+])
+async def test_stekkervoorstel_vereist_geteste_homewizard_stekker(proef, stekker, kind, provider, tested, code):
+    async with sessionmaker()() as db:
+        device = await db.get(Device, stekker)
+        device.kind, device.provider = kind, provider
+        device.compatibility = "tested" if tested else "untested"
+        await db.commit()
+    body = proef.request(action="socket.relay.propose", target={"device_id": str(stekker)}, params={"on": True})
+    antwoord = await proef.post("propose", body)
+    assert antwoord.status_code == 409 and antwoord.json()["code"] == code
 
 
 @pytest.mark.parametrize(("action", "params", "risk", "claim", "code"), [

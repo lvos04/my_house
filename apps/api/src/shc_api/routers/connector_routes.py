@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict
 
 from .. import connector_changes as changes
 from ..connector import process_request
-from ..connector_actions import discovery, not_found
+from ..connector_actions import SOCKET_PROPOSAL, discovery, not_found, resolve_target
 from ..contract_http import ConnectorContractRoute, ContractProblem
 from ..deps import DB, Auth, Principal
 from ..models import ClimateZone, Device
@@ -90,6 +90,9 @@ async def _mutation(db, principal, idem, body, operation):
         request=body,
         operation=execute,
     )
+    if replay and operation is changes.propose and body["proposal"]["action_id"] == SOCKET_PROPOSAL:
+        # Een eerder voorstel mag na toewijzing van de boilerrol niet opnieuw worden afgegeven.
+        await resolve_target(db, body["proposal"], body["policy_decision"]["risk_class"])
     await db.commit()
     headers = {"Idempotent-Replay": "true"} if replay else {}
     if status == 200 and "resource_etag" in data:

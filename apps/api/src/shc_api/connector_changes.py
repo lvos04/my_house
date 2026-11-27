@@ -16,7 +16,7 @@ from starlette.exceptions import HTTPException
 
 from .commanding import queue_zone_setpoint
 from .connector import RESTORED_COMMAND_DETAIL, VerifiedRequest, bounded_reservation
-from .connector_actions import ACTIONS, Target, check_target_policy, not_found, resolve_target
+from .connector_actions import ACTIONS, SOCKET_PROPOSAL, Target, check_target_policy, not_found, resolve_target
 from .connector_proof import MEASUREMENT_PREFIX, apply_preview, digest
 from .connector_transition import LOCAL_PROPOSAL
 from .contract_http import contract_error
@@ -226,6 +226,7 @@ async def propose(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[
     target = await resolve_target(db, prop, req.risk_class)
     proposal_key = uuid.UUID(prop["idempotency_key"])
     action = prop["action_id"]
+    concept_only = action in {CONCEPT, SOCKET_PROPOSAL}
     before, observed_at, reason = None, None, None
     binding = await _binding(db, target)
     if action == CONCEPT:
@@ -237,14 +238,14 @@ async def propose(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[
         observed_at = utcnow() if before is not None else None
         if before is None or not _compatible(target, before):
             reason = "readback_unavailable"
-    else:
+    elif action != SOCKET_PROPOSAL:
         reason = "capability_unavailable"
 
     etag = digest({"binding": binding, "before": before})
     measurement = _measurement(target, binding, etag) if action == SETPOINT and before is not None else None
     if prop["expected_version"] not in {"absent", "geen", "eigenaar", etag}:
         raise _stale()
-    recipe = None if reason or action == CONCEPT else {"target_c": before["target_c"]}
+    recipe = None if reason or concept_only else {"target_c": before["target_c"]}
     diff = {"before": before, "proposed": prop["parameters"]}
     blast_radius = [prop["target"]]
     preview_hash = apply_preview(action, diff, prop["target"], etag, recipe)
@@ -274,7 +275,7 @@ async def propose(db: AsyncSession, req: VerifiedRequest, client: str) -> tuple[
         "rollback_recipe": recipe, "requires_backup": False,
         "observed_at": observed_at.isoformat() if observed_at else None,
         "valid_until": valid_until.isoformat(), "status": status,
-        "reason_code": reason, "concept_only": action == CONCEPT,
+        "reason_code": reason, "concept_only": concept_only,
     }
 
 
