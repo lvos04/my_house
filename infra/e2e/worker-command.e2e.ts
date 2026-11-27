@@ -7,7 +7,7 @@
 // unit, which rightly blocks cooling here.)
 import { expect, test } from '../../apps/web/e2e/helpers';
 
-const UNIT_HOST = process.env.E2E_FAKE_GREE_HOST ?? '192.168.77.10';
+const UNIT_HOST = process.env.E2E_FAKE_GREE_HOST ?? `${process.env.SHC_E2E_LAN_PREFIX ?? '192.168.77'}.10`;
 const UNIT_MAC = 'f4911e000001'; // integrations/tests/fake_gree.py
 
 test('commando via de worker, bevestigd door de airco', async ({ adminPage: page, api, homeId }) => {

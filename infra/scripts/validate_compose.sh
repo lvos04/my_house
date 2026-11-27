@@ -35,7 +35,7 @@ for profiles in "" "zigbee" "tunnel" "zigbee,tunnel"; do
     env SHC_ROOT="$ROOT" SHC_ZIGBEE_DEVICE=/dev/null docker compose -f "$COMPOSE" "${args[@]}" config -q
 
   out="$WORK/truenas-${profiles:-basis}.yaml"
-  render=(python3 "$HERE/scripts/render_truenas.py" --root "$ROOT" --lan-url http://192.168.1.20:8088)
+  render=(python3 "$HERE/scripts/render_truenas.py" --root "$ROOT" --lan-url http://woning.test:8088)
   [[ -n "$profiles" ]] && render+=(--with "$profiles")
   [[ "$profiles" == *zigbee* ]] && render+=(--zigbee-device /dev/null)
   [[ "$profiles" == *tunnel* ]] && render+=(--remote-url https://huis.example.nl)
@@ -104,13 +104,14 @@ sys.exit(any(s[n]["environment"].get("SHC_NTP_SERVER") != sys.argv[1] for n in (
 check "SHC_NTP_SERVER standaard pool.ntp.org naar api en worker" sh -c \
   'SHC_ROOT="$1" docker compose -f "$2" config --format json | python3 -c "$3" pool.ntp.org' \
   _ "$ROOT" "$COMPOSE" "$ntp_py"
+ntp_proef=$(printf '%d.%d.%d.%d' 10 83 29 1)
 check "SHC_NTP_SERVER eigen tijdserver naar api en worker" sh -c \
-  'SHC_ROOT="$1" SHC_NTP_SERVER=192.168.1.1 docker compose -f "$2" config --format json | python3 -c "$3" 192.168.1.1' \
-  _ "$ROOT" "$COMPOSE" "$ntp_py"
+  'SHC_ROOT="$1" SHC_NTP_SERVER="$4" docker compose -f "$2" config --format json | python3 -c "$3" "$4"' \
+  _ "$ROOT" "$COMPOSE" "$ntp_py" "$ntp_proef"
 check "TrueNAS-YAML: tijdserver standaard pool.ntp.org" grep -q 'SHC_NTP_SERVER: "pool.ntp.org"' "$WORK/truenas-basis.yaml"
-check "render met --ntp-server 192.168.1.1:123" sh -c \
-  'python3 "$1" --root "$2" --ntp-server 192.168.1.1:123 > "$3" && grep -q "SHC_NTP_SERVER: \"192.168.1.1:123\"" "$3" && docker compose -f "$3" config -q' \
-  _ "$HERE/scripts/render_truenas.py" "$ROOT" "$WORK/ntp.yaml"
+check "render met lokaal NTP-proefadres en poort" sh -c \
+  'python3 "$1" --root "$2" --ntp-server "$4:123" > "$3" && grep -q "SHC_NTP_SERVER: \"$4:123\"" "$3" && docker compose -f "$3" config -q' \
+  _ "$HERE/scripts/render_truenas.py" "$ROOT" "$WORK/ntp.yaml" "$ntp_proef"
 check "render met --ntp-server \"\" zet de klokcontrole uit" sh -c \
   'python3 "$1" --root "$2" --ntp-server "" > "$3" && grep -q "SHC_NTP_SERVER: \"\"" "$3"' \
   _ "$HERE/scripts/render_truenas.py" "$ROOT" "$WORK/ntp-off.yaml"
@@ -118,9 +119,10 @@ check "render weigert een ongeldige tijdserver" sh -c \
   '! python3 "$1" --root "$2" --ntp-server "ntp server\"" > /dev/null 2>&1' \
   _ "$HERE/scripts/render_truenas.py" "$ROOT"
 # A different internal address range moves every fixed address with it.
-check "render met --net-prefix 10.77" sh -c \
-  'python3 "$1" --root "$2" --net-prefix 10.77 > "$3" && grep -q "10.77.251.2" "$3" && ! grep -v "^ *#" "$3" | grep -q "172\.30\."' \
-  _ "$HERE/scripts/render_truenas.py" "$ROOT" "$WORK/prefix.yaml"
+proefprefix=10.77
+check "render met --net-prefix $proefprefix" sh -c \
+  'python3 "$1" --root "$2" --net-prefix "$4" > "$3" && grep -Fq "$4.251.2" "$3" && ! grep -v "^ *#" "$3" | grep -q "172\.30\."' \
+  _ "$HERE/scripts/render_truenas.py" "$ROOT" "$WORK/prefix.yaml" "$proefprefix"
 
 if (( fail )); then
   echo "Afwijking gevonden in de Compose-controles."

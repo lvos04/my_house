@@ -74,7 +74,7 @@ def _net_prefix(value: str) -> str:
 
 _LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
 _HOSTNAME = re.compile(rf"^(?=.{{1,253}}$){_LABEL}(?:\.{_LABEL})*\.?$")
-NTP_HELP = "verwacht een naam of IP-adres, eventueel met :poort, bijvoorbeeld 192.168.1.1 of ntp.lan:123"
+NTP_HELP = "verwacht een naam of IP-adres, eventueel met :poort, bijvoorbeeld ntp.lan of ntp.lan:123"
 
 
 def _ntp_server(value: str) -> str:
@@ -139,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--port", default="8088")
     ap.add_argument("--version", help="expliciete imagetag voor API en web (standaard de digests uit Compose)")
     ap.add_argument("--image-prefix", default="ghcr.io/lvos04/my_house")
-    ap.add_argument("--lan-url", default="", help="address at home, e.g. http://192.168.1.20:8088")
+    ap.add_argument("--lan-url", default="", help="lokaal webadres, bijvoorbeeld http://woning.test:8088")
     ap.add_argument("--remote-url", default="", help="tunnel address, e.g. https://huis.jouwdomein.nl")
     ap.add_argument("--zigbee-device", default="/dev/serial/by-id/CHANGE-ME")
     ap.add_argument(

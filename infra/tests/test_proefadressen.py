@@ -14,6 +14,8 @@ class Proefadressen(unittest.TestCase):
         bestanden = [
             *root.glob("integrations/tests/*.py"), *root.glob("apps/api/tests/*.py"),
             *root.glob("apps/web/src/test/*.ts*"), *root.glob("apps/web/e2e/*.ts"),
+            *root.glob("infra/scripts/*.py"), *root.glob("infra/scripts/*.sh"), *root.glob("infra/e2e/*.ts"),
+            root / "infra/tests/test_scripts.py",
         ]
         for pad in sorted(bestanden):
             for nummer, regel in enumerate(pad.read_text().splitlines(), 1):

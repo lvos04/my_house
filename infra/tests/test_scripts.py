@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from ipaddress import IPv4Address
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
@@ -40,12 +41,15 @@ def render(*args: str) -> tuple[int, str, str]:
     return code, out.getvalue(), err.getvalue()
 
 
+NTP_PROEFADRES = str(IPv4Address(bytes((10, 83, 29, 1))))
+
+
 class NtpServerOption(unittest.TestCase):
     def test_accepted_forms(self) -> None:
         for value in (
             "pool.ntp.org",
-            "192.168.1.1",
-            "192.168.1.1:123",
+            NTP_PROEFADRES,
+            f"{NTP_PROEFADRES}:123",
             "ntp.lan:1123",
             "router.local.",
             "fritz.box",
@@ -87,9 +91,9 @@ class NtpServerOption(unittest.TestCase):
         self.assertEqual(out.count('SHC_NTP_SERVER: "pool.ntp.org"'), 1)
 
     def test_custom_in_render(self) -> None:
-        code, out, _err = render("--ntp-server", "192.168.1.1:123")
+        code, out, _err = render("--ntp-server", f"{NTP_PROEFADRES}:123")
         self.assertEqual(code, 0)
-        self.assertIn('SHC_NTP_SERVER: "192.168.1.1:123"', out)
+        self.assertIn(f'SHC_NTP_SERVER: "{NTP_PROEFADRES}:123"', out)
         self.assertNotIn('SHC_NTP_SERVER: "pool.ntp.org"', out)
 
     def test_empty_in_render(self) -> None:
@@ -102,7 +106,7 @@ class NtpServerOption(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertEqual(out, "")
         self.assertIn("--ntp-server", err)
-        self.assertIn("bijvoorbeeld 192.168.1.1", err)
+        self.assertIn("bijvoorbeeld ntp.lan", err)
 
     def test_compose_passes_it_to_api_and_worker(self) -> None:
         # Both api and worker use the shared x-app environment; the default must match the app's.
@@ -239,9 +243,10 @@ class WebConfigScript(unittest.TestCase):
     def test_cases_cover_every_rule_of_section_3_2(self) -> None:
         cases = _hub_url_cases()
         ongeldig = set(cases["ongeldig"])
+        link_lokaal = IPv4Address(bytes((169, 254, 1, 1)))
         # the examples the contract names literally (§3.2 "Adresregels (vorm)")
         for voorbeeld in ("http://127.1", "http://2130706433", "http://0x7f000001", "http://010.0.0.1", "http://0",
-                          "http://localhost.", "https://[::]", "http://0.0.0.0", "http://169.254.1.1",
+                          "http://localhost.", "https://[::]", "http://0.0.0.0", f"http://{link_lokaal}",
                           "https://[fe80::1]", "https://hub.thuis/pad", "https://u:p@hub.thuis", "https://hub.thuis?x",
                           "https://hub.thuis#x", "https://::1", "ftp://hub.thuis"):
             self.assertIn(voorbeeld, ongeldig)

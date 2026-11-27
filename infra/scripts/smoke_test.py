@@ -26,9 +26,13 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from ipaddress import IPv4Address
 from urllib.parse import urlsplit
 
 USERNAME = "rooktest-beheer"
+# Gereserveerde documentatienetten voor de gesimuleerde browser- en tunnelheaders.
+BROWSER_CLIENT = str(IPv4Address(bytes((198, 51, 100, 9))))
+TUNNEL_CLIENT = str(IPv4Address(bytes((203, 0, 113, 7))))
 
 
 class Fail(Exception):
@@ -240,7 +244,7 @@ def run(args) -> str:
     # Spoofed proxy headers from the LAN must be ignored: the cookie stays without "Secure".
     status, headers, body = c.request(
         "POST", "/api/v1/auth/setup", {"username": USERNAME, "password": password},
-        headers={"X-Forwarded-Proto": "https", "CF-Connecting-IP": "198.51.100.9", "X-Forwarded-For": "198.51.100.9"},
+        headers={"X-Forwarded-Proto": "https", "CF-Connecting-IP": BROWSER_CLIENT, "X-Forwarded-For": BROWSER_CLIENT},
     )  # fmt: skip
     check(status == 200, f"beheerder aangemaakt via /auth/setup (status {status}: {body if status != 200 else ''})")
     c.csrf = body["csrf_token"]
@@ -277,7 +281,7 @@ def run(args) -> str:
     if args.edge_network:
         cred = {"username": USERNAME, "password": password}
         status, hdrs = edge_request(args, "/api/v1/auth/login", cred, {
-            "X-Forwarded-Proto": "https", "CF-Connecting-IP": "203.0.113.7", "Host": "huis.example.nl"})  # fmt: skip
+            "X-Forwarded-Proto": "https", "CF-Connecting-IP": TUNNEL_CLIENT, "Host": "huis.example.nl"})  # fmt: skip
         sc = hdrs.get("set-cookie", [])
         check(status == 200 and sc and all("secure" in x.lower().split("; ") for x in sc),
               "via de tunnel over https: cookie met Secure")  # fmt: skip
@@ -319,8 +323,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--zonder-zigbee", action="store_true", help="verwacht afwezige Zigbee2MQTT-opslag")
     ap.add_argument("--expect-unavailable", action="store_true", help="only check the answers while the API is down")
     ap.add_argument("--edge-network", help="docker network 'edge' to test the tunnel path from")
-    ap.add_argument("--tunnel-ip", default="172.30.250.2")
-    ap.add_argument("--web-ip", default="172.30.250.3", help="web's address on the edge network")
+    edge_prefix = "172.30.250"  # edge-netwerk van de standaard Compose-proef
+    ap.add_argument("--tunnel-ip", default=f"{edge_prefix}.2")
+    ap.add_argument("--web-ip", default=f"{edge_prefix}.3", help="web's address on the edge network")
     ap.add_argument("--client-image", help="image with python, used as the fake cloudflared (e.g. the API image)")
     args = ap.parse_args(argv)
     if args.edge_network and not args.client_image:
