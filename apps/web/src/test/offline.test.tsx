@@ -49,14 +49,27 @@ describe('brontijd van een sensormeting', () => {
     expect(screen.getByText('nu 20,6°')).toBeVisible();
     act(() => vi.advanceTimersByTime(1));
     expect(screen.queryByText(/^nu\s/i)).not.toBeInTheDocument();
-    const vocht = screen.getByText(/% RV/);
-    expect(vocht).not.toHaveTextContent('laatst bekend');
+    expect(screen.getByText('54% RV')).toBeVisible();
+    expect(screen.queryByRole('group', { name: 'Laatst bekende luchtvochtigheid' })).not.toBeInTheDocument();
     act(() => vi.advanceTimersByTime(10_000));
-    expect(vocht).toHaveTextContent('laatst bekend');
+    expect(screen.getByRole('group', { name: 'Laatst bekende luchtvochtigheid' })).toHaveTextContent('54% RV');
   });
 });
 
 describe('offline rule', () => {
+  it('houdt de laatst bekende waarden bij hun eigen meettijd in een waardevak', () => {
+    const kamer = zone();
+    render(wrap(<ZoneControlPanel zone={kamer} />, false));
+    for (const [naam, waarde, tijd] of [
+      ['temperatuur', '20,6°', kamer.temperature.at],
+      ['luchtvochtigheid', '54% RV', kamer.humidity.at],
+    ] as const) {
+      const vak = screen.getByRole('group', { name: `Laatst bekende ${naam}` });
+      expect(vak).toHaveTextContent(waarde);
+      expect(vak.querySelector('time')).toHaveAttribute('datetime', tijd);
+    }
+  });
+
   it('toont een eerder verse temperatuur zonder verbinding als laatst bekende meting', () => {
     const kamer = zone();
     render(wrap(<ZoneControlPanel zone={kamer} tz="Europe/Amsterdam" />, false));

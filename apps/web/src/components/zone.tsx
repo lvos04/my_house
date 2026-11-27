@@ -76,11 +76,23 @@ function useMeetversheid(zone: Zone): Meetversheid {
 }
 
 function Meettijd({ at, tz }: { at: Measurement['at']; tz?: string }) {
-  return at ? <> <time dateTime={at}>{dateTime(at, tz)}</time></> : null;
+  return at && Number.isFinite(Date.parse(at)) ? <> <time dateTime={at}>{dateTime(at, tz)}</time></> : null;
 }
 
-function Meetinformatie({ zone, versheid, tz, metWaarde = false }: {
-  zone: Zone; versheid: Meetversheid; tz?: string; metWaarde?: boolean;
+function LaatsteMeting({ naam, waarde, at, tz, grootte }: {
+  naam: string; waarde: string; at: Measurement['at']; tz?: string; grootte?: number;
+}) {
+  return (
+    <span role="group" aria-label={`Laatst bekende ${naam}`}
+      className="arcering inline-block max-w-full rounded-md border border-dotted border-stale px-2 py-1 font-normal text-stale-ink">
+      Laatst bekend<Meettijd at={at} tz={tz} /><br />
+      {grootte ? <span className="big-num" style={{ fontSize: grootte, fontWeight: 'normal' }}>{waarde}</span> : waarde}
+    </span>
+  );
+}
+
+function Meetinformatie({ zone, versheid, tz, grootte }: {
+  zone: Zone; versheid: Meetversheid; tz?: string; grootte?: number;
 }) {
   const { temperature, humidity } = zone;
   const actueel = versheid.temperatuur;
@@ -89,20 +101,14 @@ function Meetinformatie({ zone, versheid, tz, metWaarde = false }: {
       {temperature.value !== null && !actueel && (
         <>
           <StatusBadge status="stale" />
-          <span className="text-stale-ink">
-            Laatst bekend<Meettijd at={temperature.at} tz={tz} />
-            {metWaarde && <> · {temp(temperature.value)}</>}
-          </span>
+          <LaatsteMeting naam="temperatuur" waarde={temp(temperature.value)} at={temperature.at} tz={tz} grootte={grootte} />
         </>
       )}
       <QualityBadge quality={temperature.value === null ? 'missing' : temperature.quality} />
       {actueel && <span className="muted">{ago(temperature.at)}</span>}
-      {humidity.value !== null && (
-        <span className="muted">
-          {Math.round(humidity.value)}% RV
-          {!versheid.vochtigheid && <> (laatst bekend<Meettijd at={humidity.at} tz={tz} />)</>}
-        </span>
-      )}
+      {humidity.value !== null && (versheid.vochtigheid
+        ? <span className="muted">{Math.round(humidity.value)}% RV</span>
+        : <LaatsteMeting naam="luchtvochtigheid" waarde={`${Math.round(humidity.value)}% RV`} at={humidity.at} tz={tz} />)}
     </>
   );
 }
@@ -244,9 +250,11 @@ export function UnitNotLinked({ zone, tz, onLink }: { zone: Zone; tz?: string; o
       <strong className="inline-flex items-center gap-1.5"><UnlinkedIcon />Nog geen airco gekoppeld</strong>
       {hasSensor && (
         <div className="c-readings">
-          <span className={`big-num${!versheid.temperatuur ? ' stale' : ''}`} style={{ fontSize: 40 }}>{temp(tm.value)}</span>
+          {(versheid.temperatuur || tm.value === null) && (
+            <span className={`big-num${tm.value === null ? ' stale' : ''}`} style={{ fontSize: 40 }}>{temp(tm.value)}</span>
+          )}
           <span className="small row" style={{ gap: 8 }}>
-            <Meetinformatie zone={zone} versheid={versheid} tz={tz} />
+            <Meetinformatie zone={zone} versheid={versheid} tz={tz} grootte={40} />
           </span>
         </div>
       )}
@@ -372,9 +380,11 @@ export function ZoneCard({ zone, tz }: { zone: Zone; tz?: string }) {
         <>
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span className={`big-num${!versheid.temperatuur ? ' stale' : ''}`} style={{ fontSize: 56 }}>{temp(tm.value)}</span>
+              {(versheid.temperatuur || tm.value === null) && (
+                <span className={`big-num${tm.value === null ? ' stale' : ''}`} style={{ fontSize: 56 }}>{temp(tm.value)}</span>
+              )}
               <span className="small" style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', color: !versheid.temperatuur ? 'var(--stale-ink)' : 'var(--muted-foreground)' }}>
-                <Meetinformatie zone={zone} versheid={versheid} tz={tz} />
+                <Meetinformatie zone={zone} versheid={versheid} tz={tz} grootte={56} />
               </span>
             </div>
             <div className="c-setpoint">
@@ -447,7 +457,7 @@ export function ZoneControlPanel({ zone, tz, onLink }: { zone: Zone; tz?: string
             )}
           </div>
           <span className="small row" style={{ justifyContent: 'center', gap: 8 }}>
-            <Meetinformatie zone={zone} versheid={versheid} tz={tz} metWaarde />
+            <Meetinformatie zone={zone} versheid={versheid} tz={tz} />
           </span>
           <CommandLine ctl={ctl} />
           {control && reason && <p id={hintId} className="c-hint" style={{ margin: 0 }}>{reason}</p>}

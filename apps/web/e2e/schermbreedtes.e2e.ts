@@ -30,14 +30,28 @@ test('Klimaat onderscheidt ontbrekende, oude en verse sensormetingen', async ({ 
     expect(oudeZone.humidity.stale).toBe(true);
     await page.reload();
     await expect(bediening.getByText('Verouderd', { exact: true })).toBeVisible();
-    const oudeTemperatuur = bediening.getByText(/laatst bekend.*19,4°/i);
-    const oudeVochtigheid = bediening.getByText(/46% RV.*laatst bekend/i);
+    const oudeTemperatuur = bediening.getByRole('group', { name: 'Laatst bekende temperatuur' });
+    const oudeVochtigheid = bediening.getByRole('group', { name: 'Laatst bekende luchtvochtigheid' });
     await expect(oudeTemperatuur).toBeVisible();
+    await expect(oudeTemperatuur).toContainText('19,4°');
     await expect(oudeTemperatuur.locator('time')).toHaveAttribute('datetime', oudeZone.temperature.at);
     await expect(oudeVochtigheid).toBeVisible();
+    await expect(oudeVochtigheid).toContainText('46% RV');
     await expect(oudeVochtigheid.locator('time')).toHaveAttribute('datetime', oudeZone.humidity.at);
     await expect(bediening.getByText(/^nu\s/i)).toHaveCount(0);
     await expectNoHorizontalScroll(page);
+    if (viewport?.width === 390) {
+      for (const thema of ['light', 'dark'] as const) {
+        await page.emulateMedia({ colorScheme: thema });
+        await expect(page.locator('html')).toHaveAttribute('data-theme', thema);
+        for (const vak of [oudeTemperatuur, oudeVochtigheid]) {
+          await expect(vak).toHaveCSS('border-top-style', 'dotted');
+          await expect(vak).toHaveCSS('background-image', /repeating-linear-gradient/);
+          await expect(vak.locator('time')).toBeVisible();
+        }
+        await expectNoHorizontalScroll(page);
+      }
+    }
     // Tekstafstand volgens WCAG 1.4.12, met de langste meetlabels in de kaart.
     await page.addStyleTag({ content: `
       * { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; }
@@ -54,7 +68,10 @@ test('Klimaat onderscheidt ontbrekende, oude en verse sensormetingen', async ({ 
 
     await menu.getByRole('link', { name: 'Overzicht' }).click();
     await expect(zonekaart.getByText('20,6°', { exact: true })).toBeVisible();
-    await expect(zonekaart.getByText(/46% RV.*laatst bekend/i)).toBeVisible();
+    const vochtOpKaart = zonekaart.getByRole('group', { name: 'Laatst bekende luchtvochtigheid' });
+    await expect(vochtOpKaart).toBeVisible();
+    await expect(vochtOpKaart).toContainText('46% RV');
+    await expect(vochtOpKaart.locator('time')).toHaveAttribute('datetime', oudeZone.humidity.at);
     await expectNoHorizontalScroll(page);
   } finally {
     await api.send('PATCH', pad, koppeling);
