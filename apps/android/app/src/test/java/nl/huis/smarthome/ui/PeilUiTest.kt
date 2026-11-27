@@ -1,5 +1,6 @@
 package nl.huis.smarthome.ui
 
+import nl.huis.smarthome.proefwoningUrl
 import nl.huis.smarthome.R
 import nl.huis.smarthome.core.CommandLabel
 import nl.huis.smarthome.core.Quality
@@ -83,7 +84,7 @@ class PeilUiTest {
 
     @Test
     fun routeIsNeutralAndNoRouteIsUnknown() {
-        val lan = HomeState(online = true, route = Route(RouteKind.LAN, "http://192.168.1.20:8088", "s"))
+        val lan = HomeState(online = true, route = Route(RouteKind.LAN, proefwoningUrl, "s"))
         val remote = lan.copy(route = Route(RouteKind.REMOTE, "https://huis.voorbeeld.invalid", "s"))
         assertEquals(RouteVorm.THUIS, PeilUi.route(lan))
         assertEquals(RouteVorm.ONDERWEG, PeilUi.route(remote))

@@ -36,7 +36,7 @@ class ApiClientTest {
 
     @Test
     fun redeemSendsCodeWithoutBearer() = runTest {
-        server.enqueue(MockResponse().setBody("""{"token":"shc_new","user":{"id":"u1","username":"telefoon","role":"admin"},"client":{"id":"c1","role":"control","expires_at":"2027-05-07T10:00:00Z"},"server":{"server_id":"$SID","lan_url":"http://192.168.1.20:8080","remote_url":null,"home_id":"h1","home_name":"Thuis"}}"""))
+        server.enqueue(MockResponse().setBody("""{"token":"shc_new","user":{"id":"u1","username":"telefoon","role":"admin"},"client":{"id":"c1","role":"control","expires_at":"2027-05-07T10:00:00Z"},"server":{"server_id":"$SID","lan_url":"http://${lanProefadres(20)}:8080","remote_url":null,"home_id":"h1","home_name":"Thuis"}}"""))
         val r = api.redeem(base, RouteKind.LAN, "K7Q4-9XPM", "Pixel 8")
         assertEquals("shc_new", r.token)
         assertEquals("h1", r.server.homeId)
@@ -146,8 +146,8 @@ class ApiClientTest {
         assertEquals("DELETE", del.method)
         assertEquals("/api/v1/clients/self", del.path)
 
-        server.enqueue(MockResponse().setBody("""{"lan_url":"http://192.168.1.30:8088","remote_url":"https://huis.voorbeeld.nl","safe_mode":false,"maintenance":false}"""))
-        assertEquals("http://192.168.1.30:8088", api.settings(lan).lanUrl)
+        server.enqueue(MockResponse().setBody("""{"lan_url":"http://${lanProefadres(30)}:8088","remote_url":"https://huis.voorbeeld.nl","safe_mode":false,"maintenance":false}"""))
+        assertEquals("http://${lanProefadres(30)}:8088", api.settings(lan).lanUrl)
 
         server.enqueue(MockResponse().setBody("""{"id":"u1","username":"anna","role":"admin","via":"token","client_role":"viewer","is_admin":false,"can_control":false}"""))
         val me = api.me(lan)

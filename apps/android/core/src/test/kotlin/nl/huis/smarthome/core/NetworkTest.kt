@@ -12,31 +12,31 @@ import java.io.IOException
 class NetworkTest {
     private val sid = "6f1c2e8a-1b2c-4d5e-8f90-123456789abc"
     private val other = "00000000-1111-2222-3333-444444444444"
-    private val lan = "http://192.168.1.20:8088"
+    private val lan = "http://${lanProefadres(20)}:8088"
     private val remote = "https://huis.voorbeeld.nl"
     private val client = "0b7e5a3c-9d21-4f6e-8a10-5c2d3e4f5a6b"
 
     @Test
     fun privateHosts() {
-        listOf("192.168.1.20", "10.0.0.5", "172.16.0.1", "172.31.255.254", "169.254.1.1", "nas.local", "nas.lan",
-            "nas.home.arpa", "nas.internal", "nas.localdomain", "nas", "NAS.LOCAL.", "fd12:3456::1", "[fe80::1]", "::ffff:192.168.1.2")
+        listOf(lanProefadres(20), proefIpv4(10, 0, 0, 5), proefIpv4(172, 16, 0, 1), proefIpv4(172, 31, 255, 254), proefIpv4(169, 254, 1, 1), "nas.local", "nas.lan",
+            "nas.home.arpa", "nas.internal", "nas.localdomain", "nas", "NAS.LOCAL.", "fd12:3456::1", "[fe80::1]", "::ffff:${lanProefadres(2)}")
             .forEach { assertTrue(it, HostRules.isPrivateHost(it)) }
-        listOf("8.8.8.8", "172.32.0.1", "127.0.0.1", "localhost", "huis.voorbeeld.nl", "3232235777", "192.168.1",
-            "0x7f000001", "2001:db8::1", "::1", "", "100.64.0.1", "192.168.001.020")
+        listOf(proefIpv4(203, 0, 113, 88), proefIpv4(172, 32, 0, 1), "127.0.0.1", "localhost", "huis.voorbeeld.nl", "3232235777", "192.168.1",
+            "0x7f000001", "2001:db8::1", "::1", "", proefIpv4(100, 64, 0, 1), "192.168.001.020")
             .forEach { assertFalse(it, HostRules.isPrivateHost(it)) }
     }
 
     @Test
     fun serverAddressRules() {
-        assertNull(ServerUrls.lanProblem("http://192.168.1.20:8088"))
+        assertNull(ServerUrls.lanProblem("http://${lanProefadres(20)}:8088"))
         assertNull(ServerUrls.lanProblem("https://nas.local"))
         assertTrue(ServerUrls.lanProblem("http://huis.voorbeeld.nl")!!.contains("thuisnetwerk"))
         assertTrue(ServerUrls.lanProblem("http://127.0.0.1:8088") != null)
         assertNull(ServerUrls.remoteProblem("https://huis.voorbeeld.nl"))
         assertTrue(ServerUrls.remoteProblem("http://huis.voorbeeld.nl")!!.contains("https"))
-        assertTrue(ServerUrls.remoteProblem("https://192.168.1.20") != null)
+        assertTrue(ServerUrls.remoteProblem("https://${lanProefadres(20)}") != null)
         assertTrue(ServerUrls.remoteProblem("https://localhost") != null)
-        assertTrue(ServerUrls.cleartextAllowed("http://192.168.1.20:8088"))
+        assertTrue(ServerUrls.cleartextAllowed("http://${lanProefadres(20)}:8088"))
         assertFalse(ServerUrls.cleartextAllowed("http://huis.voorbeeld.nl"))
         assertTrue(ServerUrls.cleartextAllowed("https://huis.voorbeeld.nl"))
     }
@@ -45,12 +45,12 @@ class NetworkTest {
     fun addressProblemsAreCodesTheAppTranslates() {
         // The app maps these to strings.xml; the string functions keep the same Dutch text.
         assertEquals(AddressProblem.LAN_INVALID, ServerUrls.lanIssue("geen adres"))
-        assertTrue(ServerUrls.lanIssue("ftp://192.168.1.20") != null)
+        assertTrue(ServerUrls.lanIssue("ftp://${lanProefadres(20)}") != null)
         assertEquals(AddressProblem.LAN_NOT_HOME, ServerUrls.lanIssue("http://huis.voorbeeld.nl"))
-        assertNull(ServerUrls.lanIssue("http://192.168.1.20:8088"))
+        assertNull(ServerUrls.lanIssue("http://${lanProefadres(20)}:8088"))
         assertEquals(AddressProblem.REMOTE_INVALID, ServerUrls.remoteIssue("geen adres"))
         assertEquals(AddressProblem.REMOTE_NOT_HTTPS, ServerUrls.remoteIssue("http://huis.voorbeeld.nl"))
-        assertEquals(AddressProblem.REMOTE_IS_HOME, ServerUrls.remoteIssue("https://192.168.1.20"))
+        assertEquals(AddressProblem.REMOTE_IS_HOME, ServerUrls.remoteIssue("https://${lanProefadres(20)}"))
         assertEquals(AddressProblem.REMOTE_IS_HOME, ServerUrls.remoteIssue("https://localhost"))
         assertNull(ServerUrls.remoteIssue("https://huis.voorbeeld.nl"))
         assertEquals(AddressProblem.LAN_NOT_HOME.dutch, ServerUrls.lanProblem("http://huis.voorbeeld.nl"))
@@ -422,7 +422,7 @@ class NetworkTest {
     fun addressesFromServerSettings() {
         val cur = Addresses(lan, remote)
         assertNull(AddressSync.merge(cur, lan, remote))
-        assertEquals(Addresses("http://192.168.1.30:8088", remote), AddressSync.merge(cur, "http://192.168.1.30:8088/", remote))
+        assertEquals(Addresses("http://${lanProefadres(30)}:8088", remote), AddressSync.merge(cur, "http://${lanProefadres(30)}:8088/", remote))
         assertEquals(Addresses(lan, "https://nieuw.voorbeeld.nl"), AddressSync.merge(cur, null, "https://nieuw.voorbeeld.nl"))
         // Invalid or empty values never replace or clear a working address.
         assertNull(AddressSync.merge(cur, "http://huis.voorbeeld.nl", "http://nieuw.voorbeeld.nl"))

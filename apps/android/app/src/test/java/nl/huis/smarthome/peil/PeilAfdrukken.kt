@@ -1,5 +1,6 @@
 package nl.huis.smarthome.peil
 
+import nl.huis.smarthome.proefwoningUrl
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.ActivityResultRegistryOwner
@@ -115,14 +116,14 @@ abstract class PeilAfdrukken(private val dark: Boolean, device: DeviceConfig, pr
     private val schedule: ZoneSchedule = ShcJson.decodeFromString(ZoneSchedule.serializer(), res("schedule-woonkamer.json"))
 
     private fun pairing(role: String = "control") = Pairing(
-        token = "fictief", lanUrl = "http://192.168.1.20:8088", remoteUrl = null, homeId = overview.home.id,
+        token = "fictief", lanUrl = proefwoningUrl, remoteUrl = null, homeId = overview.home.id,
         homeName = overview.home.name, username = "beheerder", role = "admin", serverId = "peil-test",
         clientRole = role, canControl = role != "viewer", isAdmin = role == "admin",
     )
 
     private fun online(role: String = "control", o: Overview = overview) = HomeState(
         pairing = pairing(role), overview = o, updatedAt = nu.minusSeconds(20),
-        route = Route(RouteKind.LAN, "http://192.168.1.20:8088", "peil-test"), online = true,
+        route = Route(RouteKind.LAN, proefwoningUrl, "peil-test"), online = true,
         connection = ConnectionStatus.ONLINE, realtime = RealtimeState.CONNECTED, energy = energy,
         schedules = o.zones.firstOrNull { it.name == "Woonkamer" }?.let { mapOf(it.id to schedule) }.orEmpty(),
     )

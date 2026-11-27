@@ -159,7 +159,7 @@ class RealtimeTest {
     fun unverifiedRouteGetsNoSocket(): Unit = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val asked = AtomicInteger()
-        val rc = RealtimeClient(OkHttpClient(), scope, { asked.incrementAndGet(); Route(RouteKind.LAN, "http://192.168.1.20:8088") }, { null }, { Credentials("shc_x") }, backoff = Backoff(10, 20))
+        val rc = RealtimeClient(OkHttpClient(), scope, { asked.incrementAndGet(); Route(RouteKind.LAN, "http://${lanProefadres(20)}:8088") }, { null }, { Credentials("shc_x") }, backoff = Backoff(10, 20))
         rc.start()
         Thread.sleep(200)
         assertTrue(asked.get() >= 2)

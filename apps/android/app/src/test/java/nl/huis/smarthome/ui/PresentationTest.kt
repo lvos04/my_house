@@ -1,5 +1,6 @@
 package nl.huis.smarthome.ui
 
+import nl.huis.smarthome.proefwoningUrl
 import androidx.camera.core.CameraState
 import nl.huis.smarthome.core.ApiProblem
 import nl.huis.smarthome.core.CommandLabel
@@ -28,7 +29,7 @@ import org.junit.Test
 import java.time.Instant
 
 class PresentationTest {
-    private val pairing = Pairing("shc_x", "http://192.168.1.20:8088", null, "h1", "Thuis", "telefoon", "admin", clientRole = "control")
+    private val pairing = Pairing("shc_x", proefwoningUrl, null, "h1", "Thuis", "telefoon", "admin", clientRole = "control")
     private val online = HomeState(pairing = pairing, online = true, connection = ConnectionStatus.ONLINE)
     private val viewer = online.copy(pairing = pairing.copy(clientRole = "viewer"))
 

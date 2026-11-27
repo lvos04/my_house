@@ -8,17 +8,17 @@ import org.junit.Test
 class PairingTest {
     @Test
     fun parsesValidPayload() {
-        val text = """{"v":1,"type":"shc-pair","code":"k7q4-9xpm","lan":"http://192.168.1.20:8080/","remote":"https://huis.voorbeeld.nl","home":"Thuis"}"""
+        val text = """{"v":1,"type":"shc-pair","code":"k7q4-9xpm","lan":"http://${lanProefadres(20)}:8080/","remote":"https://huis.voorbeeld.nl","home":"Thuis"}"""
         val r = PairingCodec.parse(text) as PairParse.Ok
         assertEquals("K7Q4-9XPM", r.code)
-        assertEquals("http://192.168.1.20:8080", r.lanUrl)
+        assertEquals("http://${lanProefadres(20)}:8080", r.lanUrl)
         assertEquals("https://huis.voorbeeld.nl", r.remoteUrl)
         assertEquals("Thuis", r.homeName)
     }
 
     @Test
     fun remoteMayBeNull() {
-        val r = PairingCodec.parse("""{"v":1,"type":"shc-pair","code":"ABCD-1234","lan":"http://10.0.0.5:8080","remote":null,"home":"Thuis"}""")
+        val r = PairingCodec.parse("""{"v":1,"type":"shc-pair","code":"ABCD-1234","lan":"http://${proefIpv4(10, 0, 0, 5)}:8080","remote":null,"home":"Thuis"}""")
         assertTrue(r is PairParse.Ok)
         assertNull((r as PairParse.Ok).remoteUrl)
     }
@@ -39,7 +39,7 @@ class PairingTest {
 
     @Test
     fun normalizesBaseUrls() {
-        assertEquals("http://192.168.1.20:8080", UrlTools.normalizeBaseUrl("192.168.1.20:8080"))
+        assertEquals("http://${lanProefadres(20)}:8080", UrlTools.normalizeBaseUrl("${lanProefadres(20)}:8080"))
         assertEquals("https://huis.voorbeeld.nl", UrlTools.normalizeBaseUrl(" https://huis.voorbeeld.nl/api/v1/ "))
         assertEquals("https://huis.voorbeeld.nl", UrlTools.normalizeBaseUrl("https://huis.voorbeeld.nl:443"))
         assertEquals("http://nas.local:8080/huis", UrlTools.normalizeBaseUrl("http://nas.local:8080/huis/"))
@@ -63,7 +63,7 @@ class PairingTest {
 
     @Test
     fun readsServerIdAndRole() {
-        val text = """{"v":1,"type":"shc-pair","code":"K7Q4-9XPM","lan":"http://192.168.1.20:8088","remote":"https://huis.voorbeeld.nl","home":"Thuis","server_id":"6F1C2E8A-1B2C-4D5E-8F90-123456789ABC","role":"viewer"}"""
+        val text = """{"v":1,"type":"shc-pair","code":"K7Q4-9XPM","lan":"http://${lanProefadres(20)}:8088","remote":"https://huis.voorbeeld.nl","home":"Thuis","server_id":"6F1C2E8A-1B2C-4D5E-8F90-123456789ABC","role":"viewer"}"""
         val r = PairingCodec.parse(text) as PairParse.Ok
         assertEquals("6f1c2e8a-1b2c-4d5e-8f90-123456789abc", r.serverId)
         assertEquals("viewer", r.role)
@@ -76,15 +76,15 @@ class PairingTest {
         assertTrue(r is PairParse.Invalid)
         assertTrue((r as PairParse.Invalid).reason.contains("thuisnetwerk"))
         // A remote address on the home network is refused as well.
-        assertTrue(PairingCodec.parse("""{"v":1,"type":"shc-pair","code":"ABCD-1234","remote":"https://192.168.1.20"}""") is PairParse.Invalid)
+        assertTrue(PairingCodec.parse("""{"v":1,"type":"shc-pair","code":"ABCD-1234","remote":"https://${lanProefadres(20)}"}""") is PairParse.Invalid)
         // Garbage server id.
-        assertTrue(PairingCodec.parse("""{"v":1,"type":"shc-pair","code":"ABCD-1234","lan":"http://10.0.0.5:8088","server_id":"<script>"}""") is PairParse.Invalid)
+        assertTrue(PairingCodec.parse("""{"v":1,"type":"shc-pair","code":"ABCD-1234","lan":"http://${proefIpv4(10, 0, 0, 5)}:8088","server_id":"<script>"}""") is PairParse.Invalid)
     }
 
     @Test
     fun classifiesManualAddresses() {
-        val lan = PairingCodec.manual("192.168.1.20:8088", "k7q4 9xpm") as PairParse.Ok
-        assertEquals("http://192.168.1.20:8088", lan.lanUrl)
+        val lan = PairingCodec.manual("${lanProefadres(20)}:8088", "k7q4 9xpm") as PairParse.Ok
+        assertEquals("http://${lanProefadres(20)}:8088", lan.lanUrl)
         assertNull(lan.remoteUrl)
         assertEquals("K7Q49XPM", lan.code)
         val lanHttps = PairingCodec.manual("https://nas.local", "ABCD-1234") as PairParse.Ok
@@ -94,7 +94,7 @@ class PairingTest {
         assertNull(remote.lanUrl)
         assertTrue(PairingCodec.manual("huis.voorbeeld.nl", "ABCD-1234") is PairParse.Invalid) // http to the internet
         assertTrue(PairingCodec.manual("", "ABCD-1234") is PairParse.Invalid)
-        assertTrue(PairingCodec.manual("192.168.1.20", "x") is PairParse.Invalid)
+        assertTrue(PairingCodec.manual(lanProefadres(20), "x") is PairParse.Invalid)
     }
 
     @Test
@@ -103,7 +103,7 @@ class PairingTest {
         assertEquals(PairError.NOT_OURS, qr("https://example.com").error)
         assertEquals(PairError.NOT_OURS, qr("""{"v":1,"type":"wifi","code":"X"}""").error)
         assertEquals(PairError.NEWER_VERSION, qr("""{"v":2,"type":"shc-pair","code":"ABCD-1234","lan":"http://a"}""").error)
-        assertEquals(PairError.CODE_MISSING, qr("""{"v":1,"type":"shc-pair","code":"x","lan":"http://10.0.0.5"}""").error)
+        assertEquals(PairError.CODE_MISSING, qr("""{"v":1,"type":"shc-pair","code":"x","lan":"http://${proefIpv4(10, 0, 0, 5)}"}""").error)
         assertEquals(PairError.QR_NO_ADDRESS, qr("""{"v":1,"type":"shc-pair","code":"ABCD-1234"}""").error)
         assertEquals(PairError.QR_LAN_INVALID, qr("""{"v":1,"type":"shc-pair","code":"ABCD-1234","lan":"ftp://x"}""").error)
         assertEquals(PairError.QR_REMOTE_INVALID, qr("""{"v":1,"type":"shc-pair","code":"ABCD-1234","remote":"ftp://x"}""").error)
@@ -112,11 +112,11 @@ class PairingTest {
         assertEquals(AddressProblem.LAN_NOT_HOME, lanOnline.address)
         assertEquals(AddressProblem.LAN_NOT_HOME.dutch, lanOnline.reason)
         assertEquals(AddressProblem.REMOTE_NOT_HTTPS, qr("""{"v":1,"type":"shc-pair","code":"ABCD-1234","remote":"http://huis.voorbeeld.nl"}""").address)
-        assertEquals(PairError.NOT_OURS, qr("""{"v":1,"type":"shc-pair","code":"ABCD-1234","lan":"http://10.0.0.5:8088","server_id":"<script>"}""").error)
+        assertEquals(PairError.NOT_OURS, qr("""{"v":1,"type":"shc-pair","code":"ABCD-1234","lan":"http://${proefIpv4(10, 0, 0, 5)}:8088","server_id":"<script>"}""").error)
 
         fun manual(address: String, code: String) = PairingCodec.manual(address, code) as PairParse.Invalid
         assertEquals(PairError.ADDRESS_INVALID, manual("", "ABCD-1234").error)
-        assertEquals(PairError.CODE_INVALID, manual("192.168.1.20", "x").error)
+        assertEquals(PairError.CODE_INVALID, manual(lanProefadres(20), "x").error)
         assertEquals(PairError.NEEDS_HTTPS, manual("huis.voorbeeld.nl", "ABCD-1234").error)
         assertNull(manual("huis.voorbeeld.nl", "ABCD-1234").address)
         assertEquals(PairError.NEEDS_HTTPS.dutch, manual("huis.voorbeeld.nl", "ABCD-1234").reason)
