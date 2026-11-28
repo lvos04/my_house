@@ -37,7 +37,7 @@ RUN mkdir -p /runtime/usr/bin /runtime/usr/lib /runtime/lib \
     && cp -a /usr/lib/*.so* /runtime/usr/lib/ \
     && node -e 'if (process.versions.node.split(".")[0] < 22) process.exit(1)'
 
-FROM docker.io/library/postgres:16.16-trixie@sha256:23fdb7b8156ad34bc663ed911f360764c5a5e237d6d70d1e379e025f63439a2f AS postgres
+FROM docker.io/library/postgres:19.0-trixie@sha256:bb6e70add742cd868fb62cb3b2f67d1dd2bdd2b65a521e778420748753687c60 AS postgres
 
 FROM docker.io/library/python:3.12.16-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 LABEL org.opencontainers.image.title="my_house" \
